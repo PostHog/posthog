@@ -5,6 +5,7 @@ import { IconCheckCircle } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { getNotificationIcon } from 'lib/components/NotificationsMenu/notificationToasts'
+import { WebAnalyticsDigestNotification } from 'lib/components/NotificationsMenu/WebAnalyticsDigestNotification'
 import { dayjs } from 'lib/dayjs'
 import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -58,11 +59,13 @@ export function NotificationRow({
     notification: InAppNotification
     onNavigate?: () => void
 }): JSX.Element {
-    const { navigateToNotification, toggleRead } = useActions(sidePanelNotificationsLogic)
+    const { navigateToNotification, toggleRead, viewWebAnalyticsFromDigest, askMaxAboutDigest } =
+        useActions(sidePanelNotificationsLogic)
     const { projectNameForNotification, sourcePathForNotification } = useValues(sidePanelNotificationsLogic)
     const [expanded, setExpanded] = useState(false)
 
     const otherProjectName = projectNameForNotification(notification)
+    const richDigest = notification.notification_type === 'web_analytics_digest' && !!notification.metadata
 
     const hasNavigationTarget = !!sourcePathForNotification(notification)
     const handleNavigate = (e: React.MouseEvent): void => {
@@ -78,21 +81,41 @@ export function NotificationRow({
         toggleRead(notification.id)
     }
 
+    const handleViewWebAnalytics = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        viewWebAnalyticsFromDigest(notification)
+        onNavigate?.()
+    }
+
+    const handleAskMax = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        askMaxAboutDigest(notification)
+        onNavigate?.()
+    }
+
     return (
         <div
-            className={`flex items-start gap-2.5 p-2 rounded cursor-pointer transition-colors ${
+            className={`flex items-start gap-2.5 p-2 rounded transition-colors ${richDigest ? '' : 'cursor-pointer'} ${
                 notification.read ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
             }`}
-            onClick={() => notification.body && setExpanded(!expanded)}
+            onClick={richDigest ? undefined : () => notification.body && setExpanded(!expanded)}
         >
             <div className="shrink-0 mt-0.5">{getNotificationIcon(notification.notification_type)}</div>
             <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-1">
-                    <span className={`text-xs leading-snug ${notification.read ? 'text-secondary' : 'font-semibold'}`}>
-                        {notification.title}
-                    </span>
+                    {richDigest ? (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted mt-1">
+                            Web analytics digest
+                        </span>
+                    ) : (
+                        <span
+                            className={`text-xs leading-snug ${notification.read ? 'text-secondary' : 'font-semibold'}`}
+                        >
+                            {notification.title}
+                        </span>
+                    )}
                     <div className="flex items-center gap-1 shrink-0">
-                        {hasNavigationTarget && (
+                        {!richDigest && hasNavigationTarget && (
                             <Tooltip title="Go to source">
                                 <button
                                     className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
@@ -119,10 +142,18 @@ export function NotificationRow({
                         </Tooltip>
                     </div>
                 </div>
-                {notification.body && (
-                    <div className={`text-xs text-secondary mt-0.5 ${expanded ? '' : 'line-clamp-1'}`}>
-                        {notification.body}
-                    </div>
+                {richDigest && notification.metadata ? (
+                    <WebAnalyticsDigestNotification
+                        metadata={notification.metadata}
+                        onOpen={handleViewWebAnalytics}
+                        onAskMax={handleAskMax}
+                    />
+                ) : (
+                    notification.body && (
+                        <div className={`text-xs text-secondary mt-0.5 ${expanded ? '' : 'line-clamp-1'}`}>
+                            {notification.body}
+                        </div>
+                    )
                 )}
                 <div className="flex items-center gap-1.5 mt-2">
                     <span className="text-[10px] text-muted">{dayjs(notification.created_at).fromNow()}</span>

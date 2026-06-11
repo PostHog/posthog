@@ -23090,6 +23090,12 @@ export namespace Schemas {
     }
 
     /**
+     * Optional structured payload for rich client-side rendering, specific to the notification type. For `web_analytics_digest`, holds the weekly metrics (visitors, pageviews, sessions, bounce rate, session duration with week-over-week change), top pages, and top sources used to render the digest card.
+     * @nullable
+     */
+    export type NotificationEventMetadata = { [key: string]: unknown } | null;
+
+    /**
      * * `replay` - REPLAY
     * `notebook` - NOTEBOOK
     * `insight` - INSIGHT
@@ -23133,6 +23139,11 @@ export namespace Schemas {
       source_type: NotificationEventSourceTypeEnum | null;
       /** @nullable */
       source_id: string | null;
+      /**
+         * Optional structured payload for rich client-side rendering, specific to the notification type. For `web_analytics_digest`, holds the weekly metrics (visitors, pageviews, sessions, bounce rate, session duration with week-over-week change), top pages, and top sources used to render the digest card.
+         * @nullable
+         */
+      metadata?: NotificationEventMetadata;
       created_at: string;
     }
 
