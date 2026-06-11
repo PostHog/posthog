@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { FolderOpenIcon, GlobeIcon, PaperclipIcon } from 'lucide-react'
 
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './collapsible'
+import { Button } from './button'
+import { Collapsible, CollapsibleContent, CollapsibleHeader, CollapsibleTrigger } from './collapsible'
+import { Text } from './text'
 
 const meta = {
     title: 'Primitives/Collapsible',
@@ -24,6 +27,44 @@ export const Default: Story = {
     ),
 } satisfies Story
 
+/* Icon-only trigger: only the chevron toggles; the label is its own link and
+   the trailing count stays independently rendered. `ms-auto` keeps the count
+   end-aligned in RTL, and the chevron mirrors direction automatically. */
+export const IconTrigger: Story = {
+    render: () => (
+        <Collapsible className="max-w-60" variant="folder" defaultOpen>
+            <CollapsibleHeader>
+                <CollapsibleTrigger iconOnly>Toggle sources</CollapsibleTrigger>
+                <Button variant="link-muted" size="xs" className="px-0">
+                    Sources
+                </Button>
+                <Text size="xs" variant="muted" render={<span />} className="ms-auto pe-2">
+                    2
+                </Text>
+            </CollapsibleHeader>
+            <CollapsibleContent>
+                <ul className="flex flex-col gap-px">
+                    {[
+                        { icon: <GlobeIcon />, label: 'APIs', count: 1 },
+                        { icon: <PaperclipIcon />, label: 'MCPs', count: 1 },
+                        { icon: <FolderOpenIcon />, label: 'Local Folders', count: 0 },
+                    ].map(({ icon, label, count }) => (
+                        <li key={label} className="flex w-full items-center">
+                            <Button variant="default" size="sm" left className="w-full">
+                                {icon}
+                                {label}
+                                <Text size="xs" variant="muted" render={<span />} className="ms-auto">
+                                    {count}
+                                </Text>
+                            </Button>
+                        </li>
+                    ))}
+                </ul>
+            </CollapsibleContent>
+        </Collapsible>
+    ),
+} satisfies Story
+
 export const Folder: Story = {
     render: () => (
         <Collapsible className="max-w-sm" variant="folder">
@@ -31,14 +72,14 @@ export const Folder: Story = {
                 <p>Collapsible Trigger</p>
             </CollapsibleTrigger>
             <CollapsibleContent>
-            <Collapsible variant="folder">
-                <CollapsibleTrigger>
-                    <p>Collapsible Trigger</p>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                    <p>Collapsible Content</p>
-                </CollapsibleContent>
-            </Collapsible>
+                <Collapsible variant="folder">
+                    <CollapsibleTrigger>
+                        <p>Collapsible Trigger</p>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                        <p>Collapsible Content</p>
+                    </CollapsibleContent>
+                </Collapsible>
             </CollapsibleContent>
         </Collapsible>
     ),

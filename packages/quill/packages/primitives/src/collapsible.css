@@ -42,6 +42,33 @@
         display: inline;
     }
 
+    /* Icon-only trigger — a compact chevron button inside a CollapsibleHeader
+       row; the rest of the row stays independently interactive. */
+    .quill-collapsible__trigger--icon {
+        width: auto;
+        padding-inline: 0;
+    }
+
+    /* The row, not the tiny button, communicates open state. */
+    .quill-collapsible__trigger--icon[aria-expanded='true'] {
+        background-color: transparent;
+    }
+
+    /* Single chevron rotates instead of swapping: closed points into reading
+       direction (mirrored in RTL), open points down in both directions. */
+    .quill-collapsible__trigger--icon svg[data-chevron='right'] {
+        transition: rotate 150ms ease;
+    }
+
+    [dir='rtl'] .quill-collapsible__trigger--icon svg[data-chevron='right'] {
+        rotate: 180deg;
+    }
+
+    .quill-collapsible__trigger--icon[data-panel-open] svg[data-chevron='right'],
+    [dir='rtl'] .quill-collapsible__trigger--icon[data-panel-open] svg[data-chevron='right'] {
+        rotate: 90deg;
+    }
+
     .quill-collapsible__panel {
         position: relative;
         z-index: 1;
@@ -76,5 +103,11 @@
 
     .quill-collapsible__panel-content p:not(:last-child) {
         margin-bottom: 1rem;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-collapsible__trigger--icon svg[data-chevron='right'] {
+            transition: none;
+        }
     }
 }

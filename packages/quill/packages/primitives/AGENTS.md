@@ -67,11 +67,11 @@ For a custom menu-like list inside a Popover (when DropdownMenu's open/close sem
 
 **One section or a coordinated set? Hiding content or switching between views?**
 
-| Component   | Use when                                                                                                           |
-| ----------- | ------------------------------------------------------------------------------------------------------------------ |
-| Accordion   | A coordinated set of sections (`type="single" collapsible` or `type="multiple"`) — FAQs, grouped settings          |
-| Collapsible | One standalone disclosure — "show more", advanced options, tree nodes (`variant="folder"`)                         |
-| Tabs        | Exactly one of N views visible at all times; content never fully hidden — `variant="line"` for page-level sections |
+| Component   | Use when                                                                                                                                                                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Accordion   | A coordinated set of sections (`type="single" collapsible` or `type="multiple"`) — FAQs, grouped settings                                                                                                                                      |
+| Collapsible | One standalone disclosure — "show more", advanced options, tree nodes (`variant="folder"`). For rows where only the chevron should toggle (label is a link, trailing count/actions), use `CollapsibleHeader` + `<CollapsibleTrigger iconOnly>` |
+| Tabs        | Exactly one of N views visible at all times; content never fully hidden — `variant="line"` for page-level sections                                                                                                                             |
 
 ### Overlays
 
@@ -518,6 +518,23 @@ Vertical: `<Tabs orientation="vertical">`
 <Collapsible>
   <CollapsibleTrigger>Toggle details</CollapsibleTrigger>
   <CollapsibleContent>Hidden content here</CollapsibleContent>
+</Collapsible>
+```
+
+Icon-only trigger — only the chevron toggles, so the label can be a link and the row can carry trailing content; composes with `variant="folder"` for sidebar trees. The chevron mirrors in RTL; use `ms-auto` (not `ml-auto`) for trailing content. Trigger children become the screen-reader label:
+
+```tsx
+<Collapsible variant="folder">
+  <CollapsibleHeader>
+    <CollapsibleTrigger iconOnly>Toggle sources</CollapsibleTrigger>
+    <Button variant="link-muted" size="xs" className="px-0">
+      Sources
+    </Button>
+    <Text size="xs" variant="muted" render={<span />} className="ms-auto">
+      2
+    </Text>
+  </CollapsibleHeader>
+  <CollapsibleContent>{/* rows */}</CollapsibleContent>
 </Collapsible>
 ```
 
