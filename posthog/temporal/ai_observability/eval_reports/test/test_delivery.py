@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.temporal.ai_observability.eval_reports.delivery import (
     _format_period_for_display,
     _inline_email_styles,
@@ -11,6 +13,7 @@ from posthog.temporal.ai_observability.eval_reports.delivery import (
     _render_section_mrkdwn,
     _strip_redundant_leading_heading,
     deliver_report,
+    deliver_slack_report,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     Citation,
@@ -265,6 +268,75 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertNotIn("▲", html)
         self.assertNotIn("▼", html)
         self.assertNotIn("pp vs previous", html)
+
+
+class TestDeliverSlackReport(SimpleTestCase):
+    """Tests deliver_slack_report with a mocked Slack client."""
+
+    def _make_report_run(self, section_count: int = 2):
+        run = MagicMock()
+        run.content = EvalReportContent(
+            title="A nice punchline",
+            sections=[ReportSection(title=f"Section {i}", content="Body.") for i in range(section_count)],
+            citations=[],
+            metrics=EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0),
+        ).to_dict()
+        return run
+
+    @parameterized.expand(
+        [
+            # The SlackChannelPicker stores "<channel_id>|#<channel_name>" — the Slack API
+            # must receive only the channel ID or it returns channel_not_found.
+            ("composite_value", "C012345|#some-channel", "C012345"),
+            ("bare_channel_id", "C012345", "C012345"),
+        ]
+    )
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.models.integration.Integration.objects")
+    def test_normalizes_channel_before_posting(
+        self, _name, stored_channel, expected_channel, mock_integration_qs, mock_slack_integration
+    ):
+        targets = [{"type": "slack", "integration_id": 1, "channel": stored_channel}]
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "1234.5678"}
+        mock_slack_integration.return_value.client = client
+
+        errors = deliver_slack_report(
+            self._make_report_run(section_count=2),
+            targets,
+            evaluation_name="Test Eval",
+            team_id=1,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(errors, [])
+        # Main message + one thread reply, both with the bare channel ID
+        self.assertEqual(client.chat_postMessage.call_count, 2)
+        for call in client.chat_postMessage.call_args_list:
+            self.assertEqual(call.kwargs["channel"], expected_channel)
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.models.integration.Integration.objects")
+    def test_skips_target_with_blank_channel_id(self, mock_integration_qs, mock_slack_integration):
+        # A stored value like "|#name" splits to an empty channel ID — the guard should skip it.
+        targets = [{"type": "slack", "integration_id": 1, "channel": "|#some-channel"}]
+        client = MagicMock()
+        mock_slack_integration.return_value.client = client
+
+        errors = deliver_slack_report(
+            self._make_report_run(section_count=1),
+            targets,
+            evaluation_name="Test Eval",
+            team_id=1,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(errors, [])
+        client.chat_postMessage.assert_not_called()
 
 
 class TestDeliverReport(SimpleTestCase):

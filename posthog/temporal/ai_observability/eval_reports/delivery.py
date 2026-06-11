@@ -302,7 +302,8 @@ def deliver_slack_report(
             continue
 
         integration_id = target.get("integration_id")
-        channel = target.get("channel", "")
+        # The frontend SlackChannelPicker stores "<channel_id>|#<channel_name>" — Slack only accepts the ID.
+        channel = target.get("channel", "").split("|")[0]
         if not integration_id or not channel:
             continue
 
