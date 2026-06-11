@@ -125,18 +125,18 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 
 ## Component Catalog
 
-| Component    | Variants                                                 | Sizes                                                | Notes                            |
-| ------------ | -------------------------------------------------------- | ---------------------------------------------------- | -------------------------------- |
-| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg |                                  |
-| Badge        | default, info, destructive, warning, success             | —                                                    | Semantic status                  |
-| Toggle       | default, outline                                         | default, sm, lg, icon                                |                                  |
-| Chip         | outline                                                  | sm                                                   | Use with ChipClose               |
-| Separator    | —                                                        | —                                                    | orientation: horizontal/vertical |
-| Spinner      | —                                                        | —                                                    | SVG, accepts svg props           |
-| Skeleton     | —                                                        | —                                                    | Pulsing placeholder div          |
-| SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth        |
-| Progress     | —                                                        | —                                                    | value: 0-100                     |
-| Slider       | —                                                        | —                                                    | value, min, max                  |
+| Component    | Variants                                                 | Sizes                                                | Notes                                                                              |
+| ------------ | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable) |
+| Badge        | default, info, destructive, warning, success             | —                                                    | Semantic status                                                                    |
+| Toggle       | default, outline                                         | default, sm, lg, icon                                |                                                                                    |
+| Chip         | outline                                                  | sm                                                   | Use with ChipClose                                                                 |
+| Separator    | —                                                        | —                                                    | orientation: horizontal/vertical                                                   |
+| Spinner      | —                                                        | —                                                    | SVG, accepts svg props                                                             |
+| Skeleton     | —                                                        | —                                                    | Pulsing placeholder div                                                            |
+| SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth                                                          |
+| Progress     | —                                                        | —                                                    | value: 0-100                                                                       |
+| Slider       | —                                                        | —                                                    | value, min, max                                                                    |
 
 ---
 
@@ -811,3 +811,4 @@ Sanctioned escape hatches (the only padding overrides the stories use):
 6. **Prefer composition over props** — use CardHeader > CardTitle instead of `<Card title="...">`
 7. **Use `cn()` for class overrides** — import from `@posthog/quill-primitives` to merge Tailwind classes safely
 8. **Follow the spacing conventions** — see Spacing and layout above; `gap-2` between related siblings, `gap-4` between sections, never re-pad primitive internals
+9. **Use `loading` on submit buttons** — any Button that triggers a network request must pass `loading` while the request is in flight; it disables the button (guarding double-submission) and overlays a spinner without changing the button's width
