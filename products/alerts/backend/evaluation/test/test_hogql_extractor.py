@@ -38,10 +38,15 @@ def test_extract_none_result_raises_runtime_error():
         _extract_trailing_column_values(None, _alert())
 
 
-def test_extract_empty_or_non_list_raises_extraction_error():
-    for empty in ([], "not-a-list"):
-        with pytest.raises(AlertExtractionError, match="no rows"):
-            _extract_trailing_column_values(empty, _alert())
+def test_extract_empty_list_raises_no_rows():
+    with pytest.raises(AlertExtractionError, match="no rows"):
+        _extract_trailing_column_values([], _alert())
+
+
+def test_extract_non_list_shape_raises_distinct_error():
+    # A non-list result (wrong shape) is distinct from an empty list (no data).
+    with pytest.raises(AlertExtractionError, match="unexpected result shape"):
+        _extract_trailing_column_values({"not": "a list"}, _alert())
 
 
 def test_extract_multi_column_raises():

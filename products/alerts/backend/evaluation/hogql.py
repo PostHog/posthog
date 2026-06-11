@@ -64,7 +64,9 @@ def _extract_trailing_column_values(rows: Any, alert: AlertConfiguration) -> lis
     # misfire, matching the trends extractor's handling of a None result.
     if rows is None:
         raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
-    if not isinstance(rows, list) or len(rows) == 0:
+    if not isinstance(rows, list):
+        raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
+    if len(rows) == 0:
         raise AlertExtractionError("SQL alert query returned no rows.")
 
     tail = rows[-2:]

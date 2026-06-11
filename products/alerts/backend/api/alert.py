@@ -515,15 +515,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def _hogql_alerts_enabled(self) -> bool:
         # Scope the flag to the alert's organization (via team scope), not the user's current
         # organization — otherwise a user in multiple orgs could flip their current org to a
-        # flag-on org and create a SQL alert in a team where the flag is disabled.
+        # flag-on org and create a SQL alert in a team where the flag is disabled. get_organization
+        # is always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
+        # invariant can't silently degrade to an unscoped check.
         user = self.context["request"].user
-        get_organization = self.context.get("get_organization")
-        org = get_organization() if get_organization else None
+        org = self.context["get_organization"]()
         return bool(
             posthoganalytics.feature_enabled(
                 "hogql-insight-alerts",
                 str(user.distinct_id),
-                groups={"organization": str(org.id)} if org else {},
+                groups={"organization": str(org.id)},
             )
         )
 
