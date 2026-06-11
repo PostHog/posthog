@@ -1,19 +1,20 @@
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { List, useDynamicRowHeight } from 'react-window'
+import { List, useDynamicRowHeight, useListRef } from 'react-window'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
 import type { Span } from './types'
 
-interface TraceFlameChartProps {
+interface TraceWaterfallViewProps {
     spans: Span[]
+    /** Currently-selected span (controlled by the scene's URL-canonical state). */
+    selectedSpanId?: string | null
+    onSpanSelect?: (spanId: string | null) => void
 }
 
 interface SpanNode {
@@ -145,10 +146,9 @@ const LABEL_COLUMN_WIDTH_STORAGE_KEY = 'tracing-trace-label-width'
 const LABEL_SPLITTER_HIT_PX = 8
 const ROW_HEIGHT = 32
 // Cap the windowed list viewport; taller traces scroll inside it instead of growing the modal.
-const MAX_FLAME_HEIGHT = 600
+const MAX_WATERFALL_HEIGHT = 600
 // Rough extra room reserved when a span's detail panel is open, so a selection near the top of a
 // short trace doesn't pop an unexpected scrollbar.
-const SELECTED_DETAIL_RESERVE = 320
 
 function clampLabelColumnWidth(px: number): number {
     return Math.min(MAX_LABEL_COLUMN_WIDTH, Math.max(MIN_LABEL_COLUMN_WIDTH, Math.round(px)))
@@ -246,45 +246,7 @@ function TreeIndent({ node }: { node: SpanNode }): JSX.Element | null {
     )
 }
 
-function SpanDetailPanel({ span }: { span: Span }): JSX.Element {
-    const status = STATUS_CODE_LABELS[span.status_code] ?? { label: String(span.status_code), type: 'default' as const }
-    const isError = span.status_code === 2
-
-    return (
-        <div className={`border-t bg-surface-primary px-4 py-3 text-xs ${isError ? 'border-l-2 border-l-danger' : ''}`}>
-            <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5">
-                <span className="text-muted font-medium">Service</span>
-                <span className="font-mono">{span.service_name}</span>
-                <span className="text-muted font-medium">Operation</span>
-                <span className="font-mono">{span.name}</span>
-                <span className="text-muted font-medium">Duration</span>
-                <span className="font-mono">{formatDuration(span.duration_nano)}</span>
-                <span className="text-muted font-medium">Kind</span>
-                <span>{SPAN_KIND_LABELS[span.kind] ?? span.kind}</span>
-                <span className="text-muted font-medium">Status</span>
-                <span>
-                    <LemonTag type={status.type} size="small">
-                        {status.label}
-                    </LemonTag>
-                </span>
-                <span className="text-muted font-medium">Span ID</span>
-                <span className="font-mono">{span.span_id}</span>
-                {span.parent_span_id && (
-                    <>
-                        <span className="text-muted font-medium">Parent ID</span>
-                        <span className="font-mono">{span.parent_span_id}</span>
-                    </>
-                )}
-                <span className="text-muted font-medium">Start</span>
-                <span className="font-mono">{span.timestamp}</span>
-                <span className="text-muted font-medium">End</span>
-                <span className="font-mono">{span.end_time}</span>
-            </div>
-        </div>
-    )
-}
-
-interface FlameRowData {
+interface WaterfallRowData {
     flatSpans: SpanNode[]
     traceStartUs: number
     traceDurationUs: number
@@ -296,7 +258,7 @@ interface FlameRowData {
     dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
 }
 
-function FlameRow({
+function WaterfallRow({
     node,
     traceStartUs,
     traceDurationUs,
@@ -305,7 +267,7 @@ function FlameRow({
     labelColumnWidth,
     selectedSpanId,
     onSelect,
-}: Omit<FlameRowData, 'flatSpans' | 'dynamicRowHeight'> & { node: SpanNode }): JSX.Element {
+}: Omit<WaterfallRowData, 'flatSpans' | 'dynamicRowHeight'> & { node: SpanNode }): JSX.Element {
     const { span } = node
     const spanStartUs = parseTimestampUs(span.timestamp)
     const spanDurationUs = span.duration_nano / 1_000
@@ -318,7 +280,9 @@ function FlameRow({
     const seriesIndex = serviceColorMap.get(span.service_name) ?? 0
     const seriesColor = isError ? ERROR_COLOR : getSeriesColor(seriesIndex)
     const barColor = isUnmatched ? 'var(--border)' : seriesColor
-    const isSelected = selectedSpanId === span.uuid
+    // Select by span_id (the OTel id the tree is keyed by, and what the inspector/URL resolve),
+    // not the ClickHouse row uuid.
+    const isSelected = selectedSpanId === span.span_id
 
     return (
         <div>
@@ -331,11 +295,11 @@ function FlameRow({
                 role="button"
                 tabIndex={0}
                 aria-pressed={isSelected}
-                onClick={() => onSelect(span.uuid)}
+                onClick={() => onSelect(span.span_id)}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        onSelect(span.uuid)
+                        onSelect(span.span_id)
                     }
                 }}
             >
@@ -411,14 +375,11 @@ function FlameRow({
                     </Tooltip>
                 </div>
             </div>
-
-            {/* Detail panel */}
-            {isSelected && <SpanDetailPanel span={span} />}
         </div>
     )
 }
 
-function FlameListRow({
+function WaterfallListRow({
     ariaAttributes,
     index,
     style,
@@ -435,7 +396,7 @@ function FlameListRow({
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
     style: CSSProperties
-} & FlameRowData): JSX.Element {
+} & WaterfallRowData): JSX.Element {
     const rowRef = useRef<HTMLDivElement>(null)
     const node = flatSpans[index]
 
@@ -448,7 +409,7 @@ function FlameListRow({
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div {...ariaAttributes} ref={rowRef} style={style} data-index={index} data-row-key={node.span.uuid}>
-            <FlameRow
+            <WaterfallRow
                 node={node}
                 traceStartUs={traceStartUs}
                 traceDurationUs={traceDurationUs}
@@ -462,8 +423,11 @@ function FlameListRow({
     )
 }
 
-export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
-    const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
+export function TraceWaterfallView({
+    spans,
+    selectedSpanId = null,
+    onSpanSelect,
+}: TraceWaterfallViewProps): JSX.Element {
     const [cursorPct, setCursorPct] = useState<number | null>(null)
     const [labelColumnWidth, setLabelColumnWidth] = useState(
         () => readStoredLabelColumnWidth() ?? DEFAULT_LABEL_COLUMN_WIDTH
@@ -481,10 +445,33 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
     const tree = useMemo(() => buildSpanTree(spans), [spans])
     const flatSpans = useMemo(() => flattenTree(tree), [tree])
     const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: ROW_HEIGHT })
+    const listRef = useListRef(null)
 
-    const handleSelect = useCallback((spanId: string): void => {
-        setSelectedSpanId((cur) => (cur === spanId ? null : spanId))
-    }, [])
+    // Deep links land with a span anchor — scroll it into view once the tree is built. The anchor
+    // is captured at mount (the drawer keys this component by trace, so it remounts per trace) so
+    // later selection changes from clicking don't recenter, and data refreshes (full-trace fetch
+    // replacing the prefetch) don't yank scroll after the user has started exploring.
+    const initialSpanRef = useRef(selectedSpanId)
+    const scrolledToInitialRef = useRef(false)
+    useEffect(() => {
+        if (scrolledToInitialRef.current || !initialSpanRef.current || flatSpans.length === 0) {
+            return
+        }
+        const index = flatSpans.findIndex((node) => node.span.span_id === initialSpanRef.current)
+        if (index >= 0) {
+            listRef.current?.scrollToRow({ index, align: 'center' })
+            scrolledToInitialRef.current = true
+        }
+    }, [flatSpans, listRef])
+
+    // Controlled: emit the new selection (toggling off if the same span is clicked) and let the
+    // scene flow it back via `selectedSpanId`. No internal copy, so highlight can't drift from the URL.
+    const handleSelect = useCallback(
+        (spanId: string): void => {
+            onSpanSelect?.(selectedSpanId === spanId ? null : spanId)
+        },
+        [selectedSpanId, onSpanSelect]
+    )
 
     const { traceStartUs, traceDurationUs } = useMemo(() => {
         if (spans.length === 0) {
@@ -681,18 +668,15 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
             <AutoSizer
                 disableHeight
                 renderProp={({ width }: SizeProps) => (
-                    <List<FlameRowData>
+                    <List<WaterfallRowData>
                         style={{
-                            height: Math.min(
-                                flatSpans.length * ROW_HEIGHT + (selectedSpanId ? SELECTED_DETAIL_RESERVE : 0),
-                                MAX_FLAME_HEIGHT
-                            ),
+                            height: Math.min(flatSpans.length * ROW_HEIGHT, MAX_WATERFALL_HEIGHT),
                             width,
                         }}
                         overscanCount={10}
                         rowCount={flatSpans.length}
                         rowHeight={dynamicRowHeight}
-                        rowComponent={FlameListRow}
+                        rowComponent={WaterfallListRow}
                         rowProps={{
                             flatSpans,
                             traceStartUs,
@@ -704,6 +688,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                             onSelect: handleSelect,
                             dynamicRowHeight,
                         }}
+                        listRef={listRef}
                     />
                 )}
             />

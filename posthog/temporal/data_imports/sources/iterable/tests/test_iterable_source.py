@@ -27,7 +27,7 @@ class TestIterableSource:
         assert config.name.value == "Iterable"
         assert config.label == "Iterable"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.iconPath == "/static/services/iterable.png"
 
         field_names = [f.name for f in config.fields]
