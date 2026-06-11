@@ -18,7 +18,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -2051,13 +2050,6 @@ class TestStripeIntegration:
 
 
 class TestStripeIntegrationOAuthTokens:
-    @pytest.fixture(autouse=True)
-    def _override_oidc_key(self, settings):
-        settings.OAUTH2_PROVIDER = {
-            **django_settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-
     @pytest.fixture(autouse=True)
     def setup(self, db):
         self.organization = Organization.objects.create(name="Test Org")

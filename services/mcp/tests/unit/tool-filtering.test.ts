@@ -747,6 +747,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'dashboard-widgets',
                 'heatmaps-mcp',
                 'marketing-analytics-mcp',
+                'product-business-knowledge',
             ])
         )
         expect(flags).toHaveLength(15)

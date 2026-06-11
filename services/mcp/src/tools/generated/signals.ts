@@ -359,6 +359,9 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
         if (params.dedupe_keys !== undefined) {
             body['dedupe_keys'] = params.dedupe_keys
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.time_range !== undefined) {
             body['time_range'] = params.time_range
         }
@@ -370,7 +373,7 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
         }
         const result = await context.api.request<Schemas.EmitFindingResponse>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.id))}/emit-signal/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-signal/`,
             body,
         })
         return result
@@ -410,7 +413,7 @@ const signalsScoutRunsEmissionsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutEmission[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.id))}/emissions/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emissions/`,
         })
         return await withPostHogUrl(context, result, '/inbox')
     },
@@ -434,6 +437,8 @@ const signalsScoutRunsList = (): ToolBase<
                 date_to: params.date_to,
                 emitted: params.emitted,
                 limit: params.limit,
+                skill_name: params.skill_name,
+                skill_version: params.skill_version,
                 text: params.text,
             },
         })
@@ -450,7 +455,7 @@ const signalsScoutRunsRetrieve = (): ToolBase<typeof SignalsScoutRunsRetrieveSch
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutRunDetail>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/`,
         })
         return result
     },
@@ -522,6 +527,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
+                content_max_chars: params.content_max_chars,
+                keys_only: params.keys_only,
                 limit: params.limit,
                 text: params.text,
             },

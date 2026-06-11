@@ -394,6 +394,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             item_context = {
                 "author_type": "support" if is_team_member else "customer",
                 "is_private": False,
+                "from_email": True,
                 "email_from": sender_email,
                 "email_from_name": sender_name,
                 "email_message_id": email_message_id,
