@@ -56,12 +56,12 @@ describe('chart theme', () => {
         expect(themeFromCssVars({ root }).backgroundColor).toBe(expected)
     })
 
-    it('maps the tooltip to quill inverse surface tokens', () => {
-        const root = rootWithVars({ '--foreground': '#0b0b0b', '--background': '#fafafa' })
+    it('maps the tooltip to quill surface tokens', () => {
+        const root = rootWithVars({ '--card': '#1a1a1a', '--foreground': '#fafafa' })
 
         const theme = themeFromCssVars({ root })
 
-        expect(theme.tooltipBackground).toBe('#0b0b0b')
+        expect(theme.tooltipBackground).toBe('#1a1a1a')
         expect(theme.tooltipColor).toBe('#fafafa')
     })
 

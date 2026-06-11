@@ -4,8 +4,9 @@ import { useChartLayout } from '../core/chart-context'
 
 /**
  * Fallback tooltip colors for hosts that don't supply them on `ChartTheme`.
- * An inverse panel (dark surface, light text), matching quill's tooltip — when
- * the quill theme reader is used these come from `--foreground` / `--background`.
+ * A neutral dark floating panel — a safe standalone default with no theme to
+ * follow. When the quill theme reader is used these come from `--card` /
+ * `--foreground` instead, so the panel tracks the active theme.
  */
 export const TOOLTIP_FALLBACK_BG = '#1d2330'
 export const TOOLTIP_FALLBACK_COLOR = '#ffffff'
@@ -19,11 +20,12 @@ interface TooltipSurfaceProps {
 
 /**
  * Shared surface for the built-in chart tooltips. Geometry mirrors quill's
- * tooltip (`.quill-tooltip__content`: inverse panel, `radius-sm`, compact
- * padding, `text-xs`) but is applied inline — no shipped stylesheet, no Tailwind
- * scan needed, so the floating panel renders correctly regardless of the
- * consumer's setup. Dimensions reference quill token vars with literal
- * fallbacks; colors stay theme-driven so non-quill hosts can restyle.
+ * tooltip (`radius-sm`, compact padding, `text-xs`) and colors mirror quill's
+ * popover (card surface, foreground text) — but applied inline, with no shipped
+ * stylesheet and no Tailwind scan needed, so the floating panel renders
+ * correctly regardless of the consumer's setup. Dimensions reference quill token
+ * vars with literal fallbacks; colors stay theme-driven so non-quill hosts can
+ * restyle.
  */
 export function TooltipSurface({
     children,
