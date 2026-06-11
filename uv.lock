@@ -5663,7 +5663,7 @@ dev = [
     { name = "ty" },
     { name = "types-aioboto3", extra = ["s3"] },
     { name = "types-aiobotocore" },
-    { name = "types-boto3", extra = ["essential", "ses", "sesv2", "sts"] },
+    { name = "types-boto3", extra = ["essential", "ses", "sesv2"] },
     { name = "types-croniter" },
     { name = "types-markdown" },
     { name = "types-paramiko" },
@@ -5931,7 +5931,7 @@ dev = [
     { name = "ty", specifier = "==0.0.29" },
     { name = "types-aioboto3", extras = ["s3"], specifier = "~=14.3.0" },
     { name = "types-aiobotocore", specifier = "~=2.22.0" },
-    { name = "types-boto3", extras = ["essential", "ses", "sesv2", "sts"], specifier = "==1.40.49" },
+    { name = "types-boto3", extras = ["essential", "ses", "sesv2"], specifier = "==1.40.49" },
     { name = "types-croniter", specifier = "~=6.0.0" },
     { name = "types-markdown", specifier = "==3.3.9" },
     { name = "types-paramiko", specifier = "==3.4.0.20240423" },
@@ -8395,9 +8395,6 @@ ses = [
 sesv2 = [
     { name = "types-boto3-sesv2" },
 ]
-sts = [
-    { name = "types-boto3-sts" },
-]
 
 [[package]]
 name = "types-boto3-cloudformation"
@@ -8478,15 +8475,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b4/cd/91591f082326155e8ad32ac5d0578e00a6ed5f437aa56b4ff8420e2e7258/types_boto3_sqs-1.40.61.tar.gz", hash = "sha256:6c14a9140aa42c63c7dabf97562cee6438582cd2f231d0e316bea4abe65dfff8", size = 23400, upload-time = "2025-10-28T19:45:08.522Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/de/63/5acc767ec42c8726c4f116d4469a94bfc68be6624c934fc0320d07ab32c5/types_boto3_sqs-1.40.61-py3-none-any.whl", hash = "sha256:6db5bb69a4bebae1d136a2a6a677ce56122f613ca574fa68572f5169c0ff961a", size = 33518, upload-time = "2025-10-28T19:45:05.963Z" },
-]
-
-[[package]]
-name = "types-boto3-sts"
-version = "1.40.70"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f8/db/7a983bb088a45d8b2685d654fe96979fa23cca5d1b3887c9d136375b1ae5/types_boto3_sts-1.40.70.tar.gz", hash = "sha256:a2bef7255de0f1e0f08e353ee78156a5ad2338111538555beb6d5ba7916929b4", size = 16484, upload-time = "2025-11-10T20:37:43.892Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/e7/5bdf7030efcbb4ecf138aee216ba68b457dae72e8316048c4c8911ed988b/types_boto3_sts-1.40.70-py3-none-any.whl", hash = "sha256:10378499739b56b4303e53cd92250a0478339f0bf1c4bf8411796eb098c595fc", size = 20250, upload-time = "2025-11-10T20:37:42.268Z" },
 ]
 
 [[package]]
