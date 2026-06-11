@@ -77,6 +77,8 @@ The output will be fed into a signal grouping and investigation system that grou
 Write for an engineer who hasn't seen this specific evaluation before.
 Do NOT parrot the evaluation name or say "the evaluation passed". Describe the actual finding.
 
+GROUNDING: Describe ONLY what is supported by the inputs you were given (the evaluation prompt, the judge's reasoning, and the event type/trace ID). Do NOT invent infrastructure, data-flow, or product details that are not present in those inputs — e.g. do not assert a specific subsystem (session replay, zero rows returned, a particular query, a data source) unless the judge's reasoning or event context explicitly states it. The target event type is given to you; use it accurately and do not substitute a different system. If a detail is implied but not stated, omit it or qualify it as uncertain rather than presenting it as fact.
+
 Keep total output under 4000 tokens - be as concise as possible, without losing important information for the downstream investigators.
 
 Respond with a JSON object containing "title", "description", and "significance" fields. Return ONLY valid JSON, no other text. The first token of output must be {"""
