@@ -56,6 +56,7 @@ impl RawRubyFrame {
         let before = self
             .pre_context
             .iter()
+            .rev() // pre_context arrives in file order, newest line last
             .enumerate()
             .map(|(i, line)| ContextLine::new_rel(lineno, -(i as i32) - 1, line.clone()))
             .collect();
@@ -70,6 +71,56 @@ impl RawRubyFrame {
             line,
             after,
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_get_context_preserves_file_order() {
+        // The ruby SDK sends pre/post_context as file-order slices around the
+        // crash line, so line 10 here is preceded by lines 7-9 and followed by 11-13
+        let frame = RawRubyFrame {
+            path: None,
+            context_line: Some("line 10".to_string()),
+            filename: "app.rb".to_string(),
+            function: "call".to_string(),
+            lineno: Some(10),
+            pre_context: vec![
+                "line 7".to_string(),
+                "line 8".to_string(),
+                "line 9".to_string(),
+            ],
+            post_context: vec![
+                "line 11".to_string(),
+                "line 12".to_string(),
+                "line 13".to_string(),
+            ],
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let context = frame.get_context().unwrap();
+
+        assert_eq!(context.line, ContextLine::new(10, "line 10"));
+        // before is emitted nearest-line-first; the frontend sorts by line number
+        assert_eq!(
+            context.before,
+            vec![
+                ContextLine::new(9, "line 9"),
+                ContextLine::new(8, "line 8"),
+                ContextLine::new(7, "line 7"),
+            ]
+        );
+        assert_eq!(
+            context.after,
+            vec![
+                ContextLine::new(11, "line 11"),
+                ContextLine::new(12, "line 12"),
+                ContextLine::new(13, "line 13"),
+            ]
+        );
     }
 }
 
