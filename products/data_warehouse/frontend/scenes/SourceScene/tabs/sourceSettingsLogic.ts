@@ -911,15 +911,17 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     actions.setSyncingNow(false)
                 }
             },
-            migrateGoogleServiceAccountToIntegrations: async () => {
+            migrateGoogleServiceAccountAuth: async () => {
                 try {
-                    const updatedSource = await api.externalDataSources.migrateGoogleServiceAccountToIntegrations(values.sourceId)
+                    const updatedSource = await api.externalDataSources.migrateGoogleServiceAccountToIntegrations(
+                        values.sourceId
+                    )
                     actions.loadSourceSuccess(updatedSource)
                     lemonToast.success('Migrated to a Google credential')
                 } catch (e: any) {
                     lemonToast.error(e.message || "Can't migrate credentials at this time")
                 } finally {
-                    actions.setMigratingBigQueryAuth(false)
+                    actions.setMigratingGoogleServiceAccountAuth(false)
                 }
             },
             reloadSchema: async ({ schema }) => {

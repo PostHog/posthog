@@ -1,6 +1,6 @@
 import type { ExternalDataSource } from '~/types'
 
-import { isLegacyBigQueryAuthSource } from './ConfigurationTab'
+import { isLegacyGoogleServiceAccountAuthSource } from './ConfigurationTab'
 
 describe('isLegacyGoogleServiceAccountAuthSource', () => {
     it('returns true for BigQuery sources with no key_file and no integration id', () => {

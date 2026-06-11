@@ -211,7 +211,9 @@ describe('sourceSettingsLogic', () => {
         } as ExternalDataSource
 
         jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(legacySource)
-        const migrateSpy = jest.spyOn(api.externalDataSources, 'migrateGoogleServiceAccountAuth').mockResolvedValue(migratedSource)
+        const migrateSpy = jest
+            .spyOn(api.externalDataSources, 'migrateGoogleServiceAccountToIntegrations')
+            .mockResolvedValue(migratedSource)
 
         logic = sourceSettingsLogic({ id: 'source-1' })
         logic.mount()
@@ -234,17 +236,19 @@ describe('sourceSettingsLogic', () => {
         } as ExternalDataSource
 
         jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(legacySource)
-        jest.spyOn(api.externalDataSources, 'migrateGooglServiceAccountAuth').mockRejectedValue(new Error('boom'))
+        jest.spyOn(api.externalDataSources, 'migrateGoogleServiceAccountToIntegrations').mockRejectedValue(
+            new Error('boom')
+        )
 
         logic = sourceSettingsLogic({ id: 'source-1' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         await expectLogic(logic, () => {
-            logic.actions.migrateGooglServiceAccountAuth()
+            logic.actions.migrateGoogleServiceAccountAuth()
         }).toFinishAllListeners()
 
-        expect(logic.values.source?.job_inputs).toEqual({ key_file: { project_id: 'proj' } })
-        expect(logic.values.migratingGooglServiceAccountAuth).toBe(false)
+        expect(logic.values.source?.job_inputs).toEqual({})
+        expect(logic.values.migratingGoogleServiceAccountAuth).toBe(false)
     })
 })
