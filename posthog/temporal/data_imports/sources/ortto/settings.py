@@ -43,7 +43,6 @@ ACCOUNT_BUILTIN_FIELDS: list[str] = [
 
 @dataclass
 class OrttoEndpointConfig:
-    name: str
     path: str
     # Key holding the row list in the response body; None when the body is the list.
     data_key: str | None
@@ -61,7 +60,6 @@ class OrttoEndpointConfig:
 # resume state persists the pagination position within a single sync.
 ORTTO_ENDPOINTS: dict[str, OrttoEndpointConfig] = {
     "people": OrttoEndpointConfig(
-        name="people",
         path="/v1/person/get",
         data_key="contacts",
         pagination="cursor",
@@ -69,7 +67,6 @@ ORTTO_ENDPOINTS: dict[str, OrttoEndpointConfig] = {
         custom_fields_path="/v1/person/custom-field/get",
     ),
     "accounts": OrttoEndpointConfig(
-        name="accounts",
         path="/v1/accounts/get",
         data_key="accounts",
         pagination="cursor",
@@ -77,7 +74,6 @@ ORTTO_ENDPOINTS: dict[str, OrttoEndpointConfig] = {
         custom_fields_path="/v1/accounts/custom-field/get",
     ),
     "audiences": OrttoEndpointConfig(
-        name="audiences",
         path="/v1/audiences/get",
         data_key=None,
         pagination="offset",
@@ -85,19 +81,16 @@ ORTTO_ENDPOINTS: dict[str, OrttoEndpointConfig] = {
         page_size=40,
     ),
     "tags": OrttoEndpointConfig(
-        name="tags",
         path="/v1/tags/get",
         data_key=None,
         pagination="none",
     ),
     "person_custom_fields": OrttoEndpointConfig(
-        name="person_custom_fields",
         path="/v1/person/custom-field/get",
         data_key="fields",
         pagination="none",
     ),
     "account_custom_fields": OrttoEndpointConfig(
-        name="account_custom_fields",
         path="/v1/accounts/custom-field/get",
         data_key="fields",
         pagination="none",
