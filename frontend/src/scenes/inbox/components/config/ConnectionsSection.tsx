@@ -4,6 +4,7 @@ import { IconCheckCircle, IconGithub } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 export function ConnectionsSection(): JSX.Element {
@@ -11,15 +12,16 @@ export function ConnectionsSection(): JSX.Element {
 
     const githubIntegrations = getIntegrationsByKind(['github'])
     const hasGithubIntegration = githubIntegrations.length > 0
+    const isConnected = hasGithubIntegration && !integrationsLoading
 
     return (
         <div className="flex items-center justify-between gap-4 rounded border bg-bg-light px-3 py-2.5">
             <div className="flex items-start gap-3 min-w-0">
-                <IconGithub className="size-5 shrink-0 mt-0.5" />
+                <IconGithub className="size-5 shrink-0 mt-0.5 text-default" />
                 <div className="min-w-0">
-                    <div className="font-medium text-sm flex items-center gap-1.5">
+                    <div className="font-medium text-sm text-default flex items-center gap-1.5">
                         GitHub
-                        {hasGithubIntegration && !integrationsLoading && (
+                        {isConnected && (
                             <span className="inline-flex items-center gap-1 text-xs text-success font-normal">
                                 <IconCheckCircle className="size-3.5" />
                                 Connected
@@ -34,6 +36,7 @@ export function ConnectionsSection(): JSX.Element {
             <LemonButton
                 type="secondary"
                 size="small"
+                sideIcon={<IconOpenInNew />}
                 to={urls.settings('environment-integrations', 'integration-github')}
                 targetBlank
             >

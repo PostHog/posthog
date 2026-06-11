@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconAsterisk, IconCheck, IconChevronDown } from '@posthog/icons'
 import { LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -94,10 +94,10 @@ export function InboxScopeSelect(): JSX.Element {
                             onClick={() => pick(INBOX_SCOPE_ENTIRE_PROJECT)}
                             avatar={
                                 <span
-                                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-primary text-tertiary text-xs"
+                                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-secondary text-tertiary"
                                     aria-hidden
                                 >
-                                    *
+                                    <IconAsterisk className="text-xs" />
                                 </span>
                             }
                             label="Entire project"
@@ -177,11 +177,12 @@ function ScopeRow({
             onClick={onClick}
             className={clsx(
                 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors',
-                active ? 'bg-fill-primary font-medium' : 'hover:bg-surface-secondary'
+                active ? 'bg-surface-secondary font-medium' : 'hover:bg-surface-secondary'
             )}
         >
             {avatar}
             <span className="min-w-0 flex-1 truncate">{label}</span>
+            {active && <IconCheck className="shrink-0 text-sm text-default" />}
         </button>
     )
 }

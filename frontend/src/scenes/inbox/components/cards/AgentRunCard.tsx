@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { isFinishedRunReport, isLiveRunReport, isQueuedRunReport } from '../../inboxMembership'
 import { SignalReport } from '../../types'
+import { deriveHeadline } from '../../utils/reportPresentation'
 import { getSourceProductMeta, hasKnownSourceProduct } from '../badges/sourceProductIcons'
 
 type RunVariant = 'queued' | 'live' | 'completed' | 'failed'
@@ -140,6 +141,7 @@ export function AgentRunCard({ report }: { report: SignalReport }): JSX.Element 
     const variant = resolveRunVariant(report)
     const meta = VARIANT_META[variant]
     const timestampSource = pickTimestamp(report, variant)
+    const headline = deriveHeadline(report.summary)
 
     return (
         <Link
@@ -152,6 +154,9 @@ export function AgentRunCard({ report }: { report: SignalReport }): JSX.Element 
                 <span className="break-words min-w-0 font-semibold text-sm leading-snug tracking-tight">
                     {report.title ?? 'Untitled run'}
                 </span>
+                {headline ? (
+                    <p className="break-words line-clamp-2 text-xs text-secondary leading-snug m-0">{headline}</p>
+                ) : null}
                 <div className="flex items-center gap-2 flex-wrap mt-1.5 text-xs text-tertiary leading-none select-none">
                     {hasSource ? (
                         <>

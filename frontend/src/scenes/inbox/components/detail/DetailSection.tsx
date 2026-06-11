@@ -13,8 +13,8 @@ export function DetailSection({ icon, title, rightSlot, children }: DetailSectio
         <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3 min-w-0 cursor-default select-none">
                 <div className="flex items-center gap-2 min-w-0">
-                    <span className="shrink-0 text-secondary">{icon}</span>
-                    <span className="truncate font-semibold text-sm text-primary">{title}</span>
+                    <span className="flex shrink-0 items-center text-secondary [&_svg]:size-[0.9375rem]">{icon}</span>
+                    <span className="truncate font-semibold text-sm text-primary tracking-tight">{title}</span>
                 </div>
                 <div className="h-px min-w-4 flex-1 bg-border-light" />
                 {rightSlot && <div className="shrink-0">{rightSlot}</div>}
@@ -40,8 +40,8 @@ export function RightColumnSection({ icon, title, rightSlot, children }: RightCo
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2 cursor-default select-none text-tertiary">
                 <div className="flex items-center gap-2">
-                    <span className="shrink-0">{icon}</span>
-                    <span className="font-medium text-[0.6875rem] uppercase tracking-wide">{title}</span>
+                    <span className="flex shrink-0 items-center [&_svg]:size-3">{icon}</span>
+                    <span className="font-medium text-[0.6875rem] uppercase tracking-wider">{title}</span>
                 </div>
                 {rightSlot && <div className="shrink-0">{rightSlot}</div>}
             </div>

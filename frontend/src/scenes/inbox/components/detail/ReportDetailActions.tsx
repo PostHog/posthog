@@ -65,7 +65,13 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
                 }}
                 placement="bottom-end"
                 overlay={
-                    <div className="flex flex-col gap-2 w-100 p-1">
+                    <form
+                        className="flex flex-col gap-2 w-100 p-1"
+                        onSubmit={(event) => {
+                            event.preventDefault()
+                            submitDiscuss()
+                        }}
+                    >
                         <LemonTextArea
                             autoFocus
                             placeholder="Ask about this report…"
@@ -75,9 +81,10 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
                             onPressCmdEnter={submitDiscuss}
                         />
                         <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs text-muted">{isMac ? '⌘↵' : 'Ctrl+↵'} to send</span>
+                            <span className="text-xs text-muted select-none">{isMac ? '⌘↵' : 'Ctrl+↵'} to send</span>
                             <div className="flex gap-2">
                                 <LemonButton
+                                    type="tertiary"
                                     size="small"
                                     onClick={() => {
                                         setDiscussOpen(false)
@@ -87,16 +94,17 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
                                     Cancel
                                 </LemonButton>
                                 <LemonButton
+                                    htmlType="submit"
                                     type="primary"
                                     size="small"
+                                    loading={isDiscussing}
                                     disabledReason={question.trim().length === 0 ? 'Enter a question first' : undefined}
-                                    onClick={submitDiscuss}
                                 >
                                     Discuss
                                 </LemonButton>
                             </div>
                         </div>
-                    </div>
+                    </form>
                 }
             >
                 <LemonButton

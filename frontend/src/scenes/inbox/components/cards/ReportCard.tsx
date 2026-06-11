@@ -1,8 +1,11 @@
 import clsx from 'clsx'
+import { router } from 'kea-router'
+import { useState } from 'react'
 
-import { IconBolt } from '@posthog/icons'
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBolt, IconThumbsDown } from '@posthog/icons'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { SignalReport } from '../../types'
@@ -15,6 +18,7 @@ import { ForYouBadge } from '../badges/ForYouBadge'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { getSourceProductMeta, hasKnownSourceProduct } from '../badges/sourceProductIcons'
+import { openDismissReportDialog } from '../shell/DismissReportDialog'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
 
@@ -110,15 +114,35 @@ export function ReportCard({ report }: { report: SignalReport }): JSX.Element {
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const headline = deriveHeadline(report.summary)
+    const detailUrl = urls.inboxReport('reports', report.id)
+
+    const [isDismissing, setIsDismissing] = useState(false)
 
     const hasMetadata = hasSource || !isReady || report.actionability != null || report.is_suggested_reviewer === true
 
+    const onDismiss = (event: React.MouseEvent): void => {
+        event.preventDefault()
+        event.stopPropagation()
+        openDismissReportDialog({
+            reportTitle: cardTitle,
+            onConfirm: async ({ reason, note }) => {
+                setIsDismissing(true)
+                try {
+                    await api.signalReports.setState(report.id, {
+                        state: 'suppressed',
+                        dismissal_reason: reason,
+                        ...(note ? { dismissal_note: note } : {}),
+                    })
+                } finally {
+                    setIsDismissing(false)
+                }
+            },
+        })
+    }
+
     return (
-        <Link
-            to={urls.inboxReport('reports', report.id)}
-            className="group flex w-full items-stretch gap-3 rounded border border-dashed border-primary bg-surface-primary px-4 py-3.5 text-left text-inherit no-underline transition-colors duration-150 hover:border-primary hover:bg-surface-secondary"
-        >
-            <div className="flex min-w-0 flex-1 items-start gap-3">
+        <div className="group flex w-full items-stretch gap-3 rounded border border-dashed border-primary bg-surface-primary px-4 py-3.5 transition-all duration-150 hover:border-secondary hover:bg-surface-secondary hover:shadow-sm">
+            <Link to={detailUrl} className="flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline">
                 <PriorityMonogram priority={report.priority} />
 
                 <div className="flex flex-col gap-1.5 min-w-0 flex-1">
@@ -154,16 +178,35 @@ export function ReportCard({ report }: { report: SignalReport }): JSX.Element {
                         </div>
                     ) : null}
                 </div>
-            </div>
+            </Link>
 
-            <div className="flex flex-col items-end justify-between shrink-0 border-l border-primary pl-3">
+            <div className="flex flex-col items-end justify-between shrink-0 border-l border-primary pl-3 gap-1.5">
                 {updatedAtLabel && (
                     <span className="shrink-0 text-xs text-tertiary tabular-nums">{updatedAtLabel}</span>
                 )}
 
-                <span className="my-auto rounded bg-fill-primary px-2 py-1 text-xs font-medium text-default group-hover:bg-fill-primary-hover">
-                    Review
-                </span>
+                <div className="flex items-center gap-1.5 my-auto">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconThumbsDown />}
+                        tooltip="Dismiss this report"
+                        aria-label="Dismiss this report"
+                        loading={isDismissing}
+                        onClick={onDismiss}
+                    />
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            router.actions.push(detailUrl)
+                        }}
+                    >
+                        Review
+                    </LemonButton>
+                </div>
 
                 <span className="flex items-center gap-1 shrink-0 text-xs text-tertiary">
                     <IconBolt className="text-[11px]" />
@@ -172,6 +215,6 @@ export function ReportCard({ report }: { report: SignalReport }): JSX.Element {
                     </span>
                 </span>
             </div>
-        </Link>
+        </div>
     )
 }

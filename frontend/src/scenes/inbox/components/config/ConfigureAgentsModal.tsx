@@ -7,7 +7,7 @@ import { LemonButton, LemonDivider, LemonModal, LemonSkeleton } from '@posthog/l
 
 import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
-import { IconSlack } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconSlack } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
@@ -42,10 +42,10 @@ function Section({
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
             <div>
-                <h4 className="font-semibold text-sm mb-0">{title}</h4>
-                {description && <p className="text-xs text-secondary mt-0.5 mb-0">{description}</p>}
+                <h4 className="font-semibold text-sm text-default mb-0">{title}</h4>
+                {description && <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">{description}</p>}
             </div>
             {children}
         </div>
@@ -176,7 +176,7 @@ function SlackNotificationsSection(): JSX.Element {
             <div className="flex items-start gap-3 min-w-0">
                 <IconSlack className="size-5 shrink-0 mt-0.5 grayscale" />
                 <div className="min-w-0">
-                    <div className="font-medium text-sm">Slack delivery</div>
+                    <div className="font-medium text-sm text-default">Slack delivery</div>
                     <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">
                         Connect Slack to post reports to channels and ping suggested reviewers.
                     </p>
@@ -185,6 +185,7 @@ function SlackNotificationsSection(): JSX.Element {
             <LemonButton
                 type="secondary"
                 size="small"
+                sideIcon={<IconOpenInNew />}
                 to={urls.settings('environment-integrations', 'integration-slack')}
                 targetBlank
             >

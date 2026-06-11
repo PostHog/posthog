@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconBolt, IconRefresh, IconSearch } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
+import { IconCheck, IconChevronDown, IconFlag, IconRefresh, IconSearch, IconSort, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import {
     INBOX_PRIORITY_OPTIONS,
@@ -37,19 +37,47 @@ function FilterPopover({
             onVisibilityChange={setVisible}
             matchWidth={false}
             actionable
-            overlay={<div className="min-w-[200px] max-w-[260px] p-1 space-y-px">{children}</div>}
+            placement="bottom-start"
+            overlay={<div className="min-w-[200px] max-w-[260px] p-1 deprecated-space-y-px">{children}</div>}
         >
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={icon}
-                className="bg-surface-primary"
+            <button
+                type="button"
                 aria-label={`${label}: ${value}`}
-                sideIcon={active ? <LemonBadge size="small" status="primary" /> : undefined}
+                className="flex h-8 shrink-0 items-center gap-1.5 rounded border border-primary bg-surface-primary px-2.5 text-sm text-default transition-colors hover:border-secondary hover:bg-surface-secondary"
             >
+                <span className="flex shrink-0 items-center text-tertiary [&>svg]:size-3.5">{icon}</span>
                 <span className="max-w-[150px] truncate">{value}</span>
-            </LemonButton>
+                {active && <span className="size-1.5 shrink-0 rounded-full bg-accent" />}
+                <IconChevronDown className="shrink-0 text-sm text-tertiary" />
+            </button>
         </LemonDropdown>
+    )
+}
+
+/** A single multi-select row inside a filter popover: icon/glyph + label, with a check when active. */
+function FilterItem({
+    icon,
+    label,
+    active,
+    onClick,
+}: {
+    icon?: JSX.Element
+    label: React.ReactNode
+    active: boolean
+    onClick: () => void
+}): JSX.Element {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className="flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left text-sm text-default transition-colors hover:bg-surface-secondary"
+        >
+            <span className="flex min-w-0 items-center gap-1.5">
+                {icon && <span className="flex shrink-0 items-center text-tertiary [&>svg]:size-3.5">{icon}</span>}
+                <span className="truncate">{label}</span>
+            </span>
+            {active && <IconCheck className="shrink-0 text-sm text-default" />}
+        </button>
     )
 }
 
@@ -92,69 +120,57 @@ export function InboxSearchFilterBar({
             <FilterPopover
                 label="Source"
                 value={inboxSourceFilterLabel(sourceProductFilter)}
-                icon={INBOX_SOURCE_OPTIONS[0].icon}
+                icon={<IconTarget />}
                 active={sourceProductFilter.length > 0}
             >
                 {INBOX_SOURCE_OPTIONS.map((option) => (
-                    <LemonButton
+                    <FilterItem
                         key={option.value}
-                        fullWidth
-                        size="small"
                         icon={option.icon}
+                        label={option.label}
                         active={sourceProductFilter.includes(option.value)}
                         onClick={() => toggleSourceProduct(option.value)}
-                        className="justify-between"
-                    >
-                        {option.label}
-                    </LemonButton>
+                    />
                 ))}
             </FilterPopover>
 
             <FilterPopover
                 label="Sort"
                 value={activeSort?.label ?? 'Priority first'}
-                icon={INBOX_SORT_OPTIONS[0].icon}
+                icon={<IconSort />}
                 active={activeSortKey !== 'priority:asc'}
             >
                 {INBOX_SORT_OPTIONS.map((option) => (
-                    <LemonButton
+                    <FilterItem
                         key={inboxSortOptionKey(option.field, option.direction)}
-                        fullWidth
-                        size="small"
                         icon={option.icon}
+                        label={option.label}
                         active={sortField === option.field && sortDirection === option.direction}
                         onClick={() => setSort(option.field, option.direction)}
-                        className="justify-between"
-                    >
-                        {option.label}
-                    </LemonButton>
+                    />
                 ))}
             </FilterPopover>
 
             <FilterPopover
                 label="Priority"
                 value={inboxPriorityFilterLabel(priorityFilter)}
-                icon={<IconBolt />}
+                icon={<IconFlag />}
                 active={priorityFilter.length > 0}
             >
                 {INBOX_PRIORITY_OPTIONS.map((option) => (
-                    <LemonButton
+                    <FilterItem
                         key={option.value}
-                        fullWidth
-                        size="small"
-                        active={priorityFilter.includes(option.value)}
-                        onClick={() => togglePriority(option.value as SignalReportPriority)}
-                        className="justify-between"
-                    >
-                        <span className="flex items-center gap-2">
+                        icon={
                             <span
-                                className="inline-block h-2 w-2 shrink-0 rounded-full"
+                                className="inline-block size-2 shrink-0 rounded-full"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ backgroundColor: option.accent }}
                             />
-                            {option.value}
-                        </span>
-                    </LemonButton>
+                        }
+                        label={option.value}
+                        active={priorityFilter.includes(option.value)}
+                        onClick={() => togglePriority(option.value as SignalReportPriority)}
+                    />
                 ))}
             </FilterPopover>
 

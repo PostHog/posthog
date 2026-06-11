@@ -4,8 +4,8 @@ import { SignalReportActionability } from '../../types'
 
 const ACTIONABILITY_STYLE: Record<SignalReportActionability, { type: LemonTagType; label: string }> = {
     immediately_actionable: { type: 'success', label: 'Actionable' },
-    requires_human_input: { type: 'warning', label: 'Needs input' },
-    not_actionable: { type: 'default', label: 'Not actionable' },
+    requires_human_input: { type: 'caution', label: 'Needs input' },
+    not_actionable: { type: 'muted', label: 'Not actionable' },
 }
 
 export function SignalReportActionabilityBadge({

@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconBolt } from '@posthog/icons'
 import { LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
@@ -30,12 +31,15 @@ export function AutoStartThresholdSection(): JSX.Element {
 
     return (
         <div className="flex items-center justify-between gap-4 rounded border bg-bg-light px-3 py-2.5">
-            <div className="min-w-0">
-                <div className="font-medium text-sm">Your PR auto-start threshold</div>
-                <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">
-                    Reports at or above this priority can start an implementation task for you. The backend deduplicates
-                    per report, and these runs count toward usage.
-                </p>
+            <div className="flex items-start gap-3 min-w-0">
+                <IconBolt className="size-5 shrink-0 mt-0.5 text-secondary" />
+                <div className="min-w-0">
+                    <div className="font-medium text-sm text-default">Your PR auto-start threshold</div>
+                    <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">
+                        Reports at or above this priority can start an implementation task for you. The backend
+                        deduplicates per report, and these runs count toward usage.
+                    </p>
+                </div>
             </div>
             {autonomyConfigLoading && autonomyConfig === null ? (
                 <LemonSkeleton className="h-8 w-[260px] shrink-0" />
