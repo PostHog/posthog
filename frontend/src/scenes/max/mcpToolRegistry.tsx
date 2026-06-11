@@ -1,8 +1,9 @@
 import type { ComponentType } from 'react'
 
-import { IconWrench } from '@posthog/icons'
+import { IconNotebook, IconWrench } from '@posthog/icons'
 
 import type { McpToolCallMessage } from './maxTypes'
+import { CreateNotebookWidget } from './messages/adapters/CreateNotebookWidget'
 import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
 
 export interface McpToolRendererProps {
@@ -50,6 +51,18 @@ class MapBackedRegistry implements McpToolRegistry {
 export const mcpToolRegistry: McpToolRegistry = new MapBackedRegistry()
 
 // Custom adapters are registered here as they land. The skeleton ships with the fallback only.
+
+// --- Data tools: notebooks ---
+// The generated CRUD tools and the handwritten notebook-edit (the collab-safe content editor)
+// all return the same REST notebook payload.
+for (const key of ['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve', 'notebook-edit']) {
+    mcpToolRegistry.register({
+        key,
+        displayName: 'Notebook',
+        icon: <IconNotebook />,
+        Renderer: CreateNotebookWidget,
+    })
+}
 
 /** Looks up the renderer entry for a resolved tool key, falling back to the generic card. */
 export function lookupMcpToolRenderer(resolvedKey: string): McpToolRegistryEntry {
