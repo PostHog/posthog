@@ -1119,7 +1119,7 @@ class TestSlotInvalidationRecovery:
     """When the replication slot is invalidated/dropped on the source DB, the activity
     must recreate it and reset all CDC schemas to snapshot mode instead of failing forever."""
 
-    def _setup(self, mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity, recreate_result=None):
+    def _setup(self, mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity):
         source = _make_source()
         MockSourceModel.objects.get.return_value = source
 
@@ -1139,8 +1139,6 @@ class TestSlotInvalidationRecovery:
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
         mock_adapter.is_slot_invalidation_error.return_value = True
-        if recreate_result is not None:
-            mock_adapter.recreate_slot.return_value = recreate_result
         mock_get_adapter.return_value = mock_adapter
 
         mock_activity.heartbeat = MagicMock()
@@ -1162,12 +1160,16 @@ class TestSlotInvalidationRecovery:
         mock_activity,
     ):
         source, schema, mock_reader, mock_adapter = self._setup(
-            mock_get_schemas,
-            mock_get_adapter,
-            MockSourceModel,
-            mock_activity,
-            recreate_result={"cdc_consistent_point": "0/AA"},
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
         )
+
+        def _recreate_slot(source_arg, tables):
+            # Schemas must already be reset when the slot is recreated — if recreation
+            # fails, no schema may keep streaming across the gap on the next run.
+            assert schema.sync_type_config["cdc_mode"] == "snapshot"
+            return {"cdc_consistent_point": "0/AA"}
+
+        mock_adapter.recreate_slot.side_effect = _recreate_slot
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         # Recovery handles the error — the activity must not raise (no pointless Temporal retries).

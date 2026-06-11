@@ -705,20 +705,31 @@ class CDCExtractActivity:
             trunc_schema = self.schema_by_name.get(table_name)
             if trunc_schema is None:
                 continue
-            trunc_log = self._schema_log(trunc_schema)
-            trunc_log.warning("truncate_detected", table=table_name, schema_id=str(trunc_schema.id))
-            trunc_schema.sync_type_config["cdc_mode"] = "snapshot"
-            trunc_schema.sync_type_config.pop("cdc_last_log_position", None)
-            trunc_schema.initial_sync_complete = False
-            trunc_schema.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
-            try:
-                from products.data_warehouse.backend.data_load.service import unpause_external_data_schedule
-
-                unpause_external_data_schedule(str(trunc_schema.id))
-                trunc_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(trunc_schema.id))
-            except Exception:
-                trunc_log.warning("failed_to_unpause_schema_schedule", schema_id=str(trunc_schema.id))
+            self._schema_log(trunc_schema).warning(
+                "truncate_detected", table=table_name, schema_id=str(trunc_schema.id)
+            )
+            self._reset_schema_to_snapshot(trunc_schema)
+            self._unpause_schema_schedule(trunc_schema)
         return truncated_tables
+
+    def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
+        """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
+        schema.sync_type_config["cdc_mode"] = "snapshot"
+        schema.sync_type_config.pop("cdc_last_log_position", None)
+        if clear_deferred_runs:
+            schema.sync_type_config.pop("cdc_deferred_runs", None)
+        schema.initial_sync_complete = False
+        schema.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
+
+    def _unpause_schema_schedule(self, schema: ExternalDataSchema) -> None:
+        schema_log = self._schema_log(schema)
+        try:
+            from products.data_warehouse.backend.data_load.service import unpause_external_data_schedule
+
+            unpause_external_data_schedule(str(schema.id))
+            schema_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(schema.id))
+        except Exception:
+            schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id))
 
     def _handle_no_changes(self, truncated_tables: list[str]) -> None:
         """Early-return path: no DML events were read."""
@@ -846,34 +857,29 @@ class CDCExtractActivity:
         assert self.adapter is not None
         self.log.warning("cdc_slot_unrecoverable_recreating", error=str(exc))
 
+        self._fail_created_jobs(SLOT_INVALIDATION_RECOVERY_MESSAGE)
+
+        # Reset schemas before touching the slot (schedules stay paused): if recreation
+        # fails below, the next run hits the invalidation again and recovery reruns
+        # idempotently — no schema keeps streaming across the gap unnoticed. Deferred
+        # runs are dropped: they reference WAL from the dead slot, the re-snapshot
+        # supersedes them, and flushing them later would merge stale rows over fresh ones.
+        for schema in self.cdc_schemas:
+            self._reset_schema_to_snapshot(schema, clear_deferred_runs=True)
+            schema.status = ExternalDataSchema.Status.FAILED
+            schema.latest_error = SLOT_INVALIDATION_RECOVERY_MESSAGE
+            schema.save(update_fields=["status", "latest_error", "updated_at"])
+            self._schema_log(schema).warning("cdc_schema_reset_for_slot_recovery", schema_id=str(schema.id))
+
         resource_fields = self.adapter.recreate_slot(self.source, tables=[s.name for s in self.cdc_schemas])
 
         self.source.job_inputs = {**(self.source.job_inputs or {}), **resource_fields}
         self.source.save(update_fields=["job_inputs", "updated_at"])
 
-        self._fail_created_jobs(SLOT_INVALIDATION_RECOVERY_MESSAGE)
-
+        # Unpause only after the new slot exists, so no snapshot can run before change
+        # capture has a consistent point to resume from.
         for schema in self.cdc_schemas:
-            schema_log = self._schema_log(schema)
-            schema.sync_type_config["cdc_mode"] = "snapshot"
-            schema.sync_type_config.pop("cdc_last_log_position", None)
-            # Deferred runs reference WAL from the dead slot; the re-snapshot supersedes
-            # them, and flushing them afterwards would merge stale rows over fresh ones.
-            schema.sync_type_config.pop("cdc_deferred_runs", None)
-            schema.initial_sync_complete = False
-            schema.status = ExternalDataSchema.Status.FAILED
-            schema.latest_error = SLOT_INVALIDATION_RECOVERY_MESSAGE
-            schema.save(
-                update_fields=["sync_type_config", "initial_sync_complete", "status", "latest_error", "updated_at"]
-            )
-            schema_log.warning("cdc_schema_reset_for_slot_recovery", schema_id=str(schema.id))
-            try:
-                from products.data_warehouse.backend.data_load.service import unpause_external_data_schedule
-
-                unpause_external_data_schedule(str(schema.id))
-                schema_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(schema.id))
-            except Exception:
-                schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id))
+            self._unpause_schema_schedule(schema)
 
         self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))
 
@@ -1010,7 +1016,6 @@ def cleanup_orphan_slots_activity() -> None:
         critical_threshold_mb = cdc_config.lag_critical_threshold_mb
         if retention_cap_mb is not None:
             critical_threshold_mb = min(critical_threshold_mb, int(retention_cap_mb * RETENTION_CAP_SAFETY_FACTOR))
-        warning_threshold_mb = min(cdc_config.lag_warning_threshold_mb, critical_threshold_mb)
 
         if lag_mb >= critical_threshold_mb:
             source_log.error(
@@ -1034,11 +1039,11 @@ def cleanup_orphan_slots_activity() -> None:
                 source.status = ExternalDataSource.Status.ERROR
                 source.save(update_fields=["status", "updated_at"])
 
-        elif lag_mb >= warning_threshold_mb:
+        elif lag_mb >= cdc_config.lag_warning_threshold_mb:
             source_log.warning(
                 "slot_lag_warning",
                 lag_mb=round(lag_mb, 1),
-                threshold_mb=warning_threshold_mb,
+                threshold_mb=cdc_config.lag_warning_threshold_mb,
             )
 
     log.info("cleanup_orphan_slots_completed", sources_checked=len(cdc_sources))

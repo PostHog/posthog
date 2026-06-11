@@ -104,7 +104,7 @@ class TestRecreateSlot:
     @patch(f"{_ADAPTER}.drop_slot")
     @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
     def test_drops_and_recreates_slot_against_existing_publication(
-        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_both
+        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub
     ) -> None:
         source = _source(
             cdc_enabled=True,
@@ -120,7 +120,7 @@ class TestRecreateSlot:
         assert mock_drop.call_args.args[1] == "posthog_slot"
         mock_create.assert_called_once()
         assert mock_create.call_args.args[1] == "posthog_slot"
-        mock_create_both.assert_not_called()
+        mock_create_slot_and_pub.assert_not_called()
 
     @patch(f"{_ADAPTER}.create_slot_and_publication", return_value="0/BB")
     @patch(f"{_ADAPTER}.create_slot")
@@ -128,7 +128,7 @@ class TestRecreateSlot:
     @patch(f"{_ADAPTER}.drop_slot")
     @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
     def test_recreates_publication_when_posthog_managed_and_missing(
-        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_both
+        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub
     ) -> None:
         source = _source(
             cdc_enabled=True,
@@ -140,9 +140,9 @@ class TestRecreateSlot:
         fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
 
         assert fields == {"cdc_consistent_point": "0/BB"}
-        mock_create_both.assert_called_once()
-        assert mock_create_both.call_args.args[1:3] == ("posthog_slot", "posthog_pub")
-        assert mock_create_both.call_args.kwargs["tables"] == ["users"]
+        mock_create_slot_and_pub.assert_called_once()
+        assert mock_create_slot_and_pub.call_args.args[1:3] == ("posthog_slot", "posthog_pub")
+        assert mock_create_slot_and_pub.call_args.kwargs["tables"] == ["users"]
         mock_create.assert_not_called()
 
     @patch(f"{_ADAPTER}.create_slot_and_publication")
@@ -151,7 +151,7 @@ class TestRecreateSlot:
     @patch(f"{_ADAPTER}.drop_slot")
     @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
     def test_raises_when_self_managed_publication_missing(
-        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_both
+        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub
     ) -> None:
         source = _source(
             cdc_enabled=True,
@@ -164,7 +164,7 @@ class TestRecreateSlot:
             PostgresCDCAdapter().recreate_slot(source, tables=["users"])
 
         mock_create.assert_not_called()
-        mock_create_both.assert_not_called()
+        mock_create_slot_and_pub.assert_not_called()
 
     def test_raises_without_slot_name(self) -> None:
         source = _source(cdc_enabled=True)
