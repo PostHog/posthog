@@ -276,10 +276,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconHogQL />,
         iconColor: ['var(--color-insight-sql-light)'],
     },
-    'insight/sql': {
-        icon: <IconHogQL />,
-        iconColor: ['var(--color-insight-sql-light)'],
-    },
     team_activity: {
         icon: <IconNotification />,
         iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],

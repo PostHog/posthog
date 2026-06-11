@@ -1458,8 +1458,8 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     {
         path: `Insight/SQL`,
         type: 'insight',
-        href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery)['query'] }),
-        iconType: 'insight/sql',
+        href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+        iconType: 'insight/hog',
         iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
         visualOrder: INSIGHT_VISUAL_ORDER.sql,
         sceneKeys: ['Insight'],
