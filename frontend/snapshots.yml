@@ -6494,6 +6494,10 @@ snapshots:
         hash: v1.k794b7964.0b976d17209b22a92234b6c3c5a45e33c14122f1666e302cb169315ce7d4d93a.pEzXmcRU5Hr2j1o8HWyrztrNea-K0SEMOTlz7i7geFQ
     scenes-other-password-reset-complete--invalid-link--light:
         hash: v1.k794b7964.c2f0867ac3dcc72895945f1212f27a4ee6efa8bfa518e047cbb7de6a128c7167.x0Jyy2GOTfVR5FEwNNNd0hYXN1D9C8s4qGg8ur-49tA
+    scenes-other-postpone-invite--postpone-invite-scene--dark:
+        hash: v1.k794b7964.5a441f374edf7ee3490713aa8d4ad4fe2950f664f7d35e57558b45a0773d5027.T9cMF57PYPCJABpb_BGmX-bHHciysKwgzBXo9E7iesw
+    scenes-other-postpone-invite--postpone-invite-scene--light:
+        hash: v1.k794b7964.28f68eb9666685d1a74689e3dacf390a847d88600f6c44d8959a3035fa7c5f14.IJxPNTXYSu9P8ZCZ5ZT3wjiOxL8WKPgSo0Uof7-wau0
     scenes-other-preflight--preflight--dark:
         hash: v1.k794b7964.d95b2089f09cc6d2bb9677fd26d4d346fa706bd3aae1e3f5eb8ddce6be982aa4.TiTGYPV1UsBLYZ6xsrmb7wceCMhVBvdq6MInjtWl1LA
     scenes-other-preflight--preflight--light:
