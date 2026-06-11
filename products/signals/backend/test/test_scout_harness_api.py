@@ -15,6 +15,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalScoutConfig,
@@ -214,7 +215,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
     def test_returns_emissions_for_run_newest_first(self) -> None:
         run = _make_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
         _make_emission(self.team, run, finding_id="f-a")
-        newer = _make_emission(self.team, run, finding_id="f-b")
+        newer = _make_emission(self.team, run, finding_id="f-b", tags=["cost-spike"])
         response = self.client.get(self._emissions_url(str(run.id)))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -225,7 +226,10 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         assert first["weight"] == 0.7
         assert first["confidence"] == 0.85
         assert first["severity"] == "P1"
+        assert first["tags"] == ["cost-spike"]
         assert first["source_id"] == f"run:{run.id}:finding:{newer.finding_id}"
+        # Untagged emissions surface an empty list, not null.
+        assert body[1]["tags"] == []
 
     def test_emissions_scoped_to_the_requested_run(self) -> None:
         run_a = _make_run(self.team)
@@ -306,6 +310,31 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         assert mock_emit.await_args is not None
         # Idempotency is via the deterministic `source_id` keyed on (run, finding).
         assert mock_emit.await_args.kwargs["source_id"] == f"run:{run.id}:finding:f-1"
+
+    def test_emit_finding_normalizes_tags_into_extra(self) -> None:
+        run = _make_run(self.team)
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+            response = self.client.post(
+                self._emit_signal_url(str(run.id)),
+                data=self._payload(tags=["Cost Spike", "cost_spike", "silent-failure"]),
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_emit.await_args is not None
+        assert mock_emit.await_args.kwargs["extra"]["tags"] == ["cost-spike", "silent-failure"]
+        emission = SignalScoutEmission.objects.get(scout_run=run)
+        assert emission.tags == ["cost-spike", "silent-failure"]
+
+    def test_emit_finding_rejects_too_many_tags(self) -> None:
+        run = _make_run(self.team)
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+            response = self.client.post(
+                self._emit_signal_url(str(run.id)),
+                data=self._payload(tags=[f"tag-{i}" for i in range(11)]),
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_emit.assert_not_called()
 
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
         run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
@@ -586,6 +615,59 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is True
         assert body[0]["run_interval_minutes"] == 60
+
+    @parameterized.expand(
+        [
+            ("skill_present", "Watches error tracking for new and spiking issues."),
+            ("skill_absent", None),
+        ]
+    )
+    def test_list_surfaces_skill_description(self, _name: str, skill_description: str | None) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+        if skill_description is not None:
+            LLMSkill.objects.create(
+                team=self.team, name="signals-scout-errors", description=skill_description, body="..."
+            )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        # Absent skill (or no description) falls back to "".
+        assert response.json()[0]["description"] == (skill_description or "")
+
+    def test_list_description_ignores_non_latest_and_other_team_skills(self) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="stale",
+            body="...",
+            version=1,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="current",
+            body="...",
+            version=2,
+            is_latest=True,
+        )
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        LLMSkill.objects.create(team=other_team, name="signals-scout-errors", description="other team", body="...")
+
+        response = self.client.get(self._list_url())
+
+        assert response.json()[0]["description"] == "current"
+
+    def test_partial_update_surfaces_skill_description(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
+        LLMSkill.objects.create(team=self.team, name="signals-scout-foo", description="Foo scout.", body="...")
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["description"] == "Foo scout."
 
     def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)

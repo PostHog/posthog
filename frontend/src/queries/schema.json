@@ -39500,6 +39500,13 @@
                 "skill_version": {
                     "type": "number"
                 },
+                "tags": {
+                    "description": "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the finding. Each scout maintains and evolves its own vocabulary over time; the harness normalizes and caps these at emit.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "task_run_id": {
                     "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
                     "type": "string"
