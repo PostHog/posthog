@@ -2,7 +2,7 @@ import { getUserAgent } from '@/lib/constants'
 import { PostHogApiError } from '@/lib/errors'
 
 import type { ApiConfig } from './client'
-import { globalRateLimiter } from './rate-limiter'
+import { decide429Retry, MAX_RETRIES, MAX_RETRY_AFTER_MS } from './retry'
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -20,13 +20,9 @@ export interface Fetcher {
 export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
     return {
         fetch: async (input) => {
-            const maxRetries = 3
-            const baseBackoffMs = 2000
+            const maxRetries = MAX_RETRIES
 
             for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                // Apply rate limiting before making the request
-                await globalRateLimiter.throttle()
-
                 const headers = new Headers()
                 headers.set('Authorization', `Bearer ${config.apiToken}`)
                 headers.set('User-Agent', getUserAgent({ clientUserAgent: config.clientUserAgent }))
@@ -72,23 +68,22 @@ export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
                     ...input.overrides,
                 })
 
-                // Handle rate limiting with exponential backoff
+                // Handle rate limiting by honoring the server's Retry-After signal
                 if (response.status === 429) {
-                    if (attempt < maxRetries) {
-                        // Check for Retry-After header
-                        const retryAfter = response.headers.get('Retry-After')
-                        const delayMs = retryAfter
-                            ? parseInt(retryAfter, 10) * 1000
-                            : baseBackoffMs * Math.pow(2, attempt)
-
+                    const decision = decide429Retry(response.headers.get('Retry-After'), attempt, maxRetries)
+                    if (decision.retry) {
                         console.warn(
-                            `Rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
+                            `Rate limited (429). Retrying in ${Math.round(decision.delayMs)}ms (attempt ${attempt + 1}/${maxRetries})`
                         )
-                        await sleep(delayMs)
+                        await sleep(decision.delayMs)
                         continue
                     }
-                    // Max retries exceeded
-                    const errorResponse = await response.json()
+                    const errorResponse = await response.json().catch(() => ({}))
+                    if (decision.reason === 'retry_after_exceeds_cap') {
+                        throw new Error(
+                            `Rate limited: server requested a ${Math.round(decision.delayMs / 1000)}s wait, above the ${MAX_RETRY_AFTER_MS / 1000}s cap: [${response.status}] ${JSON.stringify(errorResponse)}`
+                        )
+                    }
                     throw new Error(
                         `Rate limit exceeded after ${maxRetries} retries: [${response.status}] ${JSON.stringify(errorResponse)}`
                     )

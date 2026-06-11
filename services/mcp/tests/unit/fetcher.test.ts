@@ -1,15 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildApiFetcher, type Fetcher } from '@/api/fetcher'
-import { globalRateLimiter } from '@/api/rate-limiter'
 import { PostHogApiError } from '@/lib/errors'
-
-// Mock the global rate limiter
-vi.mock('@/api/rate-limiter', () => ({
-    globalRateLimiter: {
-        throttle: vi.fn().mockResolvedValue(undefined),
-    },
-}))
 
 type FetchInput = Parameters<Fetcher['fetch']>[0]
 
@@ -48,7 +40,6 @@ describe('buildApiFetcher', () => {
 
             expect(response.ok).toBe(true)
             expect(global.fetch).toHaveBeenCalledTimes(1)
-            expect(globalRateLimiter.throttle).toHaveBeenCalledTimes(1)
         })
 
         it('should include authorization header', async () => {
@@ -132,34 +123,30 @@ describe('buildApiFetcher', () => {
             const fetcher = buildApiFetcher(mockConfig)
             const promise = fetcher.fetch(baseFetchInput)
 
-            // Advance time for first retry (2000ms * 2^0 = 2000ms)
+            // Advance time for first retry (jittered, at most 2000ms * 2^0)
             await vi.advanceTimersByTimeAsync(2000)
             await promise
 
             expect(global.fetch).toHaveBeenCalledTimes(2)
-            expect(globalRateLimiter.throttle).toHaveBeenCalledTimes(2)
         })
 
-        it('should use exponential backoff delays: 2s, 4s, 8s', async () => {
+        it('should use jittered exponential backoff delays capped at 2s, 4s, 8s', async () => {
             const mock429Response = new Response('{}', { status: 429 })
             const mockSuccessResponse = new Response('{}', { status: 200 })
 
             vi.mocked(global.fetch)
-                .mockResolvedValueOnce(mock429Response) // Attempt 0: retry after 2s
-                .mockResolvedValueOnce(mock429Response) // Attempt 1: retry after 4s
-                .mockResolvedValueOnce(mock429Response) // Attempt 2: retry after 8s
+                .mockResolvedValueOnce(mock429Response) // Attempt 0: retry within 2s
+                .mockResolvedValueOnce(mock429Response) // Attempt 1: retry within 4s
+                .mockResolvedValueOnce(mock429Response) // Attempt 2: retry within 8s
                 .mockResolvedValueOnce(mockSuccessResponse) // Attempt 3: success
 
             const fetcher = buildApiFetcher(mockConfig)
             const promise = fetcher.fetch(baseFetchInput)
 
-            // First retry: 2000ms * 2^0 = 2000ms
+            // Each retry's jittered delay falls in [backoff/2, backoff], so
+            // advancing by the full backoff always releases it.
             await vi.advanceTimersByTimeAsync(2000)
-
-            // Second retry: 2000ms * 2^1 = 4000ms
             await vi.advanceTimersByTimeAsync(4000)
-
-            // Third retry: 2000ms * 2^2 = 8000ms
             await vi.advanceTimersByTimeAsync(8000)
 
             await promise
@@ -223,10 +210,24 @@ describe('buildApiFetcher', () => {
             await promise
 
             expect(consoleWarnSpy).toHaveBeenCalledWith(
-                expect.stringContaining('Rate limited (429). Retrying in 2000ms (attempt 1/3)')
+                expect.stringMatching(/Rate limited \(429\)\. Retrying in \d+ms \(attempt 1\/3\)/)
             )
 
             consoleWarnSpy.mockRestore()
+        })
+
+        it('should fail fast without retrying when Retry-After exceeds the wait cap', async () => {
+            const mock429Response = new Response(JSON.stringify({ error: 'Rate limited' }), {
+                status: 429,
+                headers: { 'Retry-After': '3600' },
+            })
+            vi.mocked(global.fetch).mockResolvedValue(mock429Response)
+
+            const fetcher = buildApiFetcher(mockConfig)
+
+            await expect(fetcher.fetch(baseFetchInput)).rejects.toThrow('above the 30s cap')
+
+            expect(global.fetch).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -269,44 +270,6 @@ describe('buildApiFetcher', () => {
             expect(thrown.message).toContain('Failed request: [500]')
 
             expect(global.fetch).toHaveBeenCalledTimes(1)
-        })
-    })
-
-    describe('rate limiter integration', () => {
-        it('should call rate limiter before each request', async () => {
-            const mock429Response = new Response('{}', { status: 429 })
-            const mockSuccessResponse = new Response('{}', { status: 200 })
-
-            vi.mocked(global.fetch).mockResolvedValueOnce(mock429Response).mockResolvedValueOnce(mockSuccessResponse)
-
-            const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch(baseFetchInput)
-
-            await vi.advanceTimersByTimeAsync(2000)
-            await promise
-
-            // Should call throttle before initial request and before retry
-            expect(globalRateLimiter.throttle).toHaveBeenCalledTimes(2)
-        })
-
-        it('should call rate limiter on all retry attempts', async () => {
-            const mock429Response = new Response('{}', { status: 429 })
-            const mockSuccessResponse = new Response('{}', { status: 200 })
-
-            vi.mocked(global.fetch)
-                .mockResolvedValueOnce(mock429Response)
-                .mockResolvedValueOnce(mock429Response)
-                .mockResolvedValueOnce(mockSuccessResponse)
-
-            const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch(baseFetchInput)
-
-            await vi.advanceTimersByTimeAsync(2000)
-            await vi.advanceTimersByTimeAsync(4000)
-            await promise
-
-            // Initial + 2 retries = 3 calls
-            expect(globalRateLimiter.throttle).toHaveBeenCalledTimes(3)
         })
     })
 

@@ -21,7 +21,7 @@ import { buildMetricEntries, ExperimentExposureQuerySchema } from '@/schema/expe
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
-import { globalRateLimiter } from './rate-limiter.js'
+import { decide429Retry, MAX_RETRIES, MAX_RETRY_AFTER_MS } from './retry.js'
 
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
@@ -323,34 +323,35 @@ export class ApiClient {
     }
 
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
-        const maxRetries = 3
-        const baseBackoffMs = 2000
+        const maxRetries = MAX_RETRIES
         const method = options?.method ?? 'GET'
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
-                // Apply rate limiting before making the request
-                await globalRateLimiter.throttle()
-
                 const response = await this.fetch(url, options)
 
-                // Handle rate limiting with exponential backoff
+                // Handle rate limiting by honoring the server's Retry-After signal
                 if (response.status === 429) {
-                    if (attempt < maxRetries) {
-                        // Check for Retry-After header
-                        const retryAfter = response.headers.get('Retry-After')
-                        const delayMs = retryAfter
-                            ? parseInt(retryAfter, 10) * 1000
-                            : baseBackoffMs * Math.pow(2, attempt)
-
+                    const decision = decide429Retry(response.headers.get('Retry-After'), attempt, maxRetries)
+                    if (decision.retry) {
                         console.warn(
-                            `[API] Rate limited (429) on ${method} ${url}. Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
+                            `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(decision.delayMs)}ms (attempt ${attempt + 1}/${maxRetries})`
                         )
-                        await new Promise((resolve) => setTimeout(resolve, delayMs))
+                        await new Promise((resolve) => setTimeout(resolve, decision.delayMs))
                         continue
                     }
-                    // Max retries exceeded
                     const errorText = await response.text()
+                    if (decision.reason === 'retry_after_exceeds_cap') {
+                        console.error(
+                            `[API] Rate limited on ${method} ${url}: server requested a ${Math.round(decision.delayMs / 1000)}s wait, above the ${MAX_RETRY_AFTER_MS / 1000}s cap`
+                        )
+                        return {
+                            success: false,
+                            error: new Error(
+                                `Rate limited: server requested a ${Math.round(decision.delayMs / 1000)}s wait, above the ${MAX_RETRY_AFTER_MS / 1000}s cap:\nURL: ${method} ${url}\nStatus Code: ${response.status}\nError Message: ${errorText}`
+                            ),
+                        }
+                    }
                     console.error(`[API] Rate limit exceeded after ${maxRetries} retries on ${method} ${url}`)
                     return {
                         success: false,
