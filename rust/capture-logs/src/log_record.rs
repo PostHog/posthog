@@ -399,24 +399,35 @@ mod tests {
         assert_eq!(compute_kafka_log_row_bytes(&row), 57);
     }
 
-    #[test]
-    fn test_sum_kafka_log_row_bytes_sums_rows_and_treats_missing_as_zero() {
-        let with_bytes = sample_row().with_computed_bytes();
-        let per_row = with_bytes.bytes_uncompressed.unwrap() as u64;
-        let without_bytes = sample_row(); // bytes_uncompressed: None
+    fn sample_row_bytes() -> u64 {
+        sample_row()
+            .with_computed_bytes()
+            .bytes_uncompressed
+            .unwrap() as u64
+    }
 
+    #[test]
+    fn test_sum_kafka_log_row_bytes_empty_slice_is_zero() {
         assert_eq!(sum_kafka_log_row_bytes(&[]), 0);
+    }
+
+    #[test]
+    fn test_sum_kafka_log_row_bytes_treats_missing_field_as_zero() {
+        let with_bytes = sample_row().with_computed_bytes();
+        let without_bytes = sample_row(); // bytes_uncompressed: None
         assert_eq!(
             sum_kafka_log_row_bytes(&[with_bytes, without_bytes]),
-            per_row
+            sample_row_bytes()
         );
-        assert_eq!(
-            sum_kafka_log_row_bytes(&[
-                sample_row().with_computed_bytes(),
-                sample_row().with_computed_bytes()
-            ]),
-            per_row * 2
-        );
+    }
+
+    #[test]
+    fn test_sum_kafka_log_row_bytes_sums_all_rows() {
+        let rows = [
+            sample_row().with_computed_bytes(),
+            sample_row().with_computed_bytes(),
+        ];
+        assert_eq!(sum_kafka_log_row_bytes(&rows), sample_row_bytes() * 2);
     }
 
     #[test]
