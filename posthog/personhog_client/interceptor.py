@@ -10,6 +10,7 @@ import grpc
 import structlog
 from prometheus_client import Counter, Histogram
 
+from posthog.personhog_client.caller_tag import current_caller_tag
 from posthog.personhog_client.metrics import (
     PERSONHOG_ERRORS_TOTAL,
     PERSONHOG_RETRIES_TOTAL,
@@ -82,7 +83,10 @@ class ClientNameInterceptor(grpc.UnaryUnaryClientInterceptor):
         client_call_details: grpc.ClientCallDetails,
         request: Any,
     ) -> Any:
-        new_details = _with_metadata(client_call_details, [("x-client-name", self._client_name)])
+        new_details = _with_metadata(
+            client_call_details,
+            [("x-client-name", self._client_name), ("x-caller-tag", current_caller_tag())],
+        )
         return continuation(new_details, request)
 
 
