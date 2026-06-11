@@ -59,6 +59,17 @@ describe('sessionRecordingsPlaylistLogic', () => {
         viewers: [],
         snapshot_source: 'web' as const,
     }
+    const outsideFiltersRecording = {
+        id: 'outside-filters-rec',
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-01-12T16:55:36.404000Z',
+        end_time: '2023-01-12T16:55:46.404000Z',
+        console_error_count: 0,
+        viewers: [],
+        snapshot_source: 'web' as const,
+        matches_filters: false,
+    }
 
     beforeEach(() => {
         useMocks({
@@ -89,6 +100,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                             200,
                             {
                                 results: ["List of specific user's recordings from server"],
+                            },
+                        ]
+                    } else if (searchParams.get('session_recording_id') === outsideFiltersRecording.id) {
+                        // a recording requested via direct link that doesn't match the filters
+                        // is included in results flagged with matches_filters false
+                        return [
+                            200,
+                            {
+                                results: [outsideFiltersRecording, ...listOfSessionRecordings],
                             },
                         ]
                     } else if (searchParams.get('offset') !== null) {
@@ -211,6 +231,32 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     activeSessionRecording: listOfSessionRecordings[0],
                 })
                 expect(router.values.searchParams).not.toHaveProperty('sessionRecordingId', 'not-in-list')
+            })
+        })
+
+        describe('selectedRecordingOutsideFilters', () => {
+            it('is false when no recording is selected', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    selectedRecordingOutsideFilters: false,
+                })
+            })
+
+            it('is false when the selected recording matches the filters', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        selectedRecordingId: 'abc',
+                        selectedRecordingOutsideFilters: false,
+                    })
+            })
+
+            it('is true when the selected recording is flagged as not matching the filters', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId(outsideFiltersRecording.id))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        selectedRecordingId: outsideFiltersRecording.id,
+                        selectedRecordingOutsideFilters: true,
+                    })
             })
         })
 

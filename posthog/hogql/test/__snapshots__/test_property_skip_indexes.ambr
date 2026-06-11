@@ -487,8 +487,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_typed_datetime_prop, toDateTime64('2024-01-05 00:00:00', 6, 'UTC'))
-                                            AND (events.mat_typed_datetime_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(ifNull(less(events.mat_typed_datetime_prop, toDateTime64('2024-01-05 00:00:00', 6, 'UTC')), 0), isNotNull(events.mat_typed_datetime_prop)))
   LIMIT 50000
   '''
 # ---
@@ -496,8 +495,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_typed_numeric_prop, 5)
-                                            AND (events.mat_typed_numeric_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_typed_numeric_prop, 5), isNotNull(events.mat_typed_numeric_prop)))
   LIMIT 50000
   '''
 # ---
