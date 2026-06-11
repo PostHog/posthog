@@ -7,6 +7,7 @@ from posthog.schema import IntervalType, NodeKind, TrendsAlertConfig, TrendsQuer
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 # Low-level scoring/extraction primitives still live in the legacy detector module.
@@ -212,6 +213,8 @@ def simulate_detector_on_insight(
         raise ValueError("Only TrendsQuery insights are supported for simulation.")
 
     trends_query = TrendsQuery.model_validate(query)
+    # Read-only simulation runs outside the alert-check activity, so tag its query directly.
+    tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
     detector_type_str = detector_config.get("type", "zscore")
     result = extract_detector_series(
         insight, team, trends_query, detector_config, series_index=series_index, date_from=date_from
