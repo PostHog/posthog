@@ -58,19 +58,20 @@ const WorkflowsGetEmailTemplateSchema = MessagingTemplatesRetrieveParams.omit({ 
 const workflowsGetEmailTemplate = (): ToolBase<
     typeof WorkflowsGetEmailTemplateSchema,
     WithPostHogUrl<Schemas.MessageTemplate>
-> => ({
-    name: 'workflows-get-email-template',
-    schema: WorkflowsGetEmailTemplateSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsGetEmailTemplateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.MessageTemplate>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
-        })
-        const filtered = omitResponseFields(result, ['content.email.html', 'created_by']) as typeof result
-        return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
-    },
-})
+> =>
+    withUiApp('email-template', {
+        name: 'workflows-get-email-template',
+        schema: WorkflowsGetEmailTemplateSchema,
+        handler: async (context: Context, params: z.infer<typeof WorkflowsGetEmailTemplateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.MessageTemplate>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
+            })
+            const filtered = omitResponseFields(result, ['created_by']) as typeof result
+            return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
+        },
+    })
 
 const WorkflowsListEmailTemplatesSchema = MessagingTemplatesListQueryParams
 

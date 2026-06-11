@@ -47,13 +47,13 @@ tools:
         enrich_url: '{id}'
         title: Get email template
         description: >
-            Get an email template by ID, including content.email (subject, text, design). Always fetch before updating —
-            content is replaced as a whole and humans may have edited the design in the visual editor since you last saw
-            it, so build your update payload from this response.
+            Get an email template by ID, including content.email (subject, text, html, design) — renders an inline
+            preview. Always fetch before updating — content is replaced as a whole and humans may have edited the design
+            in the visual editor since you last saw it, so build your update payload from this response.
         response:
             exclude:
-                - content.email.html
                 - created_by
+        ui_app: email-template
     workflows-list-email-templates:
         operation: messaging_templates_list
         enabled: true
