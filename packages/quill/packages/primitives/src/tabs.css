@@ -147,9 +147,12 @@
         pointer-events: none;
     }
 
-    .quill-tabs__trigger svg:not([class*='size-']) {
-        width: 0.875rem;
-        height: 0.875rem;
+    /* Doubled class beats .quill-button's 1rem svg sizing — the trigger renders
+       a Button, so both rules match at otherwise equal specificity and bundle
+       order would decide. */
+    .quill-tabs__trigger.quill-tabs__trigger svg:not([class*='size-']) {
+        width: 0.75rem;
+        height: 0.75rem;
     }
 
     .group\/tabs[data-orientation='vertical'] .quill-tabs__trigger {

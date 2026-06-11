@@ -801,6 +801,29 @@ Sanctioned escape hatches (the only padding overrides the stories use):
 
 ---
 
+## Icons
+
+Primitives size and lay out their own icons — drop a bare lucide icon in as a child and it just works:
+
+```tsx
+<Button>
+  <Copy />
+  Copy
+</Button>
+```
+
+Each container's CSS handles `flex-shrink: 0` and the per-context size via `svg:not([class*='size-'])` selectors (or the `[&_svg:not([class*="size-"])]:size-*` Tailwind equivalent):
+
+| Context                               | Icon size           |
+| ------------------------------------- | ------------------- |
+| Button                                | 1rem (size-4)       |
+| Menu items (Dropdown/Context/Menubar) | 0.875rem (size-3.5) |
+| TabsTrigger                           | 0.75rem (size-3)    |
+
+**Don't add `size-*` classes to icons inside primitives.** The `:not([class*='size-'])` guard means an explicit `size-*` class is treated as a deliberate override and the component's sizing steps aside — so reserve it for the rare case where you genuinely need a different size. Color also inherits (`currentColor`), so don't set icon colors either; variants tint their icons themselves.
+
+---
+
 ## Rules
 
 1. **Use Field for forms** — don't compose raw Label + Input, use Field > FieldLabel + Input + FieldDescription/FieldError
@@ -812,3 +835,4 @@ Sanctioned escape hatches (the only padding overrides the stories use):
 7. **Use `cn()` for class overrides** — import from `@posthog/quill-primitives` to merge Tailwind classes safely
 8. **Follow the spacing conventions** — see Spacing and layout above; `gap-2` between related siblings, `gap-4` between sections, never re-pad primitive internals
 9. **Use `loading` on submit buttons** — any Button that triggers a network request must pass `loading` while the request is in flight; it disables the button (guarding double-submission) and overlays a spinner without changing the button's width
+10. **Don't size or color icons inside primitives** — see Icons above; component CSS sizes bare svg children per context, and `currentColor` handles tinting
