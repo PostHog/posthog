@@ -2,9 +2,12 @@ import datetime as dt
 
 from structlog.types import FilteringBoundLogger
 
-from posthog.tasks.email import EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS, send_external_data_failure_digest_task
 from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES, emit_data_import_app_metrics
 
+from products.data_warehouse.backend.tasks import (
+    EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS,
+    send_external_data_failure_digest_task,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 

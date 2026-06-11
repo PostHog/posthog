@@ -29,8 +29,6 @@ from posthog.tasks.email import (
     send_email_change_emails,
     send_email_verification,
     send_external_data_failure_digest,
-    send_external_data_failure_digest_catchup,
-    send_external_data_failure_digest_task,
     send_fatal_plugin_error,
     send_hog_function_disabled,
     send_hog_functions_daily_digest,
@@ -672,27 +670,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         with freeze_time("2024-05-16 10:00:00"):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages[1].to) == 2
-
-    def test_send_external_data_failure_digest_task_builds_digest(self, MockEmailMessage: MagicMock) -> None:
-        with patch(
-            "products.data_warehouse.backend.external_data_source.notifications.notify_external_data_sync_failures"
-        ) as mock_notify:
-            send_external_data_failure_digest_task(self.team.pk)
-
-        mock_notify.assert_called_once_with(self.team.pk)
-
-    def test_send_external_data_failure_digest_catchup_fans_out_per_team(self, MockEmailMessage: MagicMock) -> None:
-        with (
-            patch(
-                "products.data_warehouse.backend.external_data_source.notifications.get_team_ids_with_recent_sync_failures",
-                return_value=[1, 2],
-            ),
-            patch("posthog.tasks.email.send_external_data_failure_digest_task") as mock_task,
-        ):
-            send_external_data_failure_digest_catchup()
-
-        assert mock_task.delay.call_count == 2
-        assert [c.args for c in mock_task.delay.call_args_list] == [(1,), (2,)]
 
     def test_should_send_pipeline_error_notification(self, MockEmailMessage: MagicMock) -> None:
         # Default threshold is 1% (0.01) - notify when failure rate exceeds that

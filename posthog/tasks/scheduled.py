@@ -14,7 +14,6 @@ from posthog.tasks.ai_observability_usage_report import send_ai_observability_us
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.email import (
     send_error_tracking_weekly_digest,
-    send_external_data_failure_digest_catchup,
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
 )
@@ -70,6 +69,7 @@ from posthog.utils import get_crontab, get_instance_region
 
 from products.conversations.backend.tasks import flush_pending_email_replies, wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
+from products.data_warehouse.backend.tasks import send_external_data_failure_digest_catchup
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
