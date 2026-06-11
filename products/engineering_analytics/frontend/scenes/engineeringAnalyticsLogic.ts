@@ -155,9 +155,11 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
         lifecycles: [
             {} as Record<string, PRLifecycleApi | null>,
             {
+                // No destructuring default for `force` — kea-typegen copies the initializer
+                // into the generated type declaration, where it is invalid TS.
                 loadLifecycle: async ({
                     row,
-                    force = false,
+                    force,
                 }: {
                     row: PullRequestRow
                     force?: boolean
