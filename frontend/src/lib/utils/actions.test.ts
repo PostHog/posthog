@@ -1,4 +1,4 @@
-import { elementToSelector } from 'lib/actionUtils'
+import { elementToSelector } from 'lib/utils/actions'
 
 import { ElementType } from '~/types'
 

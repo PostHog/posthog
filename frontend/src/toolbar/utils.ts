@@ -2,7 +2,7 @@ import { finder } from '@medv/finder'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
-import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/actionUtils'
+import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/utils/actions'
 
 import { patch } from '~/toolbar/patch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'

@@ -10,7 +10,7 @@ import {
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     PendingAlertNotification,
-} from 'lib/utils/alertUtils'
+} from 'lib/utils/alerts'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionType, SlackChannelType } from '~/types'
