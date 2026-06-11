@@ -1046,7 +1046,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
             {flagId && <IntentWarningsBanner flagId={flagId} />}
 
-            {!hideMatchOptions && (showGroupsOptions || onBucketingIdentifierChange) && (
+            {!hideMatchOptions && matchByOptions.length > 1 && (
                 <div>
                     <LemonLabel
                         className="mb-2"
@@ -1064,7 +1064,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             // Handle arrow key navigation for radio group
                             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
                                 e.preventDefault()
-                                const options = ['properties', ...(onBucketingIdentifierChange ? ['device'] : [])]
+                                const options = matchByOptions.map((option) => option.value)
 
                                 const currentIndex = options.indexOf(currentSelected)
                                 let nextIndex = currentIndex

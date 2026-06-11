@@ -5147,6 +5147,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        # Flag-level aggregation collapses to None once condition sets are mixed
+        filters = response.json()["filters"]
+        self.assertIsNone(filters["aggregation_group_type_index"])
+        # Each condition set retains its own aggregation type
+        self.assertIsNone(filters["groups"][0]["aggregation_group_type_index"])
+        self.assertEqual(filters["groups"][1]["aggregation_group_type_index"], 0)
+
     def test_per_condition_aggregation_normalization(self):
         """Test that flag-level aggregation is distributed to condition sets without one"""
         GroupTypeMapping.objects.create(
