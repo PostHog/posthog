@@ -1,6 +1,6 @@
 import { shortTimeZone } from 'lib/utils/timezones'
 
-describe('lib/utils', () => {
+describe('timezones utils', () => {
     test('shortTimezone', () => {
         expect(shortTimeZone('UTC')).toEqual('UTC')
         // All timezones below don't observe DST for simplicity

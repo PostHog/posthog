@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import * as libUtils from 'lib/utils'
+import * as libUtils from 'lib/utils/dom'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'

@@ -8,9 +8,9 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
+import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import {
     type ProductCrossSellProperties,
