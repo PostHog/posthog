@@ -6,6 +6,7 @@ describe('getUploadedFile', () => {
         expect(getUploadedFile(null)).toBeNull()
         expect(getUploadedFile('')).toBeNull()
         expect(getUploadedFile([])).toBeNull()
+        expect(getUploadedFile([{}])).toBeNull()
     })
 
     it('returns the first file for a non-empty upload field', () => {
