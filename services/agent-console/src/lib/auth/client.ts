@@ -28,7 +28,11 @@ const SCOPES = [
     'project:read',
     'agents:read',
     'agents:write',
-    'ai_gateway:read',
+    // Temporarily disabled: the dev-two deploy runs the agent-platform-django-base
+    // image, which doesn't ship the `ai_gateway` scope yet, so requesting it makes
+    // /oauth/authorize fail with invalid_scope. Re-enable once the ai-gateway slice
+    // lands in that image.
+    // 'ai_gateway:read',
     // Read-only HogQL over the team's own events — powers the analytics
     // dashboard's rollups over the agents' `$ai_*` observability events.
     'query:read',
