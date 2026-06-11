@@ -104,6 +104,7 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
     # Cheap guard: skip the ClickHouse query entirely for projects without org group analytics.
     group_type_names = {gtm["group_type"] for gtm in get_group_types_for_project(team.project_id)}
     if "organization" not in group_type_names:
+        set_cached_resolved_groups(team.id, distinct_ids, None)
         return None
 
     with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
