@@ -15,7 +15,7 @@ class HogQLPrinter(BasePrinter):
 
     DIALECT_NAME: ClassVar[HogQLDialect] = "hogql"
 
-    def visit_jsonfield_access(self, node: ast.JSONFieldAccess) -> str:
+    def visit_property_access(self, node: ast.PropertyAccess) -> str:
         # A lowered `properties.$x` read prints back as the HogQL property chain it came from, not the ClickHouse
         # `JSONExtractRaw(...)` form the base renderer emits — so `dialect="hogql"` stays valid, re-parseable HogQL
         # (e.g. the stored batch-export `hogql_query`). The keys join onto the blob field as chain access.

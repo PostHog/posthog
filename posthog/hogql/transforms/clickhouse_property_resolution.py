@@ -1,6 +1,6 @@
 """ClickHouse pass: read each property from a faster precomputed column when one exists.
 
-Lowering has already turned every `properties.x` read into a `JSONFieldAccess` node — "pull these keys out of this JSON
+Lowering has already turned every `properties.x` read into a `PropertyAccess` node — "pull these keys out of this JSON
 blob". This pass looks each one up. If the property is backed by a precomputed column (a materialized column, a dmat
 column, or a property-group map), it rewrites the node to read that column instead: the same value, far cheaper than
 parsing JSON. Reads with no backing column are left alone, and the printer prints them as the raw JSON extract.
@@ -189,14 +189,14 @@ def resolve_property_group_source(
     return None
 
 
-# --- helpers to read a JSONFieldAccess's source column + key path -----------------------------------------------------
+# --- helpers to read a PropertyAccess's source column + key path -----------------------------------------------------
 #
-# A `JSONFieldAccess`'s own type is just its value type (a nullable String), so everything this pass needs comes from the
+# A `PropertyAccess`'s own type is just its value type (a nullable String), so everything this pass needs comes from the
 # node's structure instead: `node.expr` is the blob `Field` (its `.type` points at the table and column), and
 # `node.keys` is the key path (keys[0] is the property name; deeper keys index into the extracted value).
 
 
-def _blob_field_type_of(node: ast.JSONFieldAccess) -> ast.FieldType | None:
+def _blob_field_type_of(node: ast.PropertyAccess) -> ast.FieldType | None:
     """The source blob column's `FieldType` (`node.expr.type`), the input to `resolve_materialized_property_source`."""
     expr_type = node.expr.type
     return expr_type if isinstance(expr_type, ast.FieldType) else None
@@ -302,15 +302,15 @@ def _materialized_head_expr(
     return ast.Call(name="nullIf", args=[scrubbed_empty, _sentinel("null")])
 
 
-def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> ast.Expr | None:
-    """The backing-column read for a `JSONFieldAccess`, or None to leave it as the JSON extract.
+def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> ast.Expr | None:
+    """The backing-column read for a `PropertyAccess`, or None to leave it as the JSON extract.
 
     Picks the column and builds the read (the numeric/boolean cast is not handled here — it already wraps this node).
     Returns a constant NULL for an access-restricted property, or None when the property has no precomputed column
     (materialized, dmat, or property group) to read from — in which case it stays a raw JSON extract.
     """
     field_type = _blob_field_type_of(node)
-    # Lowering builds every JSONFieldAccess with the blob FieldType on `expr` and a non-empty key path. Assert the
+    # Lowering builds every PropertyAccess with the blob FieldType on `expr` and a non-empty key path. Assert the
     # invariant rather than silently bailing, so a real violation fails loud instead of degrading to a JSON read.
     assert field_type is not None and node.keys
 
@@ -341,10 +341,10 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
         return None
     if not deeper_keys:
         return head
-    # Deeper keys read the column value as a JSON string. Emit a JSONFieldAccess rather than building the extract here:
+    # Deeper keys read the column value as a JSON string. Emit a PropertyAccess rather than building the extract here:
     # the printer renders that node via `json_extract_trim_quotes` (kafka_engine.py), the one implementation of the
     # extract-and-trim SQL shape.
-    return ast.JSONFieldAccess(expr=head, keys=deeper_keys, type=ast.StringType(nullable=True))
+    return ast.PropertyAccess(expr=head, keys=deeper_keys, type=ast.StringType(nullable=True))
 
 
 # --- comparison rewrites: keep the bare column eligible for skip indexes -----------------------------------------------
@@ -461,10 +461,10 @@ class _OptimizableProperty:
 
 
 class ClickHousePropertyResolver(CloningVisitor):
-    """Rewrites lowered `JSONFieldAccess` reads (and comparisons over them) to read backing columns where they exist.
+    """Rewrites lowered `PropertyAccess` reads (and comparisons over them) to read backing columns where they exist.
 
     After this pass, a backed property is an ordinary column expression; an unbacked (or restricted) one stays a
-    `JSONFieldAccess` and prints as the raw JSON extract.
+    `PropertyAccess` and prints as the raw JSON extract.
     """
 
     def __init__(self, context: HogQLContext) -> None:
@@ -506,14 +506,14 @@ class ClickHousePropertyResolver(CloningVisitor):
             table_type = getattr(table_type, "table_type", None)
         return False
 
-    def _lowered_property_operand(self, expr: ast.Expr) -> ast.JSONFieldAccess | None:
+    def _lowered_property_operand(self, expr: ast.Expr) -> ast.PropertyAccess | None:
         """The lowered `properties.$x` behind a comparison operand, or None.
 
-        After lowering, such an operand is a `JSONFieldAccess` (often wrapped in an `Alias`).
+        After lowering, such an operand is a `PropertyAccess` (often wrapped in an `Alias`).
         """
         if isinstance(expr, ast.Alias):
             expr = expr.expr
-        if isinstance(expr, ast.JSONFieldAccess):
+        if isinstance(expr, ast.PropertyAccess):
             return expr
         return None
 
@@ -529,7 +529,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             if field_type is not None:
                 return field_type, str(node.keys[0])
 
-        # The operand can also carry the property on its resolved type rather than as a bare `JSONFieldAccess`: a
+        # The operand can also carry the property on its resolved type rather than as a bare `PropertyAccess`: a
         # reference to a select alias over a property read (`SELECT properties.x AS a ... WHERE a = 'v'`) resolves
         # through the alias wrapper to the original `PropertyType`, and a boolean/numeric property gets wrapped by the
         # swapper in a cast (`toBool(transform(toString(...)))`) with the `PropertyType` underneath. Read the property
@@ -549,11 +549,11 @@ class ClickHousePropertyResolver(CloningVisitor):
 
     # --- value substitution ---
 
-    def visit_jsonfield_access(self, node: ast.JSONFieldAccess) -> ast.Expr:
+    def visit_property_access(self, node: ast.PropertyAccess) -> ast.Expr:
         substituted = _substitute_value_read(node, self.context)
         if substituted is not None:
             return substituted
-        return super().visit_jsonfield_access(node)
+        return super().visit_property_access(node)
 
     # --- comparison / call rewrites ---
 
@@ -600,7 +600,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return optimized
 
         # Intentional gap: nothing above rewrites `property = NULL` / `!= NULL`, so it falls through to super() and the
-        # surviving JSONFieldAccess reads the scrubbed materialized column. An is-set check therefore treats both an empty
+        # surviving PropertyAccess reads the scrubbed materialized column. An is-set check therefore treats both an empty
         # string and the literal text "null" as "not set", which over-matches a true "does this key exist in the blob"
         # test. Left this way deliberately — tightening it would change query results.
         return super().visit_compare_operation(node)
@@ -907,7 +907,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         type. A bare lowered JSON read is semantically a string."""
         if isinstance(expr, ast.Alias):
             expr = expr.expr
-        if isinstance(expr, ast.JSONFieldAccess):
+        if isinstance(expr, ast.PropertyAccess):
             return expr.type if isinstance(expr.type, ast.ConstantType) else ast.StringType(nullable=True)
         expr_type = resolve_field_type(expr)
         if expr_type is None:
@@ -1063,7 +1063,7 @@ class ClickHousePropertyResolver(CloningVisitor):
 
 
 def clickhouse_property_resolution(node: _T_AST, context: HogQLContext) -> _T_AST:
-    """Rewrite every backed lowered `JSONFieldAccess` (and comparison over it) to read its backing column.
+    """Rewrite every backed lowered `PropertyAccess` (and comparison over it) to read its backing column.
 
     ClickHouse only. Expects a resolved, swapped, lowered AST, and runs right after `lower_property_access` in the
     ClickHouse print pipeline (see `prepare_ast_for_printing`).

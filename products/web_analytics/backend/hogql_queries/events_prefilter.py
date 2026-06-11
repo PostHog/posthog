@@ -53,11 +53,11 @@ class _EventsFieldCollector(TraversingVisitor):
         # An augmented copy is the same table class with the original's fields plus the synthetic ones.
         return type(candidate.table) is type(target.table) and set(target.table.fields).issubset(candidate.table.fields)
 
-    def visit_jsonfield_access(self, node: ast.JSONFieldAccess):
-        # After the lowering pass an unmaterialized `properties.$x` read is a `JSONFieldAccess` over the blob `Field`,
+    def visit_property_access(self, node: ast.PropertyAccess):
+        # After the lowering pass an unmaterialized `properties.$x` read is a `PropertyAccess` over the blob `Field`,
         # not a `PropertyType`. Record the property access so `_resolve_materialized_columns` keeps the `properties`
         # column in the subquery instead of discarding it. `super()` still visits `node.expr` (the blob field).
-        super().visit_jsonfield_access(node)
+        super().visit_property_access(node)
         blob_type = node.expr.type
         if isinstance(blob_type, ast.FieldType) and node.keys:
             self._record_property_access(blob_type, str(node.keys[0]))
