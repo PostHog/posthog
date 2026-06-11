@@ -12,10 +12,11 @@ import { cn } from 'lib/utils/css-classes'
 
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
 import { absoluteTraceUrl } from '../../traceLinks'
-import { formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
+import { buildServiceColorMap, formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
 import type { Span } from '../../types'
 import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
 import { SpanLogsTab } from './SpanLogsTab'
+import { SpanSummaryHeader } from './SpanSummaryHeader'
 
 type InspectorTab = 'attributes' | 'logs'
 
@@ -69,6 +70,8 @@ export function TraceDrawer({
         () => (selectedSpanId ? (spans.find((span) => span.span_id === selectedSpanId) ?? null) : null),
         [spans, selectedSpanId]
     )
+    // Shared with the waterfall so a service is the same color in the bars and the summary header.
+    const serviceColorMap = useMemo(() => buildServiceColorMap(spans), [spans])
 
     // Gate mounting so a closed drawer holds no react-modal portal (and its listener surface).
     const shouldRender = useKeepMountedWhileOpen(isOpen)
@@ -132,26 +135,31 @@ export function TraceDrawer({
                 >
                     <Resizer {...inspectorResizerProps} />
                     {inspectedSpan ? (
-                        <LemonTabs
-                            activeKey={inspectorTab}
-                            onChange={setInspectorTab}
-                            data-attr="tracing-inspector-tabs"
-                            tabs={[
-                                {
-                                    key: 'attributes',
-                                    label: 'Attributes',
-                                    content: <ExpandedSpanContent span={inspectedSpan} />,
-                                },
-                                {
-                                    key: 'logs',
-                                    label: 'Logs',
-                                    // Not keyed by span: the embedded viewer (keyed by trace_id) and the memoized
-                                    // pinned filter re-query in place when the selected span changes, so a remount
-                                    // would only churn its logics and lose scroll.
-                                    content: <SpanLogsTab span={inspectedSpan} />,
-                                },
-                            ]}
-                        />
+                        <>
+                            <SpanSummaryHeader span={inspectedSpan} serviceColorMap={serviceColorMap} />
+                            <LemonTabs
+                                activeKey={inspectorTab}
+                                onChange={setInspectorTab}
+                                data-attr="tracing-inspector-tabs"
+                                tabs={[
+                                    {
+                                        key: 'attributes',
+                                        label: 'Attributes',
+                                        // The summary header carries the headline facts, so the tab
+                                        // shows only the user attributes (no duplicate details table).
+                                        content: <ExpandedSpanContent span={inspectedSpan} showDetails={false} />,
+                                    },
+                                    {
+                                        key: 'logs',
+                                        label: 'Logs',
+                                        // Not keyed by span: the embedded viewer (keyed by trace_id) and the memoized
+                                        // pinned filter re-query in place when the selected span changes, so a remount
+                                        // would only churn its logics and lose scroll.
+                                        content: <SpanLogsTab span={inspectedSpan} />,
+                                    },
+                                ]}
+                            />
+                        </>
                     ) : (
                         <div className="text-muted p-4">No spans in this trace</div>
                     )}

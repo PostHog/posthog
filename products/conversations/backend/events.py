@@ -73,7 +73,9 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     # have no org membership, don't guess via email (a shared email could resolve to a
     # different person's org), so return early instead of falling through.
     if ticket.distinct_id:
-        persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id])
+        # Only is_identified is read, and the membership lookup below keys off the ticket's own
+        # distinct_id — so skip fetching the person's distinct_ids.
+        persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
         if any(p.is_identified for p in persons):
             membership = (
                 OrganizationMembership.objects.select_related("organization")
