@@ -465,3 +465,172 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Drain the generator so the background bridge thread terminates before the test ends.
         self._consume_stream(response)
+
+
+def _markdown_doc(markdown: str) -> dict:
+    return {
+        "type": "doc",
+        "content": [{"type": "ph-markdown-notebook", "attrs": {"nodeId": "n1", "markdown": markdown}}],
+    }
+
+
+class TestNotebookMarkdownSaveAPI(APIBaseTest):
+    def _create_markdown_notebook(self, markdown: str = "# Title\n\nHello"):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/",
+            data={"content": _markdown_doc(markdown)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return response.json()
+
+    def _markdown_save(self, notebook, *, version, markdown, title=None, client_id="md-client"):
+        payload = {
+            "client_id": client_id,
+            "version": version,
+            "content": _markdown_doc(markdown),
+            "text_content": markdown,
+        }
+        if title is not None:
+            payload["title"] = title
+        return self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/collab/markdown_save/",
+            data=payload,
+            format="json",
+        )
+
+    def test_markdown_save_accepted(self):
+        notebook = self._create_markdown_notebook("# Title\n\nHello")
+
+        response = self._markdown_save(notebook, version=notebook["version"], markdown="# Title\n\nHello world")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["version"] == notebook["version"] + 1
+        assert data["content"] == _markdown_doc("# Title\n\nHello world")
+
+        nb = Notebook.objects.get(short_id=notebook["short_id"])
+        assert nb.version == notebook["version"] + 1
+        assert nb.text_content == "# Title\n\nHello world"
+
+    def test_markdown_save_appends_replayable_diff_to_stream(self):
+        from products.notebooks.backend.collab import STREAM_KEY_PATTERN, apply_utf16_text_changes, markdown_crc
+
+        notebook = self._create_markdown_notebook("# Title\n\nHello")
+        self._markdown_save(notebook, version=notebook["version"], markdown="# Title\n\nHello world")
+
+        import json as json_module
+
+        client = redis_module.get_client()
+        entries = client.xrange(STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id=notebook["short_id"]))
+        assert len(entries) == 1
+        stream_id, fields = entries[0]
+        assert stream_id.decode() == f"{notebook['version'] + 1}-0"
+        payload = json_module.loads(fields[b"data"])
+        assert payload["type"] == "update"
+        assert payload["client_id"] == "md-client"
+        assert payload["base_crc"] == markdown_crc("# Title\n\nHello")
+        assert apply_utf16_text_changes("# Title\n\nHello", payload["diff"]) == "# Title\n\nHello world"
+
+    def test_markdown_save_conflict_returns_foldable_updates(self):
+        from products.notebooks.backend.collab import apply_utf16_text_changes
+
+        notebook = self._create_markdown_notebook("base text")
+        version = notebook["version"]
+
+        first = self._markdown_save(notebook, version=version, markdown="base text plus A", client_id="client-a")
+        assert first.status_code == status.HTTP_200_OK
+
+        response = self._markdown_save(notebook, version=version, markdown="base text plus B", client_id="client-b")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        data = response.json()
+        assert data["code"] == "conflict"
+        assert data["version"] == version + 1
+        assert len(data["updates"]) == 1
+        update = data["updates"][0]
+        assert update["version"] == version + 1
+        assert update["client_id"] == "client-a"
+        assert apply_utf16_text_changes("base text", update["diff"]) == "base text plus A"
+
+        # The losing client's content was not persisted
+        nb = Notebook.objects.get(short_id=notebook["short_id"])
+        assert nb.version == version + 1
+        assert nb.content == _markdown_doc("base text plus A")
+
+    @patch("products.notebooks.backend.api.notebook.transaction.on_commit", side_effect=lambda callback: callback())
+    def test_markdown_save_conflict_replays_legacy_patch_diff(self, _mock_on_commit):
+        from products.notebooks.backend.collab import apply_utf16_text_changes
+
+        notebook = self._create_markdown_notebook("base text")
+        version = notebook["version"]
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/",
+            data={"content": _markdown_doc("base text via patch"), "version": version},
+            format="json",
+        )
+        assert patch_response.status_code == status.HTTP_200_OK
+
+        response = self._markdown_save(notebook, version=version, markdown="base text plus mine")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        data = response.json()
+        assert data["version"] == version + 1
+        assert apply_utf16_text_changes("base text", data["updates"][0]["diff"]) == "base text via patch"
+
+    def test_markdown_save_with_unreplayable_gap_returns_410(self):
+        notebook = self._create_markdown_notebook("base text")
+        version = notebook["version"]
+
+        # Postgres advanced without any stream entry (e.g. failed publish): nothing to replay.
+        Notebook.objects.filter(short_id=notebook["short_id"]).update(version=version + 1)
+
+        response = self._markdown_save(notebook, version=version, markdown="base text plus mine")
+        assert response.status_code == status.HTTP_410_GONE
+        assert response.json()["code"] == "conflict_stale"
+
+    def test_markdown_save_rejects_non_markdown_content(self):
+        notebook = self._create_markdown_notebook()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/collab/markdown_save/",
+            data={
+                "client_id": "md-client",
+                "version": notebook["version"],
+                "content": SAMPLE_DOC,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_markdown_save_preserves_title_when_omitted_and_clears_when_blank(self):
+        notebook = self._create_markdown_notebook()
+        rename = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook['short_id']}/",
+            data={"title": "Keep me"},
+            format="json",
+        )
+        assert rename.status_code == status.HTTP_200_OK
+
+        response = self._markdown_save(notebook, version=notebook["version"], markdown="changed once")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "Keep me"
+
+        response = self._markdown_save(notebook, version=notebook["version"] + 1, markdown="changed twice", title="")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == ""
+
+    def test_markdown_save_logs_activity(self):
+        notebook = self._create_markdown_notebook("before")
+
+        self._markdown_save(notebook, version=notebook["version"], markdown="after")
+
+        log = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="Notebook", item_id=notebook["short_id"], activity="updated"
+        ).last()
+        assert log is not None
+
+    def test_markdown_save_requires_authentication(self):
+        notebook = self._create_markdown_notebook()
+        self.client.logout()
+
+        response = self._markdown_save(notebook, version=notebook["version"], markdown="anything")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED

@@ -199,6 +199,19 @@ export interface PatchedNotebookApi {
     _create_in_folder?: string
 }
 
+export interface NotebookMarkdownSaveApi {
+    /** Unique identifier for the client session, used to skip self-echo on the update stream. */
+    client_id: string
+    /** The notebook version the submitted content is based on (optimistic concurrency baseline). */
+    version: number
+    /** The full markdown notebook document: a ProseMirror doc wrapping a single markdown node. */
+    content: unknown
+    /** Plain text for search indexing. */
+    text_content?: string
+    /** Updated notebook title. */
+    title?: string
+}
+
 export interface NotebookCollabSaveApi {
     /** Unique identifier for the client session. */
     client_id: string

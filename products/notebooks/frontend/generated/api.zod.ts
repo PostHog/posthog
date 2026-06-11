@@ -84,6 +84,28 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksCollabMarkdownSaveCreateBodyTextContentDefault = ``
+
+export const NotebooksCollabMarkdownSaveCreateBody = /* @__PURE__ */ zod.object({
+    client_id: zod
+        .string()
+        .describe('Unique identifier for the client session, used to skip self-echo on the update stream.'),
+    version: zod
+        .number()
+        .describe('The notebook version the submitted content is based on (optimistic concurrency baseline).'),
+    content: zod
+        .unknown()
+        .describe('The full markdown notebook document: a ProseMirror doc wrapping a single markdown node.'),
+    text_content: zod
+        .string()
+        .default(notebooksCollabMarkdownSaveCreateBodyTextContentDefault)
+        .describe('Plain text for search indexing.'),
+    title: zod.string().optional().describe('Updated notebook title.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksCollabSaveCreateBodyTextContentDefault = ``
 
 export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({

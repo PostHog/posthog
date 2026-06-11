@@ -114,8 +114,10 @@ async def save_notebook_to_db(
     """
     existing_notebook = await Notebook.objects.filter(team=team, short_id=artifact.short_id).afirst()
     if existing_notebook and markdown_content is not None and _get_markdown_notebook_node(existing_notebook.content):
+        previous_content = existing_notebook.content
+        next_content = _build_markdown_notebook_doc(markdown_content, previous_content)
         await Notebook.objects.filter(pk=existing_notebook.pk).aupdate(
-            content=_build_markdown_notebook_doc(markdown_content, existing_notebook.content),
+            content=next_content,
             title=title,
             text_content=markdown_content,
             version=F("version") + 1,
@@ -123,7 +125,14 @@ async def save_notebook_to_db(
             last_modified_at=timezone.now(),
         )
         await existing_notebook.arefresh_from_db()
-        await collab.apublish_notebook_update(team.id, str(existing_notebook.short_id), existing_notebook.version)
+        # The base_crc inside the diff lets receivers detect a racing concurrent edit
+        # (this path has no version CAS) and fall back to a reload instead of misapplying.
+        await collab.apublish_notebook_update(
+            team.id,
+            str(existing_notebook.short_id),
+            existing_notebook.version,
+            diff=collab.build_markdown_update_diff(previous_content, next_content),
+        )
         return existing_notebook
 
     # Resolve viz refs through the unified handler (state → AgentArtifact → Insight),

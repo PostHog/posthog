@@ -23,10 +23,17 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import {
+    markdownCrc,
+    mergeNotebookMarkdownChanges,
+    tryApplyTextChanges,
+} from 'lib/components/MarkdownNotebook/collaboration'
+import type { TextChange } from 'lib/components/MarkdownNotebook/collaboration'
+import type { NotebookCollaborationConflict } from 'lib/components/MarkdownNotebook/types'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { base64Decode, base64Encode, downloadFile, objectsEqual, slugify } from 'lib/utils'
+import { base64Decode, base64Encode, downloadFile, objectsEqual, slugify, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
@@ -103,6 +110,18 @@ function getNotebookTextContent(content: JSONContent | null | undefined, editorT
 }
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
+
+/** A markdown notebook update from the collab SSE stream or a 409 conflict body. */
+export type MarkdownStreamEvent = {
+    /** Notebook version this event produces. */
+    version: number
+    /** UTF-16 span changes transforming version-1 → version; absent means "reload". */
+    diff?: TextChange[] | null
+    /** CRC-32 of the base markdown; mismatch means our base diverged — reload. */
+    baseCrc?: number | null
+    /** Saving client's id, used to skip self-echo. */
+    clientId?: string | null
+}
 
 export type NotebookLogicProps = {
     shortId: string
@@ -222,6 +241,11 @@ export const notebookLogic = kea<notebookLogicType>([
         scheduleNotebookRefresh: true,
         connectMarkdownUpdateStream: true,
         disconnectMarkdownUpdateStream: true,
+        /** Apply a canonical remote state (streamed diff or 409 replay) without refetching. */
+        applyRemoteNotebookContent: (content: JSONContent, version: number) => ({ content, version }),
+        handleMarkdownStreamEvent: (event: MarkdownStreamEvent) => ({ event }),
+        processPendingMarkdownStreamEvents: true,
+        reportMarkdownMergeConflicts: (conflicts: NotebookCollaborationConflict[]) => ({ conflicts }),
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
@@ -419,7 +443,7 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     })),
-    loaders(({ values, props, actions }) => ({
+    loaders(({ values, props, actions, cache }) => ({
         notebook: [
             null as NotebookType | null,
             {
@@ -553,6 +577,92 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
+                    if (values.markdownRealtimeEnabled && isMarkdownNotebookContent(notebook.content)) {
+                        const baselineVersion = values.notebook.version
+                        const baseMarkdown = getMarkdownNotebookMarkdown(values.notebook.content)
+                        const nextMarkdown = getMarkdownNotebookMarkdown(notebook.content)
+                        const nodeId = getMarkdownNotebookNodeId(values.notebook.content)
+
+                        if (nextMarkdown === baseMarkdown) {
+                            if ((notebook.title ?? '') !== (values.notebook.title ?? '')) {
+                                const response = await api.notebooks.update(values.notebook.short_id, {
+                                    title: notebook.title,
+                                })
+                                refreshTreeItem('notebook', String(values.notebook.short_id))
+                                return response
+                            }
+                            return values.notebook
+                        }
+
+                        cache.markdownClientId = cache.markdownClientId || uuid()
+                        try {
+                            const response = await api.notebooks.markdownSave(values.notebook.short_id, {
+                                client_id: cache.markdownClientId,
+                                version: baselineVersion,
+                                content: notebook.content,
+                                text_content: getNotebookTextContent(notebook.content, ''),
+                                title: notebook.title,
+                            })
+                            refreshTreeItem('notebook', String(values.notebook.short_id))
+                            return response
+                        } catch (error: any) {
+                            if (error.status === 409 && error.data?.updates) {
+                                // Fold the missed diffs into our baseline to reconstruct the server
+                                // state, merge our edits over it, and retry against the new version —
+                                // all without refetching the notebook.
+                                const updates = error.data.updates as {
+                                    version: number
+                                    diff: TextChange[]
+                                    base_crc?: number | null
+                                }[]
+                                let serverMarkdown: string | null = baseMarkdown
+                                for (const update of updates) {
+                                    if (
+                                        typeof update.base_crc === 'number' &&
+                                        markdownCrc(serverMarkdown) !== update.base_crc
+                                    ) {
+                                        serverMarkdown = null
+                                        break
+                                    }
+                                    serverMarkdown = tryApplyTextChanges(serverMarkdown, update.diff)
+                                    if (serverMarkdown === null) {
+                                        break
+                                    }
+                                }
+                                if (serverMarkdown === null) {
+                                    // Replay didn't fit our baseline — reload; the editor merges
+                                    // local edits over the fresh server state via remoteValue.
+                                    actions.loadNotebook()
+                                    return values.notebook
+                                }
+                                const serverVersion = error.data.version as number
+                                const merge = mergeNotebookMarkdownChanges({
+                                    baseMarkdown,
+                                    localMarkdown: nextMarkdown,
+                                    remoteMarkdown: serverMarkdown,
+                                })
+                                actions.applyRemoteNotebookContent(
+                                    buildMarkdownNotebookContent(serverMarkdown, nodeId),
+                                    serverVersion
+                                )
+                                if (merge.mergedMarkdown !== serverMarkdown) {
+                                    actions.saveNotebook({
+                                        content: buildMarkdownNotebookContent(merge.mergedMarkdown, nodeId),
+                                        title: notebook.title,
+                                    })
+                                }
+                                return values.notebook
+                            }
+                            if (error.status === 410) {
+                                // Missed range not replayable (trimmed / mixed writers): full reload,
+                                // the editor merges local edits over the fresh server state.
+                                actions.loadNotebook()
+                                return values.notebook
+                            }
+                            throw error
+                        }
+                    }
+
                     // Legacy path: full-doc PATCH
                     try {
                         const response = await api.notebooks.update(values.notebook.short_id, {
@@ -677,6 +787,14 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     })),
+    reducers({
+        // Extends the loader reducer: canonical remote states (streamed diffs, 409 replays)
+        // land in `notebook` without a refetch.
+        notebook: {
+            applyRemoteNotebookContent: (state, { content, version }) =>
+                state ? { ...state, content, version } : state,
+        },
+    }),
     selectors({
         canvasFiltersOverride: [() => [(_, props) => props], (props) => props.canvasFiltersOverride || []],
         shortId: [(_, p) => [p.shortId], (shortId) => shortId],
@@ -981,26 +1099,33 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
 
                         let version = msg.id ? parseInt(msg.id.split('-', 1)[0], 10) : null
+                        let diff: TextChange[] | null = null
+                        let baseCrc: number | null = null
+                        let clientId: string | null = null
                         if (msg.event === 'update' && msg.data) {
                             try {
-                                const payload = JSON.parse(msg.data) as { version?: unknown }
+                                const payload = JSON.parse(msg.data) as {
+                                    version?: unknown
+                                    diff?: unknown
+                                    base_crc?: unknown
+                                    client_id?: unknown
+                                }
                                 if (typeof payload.version === 'number') {
                                     version = payload.version
                                 }
+                                diff = Array.isArray(payload.diff) ? (payload.diff as TextChange[]) : null
+                                baseCrc = typeof payload.base_crc === 'number' ? payload.base_crc : null
+                                clientId = typeof payload.client_id === 'string' ? payload.client_id : null
                             } catch (e) {
                                 posthog.captureException(e as Error, { action: 'notebook markdown stream parse' })
                             }
                         }
 
-                        if (!version || !values.notebook || version <= values.notebook.version) {
+                        if (!version || !Number.isFinite(version)) {
                             return
                         }
 
-                        if (values.notebookLoading) {
-                            return
-                        }
-
-                        actions.loadNotebook()
+                        actions.handleMarkdownStreamEvent({ version, diff, baseCrc, clientId })
                     }
 
                     const onError = (error: any): void => {
@@ -1045,6 +1170,63 @@ export const notebookLogic = kea<notebookLogicType>([
         disconnectMarkdownUpdateStream: () => {
             cache.disposables.dispose('markdownUpdateStream')
             cache.markdownUpdateStreamLastEventId = undefined
+            cache.pendingMarkdownStreamEvents = []
+        },
+        handleMarkdownStreamEvent: ({ event }) => {
+            if (event.clientId && event.clientId === cache.markdownClientId) {
+                // Our own save echoing back; the save response already advanced our state.
+                return
+            }
+            const notebook = values.notebook
+            if (!notebook || event.version <= notebook.version) {
+                return
+            }
+            if (values.notebookLoading) {
+                // A load or save is mid-flight and lastEventId has already advanced past this
+                // event, so dropping it would leave us permanently stale. Queue and replay
+                // once the loader settles.
+                cache.pendingMarkdownStreamEvents = [...(cache.pendingMarkdownStreamEvents ?? []), event]
+                return
+            }
+            if (event.diff && event.version === notebook.version + 1 && isMarkdownNotebookContent(notebook.content)) {
+                const baseMarkdown = getMarkdownNotebookMarkdown(notebook.content)
+                const baseMatches = typeof event.baseCrc !== 'number' || markdownCrc(baseMarkdown) === event.baseCrc
+                const nextMarkdown = baseMatches ? tryApplyTextChanges(baseMarkdown, event.diff) : null
+                if (nextMarkdown !== null) {
+                    // Diffs are exact version transitions, so the result is canonical server
+                    // state — no GET needed. The editor merges any local edits over it.
+                    actions.applyRemoteNotebookContent(
+                        buildMarkdownNotebookContent(nextMarkdown, getMarkdownNotebookNodeId(notebook.content)),
+                        event.version
+                    )
+                    return
+                }
+            }
+            // Version gap, diff-less ping, or a diff that doesn't fit our base: full reload.
+            actions.loadNotebook()
+        },
+        processPendingMarkdownStreamEvents: () => {
+            const pending: MarkdownStreamEvent[] = cache.pendingMarkdownStreamEvents ?? []
+            if (!pending.length) {
+                return
+            }
+            cache.pendingMarkdownStreamEvents = []
+            pending.sort((a, b) => a.version - b.version).forEach((event) => actions.handleMarkdownStreamEvent(event))
+        },
+        reportMarkdownMergeConflicts: ({ conflicts }) => {
+            if (!conflicts.length) {
+                return
+            }
+            posthog.capture('notebook markdown merge conflict', {
+                short_id: values.notebook?.short_id,
+                conflict_count: conflicts.length,
+            })
+            lemonToast.warning(
+                conflicts.length === 1
+                    ? 'Someone else edited the same block as you — your version was kept.'
+                    : `Someone else edited ${conflicts.length} of the same blocks as you — your versions were kept.`,
+                { toastId: `notebook-merge-conflict-${values.shortId}` }
+            )
         },
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
@@ -1369,10 +1551,18 @@ export const notebookLogic = kea<notebookLogicType>([
                 actions.clearLocalContent()
             }
             actions.scheduleNotebookRefresh()
+            actions.processPendingMarkdownStreamEvents()
+        },
+        saveNotebookFailure: () => {
+            actions.processPendingMarkdownStreamEvents()
         },
         loadNotebookSuccess: () => {
             actions.scheduleNotebookRefresh()
             actions.maybeLoadComments()
+            actions.processPendingMarkdownStreamEvents()
+        },
+        loadNotebookFailure: () => {
+            actions.processPendingMarkdownStreamEvents()
         },
 
         exportJSON: () => {

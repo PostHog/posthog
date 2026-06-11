@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.schema import TrendsQuery, VisualizationMessage
 
+from products.notebooks.backend.collab import apply_utf16_text_changes, markdown_crc
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 
@@ -189,7 +190,13 @@ class TestSaveNotebookToDb(BaseTest):
             )
 
         notebook.refresh_from_db()
-        mock_publish.assert_awaited_once_with(self.team.id, str(parent.short_id), original_version + 1)
+        mock_publish.assert_awaited_once()
+        publish_args, publish_kwargs = mock_publish.await_args
+        self.assertEqual(publish_args, (self.team.id, str(parent.short_id), original_version + 1))
+        # Receivers replay the diff instead of refetching; it must transform the old markdown exactly
+        diff = publish_kwargs["diff"]
+        self.assertEqual(diff.base_crc, markdown_crc("# Original"))
+        self.assertEqual(apply_utf16_text_changes("# Original", diff.changes), "# Updated\n\nAdd this here.")
         self.assertEqual(notebook.title, "Updated title")
         self.assertEqual(notebook.text_content, "# Updated\n\nAdd this here.")
         self.assertEqual(notebook.version, original_version + 1)

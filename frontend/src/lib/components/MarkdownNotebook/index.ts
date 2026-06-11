@@ -9,7 +9,8 @@ export {
 } from './registry'
 export { parseMarkdownNotebook, serializeMarkdownNotebook, htmlElementToInlineNodes } from './markdown'
 export { reconcileNotebookDocuments } from './reconcile'
-export { mergeNotebookMarkdownChanges } from './collaboration'
+export { markdownCrc, mergeNotebookMarkdownChanges, tryApplyTextChanges } from './collaboration'
+export type { TextChange } from './collaboration'
 export type {
     NotebookBlockNode,
     NotebookCollaborationConflict,

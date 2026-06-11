@@ -23757,6 +23757,19 @@ export namespace Schemas {
       cursor_head?: number | null;
     }
 
+    export interface NotebookMarkdownSave {
+      /** Unique identifier for the client session, used to skip self-echo on the update stream. */
+      client_id: string;
+      /** The notebook version the submitted content is based on (optimistic concurrency baseline). */
+      version: number;
+      /** The full markdown notebook document: a ProseMirror doc wrapping a single markdown node. */
+      content: unknown;
+      /** Plain text for search indexing. */
+      text_content?: string;
+      /** Updated notebook title. */
+      title?: string;
+    }
+
     export interface NotebookMinimal {
       /** UUID of the notebook. */
       readonly id: string;

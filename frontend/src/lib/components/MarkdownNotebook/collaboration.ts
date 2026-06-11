@@ -322,10 +322,62 @@ function mergeNotebookBlockNodeText(
     }
 }
 
-type TextChange = {
+/** A replaced span: offsets in UTF-16 code units, matching the backend's diff format. */
+export type TextChange = {
     start: number
     end: number
     text: string
+}
+
+/**
+ * Apply remote text changes (ascending, non-overlapping) to a base string.
+ * Returns null when the changes don't fit the base — the caller should fall
+ * back to a full reload. Mirrors `apply_utf16_text_changes` in collab.py.
+ */
+export function tryApplyTextChanges(baseText: string, changes: TextChange[]): string | null {
+    let nextText = ''
+    let cursor = 0
+    for (const change of changes) {
+        if (
+            typeof change?.start !== 'number' ||
+            typeof change?.end !== 'number' ||
+            typeof change?.text !== 'string' ||
+            !Number.isInteger(change.start) ||
+            !Number.isInteger(change.end) ||
+            change.start < cursor ||
+            change.start > change.end ||
+            change.end > baseText.length
+        ) {
+            return null
+        }
+        nextText += baseText.slice(cursor, change.start)
+        nextText += change.text
+        cursor = change.end
+    }
+    return nextText + baseText.slice(cursor)
+}
+
+const CRC32_TABLE = ((): Uint32Array => {
+    const table = new Uint32Array(256)
+    for (let i = 0; i < 256; i++) {
+        let value = i
+        for (let bit = 0; bit < 8; bit++) {
+            value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
+        }
+        table[i] = value >>> 0
+    }
+    return table
+})()
+
+/** CRC-32 of the string's UTF-16-LE bytes. Mirrors `markdown_crc` in collab.py (zlib.crc32). */
+export function markdownCrc(text: string): number {
+    let crc = 0xffffffff
+    for (let i = 0; i < text.length; i++) {
+        const unit = text.charCodeAt(i)
+        crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ (unit & 0xff)) & 0xff]
+        crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ ((unit >>> 8) & 0xff)) & 0xff]
+    }
+    return (crc ^ 0xffffffff) >>> 0
 }
 
 type TextMergeResult = {

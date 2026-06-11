@@ -1,4 +1,4 @@
-import { mergeNotebookMarkdownChanges } from './collaboration'
+import { markdownCrc, mergeNotebookMarkdownChanges, tryApplyTextChanges } from './collaboration'
 
 describe('mergeNotebookMarkdownChanges', () => {
     it('returns the local markdown when the remote matches the base', () => {
@@ -133,5 +133,57 @@ describe('mergeNotebookMarkdownChanges', () => {
 
         expect(result.conflicts).toEqual([])
         expect(result.mergedMarkdown).toEqual('# Title\n\n<Chat id="chat-1" title="Named" />')
+    })
+})
+
+describe('collaboration text utilities', () => {
+    describe('tryApplyTextChanges', () => {
+        it('applies ascending non-overlapping changes', () => {
+            expect(
+                tryApplyTextChanges('abcdef', [
+                    { start: 0, end: 1, text: 'X' },
+                    { start: 3, end: 5, text: 'Y' },
+                ])
+            ).toEqual('XbcYf')
+        })
+
+        it('applies an insertion into an empty string', () => {
+            expect(tryApplyTextChanges('', [{ start: 0, end: 0, text: 'hello' }])).toEqual('hello')
+        })
+
+        it('treats offsets as UTF-16 code units', () => {
+            // 🦔 is two code units, so the trailing char sits at offset 2
+            expect(tryApplyTextChanges('🦔a', [{ start: 2, end: 3, text: 'b' }])).toEqual('🦔b')
+        })
+
+        it.each([
+            ['end beyond base', 'abc', [{ start: 0, end: 4, text: 'x' }]],
+            ['start after end', 'abc', [{ start: 2, end: 1, text: 'x' }]],
+            [
+                'overlapping changes',
+                'abcdef',
+                [
+                    { start: 0, end: 3, text: 'x' },
+                    { start: 2, end: 4, text: 'y' },
+                ],
+            ],
+            ['non-numeric offsets', 'abc', [{ start: '0' as unknown as number, end: 1, text: 'x' }]],
+            ['fractional offsets', 'abc', [{ start: 0.5, end: 1, text: 'x' }]],
+            ['missing text', 'abc', [{ start: 0, end: 1 } as unknown as { start: number; end: number; text: string }]],
+        ])('rejects invalid changes: %s', (_name, base, changes) => {
+            expect(tryApplyTextChanges(base as string, changes as any)).toBeNull()
+        })
+    })
+
+    describe('markdownCrc', () => {
+        // Shared vectors with test_collab.py — both sides hash UTF-16-LE bytes (zlib.crc32 parity)
+        it.each([
+            ['', 0],
+            ['hello', 1427272415],
+            ['# Title\n\nSome text 🦔', 2055511376],
+            ['naïve café ✨', 591606638],
+        ])('matches the backend CRC for %j', (text, expected) => {
+            expect(markdownCrc(text as string)).toEqual(expected)
+        })
     })
 })

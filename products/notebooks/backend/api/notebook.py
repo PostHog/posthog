@@ -219,6 +219,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 locked_instance.last_modified_at = now()
                 locked_instance.last_modified_by = self.context["request"].user
 
+                update_diff: collab.MarkdownDiff | None = None
                 if "content" in validated_data:
                     if validated_data.get("version") != locked_instance.version:
                         raise Conflict("Someone else edited the Notebook")
@@ -227,6 +228,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     content = validated_data.get("content")
                     if isinstance(content, dict):
                         validated_data["content"] = annotate_python_nodes(content)
+                    update_diff = collab.build_markdown_update_diff(
+                        locked_instance.content, validated_data.get("content")
+                    )
                     should_publish_update = True
 
                 updated_notebook = super().update(locked_instance, validated_data)
@@ -235,7 +239,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     notify_notebook_id = str(updated_notebook.short_id)
                     notify_version = updated_notebook.version
                     transaction.on_commit(
-                        lambda: collab.publish_notebook_update(notify_team_id, notify_notebook_id, notify_version)
+                        lambda: collab.publish_notebook_update(
+                            notify_team_id, notify_notebook_id, notify_version, diff=update_diff
+                        )
                     )
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
@@ -344,6 +350,28 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
             raise serializers.ValidationError(str(err))
+
+
+class NotebookMarkdownSaveSerializer(serializers.Serializer):
+    client_id = serializers.CharField(
+        help_text="Unique identifier for the client session, used to skip self-echo on the update stream."
+    )
+    version = serializers.IntegerField(
+        help_text="The notebook version the submitted content is based on (optimistic concurrency baseline)."
+    )
+    content = serializers.JSONField(
+        help_text="The full markdown notebook document: a ProseMirror doc wrapping a single markdown node."
+    )
+    text_content = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Plain text for search indexing."
+    )
+    # No default: omitted title should preserve the existing notebook title, while "" clears it.
+    title = serializers.CharField(required=False, allow_blank=True, help_text="Updated notebook title.")
+
+    def validate_content(self, value: Any) -> Any:
+        if collab.get_markdown_notebook_markdown(value) is None:
+            raise serializers.ValidationError("Content must be a markdown notebook document.")
+        return value
 
 
 def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
@@ -867,6 +895,115 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "code": "conflict",
                 "steps": [e.step for e in result.steps_since],
                 "client_ids": [e.client_id for e in result.steps_since],
+                "version": result.version,
+            },
+            status=409,
+        )
+
+    @extend_schema(request=NotebookMarkdownSaveSerializer)
+    @action(methods=["POST"], url_path="collab/markdown_save", detail=True, required_scopes=["notebook:write"])
+    def collab_markdown_save(self, request: Request, **kwargs):
+        """Versioned save for markdown notebooks: persists the full document and streams a diff to other clients."""
+        serializer = NotebookMarkdownSaveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        notebook = self.get_object()
+        user = cast(User, request.user)
+        submitted_content = data["content"]
+
+        notebook_before: Notebook | None = None
+        with transaction.atomic():
+            # The row lock serializes the Postgres version check with the Redis stream append, so
+            # stream entry N is always the transition from the persisted version N-1.
+            locked_notebook = Notebook.objects.select_for_update().get(pk=notebook.pk)
+
+            if locked_notebook.version != data["version"]:
+                result = collab.fetch_missed_markdown_updates(
+                    locked_notebook.team_id,
+                    str(locked_notebook.short_id),
+                    last_seen_version=data["version"],
+                    current_version=locked_notebook.version,
+                )
+            else:
+                annotated_content = annotate_python_nodes(submitted_content)
+                diff = collab.build_markdown_update_diff(locked_notebook.content, annotated_content)
+                result = collab.submit_markdown_update(
+                    locked_notebook.team_id,
+                    str(locked_notebook.short_id),
+                    client_id=data["client_id"],
+                    diff=diff,
+                    last_seen_version=locked_notebook.version,
+                    last_saved_version=locked_notebook.version,
+                )
+                if result.status == "accepted":
+                    notebook_before = Notebook.objects.get(pk=notebook.pk)
+                    locked_notebook.content = annotated_content
+                    locked_notebook.text_content = data.get("text_content", "")
+                    if "title" in data:
+                        locked_notebook.title = data["title"]
+                    locked_notebook.version = result.version
+                    locked_notebook.last_modified_at = now()
+                    locked_notebook.last_modified_by = user
+                    locked_notebook.save(
+                        update_fields=[
+                            "content",
+                            "text_content",
+                            "title",
+                            "version",
+                            "last_modified_at",
+                            "last_modified_by",
+                        ]
+                    )
+
+        if result.status == "accepted":
+            changes = changes_between("Notebook", previous=notebook_before, current=locked_notebook)
+            log_notebook_activity(
+                activity="updated",
+                notebook=locked_notebook,
+                organization_id=cast(UUIDT, user.current_organization_id),
+                team_id=locked_notebook.team_id,
+                user=user,
+                was_impersonated=is_impersonated_session(request),
+                changes=changes,
+            )
+            return Response(NotebookSerializer(locked_notebook, context=self.get_serializer_context()).data)
+
+        # Snapshot the rejected save attempt so user has a recovery path
+        log_notebook_activity(
+            activity=f"save_rejected_{result.status}",  # save_rejected_conflict | save_rejected_stale
+            notebook=locked_notebook,
+            organization_id=cast(UUIDT, user.current_organization_id),
+            team_id=locked_notebook.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            changes=[
+                Change(
+                    type="Notebook",
+                    field="content",
+                    action="changed",
+                    before=locked_notebook.content,
+                    after=submitted_content,
+                ),
+            ],
+        )
+
+        if result.status == "stale":
+            return Response({"code": "conflict_stale"}, status=410)
+
+        assert result.updates is not None  # status == "conflict" guarantees this
+        return Response(
+            {
+                "code": "conflict",
+                "updates": [
+                    {
+                        "version": entry.version,
+                        "diff": entry.diff,
+                        "base_crc": entry.base_crc,
+                        "client_id": entry.client_id,
+                    }
+                    for entry in result.updates
+                ],
                 "version": result.version,
             },
             status=409,
