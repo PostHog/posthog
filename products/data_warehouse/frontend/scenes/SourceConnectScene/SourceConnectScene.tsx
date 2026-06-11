@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconQuestion } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -85,6 +87,30 @@ export function SourceConnectScene(): JSX.Element {
                             <SourceIcon type={sourceConfig.name} size="small" />
                             <span className="font-semibold">{sourceLabel}</span>
                         </div>
+                        {(sourceConfig.permissionsCaption || sourceConfig.docsUrl) && (
+                            <div className="flex flex-row items-center gap-1">
+                                {sourceConfig.permissionsCaption && (
+                                    <Tooltip
+                                        title={
+                                            <LemonMarkdown className="text-sm">
+                                                {sourceConfig.permissionsCaption}
+                                            </LemonMarkdown>
+                                        }
+                                        interactive
+                                    >
+                                        <LemonTag type="muted" size="small">
+                                            Permissions required <IconQuestion />
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {sourceConfig.permissionsCaption && sourceConfig.docsUrl && <span>&nbsp;|&nbsp;</span>}
+                                {sourceConfig.docsUrl && (
+                                    <Link to={sourceConfig.docsUrl} target="_blank">
+                                        View docs
+                                    </Link>
+                                )}
+                            </div>
+                        )}
                         <SourceFormComponent
                             sourceConfig={sourceConfig}
                             showPrefix={false}
