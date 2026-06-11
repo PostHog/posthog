@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable/PropertiesTable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -127,24 +127,37 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             distinct ID.
                         </p>
 
-                        {formData.distinct_id && (
-                            <div className="text-xs text-muted space-y-1 p-2 bg-bg-3000 rounded">
-                                <div>
-                                    <strong>Distinct ID:</strong> {formData.distinct_id}
+                        {formData.distinct_id &&
+                            (hasMultipleDistinctIds ? (
+                                <div className="space-y-2">
+                                    <LemonLabel>Distinct ID for bucketing</LemonLabel>
+                                    <LemonSelect
+                                        fullWidth
+                                        value={formData.distinct_id}
+                                        onChange={(distinctId) => {
+                                            if (distinctId) {
+                                                setTestFormData({ distinct_id: distinctId })
+                                            }
+                                        }}
+                                        options={personDistinctIds.map((id) => ({ value: id, label: id }))}
+                                    />
+                                    <LemonBanner type="warning">
+                                        <div className="text-sm">
+                                            This person has {personDistinctIds.length} merged distinct IDs. Rollout and
+                                            variant assignment are computed by hashing the distinct ID, so the result
+                                            can differ depending on which one you pick. At runtime PostHog buckets using
+                                            the distinct ID from the incoming request, which may not be the one selected
+                                            here.
+                                        </div>
+                                    </LemonBanner>
                                 </div>
-                            </div>
-                        )}
-
-                        {hasMultipleDistinctIds && (
-                            <LemonBanner type="warning">
-                                <div className="text-sm">
-                                    This person has {personDistinctIds.length} merged distinct IDs. Rollout and variant
-                                    assignment are computed by hashing the distinct ID, so the result can differ
-                                    depending on which one is used. At runtime PostHog buckets using the distinct ID
-                                    from the incoming request, which may not be the one selected here.
+                            ) : (
+                                <div className="text-xs text-muted space-y-1 p-2 bg-bg-3000 rounded">
+                                    <div>
+                                        <strong>Distinct ID:</strong> {formData.distinct_id}
+                                    </div>
                                 </div>
-                            </LemonBanner>
-                        )}
+                            ))}
                     </div>
 
                     {/* Optional Timestamp */}
