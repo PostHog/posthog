@@ -12,12 +12,6 @@ import {
     wrapError,
 } from '@/lib/errors'
 
-vi.mock('@/api/rate-limiter', () => ({
-    globalRateLimiter: {
-        throttle: vi.fn().mockResolvedValue(undefined),
-    },
-}))
-
 const captureException = vi.fn()
 vi.mock('@/lib/posthog', () => ({
     getPostHogClient: () => ({ captureException }),

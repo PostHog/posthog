@@ -723,6 +723,114 @@ export const organizationsProjectsCompleteProductOnboardingPartialUpdate = async
     )
 }
 
+export const getOrganizationsProjectsDefaultEvaluationContextsRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_evaluation_contexts/`
+}
+
+/**
+ * Manage default evaluation contexts for a project.
+ */
+export const organizationsProjectsDefaultEvaluationContextsRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultEvaluationContextsRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsDefaultEvaluationContextsCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_evaluation_contexts/`
+}
+
+/**
+ * Manage default evaluation contexts for a project.
+ */
+export const organizationsProjectsDefaultEvaluationContextsCreate = async (
+    organizationId: string,
+    id: number,
+    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultEvaluationContextsCreateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(projectBackwardCompatApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsDefaultEvaluationContextsDestroyUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_evaluation_contexts/`
+}
+
+/**
+ * Manage default evaluation contexts for a project.
+ */
+export const organizationsProjectsDefaultEvaluationContextsDestroy = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getOrganizationsProjectsDefaultEvaluationContextsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getOrganizationsProjectsDefaultReleaseConditionsRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_release_conditions/`
+}
+
+/**
+ * Manage default release conditions for new feature flags in this project.
+ */
+export const organizationsProjectsDefaultReleaseConditionsRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultReleaseConditionsRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsDefaultReleaseConditionsUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_release_conditions/`
+}
+
+/**
+ * Manage default release conditions for new feature flags in this project.
+ */
+export const organizationsProjectsDefaultReleaseConditionsUpdate = async (
+    organizationId: string,
+    id: number,
+    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultReleaseConditionsUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(projectBackwardCompatApi),
+        }
+    )
+}
+
 export const getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/delete_secret_token_backup/`
 }
@@ -738,6 +846,72 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
         getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedProjectBackwardCompatApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/`
+}
+
+/**
+ * Projects for the current organization.
+ */
+export const organizationsProjectsEventIngestionRestrictionsRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsExperimentsConfigRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/experiments_config/`
+}
+
+/**
+ * Manage experiment configuration for this project.
+ */
+export const organizationsProjectsExperimentsConfigRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsExperimentsConfigRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsExperimentsConfigPartialUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/experiments_config/`
+}
+
+/**
+ * Manage experiment configuration for this project.
+ */
+export const organizationsProjectsExperimentsConfigPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsExperimentsConfigPartialUpdateUrl(organizationId, id),
         {
             ...options,
             method: 'PATCH',
@@ -908,6 +1082,27 @@ export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
             body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
+}
+
+export const getOrganizationsProjectsSettingsAsOfRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/settings_as_of/`
+}
+
+/**
+ * Return the project settings as of the provided timestamp.
+ * Query params:
+ * - at: ISO8601 datetime (required)
+ * - scope: optional, one or multiple keys to filter the returned settings
+ */
+export const organizationsProjectsSettingsAsOfRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsSettingsAsOfRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
