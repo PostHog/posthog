@@ -52,11 +52,15 @@ class TestToEpoch:
 
 
 class TestExtractItems:
-    def test_top_level_key(self):
-        assert _extract_items({"checks": [{"id": 1}]}, "checks") == [{"id": 1}]
-
-    def test_nested_key(self):
-        assert _extract_items({"actions": {"alerts": [{"time": 1}]}}, "actions.alerts") == [{"time": 1}]
+    @pytest.mark.parametrize(
+        "body, data_key, expected",
+        [
+            ({"checks": [{"id": 1}]}, "checks", [{"id": 1}]),
+            ({"actions": {"alerts": [{"time": 1}]}}, "actions.alerts", [{"time": 1}]),
+        ],
+    )
+    def test_extracts_items(self, body, data_key, expected):
+        assert _extract_items(body, data_key) == expected
 
     @pytest.mark.parametrize(
         "body",
