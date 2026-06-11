@@ -172,15 +172,29 @@ def _is_backfill_batch(batch: PendingBatch) -> bool:
 
 def _backfill_chunk_paths(batch: PendingBatch) -> list[str]:
     paths = batch.metadata.get("chunk_paths")
-    if isinstance(paths, list) and paths:
-        return [str(p) for p in paths]
-    return [batch.s3_path]
+    if not isinstance(paths, list) or not paths:
+        # Falling back to s3_path would silently apply only the chunk's first
+        # file; a malformed synthetic row must fail loudly instead.
+        raise ValueError(f"backfill batch {batch.id} has no chunk_paths metadata")
+    return [str(p) for p in paths]
 
 
-def _read_parquet_expr(paths: list[str]) -> sql.Composable:
+def _read_parquet_expr(paths: list[str], *, union_by_name: bool = False) -> sql.Composable:
     """read_parquet([...]) with inlined literals — list parameters do not bind
-    reliably over the duckgres extended protocol."""
-    return sql.SQL("read_parquet([{}])").format(sql.SQL(", ").join(sql.Literal(p) for p in paths))
+    reliably over the duckgres extended protocol. union_by_name aligns
+    schema-evolved files within one chunk by column name (backfill chunks span
+    months of Delta writes; positional unification fails on added columns)."""
+    opts = sql.SQL(", union_by_name=true") if union_by_name else sql.SQL("")
+    return sql.SQL("read_parquet([{}]{})").format(
+        sql.SQL(", ").join(sql.Literal(p) for p in paths),
+        opts,
+    )
+
+
+def _backfill_table_name(live_table: str, schema_id: str) -> str:
+    # Suffix with a schema-id fragment: pure prefix truncation could collide
+    # for two schemas sharing a long name prefix in the same team schema.
+    return f"{live_table[:42]}__bf_{schema_id.replace('-', '')[:8]}"
 
 
 def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: ExternalDataSchema) -> None:
@@ -249,8 +263,9 @@ def _process_backfill_batch(conn: psycopg.Connection[Any], batch: PendingBatch, 
     """
     duckgres_schema = _duckgres_schema_name(batch.team_id)
     live_table = _duckgres_table_name(schema)
-    # Keep headroom under common 63-char identifier handling for the suffix.
-    backfill_table = f"{live_table[:53]}__backfill"
+    backfill_table = _backfill_table_name(live_table, batch.schema_id)
+    chunk_count = int(batch.metadata.get("chunk_count") or 0)
+    is_last = chunk_count > 0 and batch.batch_index == chunk_count - 1
 
     conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(duckgres_schema)))
     _ensure_duckgres_apply_table(conn, duckgres_schema)
@@ -263,12 +278,17 @@ def _process_backfill_batch(conn: psycopg.Connection[Any], batch: PendingBatch, 
             run_uuid=batch.run_uuid,
             batch_index=batch.batch_index,
         )
+        if is_last:
+            # Crash between the swap's commit and the state flip lands here on
+            # retry: the swap is proven (the marker shared its transaction),
+            # only the app-DB flip is missing. Idempotent via CAS.
+            from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import mark_primed
+
+            mark_primed(batch.schema_id, chunks_applied=chunk_count)
         return
 
     chunk_paths = _backfill_chunk_paths(batch)
-    chunk_count = int(batch.metadata.get("chunk_count") or 0)
-    is_last = chunk_count > 0 and batch.batch_index == chunk_count - 1
-    parquet_schema = _read_parquet_schema(conn, chunk_paths)
+    parquet_schema = _read_parquet_schema(conn, chunk_paths, union_by_name=True)
     columns = [column.name for column in parquet_schema]
 
     with conn.transaction():
@@ -278,12 +298,12 @@ def _process_backfill_batch(conn: psycopg.Connection[Any], batch: PendingBatch, 
                 sql.SQL("CREATE OR REPLACE TABLE {}.{} AS SELECT * FROM {}").format(
                     sql.Identifier(duckgres_schema),
                     sql.Identifier(backfill_table),
-                    _read_parquet_expr(chunk_paths),
+                    _read_parquet_expr(chunk_paths, union_by_name=True),
                 )
             )
         else:
             _ensure_target_columns(conn, duckgres_schema, backfill_table, parquet_schema)
-            _insert_batch(conn, duckgres_schema, backfill_table, chunk_paths, columns)
+            _insert_batch(conn, duckgres_schema, backfill_table, chunk_paths, columns, union_by_name=True)
 
         if is_last:
             logger.info(
@@ -492,8 +512,12 @@ def _read_parquet_columns(conn: psycopg.Connection[Any], paths: list[str]) -> li
     return [column.name for column in _read_parquet_schema(conn, paths)]
 
 
-def _read_parquet_schema(conn: psycopg.Connection[Any], paths: list[str]) -> list[DuckgresColumn]:
-    cursor = conn.execute(sql.SQL("DESCRIBE SELECT * FROM {} LIMIT 0").format(_read_parquet_expr(paths)))
+def _read_parquet_schema(
+    conn: psycopg.Connection[Any], paths: list[str], *, union_by_name: bool = False
+) -> list[DuckgresColumn]:
+    cursor = conn.execute(
+        sql.SQL("DESCRIBE SELECT * FROM {} LIMIT 0").format(_read_parquet_expr(paths, union_by_name=union_by_name))
+    )
     rows = cursor.fetchall()
     if not rows:
         raise ValueError("Duckgres could not read parquet column metadata")
@@ -562,6 +586,8 @@ def _insert_batch(
     duckgres_table: str,
     paths: list[str],
     columns: list[str],
+    *,
+    union_by_name: bool = False,
 ) -> None:
     insert_columns = sql.SQL(", ").join(sql.Identifier(column) for column in columns)
     select_columns = sql.SQL(", ").join(sql.SQL("source.{}").format(sql.Identifier(column)) for column in columns)
@@ -571,7 +597,7 @@ def _insert_batch(
             sql.Identifier(duckgres_table),
             insert_columns,
             select_columns,
-            _read_parquet_expr(paths),
+            _read_parquet_expr(paths, union_by_name=union_by_name),
         )
     )
 

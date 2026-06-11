@@ -211,7 +211,7 @@ class TestDuckgresEnablementGating:
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
                 new_callable=AsyncMock,
-                return_value=(0, None),
+                return_value=(0, None, 0, None),
             ) as mock_backlog,
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
@@ -250,7 +250,7 @@ class TestDuckgresEnablementGating:
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
                 new_callable=AsyncMock,
-                return_value=(0, None),
+                return_value=(0, None, 0, None),
             ),
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",

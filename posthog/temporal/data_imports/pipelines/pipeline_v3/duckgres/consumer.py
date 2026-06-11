@@ -50,6 +50,16 @@ SINK_OLDEST_ELIGIBLE_AGE_SECONDS = Gauge(
     "Queue retention permanently drops batches after RETENTION_DAYS — alert well before that.",
     multiprocess_mode="livemax",
 )
+SINK_BLOCKED_BACKLOG = Gauge(
+    "duckgres_sink_blocked_backlog",
+    "Delta-succeeded batches held back because their schema is not yet primed (backfill pending/in-flight)",
+    multiprocess_mode="livemax",
+)
+SINK_BLOCKED_OLDEST_AGE_SECONDS = Gauge(
+    "duckgres_sink_blocked_oldest_age_seconds",
+    "Age of the oldest blocked batch — approaching queue retention means the post-backfill handoff will gap",
+    multiprocess_mode="livemax",
+)
 SINK_SUPERSEDED_BATCHES_TOTAL = Gauge(
     "duckgres_sink_superseded_batches",
     "Batches retired because a newer replace-run made their work obsolete (last sweep)",
@@ -100,9 +110,13 @@ class DuckgresBatchConsumerAdapter:
         if superseded:
             logger.info("duckgres_superseded_obsolete_batches", count=superseded)
 
-        backlog, oldest_age = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=team_ids)
+        backlog, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+            conn, team_ids=team_ids, blocked_schema_ids=self._blocked_schema_ids
+        )
         SINK_ELIGIBLE_BACKLOG.set(backlog)
         SINK_OLDEST_ELIGIBLE_AGE_SECONDS.set(oldest_age or 0.0)
+        SINK_BLOCKED_BACKLOG.set(blocked)
+        SINK_BLOCKED_OLDEST_AGE_SECONDS.set(blocked_age or 0.0)
 
         try:
             # Backfill planner: bootstrap/plan/reconcile schema priming, then

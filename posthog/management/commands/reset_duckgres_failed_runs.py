@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 
 import psycopg
@@ -39,8 +40,20 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         replan_schema = options.get("replan_backfill")
         if replan_schema:
+            from posthog.models import DuckgresSinkSchemaState
             from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import replan_backfill
 
+            try:
+                state = DuckgresSinkSchemaState.objects.get(schema_id=replan_schema)
+            except (DuckgresSinkSchemaState.DoesNotExist, ValueError, ValidationError) as e:
+                raise CommandError(f"No duckgres sink state for schema {replan_schema!r}: {e}")
+            if options.get("dry_run"):
+                self.stdout.write(
+                    f"Would retire backfill run {state.backfill_run_uuid!r} "
+                    f"(state={state.state}, applied={state.chunks_applied}/{state.chunk_count}) "
+                    "and re-enter planning. Dry run — no changes written."
+                )
+                return
             replan_backfill(replan_schema)
             self.stdout.write(self.style.SUCCESS(f"Schema {replan_schema} re-entered backfill planning."))
             return

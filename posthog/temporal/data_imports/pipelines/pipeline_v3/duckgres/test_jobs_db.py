@@ -355,14 +355,22 @@ class TestDuckgresTeamFilterAndBacklog:
         batch_id = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        count, oldest_age = await DuckgresBatchQueue.get_backlog_stats(conn)
-        assert count == 1
+        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert (count, blocked) == (1, 0)
         assert oldest_age is not None and oldest_age >= 0
+        assert blocked_age is None
+
+        # The same batch counts as blocked (not eligible) once its schema is gated.
+        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+            conn, blocked_schema_ids=["schema-1"]
+        )
+        assert (count, blocked) == (0, 1)
+        assert oldest_age is None and blocked_age is not None
 
         await _mark_applied_raw(conn, batch_id=batch_id, run_uuid="run-1", batch_index=0)
-        count, oldest_age = await DuckgresBatchQueue.get_backlog_stats(conn)
-        assert count == 0
-        assert oldest_age is None
+        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert (count, blocked) == (0, 0)
+        assert oldest_age is None and blocked_age is None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -407,3 +415,54 @@ class TestBackfillGating:
         await BatchQueue.update_status(conn, batch_id=old, job_state="succeeded", attempt=1)
 
         assert await DuckgresBatchQueue.supersede_replaced_runs(conn) == 0
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBackfillQueueContracts:
+    @pytest.mark.asyncio
+    async def test_pre_succeeded_synthetic_rows_invisible_to_delta_fetch(self, conn):
+        """The load-bearing trick: backfill rows must never be claimed by the
+        Delta consumer (it would load them into the Delta table) while being
+        immediately eligible for the duckgres fetch."""
+        batch_id = await _insert_batch(
+            conn,
+            run_uuid="duckgres-backfill-schema-1-v1-gdeadbeef",
+            job_id="duckgres-backfill",
+            is_resume=True,
+            metadata={"duckgres_backfill": True, "chunk_paths": ["s3://b/c0.parquet"], "chunk_count": 1},
+        )
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+
+        assert await BatchQueue.get_unprocessed_and_lock(conn) == []
+
+        duck = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        assert [str(b.id) for b in duck] == [batch_id]
+
+    @pytest.mark.asyncio
+    async def test_retire_schema_runs_opens_cross_run_gate(self, conn, _db_url):
+        """Pre-snapshot live runs are blocked (schema unprimed) AND gate the
+        backfill run via the cross-run check — retire-at-plan breaks the
+        deadlock by terminally failing them (their data is in the snapshot)."""
+        from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres import backfill as backfill_mod
+
+        live = await _insert_batch(conn, run_uuid="run-old")
+        await BatchQueue.update_status(conn, batch_id=live, job_state="succeeded", attempt=1)
+
+        # Mirror plan-time ordering: retire FIRST, then insert the backfill run.
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            retired = backfill_mod._retire_schema_runs(
+                sync_conn, team_id=1, schema_id="schema-1", reason="covered by duckgres backfill snapshot v1"
+            )
+        assert retired == 1
+
+        chunk = await _insert_batch(
+            conn,
+            run_uuid="duckgres-backfill-schema-1-v1-gcafe0000",
+            job_id="duckgres-backfill",
+            is_resume=True,
+            metadata={"duckgres_backfill": True, "chunk_paths": ["s3://b/c0.parquet"], "chunk_count": 1},
+        )
+        await BatchQueue.update_status(conn, batch_id=chunk, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+        assert [str(b.id) for b in batches] == [chunk]

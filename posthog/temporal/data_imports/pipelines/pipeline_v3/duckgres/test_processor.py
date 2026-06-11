@@ -437,7 +437,7 @@ class TestBackfillProcessing:
             _process_backfill_batch(conn, batch, _make_schema())
 
         executed = " ".join(repr(c.args[0]) for c in conn.execute.call_args_list)
-        assert "stripe_customers__backfill" in executed
+        assert "stripe_customers__bf_schema1" in executed
         assert "CREATE OR REPLACE TABLE" in executed
         assert "RENAME TO" not in executed
         mark.assert_called_once()

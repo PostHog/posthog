@@ -278,19 +278,28 @@ class DuckgresBatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         team_ids: list[int] | None = None,
-    ) -> tuple[int, float | None]:
-        """(count, oldest age seconds) of delta-succeeded, unapplied, non-failed data batches.
+        blocked_schema_ids: list[str] | None = None,
+    ) -> tuple[int, float | None, int, float | None]:
+        """(eligible_count, eligible_oldest_age, blocked_count, blocked_oldest_age).
 
-        This is the sink's lag signal: both silent-loss modes (7-day queue
-        retention, permanently failed runs) are time-bounded, so alerting needs
-        the age of the oldest batch the sink still owes.
+        Eligible = delta-succeeded, unapplied, non-failed data batches the sink
+        can claim now — the lag/alert signal (7-day retention and permanent run
+        failure are time-bounded loss modes). Blocked = the same but held back
+        by an unprimed schema; reported separately so weeks of backfill cannot
+        pin the alert gauge while still being visible.
         """
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
                 WITH {ELIGIBILITY_CTES}
                 backlog AS (
-                    SELECT b.created_at
+                    SELECT
+                        b.created_at,
+                        (
+                            %(blocked_schema_ids)s::varchar[] IS NOT NULL
+                            AND b.schema_id = ANY(%(blocked_schema_ids)s)
+                            AND (b.metadata->>'duckgres_backfill') IS NULL
+                        ) AS is_blocked
                     FROM {BATCH_TABLE} b
                     JOIN {DELTA_STATUS_VIEW} ds ON b.id = ds.batch_id
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} a
@@ -305,15 +314,23 @@ class DuckgresBatchQueue:
                         AND a.id IS NULL
                         AND b.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)
                 )
-                SELECT count(*), EXTRACT(EPOCH FROM now() - min(created_at))
+                SELECT
+                    count(*) FILTER (WHERE NOT is_blocked),
+                    EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE NOT is_blocked)),
+                    count(*) FILTER (WHERE is_blocked),
+                    EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE is_blocked))
                 FROM backlog
                 """,
-                {"team_ids": team_ids},
+                {"team_ids": team_ids, "blocked_schema_ids": blocked_schema_ids},
             )
             row = await cur.fetchone()
-        count = int(row[0]) if row else 0
-        oldest_age = float(row[1]) if row and row[1] is not None else None
-        return count, oldest_age
+
+        def _age(v: Any) -> float | None:
+            return float(v) if v is not None else None
+
+        if row is None:
+            return 0, None, 0, None
+        return int(row[0]), _age(row[1]), int(row[2]), _age(row[3])
 
     @staticmethod
     async def update_status(

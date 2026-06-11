@@ -33,9 +33,15 @@ class TestChunkGrouping:
         assert _group_files_into_chunks([]) == []
 
 
-def test_backfill_run_uuid_is_stable_per_snapshot():
-    assert backfill_run_uuid("abc", 7) == "duckgres-backfill-abc-v7"
-    assert backfill_run_uuid("abc", 8) != backfill_run_uuid("abc", 7)
+def test_backfill_run_uuid_is_unique_per_planning_attempt():
+    # The generation nonce is load-bearing: a replan at an UNADVANCED Delta
+    # version must still produce a fresh, claimable run (the old run's batches
+    # are terminally failed and would otherwise be reused verbatim).
+    a = backfill_run_uuid("abc", 7)
+    b = backfill_run_uuid("abc", 7)
+    assert a != b
+    assert a.startswith("duckgres-backfill-abc-v7-g")
+    assert b.startswith("duckgres-backfill-abc-v7-g")
 
 
 def test_chunk_dataclass_shape():
