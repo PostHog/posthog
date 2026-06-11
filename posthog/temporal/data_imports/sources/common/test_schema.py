@@ -10,7 +10,7 @@ from products.data_warehouse.backend.types import IncrementalField, IncrementalF
 
 
 def _field(name: str, field_type: IncrementalFieldType = IncrementalFieldType.DateTime) -> IncrementalField:
-    return IncrementalField(label=name, type=field_type, field=name, field_type=field_type, nullable=False)
+    return {"label": name, "type": field_type, "field": name, "field_type": field_type, "nullable": False}
 
 
 class TestSelectIncrementalField:

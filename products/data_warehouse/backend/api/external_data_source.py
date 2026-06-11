@@ -1199,6 +1199,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         created_via: str,
         skip_credential_validation: bool = False,
     ) -> Response:
+        # `skip_credential_validation` is set only by the `setup` action, which has already run the
+        # full config + credential gate (including the SSRF host check) before discovering schemas.
+        # It avoids a second live credential round-trip — and the confusing failure mode where the
+        # first check passes but a transient blip fails the second, leaving nothing created.
         is_direct_postgres = (
             access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
         )
@@ -1253,16 +1257,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": CUSTOM_SOURCE_LIMIT_MESSAGE},
             )
         source = SourceRegistry.get_source(source_type_model)
-        is_valid, errors = source.validate_config(payload)
-        if not is_valid:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Invalid source config: {', '.join(errors)}"},
-            )
+        if not skip_credential_validation:
+            is_valid, errors = source.validate_config(payload)
+            if not is_valid:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Invalid source config: {', '.join(errors)}"},
+                )
         source_config: Config = source.parse_config(payload)
 
-        # `setup` already validated credentials before introspecting tables, so skip the redundant
-        # live credential check here — `get_schemas` below re-exercises the connection regardless.
         if not skip_credential_validation:
             if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
@@ -2068,12 +2071,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "No tables found for this source. Check the credentials and permissions."},
             )
 
-        # Build the schemas array server-side so the caller never has to. `_create_external_data_source`
-        # re-introspects for its own table mapping, so the extra round-trip here is acceptable for a one-shot.
+        # Build the schemas array server-side so the caller never has to. We've already validated
+        # config + credentials above, so `_create_external_data_source` skips that second gate
+        # (`skip_credential_validation`) to avoid a duplicate live credential round-trip.
         payload["schemas"] = build_default_schemas(source_schemas)
 
-        # Credentials were already validated above (required before `get_schemas`), so let
-        # `_create_external_data_source` skip the duplicate live credential check.
         return self._create_external_data_source(
             request,
             source_type=source_type,
