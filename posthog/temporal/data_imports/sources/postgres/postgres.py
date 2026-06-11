@@ -565,6 +565,12 @@ def _rls_active_from_conn(
                 if display_name is not None:
                     result[display_name] = bool(rls_active)
             return result
+    except psycopg.errors.UndefinedFunction:
+        # row_security_active() is a Postgres-specific catalog function. Wire-compatible backends
+        # we also support as sources (CockroachDB, DuckDB/Duckgres) don't implement it, so a missing
+        # function here is an expected limitation of the backend, not a bug — skip the RLS warning
+        # rather than reporting it to error tracking on every discovery.
+        return {}
     except Exception as e:
         capture_exception(e)
         return {}

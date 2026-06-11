@@ -2617,6 +2617,43 @@ class _DjangoBackedCursorCtx:
         return False
 
 
+class _UnsupportedRlsCursor:
+    """Wraps a real cursor but raises UndefinedFunction for the row_security_active query.
+
+    Mimics CockroachDB / DuckDB, which are wire-compatible but don't implement that catalog
+    function. Discovery queries still run against the real cursor.
+    """
+
+    def __init__(self, dj_cursor):
+        self._dj_cursor = dj_cursor
+
+    def execute(self, query, *args, **kwargs):
+        if "row_security_active" in str(query):
+            raise psycopg.errors.UndefinedFunction("unknown function: row_security_active()")
+        return self._dj_cursor.execute(query, *args, **kwargs)
+
+    def fetchone(self):
+        return self._dj_cursor.fetchone()
+
+    def fetchall(self):
+        return self._dj_cursor.fetchall()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class _UnsupportedRlsConnection:
+    def __init__(self, dj_cursor):
+        self._dj_cursor = dj_cursor
+        self.closed = False
+
+    def cursor(self, *args, **kwargs):
+        return _UnsupportedRlsCursor(self._dj_cursor)
+
+
 class TestIteratePartitionsRealDb:
     @pytest.mark.django_db
     def test_yields_all_rows(self):
@@ -2712,6 +2749,20 @@ class TestRlsDetectionRealDb:
                 assert result == {"test_rls_param": expected}
             finally:
                 dj_cursor.execute("RESET ROLE")
+
+    @pytest.mark.django_db
+    def test_rls_active_from_conn_ignores_unsupported_function(self):
+        # CockroachDB / DuckDB are wire-compatible Postgres backends we support as sources, but
+        # they don't implement row_security_active(). That benign UndefinedFunction must not be
+        # reported to error tracking — discovery proceeds, just without an RLS warning.
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_rls_unsupported (id SERIAL PRIMARY KEY)")
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+                result = _rls_active_from_conn(
+                    cast(Any, _UnsupportedRlsConnection(dj_cursor)), "public", ["test_rls_unsupported"]
+                )
+            assert result == {}
+            capture_mock.assert_not_called()
 
     @pytest.mark.django_db
     def test_rls_active_from_conn_runs_without_schema_or_names(self):
