@@ -744,7 +744,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if "require_tls" not in tunnel:
                 tunnel["require_tls"] = {"enabled": True}
 
-        representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
+        normalized_job_inputs = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
+        if "google_cloud_service_account_integration_id" in normalized_job_inputs:
+            integration_id = normalized_job_inputs.get("google_cloud_service_account_integration_id")
+            if isinstance(integration_id, str):
+                try:
+                    normalized_job_inputs["google_cloud_service_account_integration_id"] = int(integration_id)
+                except ValueError:
+                    pass
+
+        representation["job_inputs"] = normalized_job_inputs
         return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str | None:

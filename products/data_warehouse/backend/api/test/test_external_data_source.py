@@ -5910,6 +5910,31 @@ class TestExternalDataSource(APIBaseTest):
             == 1
         )
 
+    def test_bigquery_get_normalizes_integration_id_to_int(self):
+        source_model = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="BigQuery",
+            created_by=self.user,
+            prefix="",
+            job_inputs={
+                "dataset_id": "dummy_dataset_id",
+                "google_cloud_service_account_integration_id": "2",
+                "use_custom_region": {"enabled": False, "region": ""},
+                "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
+                "dataset_project": {"enabled": False, "dataset_project_id": ""},
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/")
+
+        assert response.status_code == 200, response.json()
+        integration_id = response.json()["job_inputs"]["google_cloud_service_account_integration_id"]
+        assert integration_id == 2
+        assert isinstance(integration_id, int)
+
     def test_get_wizard_sources(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard")
         payload = response.json()
