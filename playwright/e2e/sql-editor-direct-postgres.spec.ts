@@ -136,7 +136,7 @@ test.describe('SQL Editor direct Postgres queries', () => {
                 // CodeEditor lazy-loads monaco, so the container renders before the editor
                 // mounts — clicking too early focuses nothing and the keystrokes are lost.
                 await page
-                    .locator('[data-attr=hogql-query-editor] .monaco-editor')
+                    .locator('[data-attr=hogql-query-editor] [data-editor-ready="true"]')
                     .first()
                     .waitFor({ state: 'visible' })
                 await page.locator('[data-attr=hogql-query-editor]').click()

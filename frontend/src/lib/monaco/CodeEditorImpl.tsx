@@ -544,7 +544,7 @@ export function CodeEditor({
     }
 
     return (
-        <div className="CodeEditor relative h-full w-full">
+        <div className="CodeEditor relative h-full w-full" data-editor-ready={monacoAndEditor ? 'true' : 'false'}>
             <MonacoEditor // eslint-disable-line react/forbid-elements
                 key={queryKey}
                 theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
