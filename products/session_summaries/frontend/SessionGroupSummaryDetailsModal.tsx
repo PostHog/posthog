@@ -36,10 +36,10 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
     const { sessionSummary } = useValues(playerMetaLogic(logicProps))
     // Scrolling to a bit before the moment to better notice it
     const timeToSeekTo = (ms: number): number => Math.max(ms - 4000, 0)
-    // Seek to target event timestamp and start playing when modal opens and player is loaded
+    // Seek to target event timestamp when modal opens and player is loaded
     useEffect(() => {
         if (isOpen && event?.target_event && sessionPlayerData) {
-            seekToTime(timeToSeekTo(event.target_event.milliseconds_since_start), true)
+            seekToTime(timeToSeekTo(event.target_event.milliseconds_since_start))
         }
     }, [isOpen, event, sessionPlayerData, seekToTime])
     useEffect(() => {
