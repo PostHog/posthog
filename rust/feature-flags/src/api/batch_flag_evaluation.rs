@@ -10,8 +10,10 @@
 //! - Auth is the `INTERNAL_REQUEST_TOKEN` bearer token only — no SDK token, no team lookup
 //!   by token.
 //! - The handler bypasses the `/flags` request pipeline entirely, so no billing or
-//!   flag-analytics counters are emitted; dedicated `flags_batch_eval_*` ops metrics fire
-//!   instead.
+//!   flag-analytics counters are emitted, and dedicated `flags_batch_eval_*` ops metrics
+//!   track batch traffic. The per-person matcher still emits its own evaluation metrics
+//!   (`flags_evaluation_time`, dependency-graph build counters), which share the same
+//!   series as live `/flags`, so a large cohort run dominates those on its pod.
 //! - The matcher always runs with `skip_writes(true)`: experience-continuity hash key
 //!   overrides are read but never written.
 //! - Flags are always read fresh from Postgres (never the hypercache) so the
@@ -75,7 +77,7 @@ pub struct BatchFlagEvaluationRequest {
     /// Exclusive lower bound on `posthog_person.id`; 0 (default) starts from the beginning.
     #[serde(default)]
     pub cursor: i64,
-    /// Page size; capped by `BATCH_FLAG_EVAL_MAX_LIMIT`.
+    /// Page size; defaults to `DEFAULT_LIMIT` (1000), capped by `BATCH_FLAG_EVAL_MAX_LIMIT`.
     pub limit: Option<i64>,
 }
 
@@ -110,9 +112,9 @@ impl BatchFlagEvaluationError {
             Self::PayloadTooLarge => "payload_too_large",
             Self::FlagNotFound => "flag_not_found",
             Self::FlagInactive => "flag_inactive",
-            Self::GroupAggregatedFlag => "group_aggregated",
+            Self::GroupAggregatedFlag => "group_aggregated_flag",
             Self::VersionConflict { .. } => "version_conflict",
-            Self::Upstream(_) => "error",
+            Self::Upstream(_) => "upstream_error",
         }
     }
 }
@@ -307,8 +309,8 @@ async fn handle_batch_flag_evaluation(
     let request: BatchFlagEvaluationRequest = serde_json::from_slice(body)
         .map_err(|e| BatchFlagEvaluationError::InvalidRequest(format!("invalid JSON body: {e}")))?;
 
-    let limit = request.limit.unwrap_or(DEFAULT_LIMIT);
     let max_limit = state.config.batch_flag_eval_max_limit;
+    let limit = request.limit.unwrap_or(DEFAULT_LIMIT.min(max_limit));
     if limit < 1 || limit > max_limit {
         return Err(BatchFlagEvaluationError::InvalidRequest(format!(
             "limit must be between 1 and {max_limit}"
