@@ -107,6 +107,7 @@ export function TrendsBarChart({
         getTrendsHidden,
         goalLines,
         showValuesOnSeries,
+        showMultipleYAxes,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -116,6 +117,9 @@ export function TrendsBarChart({
     const isAggregated = display === ChartDisplayType.ActionsBarValue
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
     const isPercentStackView = !isAggregated && !!showPercentStackView && !!supportsPercentStackView
+    // Per-series y-axes are only meaningful for grouped (unstacked) bars — stacked layouts share
+    // one axis. Mirrors the legacy ActionsLineGraph, which assigns y0/y1/… per dataset.
+    const applyMultipleYAxes = !!showMultipleYAxes && isGrouped
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel, context?.groupTypeLabel)
 
@@ -154,6 +158,7 @@ export function TrendsBarChart({
             getColor: getTrendsColor,
             getHidden: getTrendsHidden,
             buildMeta: buildTrendsSeriesMeta,
+            showMultipleYAxes: applyMultipleYAxes,
         })
         return {
             series: timeSeries,
@@ -168,6 +173,7 @@ export function TrendsBarChart({
         currentPeriodResult?.labels,
         stackBreakdowns,
         getAggregatedDisplayLabel,
+        applyMultipleYAxes,
     ])
 
     const valueLabelFormatter = useCallback(
@@ -296,9 +302,20 @@ export function TrendsBarChart({
         [isAggregated, goalLines, series]
     )
 
-    // Bar charts don't yet expose multi-axis configuration, so all series live on the
-    // primary axis — alert anomaly markers always read the default scale.
-    const getYAxisId = useCallback(() => DEFAULT_Y_AXIS_ID, [])
+    const indexByResult = useMemo(() => {
+        const m = new Map<IndexedTrendResult, number>()
+        ;(indexedResults ?? []).forEach((r: IndexedTrendResult, i: number) => m.set(r, i))
+        return m
+    }, [indexedResults])
+
+    // Anomaly markers must read the same axis their series is scaled against.
+    const getYAxisId = useCallback(
+        (r: IndexedTrendResult) => {
+            const idx = indexByResult.get(r) ?? 0
+            return applyMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
+        },
+        [indexByResult, applyMultipleYAxes]
+    )
 
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
@@ -403,7 +420,7 @@ export function TrendsBarChart({
 
     // Annotations are date-anchored, so they only make sense for the time-series bar
     // layouts (vertical bars). The horizontal aggregated layout has categorical labels.
-    const showAnnotations = !inSharedMode
+    const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
     const annotationsDates = currentPeriodResult?.days ?? []
     // In compare-against-previous grouped layouts each band holds two bars (previous, current).
     // Anchor each period's annotations on its matching bar so they line up with what they describe.

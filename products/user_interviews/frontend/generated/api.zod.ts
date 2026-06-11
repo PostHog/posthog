@@ -159,6 +159,21 @@ export const UserInterviewTopicsAddIntervieweeCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Render the invite email exactly as a specific targeted interviewee would receive it — personalized subject and body — without sending anything and without creating or reading any share links. Pass `interviewee_identifier` to preview for a particular person, or omit it to preview for the first targeted interviewee. The body always shows an illustrative placeholder link (`is_preview_link: true`), never a live interview URL.
+ */
+export const userInterviewTopicsPreviewInviteCreateBodyIntervieweeIdentifierMax = 400
+
+export const UserInterviewTopicsPreviewInviteCreateBody = /* @__PURE__ */ zod.object({
+    interviewee_identifier: zod
+        .string()
+        .max(userInterviewTopicsPreviewInviteCreateBodyIntervieweeIdentifierMax)
+        .optional()
+        .describe(
+            'Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.'
+        ),
+})
+
+/**
  * Remove an interviewee from this topic. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration linked to an IntervieweeContext for that identifier on this topic so the removed person can no longer open their interview link. Idempotent — removing an identifier that isn't present is a no-op. Returns the updated topic.
  */
 export const userInterviewTopicsRemoveIntervieweeCreateBodyIdentifierMax = 400
@@ -302,6 +317,12 @@ export const userInterviewsCreateBodyIntervieweeEmailsItemMax = 254
 export const UserInterviewsCreateBody = /* @__PURE__ */ zod.object({
     interviewee_emails: zod.array(zod.string().max(userInterviewsCreateBodyIntervieweeEmailsItemMax)).optional(),
     summary: zod.string().optional(),
+    classifications: zod
+        .array(zod.enum(['abandoned', 'off-topic']).describe('\* `abandoned` - Abandoned\n\* `off-topic` - Off-topic'))
+        .optional()
+        .describe(
+            'Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta.'
+        ),
     audio: zod.url(),
 })
 
@@ -310,6 +331,12 @@ export const userInterviewsUpdateBodyIntervieweeEmailsItemMax = 254
 export const UserInterviewsUpdateBody = /* @__PURE__ */ zod.object({
     interviewee_emails: zod.array(zod.string().max(userInterviewsUpdateBodyIntervieweeEmailsItemMax)).optional(),
     summary: zod.string().optional(),
+    classifications: zod
+        .array(zod.enum(['abandoned', 'off-topic']).describe('\* `abandoned` - Abandoned\n\* `off-topic` - Off-topic'))
+        .optional()
+        .describe(
+            'Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta.'
+        ),
     audio: zod.url(),
 })
 
@@ -318,6 +345,12 @@ export const userInterviewsPartialUpdateBodyIntervieweeEmailsItemMax = 254
 export const UserInterviewsPartialUpdateBody = /* @__PURE__ */ zod.object({
     interviewee_emails: zod.array(zod.string().max(userInterviewsPartialUpdateBodyIntervieweeEmailsItemMax)).optional(),
     summary: zod.string().optional(),
+    classifications: zod
+        .array(zod.enum(['abandoned', 'off-topic']).describe('\* `abandoned` - Abandoned\n\* `off-topic` - Off-topic'))
+        .optional()
+        .describe(
+            'Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta.'
+        ),
     audio: zod.url().optional(),
 })
 
@@ -345,6 +378,13 @@ export const UserInterviewsSearchCreateBody = /* @__PURE__ */ zod.object({
         .uuid()
         .nullish()
         .describe('Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.'),
+    classifications: zod
+        .array(zod.enum(['abandoned', 'off-topic']).describe('\* `abandoned` - Abandoned\n\* `off-topic` - Off-topic'))
+        .min(1)
+        .optional()
+        .describe(
+            'Optional. Restrict results to interviews carrying any of these classifications (OR). Combines with `topic_id` as AND.'
+        ),
     limit: zod
         .number()
         .min(1)

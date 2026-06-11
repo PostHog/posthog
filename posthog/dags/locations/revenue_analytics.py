@@ -2,7 +2,7 @@ import dagster
 
 from products.revenue_analytics.dags import exchange_rate
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     assets=[
@@ -19,5 +19,6 @@ defs = dagster.Definitions(
         exchange_rate.daily_exchange_rates_schedule,
         exchange_rate.hourly_exchange_rates_schedule,
     ],
+    loggers=loggers,
     resources=resources,
 )

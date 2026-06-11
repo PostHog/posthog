@@ -1,6 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { getPostHogClient } from '@/lib/posthog'
+import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import { sanitizeHeaderValue } from '@/lib/utils'
 
 export enum ErrorCode {
@@ -116,6 +117,21 @@ export class PostHogValidationError extends Error {
         this.extra = options.extra
         this.url = options.url
         this.method = options.method
+    }
+}
+
+/**
+ * Thrown when MCP-side schema validation rejects a tool call's input before
+ * any handler runs (the exec `call` path). The message is pre-formatted by
+ * `formatInputValidationError` and already names the offending field(s), so
+ * `handleToolError` returns it verbatim — capturing it as an exception would
+ * mint a per-tool error tracking issue for every agent slip-up, the same
+ * noise problem the 4xx short-circuit exists to prevent.
+ */
+export class ToolInputValidationError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ToolInputValidationError'
     }
 }
 
@@ -352,6 +368,21 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         }
     }
 
+    // Recoverable: input rejected by the tool's schema before any handler ran —
+    // an agent slip-up, not a bug. The message already names the offending
+    // field(s); skip exception capture like the API 4xx branch below.
+    if (error instanceof ToolInputValidationError) {
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Error: [${toolName}]: ${error.message}`,
+                },
+            ],
+            isError: true,
+        }
+    }
+
     // Recoverable: 4xx responses from the PostHog API (and validation errors)
     // are agent-input failures — the LLM passed a bad id, a stale UUID, or a
     // value the serializer rejected. Returning the typed error message to the
@@ -430,11 +461,22 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         // Never let observability break the request.
     }
 
+    // A 5xx returns an opaque server body the agent can't act on. When the
+    // failed endpoint has a known recovery path (e.g. a logs query that scanned
+    // too much data), append a short "here's how to recover" footer so the agent
+    // narrows and retries instead of re-issuing the same failing call.
+    // `recoverableApiError` was unwrapped from any `cause` chain above; only 5xx
+    // reach here (4xx short-circuited earlier).
+    const recoveryHint =
+        recoverableApiError instanceof PostHogApiError
+            ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
+            : undefined
+
     return {
         content: [
             {
                 type: 'text',
-                text: `Error: [${mcpError.tool}]: ${mcpError.message}`,
+                text: `Error: [${mcpError.tool}]: ${mcpError.message}${recoveryHint ? `\n\n${recoveryHint}` : ''}`,
             },
         ],
         isError: true,

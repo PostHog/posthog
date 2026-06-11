@@ -1,5 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
+from products.customer_analytics.backend.api.organization_members import OrganizationMembersForAccountViewSet
 from products.customer_analytics.backend.api.views import (
     AccountNotebookViewSet,
     AccountViewSet,
@@ -9,6 +10,12 @@ from products.customer_analytics.backend.api.views import (
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(
+        r"organization_members",
+        OrganizationMembersForAccountViewSet,
+        "project_organization_members",
+        ["team_id"],
+    )
     routers.register_legacy_dual_route(
         r"customer_profile_configs",
         CustomerProfileConfigViewSet,

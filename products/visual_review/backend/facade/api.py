@@ -28,20 +28,33 @@ User = get_user_model()
 # Server-owned run.metadata keys — never accept these from client input.
 # Allowing clients to set these would let them target arbitrary GitHub
 # comments for PATCH, or spoof baseline commit SHAs in the audit trail.
+# These are all written by the server itself, never by the CI runner.
+# `github_check_run_id` is deliberately NOT reserved: the CI runner is its
+# only source (from `JOB_CHECK_RUN_ID=${{ job.check_run_id }}`), and the
+# rerun it enables is fenced by `_rerun_github_job` — the job must run on the
+# run's commit and belong to the recorded workflow run (`github_run_id`).
 _RESERVED_RUN_METADATA_KEYS = frozenset(
     {
         "github_comment_id",
         "baseline_commit_sha",
         "baseline_healed_from_merge_base",
-        "github_check_run_id",
     }
 )
+
+# GitHub identifiers arrive as JSON, so a client can send them as numbers.
+# Store them as strings so rerun logic (which calls `.isdigit()`) and
+# workflow-run comparisons stay type-stable.
+_STRING_RUN_METADATA_KEYS = frozenset({"github_check_run_id", "github_run_id"})
 
 
 def _sanitize_run_metadata(metadata: dict | None) -> dict:
     if not metadata:
         return {}
-    return {k: v for k, v in metadata.items() if k not in _RESERVED_RUN_METADATA_KEYS}
+    cleaned = {k: v for k, v in metadata.items() if k not in _RESERVED_RUN_METADATA_KEYS}
+    for key in _STRING_RUN_METADATA_KEYS:
+        if cleaned.get(key) is not None:
+            cleaned[key] = str(cleaned[key])
+    return cleaned
 
 
 # Re-export exceptions for callers
@@ -389,14 +402,33 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     return _to_run(run, user_basic_infos)
 
 
-def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contracts.Snapshot]:
+def get_run_snapshots(
+    run_id: UUID, team_id: int | None = None, include_quarantined: bool = True
+) -> contracts.RunSnapshots:
+    if not include_quarantined and team_id is None:
+        raise ValueError("team_id is required to exclude quarantined snapshots")
     snapshots = logic.get_run_snapshots(run_id, team_id=team_id)
     if not snapshots:
-        return []
+        return contracts.RunSnapshots(snapshots=[], quarantined_count=0)
     repo_id = snapshots[0].run.repo_id
+    run_type = snapshots[0].run.run_type
+    quarantined_identifiers = (
+        {q.identifier for q in logic.list_quarantined_identifiers(repo_id, team_id, run_type=run_type)}
+        if team_id is not None
+        else set()
+    )
     user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return [_to_snapshot(s, repo_id, user_basic_infos) for s in snapshots]
+    dtos: list[contracts.Snapshot] = []
+    quarantined_count = 0
+    for s in snapshots:
+        dto = _to_snapshot(s, repo_id, user_basic_infos)
+        if dto.identifier in quarantined_identifiers:
+            quarantined_count += 1
+            if not include_quarantined:
+                continue
+        dtos.append(dto)
+    return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
 
 
 def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from django.core.cache import cache
 from django.utils import timezone
 
 import requests
@@ -16,6 +15,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.tasks.backend.models import Task
+from products.tasks.backend.redis import get_tasks_cache
 
 logger = logging.getLogger(__name__)
 
@@ -407,7 +407,7 @@ def compute_repository_readiness(
 
     key = _cache_key(team_id=team.id, integration_id=integration.id, repository=repository, window_days=window_days)
     if not refresh:
-        cached = cache.get(key)
+        cached = get_tasks_cache().get(key)
         if isinstance(cached, dict):
             generated_at_str = cached.get("generatedAt")
             if generated_at_str:
@@ -439,7 +439,7 @@ def compute_repository_readiness(
             "generatedAt": timezone.now().isoformat(),
             "cacheAgeSeconds": 0,
         }
-        cache.set(key, response, READINESS_CACHE_TTL_SECONDS)
+        get_tasks_cache().set(key, response, READINESS_CACHE_TTL_SECONDS)
         return response
 
     try:
@@ -621,5 +621,5 @@ def compute_repository_readiness(
         },
     }
 
-    cache.set(key, response, READINESS_CACHE_TTL_SECONDS)
+    get_tasks_cache().set(key, response, READINESS_CACHE_TTL_SECONDS)
     return response

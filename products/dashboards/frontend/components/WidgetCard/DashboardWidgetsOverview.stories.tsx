@@ -13,7 +13,7 @@ import { getDashboardWidgetDefinition } from '../../widgets/registry'
 import { WidgetCard } from './WidgetCard'
 import { WidgetCardBody } from './WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from './WidgetCardHeader'
-import { mockMoreOverlay, withErrorTrackingProjectState } from './widgetCardStoryFixtures'
+import { mockMoreOverlay, widgetStorybookParameters, withErrorTrackingProjectState } from './widgetCardStoryFixtures'
 import { getWidgetOverviewDemoState } from './widgetOverviewStoryFixtures'
 
 // Dashboard grid row height — see DashboardItems BASE_ROW_HEIGHT.
@@ -104,6 +104,7 @@ const meta: Meta<typeof DashboardWidgetsOverview> = {
     component: DashboardWidgetsOverview,
     parameters: {
         layout: 'fullscreen',
+        ...widgetStorybookParameters,
         docs: {
             description: {
                 component:

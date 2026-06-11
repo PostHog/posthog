@@ -18,15 +18,26 @@ import {
 } from '~/types'
 
 import { getDashboardWidgetCatalogEntry, tryGetDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
+import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
 import { DashboardWidgetItem } from './DashboardWidgetItem'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
     userHasAccess: () => true,
 }))
 
+jest.mock('../../widgetProductAccess', () => ({
+    userHasDashboardWidgetProductAccess: jest.fn(() => true),
+    userCanMutateErrorTrackingIssuesOnDashboard: jest.fn(() => true),
+}))
+
+jest.mock('../../widget_types/widgetAvailability', () => ({
+    useWidgetAvailability: () => ({ isAvailable: true }),
+}))
+
 jest.mock('../../widgets/registry', () => ({
     getDashboardWidgetDefinition: () => ({
         Component: () => <div>Widget body</div>,
+        TileFilters: () => <div data-attr="widget-tile-filters">filters</div>,
         EditModal: ({
             isOpen,
             name,
@@ -67,6 +78,10 @@ jest.mock('../../widget_types/catalog', () => ({
         label: 'Top issues',
         headerTitle: 'Top issues',
         headerMeta: { showWidgetType: true, showDateRange: true },
+        sharedPlaceholder: {
+            title: 'Top issues',
+            message: 'Log in to PostHog to see which errors are affecting your users.',
+        },
     })),
     getUnknownDashboardWidgetCatalogFallback: jest.fn((widgetType: string) => ({
         groupId: widgetType,
@@ -101,6 +116,7 @@ const tileWithoutDescription = {
 
 describe('DashboardWidgetItem', () => {
     beforeEach(() => {
+        jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(true)
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
             test_account_filters: [
@@ -129,6 +145,25 @@ describe('DashboardWidgetItem', () => {
             dashboards: undefined,
             dashboard_tiles: [],
         }).unmount()
+    })
+
+    it('does not render tile filters without product access', () => {
+        jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(false)
+
+        const { container } = render(
+            <DashboardWidgetItem
+                tile={tile}
+                placement={DashboardPlacement.Dashboard}
+                dashboardId={99}
+                result={null}
+                loading={false}
+                onRefresh={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
+                showEditingControls
+            />
+        )
+
+        expect(container.querySelector('[data-attr="widget-tile-filters"]')).toBeNull()
     })
 
     it('renders insight-style more menu with view, dashboard section, and refresh data', async () => {
@@ -278,6 +313,24 @@ describe('DashboardWidgetItem', () => {
 
         expect(container.querySelector('[data-attr="widget-card-title"] .EditableField')).toBeNull()
         expect(container.querySelector('[data-attr="widget-card-title"]')).toHaveTextContent('My issues')
+    })
+
+    it('shows shared dashboard placeholder on public placement instead of widget data', () => {
+        const { container } = render(
+            <DashboardWidgetItem
+                tile={tile}
+                placement={DashboardPlacement.Public}
+                dashboardId={99}
+                result={{ results: [{ id: '1' }] }}
+                loading={false}
+                onRefresh={jest.fn()}
+            />
+        )
+
+        expect(within(container).getByText('My issues')).toBeInTheDocument()
+        expect(screen.getByTestId('shared-dashboard-widget-placeholder')).toBeInTheDocument()
+        expect(screen.getByText('Log in to PostHog to see which errors are affecting your users.')).toBeInTheDocument()
+        expect(screen.queryByText('Widget body')).not.toBeInTheDocument()
     })
 
     it('contains unknown widget errors in the card body while keeping the header', () => {

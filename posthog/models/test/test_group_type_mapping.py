@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -9,8 +9,10 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypesUnavailable,
+    _fetch_group_types_for_projects_via_personhog,
     _record_group_types_fetch_failure,
     clear_dashboard_from_group_type_mapping,
+    count_group_type_mappings_per_team,
     delete_group_type_mapping,
     get_group_types_for_project,
     get_group_types_for_projects,
@@ -317,6 +319,23 @@ class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
 
     def tearDown(self):
         self._client_patcher.stop()
+
+    @override_settings(PERSONHOG_BATCH_SIZE=2)
+    def test_fetch_via_personhog_chunks_project_ids(self):
+        # 5 project_ids with batch size 2 → 3 chunks (2 + 2 + 1)
+        mock_client = MagicMock()
+        mock_client.get_group_type_mappings_by_project_ids.side_effect = [
+            MagicMock(results=[MagicMock(key=1, mappings=[]), MagicMock(key=2, mappings=[])]),
+            MagicMock(results=[MagicMock(key=3, mappings=[]), MagicMock(key=4, mappings=[])]),
+            MagicMock(results=[MagicMock(key=5, mappings=[])]),
+        ]
+
+        result = _fetch_group_types_for_projects_via_personhog(mock_client, [1, 2, 3, 4, 5])
+
+        assert mock_client.get_group_type_mappings_by_project_ids.call_count == 3
+        assert set(result.keys()) == {1, 2, 3, 4, 5}
+        for c in mock_client.get_group_type_mappings_by_project_ids.call_args_list:
+            assert len(c[0][0].project_ids) <= 2
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
@@ -633,6 +652,123 @@ class TestGetGroupTypesForProjectsEdgeCases(SimpleTestCase):
             get_group_types_for_projects([10, 20])
 
         assert set(ctx.exception.project_ids) == {10, 20}
+
+
+class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
+    def setUp(self):
+        self._mock_client = MagicMock()
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=self._mock_client)
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_personhog_success_returns_converted_counts(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_objects,
+    ):
+        mock_count_1 = MagicMock()
+        mock_count_1.team_id = 1
+        mock_count_1.count = 3
+        mock_count_2 = MagicMock()
+        mock_count_2.team_id = 2
+        mock_count_2.count = 5
+
+        mock_resp = MagicMock()
+        mock_resp.counts = [mock_count_1, mock_count_2]
+        self._mock_client.count_group_type_mappings.return_value = mock_resp
+
+        result = count_group_type_mappings_per_team()
+
+        assert result == [{"team_id": 1, "total": 3}, {"team_id": 2, "total": 5}]
+        mock_objects.values.assert_not_called()
+        mock_routing_counter.labels.assert_called_with(
+            operation="count_group_type_mappings_per_team", source="personhog", client_name="posthog-django"
+        )
+        mock_errors_counter.labels.assert_not_called()
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_personhog_failure_falls_back_to_orm(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_objects,
+    ):
+        self._mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
+
+        orm_data = [{"team_id": 1, "total": 3}]
+        mock_qs = MagicMock()
+        mock_qs.annotate.return_value.order_by.return_value = orm_data
+        mock_objects.values.return_value = mock_qs
+
+        result = count_group_type_mappings_per_team()
+
+        assert result == orm_data
+        mock_errors_counter.labels.assert_called_once_with(
+            operation="count_group_type_mappings_per_team",
+            source="personhog",
+            error_type="grpc_error",
+            client_name="posthog-django",
+        )
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_no_client_uses_orm_directly(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_objects,
+    ):
+        self._client_patcher.stop()
+        no_client_patcher = patch(_CLIENT_PATCH, return_value=None)
+        no_client_patcher.start()
+
+        orm_data = [{"team_id": 10, "total": 2}]
+        mock_qs = MagicMock()
+        mock_qs.annotate.return_value.order_by.return_value = orm_data
+        mock_objects.values.return_value = mock_qs
+
+        result = count_group_type_mappings_per_team()
+
+        assert result == orm_data
+        mock_routing_counter.labels.assert_called_with(
+            operation="count_group_type_mappings_per_team", source="django_orm", client_name="posthog-django"
+        )
+        mock_errors_counter.labels.assert_not_called()
+
+        no_client_patcher.stop()
+        self._mock_client = MagicMock()
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=self._mock_client)
+        self._client_patcher.start()
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_both_paths_fail_returns_empty_list(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_objects,
+    ):
+        from django.db import DatabaseError
+
+        self._mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
+
+        mock_qs = MagicMock()
+        mock_qs.annotate.return_value.order_by.side_effect = DatabaseError("db is down")
+        mock_objects.values.return_value = mock_qs
+
+        result = count_group_type_mappings_per_team()
+
+        assert result == []
 
 
 # ── Write helper tests ─────────────────────────────────────────────

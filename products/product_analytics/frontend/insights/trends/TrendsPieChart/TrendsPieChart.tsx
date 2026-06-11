@@ -65,6 +65,8 @@ export function TrendsPieChart({
         formula,
         showValuesOnSeries,
         showLabelOnSeries,
+        showPercentStackView,
+        supportsPercentStackView,
         pieChartVizOptions,
         hasDataWarehouseSeries,
         querySource,
@@ -73,6 +75,8 @@ export function TrendsPieChart({
         getTrendsColor,
         getTrendsHidden,
     } = useValues(trendsDataLogic(insightProps))
+
+    const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
 
     const resolvedGroupTypeLabel =
         context?.groupTypeLabel ??
@@ -127,9 +131,10 @@ export function TrendsPieChart({
         () => ({
             showValueOnSlice: !!showValuesOnSeries,
             showLabelOnSlice: !!showLabelOnSeries,
+            isPercent: isPercentStackView,
             disableHoverOffset: !!pieChartVizOptions?.disableHoverOffset,
         }),
-        [showValuesOnSeries, showLabelOnSeries, pieChartVizOptions?.disableHoverOffset]
+        [showValuesOnSeries, showLabelOnSeries, isPercentStackView, pieChartVizOptions?.disableHoverOffset]
     )
 
     // ActionsPie disables clicks entirely when the insight has data-warehouse series (see

@@ -1,5 +1,3 @@
-import { expectLogic } from 'kea-test-utils'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -199,11 +197,13 @@ describe('addTile limit', () => {
         logic.unmount()
     })
 
-    it(`stops adding tiles once ${MAX_ACCOUNTS_OVERVIEW_TILES} exist`, async () => {
+    // addTile is a pure reducer — assert synchronously. toFinishAllListeners() would
+    // wait on the connected logics' on-mount loaders (a global pending-promise map),
+    // which made this flaky whenever those XHRs were slow to settle.
+    it(`stops adding tiles once ${MAX_ACCOUNTS_OVERVIEW_TILES} exist`, () => {
         for (let i = 0; i < MAX_ACCOUNTS_OVERVIEW_TILES + 2; i++) {
             logic.actions.addTile({ label: `Tile ${i}`, metric: { type: 'count' } })
         }
-        await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.tiles).toHaveLength(MAX_ACCOUNTS_OVERVIEW_TILES)
     })
 })

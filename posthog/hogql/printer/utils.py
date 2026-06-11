@@ -21,6 +21,7 @@ from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
+from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -175,6 +176,10 @@ def prepare_ast_for_printing(
 
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+        if events_pushdown_enabled(context.modifiers):
+            with context.timings.measure("events_predicate_pushdown"):
+                node = apply_events_predicate_pushdown(node, context)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(

@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconExpand45 } from '@posthog/icons'
@@ -8,6 +8,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import {
     ProductIntentContext,
     ProductKey,
@@ -37,6 +39,27 @@ export function useWebTileExportAdapter(
     query: QuerySchema | undefined,
     insightProps: InsightLogicProps
 ): ExportAdapter | null {
+    // This header hook renders before the tile's chart. insightDataLogic (mounted below) connects to
+    // the shared, key-only dataNodeLogic without forwarding dataNodeCollectionId, so it would build
+    // that logic first and bind it to a fallback collection — dropping the tile from the dashboard's
+    // "reload all" (only the overview, which isn't an insight viz, kept reloading). Bind the node to
+    // the web analytics collection up front, keyed by the node key so it tracks tab switches, so the
+    // chart reuses the same correctly-bound instance and reload reaches every tile.
+    const dataNodeKey = insightVizDataNodeKey(insightProps)
+    const collectionBoundDataNodeLogic = useMemo(
+        () =>
+            dataNodeLogic({
+                key: dataNodeKey,
+                dataNodeCollectionId: insightVizDataCollectionId(insightProps, dataNodeKey),
+                loadPriority: insightProps.loadPriority,
+            } as DataNodeLogicProps),
+        // Rebind only when the node key changes (tile/tab switch); avoid re-running on every render so
+        // we never clobber the query the chart sets on the shared instance.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [dataNodeKey]
+    )
+    useMountedLogic(collectionBoundDataNodeLogic)
+
     const builtInsightDataLogic = insightDataLogic(insightProps)
     const { insightDataRaw } = useValues(builtInsightDataLogic)
 

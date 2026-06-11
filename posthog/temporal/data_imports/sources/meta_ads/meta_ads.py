@@ -206,12 +206,60 @@ def _is_timeout_error(response: Response) -> bool:
         return False
 
 
+# Meta error codes that indicate a permanent auth or permission problem — the
+# only fix is for the user to re-authorize the integration, so retrying the job
+# is pointless. We key off the numeric ``code`` rather than the error ``type``:
+# Meta returns ``type: "OAuthException"`` for transient service errors too (e.g.
+# code 2, "Service temporarily unavailable"), so the type alone is not reliable.
+#   190 — access token expired/invalid/revoked, checkpoint required, password
+#         changed, etc. (the dominant variant for this source).
+#   102 — invalid or expired session.
+#   10 and 200-299 — permission denied.
+# https://developers.facebook.com/docs/graph-api/guides/error-handling
+META_AUTH_ERROR_CODES = {102, 190}
+META_PERMISSION_ERROR_CODES = {10, *range(200, 300)}
+
+META_AUTH_ERROR_MESSAGE = (
+    "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
+)
+
+
+def _is_permanent_auth_error(response: Response) -> bool:
+    """Return True for Meta errors that only re-authorization can fix.
+
+    Covers expired/invalid/revoked access tokens, invalidated sessions, and
+    permission denials. These are terminal: retrying the sync keeps failing
+    until the user reconnects the integration.
+    """
+    try:
+        error = response.json().get("error", {})
+    except (ValueError, AttributeError):
+        return False
+    code = error.get("code")
+    if not isinstance(code, int):
+        return False
+    return code in META_AUTH_ERROR_CODES or code in META_PERMISSION_ERROR_CODES
+
+
+def _raise_meta_api_error(response: Response) -> typing.NoReturn:
+    """Raise a descriptive exception for a non-200 Meta API response.
+
+    Permanent auth/permission failures raise a clean, user-actionable message
+    that ``MetaAdsSource.get_non_retryable_errors`` matches on, so the job fails
+    fast instead of burning retries. The raw response is appended for debugging.
+    Everything else raises the raw response and stays retryable.
+    """
+    if _is_permanent_auth_error(response):
+        raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+    raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+
+
 def _iter_simple_pagination(
     initial_url: str,
     params: dict,
     resume_config: MetaAdsResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
-) -> collections.abc.Generator[list[dict], None, None]:
+) -> collections.abc.Generator[list[dict]]:
     """Iterate a non-time-range Graph API request via ``paging.next`` URLs.
 
     On resume, the saved ``next_url`` is re-issued with a fresh ``access_token``
@@ -225,7 +273,7 @@ def _iter_simple_pagination(
 
     while True:
         if response.status_code != 200:
-            raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+            _raise_meta_api_error(response)
 
         response_payload = response.json()
         yield response_payload.get("data", [])
@@ -249,7 +297,7 @@ def _iter_time_range_pagination(
     time_range: dict,
     resume_config: MetaAdsResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
-) -> collections.abc.Generator[list[dict], None, None]:
+) -> collections.abc.Generator[list[dict]]:
     """Iterate an insights-style request by chunked date ranges.
 
     The outer loop walks adaptive date chunks (30/7/1 days). The inner loop
@@ -330,7 +378,7 @@ def _iter_time_range_pagination(
                     if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
                         chunk_size_days = TIME_RANGE_CHUNK_SIZES[current_index + 1]
                         continue
-                raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+                _raise_meta_api_error(response)
 
         while True:
             if response.status_code != 200:
@@ -344,7 +392,7 @@ def _iter_time_range_pagination(
                         retry_url = _override_limit(last_paging_url, current_limit)
                         response = _fetch_paging_url(retry_url, access_token)
                         continue
-                raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+                _raise_meta_api_error(response)
 
             response_payload = response.json()
             yield response_payload.get("data", [])
@@ -376,7 +424,7 @@ def _make_paginated_api_request(
     access_token: str,
     time_range: dict | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
-) -> collections.abc.Generator[list[dict], None, None]:
+) -> collections.abc.Generator[list[dict]]:
     """Make paginated requests to the Meta Graph API.
     This function handles two types of pagination:
     1. Standard pagination: Uses Meta's paging.next URLs to fetch all pages of results

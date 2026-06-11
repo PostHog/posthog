@@ -77,6 +77,7 @@ from products.feature_flags.backend.api.feature_flag import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
+from products.surveys.backend.responses import fetch_per_question_stats, fetch_response_rows
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation
 from products.surveys.backend.util import (
@@ -599,6 +600,151 @@ class SurveyConditionsSchemaSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="The variant of the feature flag linked to this survey.",
     )
+
+
+class SurveySummarizeRequestSerializer(serializers.Serializer):
+    force_refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, bypass cached summaries and regenerate. Defaults to false.",
+    )
+
+
+class SurveyResponseAnswerSerializer(serializers.Serializer):
+    question_id = serializers.CharField(help_text="UUID of the survey question this answer belongs to.")
+    question_index = serializers.IntegerField(help_text="Zero-based index of the question within the survey.")
+    question_text = serializers.CharField(
+        allow_blank=True, help_text="Untranslated question text as configured by the survey author."
+    )
+    question_type = serializers.CharField(
+        help_text=(
+            "Question type: open, rating, single_choice, multiple_choice, or link. "
+            "Determines the shape of the answer field."
+        ),
+    )
+    answer = serializers.JSONField(
+        help_text=(
+            "Resolved answer. String for open/rating/single_choice/link questions, "
+            "list of strings for multiple_choice questions. Already decoded from the "
+            "raw $survey_response_<id> property so callers don't need to parse it."
+        )
+    )
+
+
+class SurveyResponseExtraSerializer(serializers.Serializer):
+    device_type = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$device_type at the time the response was sent."
+    )
+    browser = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$browser at the time the response was sent."
+    )
+    os = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        required=False,
+        help_text="$os (operating system) at the time the response was sent.",
+    )
+    geoip_country_code = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$geoip_country_code at submission time."
+    )
+    geoip_country_name = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$geoip_country_name at submission time."
+    )
+    geoip_city_name = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$geoip_city_name at submission time."
+    )
+    current_url = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$current_url where the survey was submitted."
+    )
+    iteration = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        required=False,
+        help_text="Survey iteration number when the response was sent. Only set for recurring surveys.",
+    )
+
+
+class SurveyResponseRowSerializer(serializers.Serializer):
+    uuid = serializers.CharField(
+        help_text="UUID of the underlying `survey sent` event. Use as the response identifier for archive operations."
+    )
+    distinct_id = serializers.CharField(
+        help_text="distinct_id of the respondent. Cross-pivot to the persons API or session recordings."
+    )
+    session_id = serializers.CharField(
+        allow_null=True,
+        help_text="$session_id of the respondent when available. Use to pull the session recording for this response.",
+    )
+    submitted_at = serializers.DateTimeField(help_text="Event timestamp when the response was sent (ISO 8601, UTC).")
+    answers = SurveyResponseAnswerSerializer(
+        many=True,
+        help_text=(
+            "One entry per survey question that received a non-empty answer. Question text is already resolved — "
+            "callers do not need to look up `$survey_response_<id>` keys."
+        ),
+    )
+    extra = SurveyResponseExtraSerializer(
+        help_text="Convenience fields extracted from the event properties (device, browser, geoip, iteration)."
+    )
+
+
+class SurveyResponsesQuerySerializer(serializers.Serializer):
+    since = serializers.DateTimeField(
+        required=False,
+        help_text="Only return responses submitted on or after this ISO 8601 timestamp.",
+    )
+    until = serializers.DateTimeField(
+        required=False,
+        help_text="Only return responses submitted on or before this ISO 8601 timestamp.",
+    )
+    question_id = serializers.CharField(
+        required=False,
+        help_text=(
+            "If set, only return rows where this question has a non-empty answer, and only include that question's "
+            "answer in each row. Required when using score_lte or score_gte."
+        ),
+    )
+    score_lte = serializers.FloatField(
+        required=False,
+        help_text=(
+            "Filter to rows where the rating answer for `question_id` is <= this value. "
+            "Common use: NPS detractors with score_lte=6. Requires question_id."
+        ),
+    )
+    score_gte = serializers.FloatField(
+        required=False,
+        help_text=(
+            "Filter to rows where the rating answer for `question_id` is >= this value. "
+            "Common use: NPS promoters with score_gte=9. Requires question_id."
+        ),
+    )
+    exclude_archived = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, exclude responses that have been archived via the archive_response endpoint.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of rows to return (1-500). Defaults to 100.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.",
+    )
+
+
+class SurveyResponsesListSerializer(serializers.Serializer):
+    results = SurveyResponseRowSerializer(many=True, help_text="Survey response rows for the requested page.")
+    has_more = serializers.BooleanField(
+        help_text="True if more rows exist beyond the current page — fetch the next page with offset + limit."
+    )
+    limit = serializers.IntegerField(help_text="The limit applied to this query (echoed back for pagination).")
+    offset = serializers.IntegerField(help_text="The offset applied to this query (echoed back for pagination).")
 
 
 class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -1869,7 +2015,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
     ).all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["archived"]
+    filterset_fields = ["archived", "type"]
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
@@ -1960,6 +2106,104 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         )
 
         return super().destroy(request, *args, **kwargs)
+
+    @extend_schema(
+        operation_id="surveys_launch",
+        description=(
+            "Launch a survey by setting `start_date` to the current time. No-op if the survey is already launched "
+            "(start_date set in the past) — returns the existing state unchanged. Does not affect archived surveys "
+            "or surveys with an end_date in the past; unarchive or extend the end_date first."
+        ),
+        request=None,
+        responses={200: SurveySerializer},
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
+    def launch(self, request: request.Request, **kwargs: Any) -> Response:
+        survey = self.get_object()
+        now = datetime.now(UTC)
+        if survey.archived:
+            raise exceptions.ValidationError("Cannot launch an archived survey. Unarchive it first.")
+        if survey.end_date and survey.end_date <= now:
+            raise exceptions.ValidationError(
+                "Cannot launch a survey with end_date in the past. Extend the end_date first."
+            )
+        if survey.start_date and survey.start_date <= now:
+            # Already launched — no-op, return current state.
+            return Response(SurveySerializer(survey, context=self.get_serializer_context()).data)
+
+        previous_start = survey.start_date
+        survey.start_date = now
+        survey.save(update_fields=["start_date"])
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=cast(User, self.request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=survey.id,
+            scope="Survey",
+            activity="launched",
+            detail=Detail(
+                name=survey.name,
+                changes=[
+                    Change(
+                        type="Survey",
+                        action="changed",
+                        field="start_date",
+                        before=previous_start,
+                        after=survey.start_date,
+                    )
+                ],
+            ),
+        )
+
+        return Response(SurveySerializer(survey, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        operation_id="surveys_stop",
+        description=(
+            "Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; "
+            "existing responses remain available. No-op if the survey already has an end_date in the past."
+        ),
+        request=None,
+        responses={200: SurveySerializer},
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
+    def stop(self, request: request.Request, **kwargs: Any) -> Response:
+        survey = self.get_object()
+        now = datetime.now(UTC)
+        if survey.archived:
+            raise exceptions.ValidationError("Cannot stop an archived survey. Unarchive it first if needed.")
+        if survey.end_date and survey.end_date <= now:
+            return Response(SurveySerializer(survey, context=self.get_serializer_context()).data)
+
+        previous_end = survey.end_date
+        survey.end_date = now
+        survey.save(update_fields=["end_date"])
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=cast(User, self.request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=survey.id,
+            scope="Survey",
+            activity="stopped",
+            detail=Detail(
+                name=survey.name,
+                changes=[
+                    Change(
+                        type="Survey",
+                        action="changed",
+                        field="end_date",
+                        before=previous_end,
+                        after=survey.end_date,
+                    )
+                ],
+            ),
+        )
+
+        return Response(SurveySerializer(survey, context=self.get_serializer_context()).data)
 
     def _get_partial_responses_filter(self, base_conditions_sql: builtins.list[str]) -> str:
         unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
@@ -2388,6 +2632,15 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 required=False,
                 description="Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
             ),
+            OpenApiParameter(
+                "include_per_question_stats",
+                OpenApiTypes.BOOL,
+                required=False,
+                description=(
+                    "When true, also return per-question response counts and answer distributions. "
+                    "Adds one extra HogQL query per question, so leave off unless you need the breakdown."
+                ),
+            ),
         ],
         responses={
             200: inline_serializer(
@@ -2404,6 +2657,15 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                         help_text="Event counts keyed by event name (survey shown, survey dismissed, survey sent)."
                     ),
                     "rates": serializers.DictField(help_text="Calculated response and dismissal rates."),
+                    "per_question_stats": serializers.ListField(
+                        required=False,
+                        help_text=(
+                            "Per-question response counts and distributions. Only present when "
+                            "include_per_question_stats=true was passed. For rating questions includes `average`; "
+                            "for choice/rating questions `distribution` maps answer value to count; for open "
+                            "questions `distribution` is empty (use surveys-responses-list to read free-text)."
+                        ),
+                    ),
                 },
             )
         },
@@ -2416,6 +2678,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
             date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
             exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+            include_per_question_stats: Optional boolean to include per-question response counts and distributions
 
         Returns:
             Survey statistics including event counts, unique respondents, and conversion rates
@@ -2424,6 +2687,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         date_from = request.query_params.get("date_from", None)
         date_to = request.query_params.get("date_to", None)
         exclude_archived = request.query_params.get("exclude_archived", "false").lower() == "true"
+        include_per_question_stats = request.query_params.get("include_per_question_stats", "false").lower() == "true"
 
         try:
             survey = self.get_object()
@@ -2436,6 +2700,27 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         response_data["survey_id"] = survey_id
         response_data["start_date"] = survey.start_date
         response_data["end_date"] = survey.end_date
+
+        if include_per_question_stats:
+            try:
+                from_ts = datetime.fromisoformat(date_from) if date_from else None
+                to_ts = datetime.fromisoformat(date_to) if date_to else None
+            except ValueError:
+                from_ts = None
+                to_ts = None
+            per_question = fetch_per_question_stats(survey=survey, team=self.team, since=from_ts, until=to_ts)
+            response_data["per_question_stats"] = [
+                {
+                    "question_id": q.question_id,
+                    "question_index": q.question_index,
+                    "question_text": q.question_text,
+                    "question_type": q.question_type,
+                    "response_count": q.response_count,
+                    "distribution": q.distribution,
+                    "average": q.average,
+                }
+                for q in per_question
+            ]
 
         return Response(response_data)
 
@@ -2518,6 +2803,82 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         survey = self.get_object()
         uuids = get_archived_response_uuids(str(survey.id), self.team_id)
         return Response(list(uuids))
+
+    @extend_schema(
+        operation_id="surveys_responses_list",
+        description=(
+            "List survey responses for a specific survey, with question text resolved server-side so callers do not "
+            "have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, "
+            "`submitted_at`, and an `extra` block (device, browser, OS, geoip, current_url, iteration) so agents can "
+            "cross-pivot to recordings, persons, or paths in a single follow-up call. For person properties at "
+            "event time, follow up with `persons-get` using the returned `distinct_id` — keeps scopes scoped. "
+            "Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts."
+        ),
+        parameters=[SurveyResponsesQuerySerializer],
+        responses={200: SurveyResponsesListSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="responses", required_scopes=["survey:read", "query:read"])
+    def survey_responses_list(self, request: request.Request, **kwargs) -> Response:
+        survey = self.get_object()
+
+        params = SurveyResponsesQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        cleaned = params.validated_data
+
+        # score_lte / score_gte only make sense for a specific rating question — reject the
+        # combination at the API boundary rather than letting the HogQL helper raise later.
+        if (cleaned.get("score_lte") is not None or cleaned.get("score_gte") is not None) and not cleaned.get(
+            "question_id"
+        ):
+            raise exceptions.ValidationError("score_lte and score_gte require question_id to be specified")
+
+        exclude_uuids: set[str] | None = None
+        if cleaned.get("exclude_archived"):
+            exclude_uuids = get_archived_response_uuids(str(survey.id), self.team_id)
+
+        rows, has_more = fetch_response_rows(
+            survey=survey,
+            team=self.team,
+            since=cleaned.get("since"),
+            until=cleaned.get("until"),
+            question_id=cleaned.get("question_id"),
+            score_lte=cleaned.get("score_lte"),
+            score_gte=cleaned.get("score_gte"),
+            limit=cleaned.get("limit", 100),
+            offset=cleaned.get("offset", 0),
+            exclude_uuids=exclude_uuids,
+        )
+
+        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
+
+        serialized = SurveyResponsesListSerializer(
+            instance={
+                "results": [
+                    {
+                        "uuid": row.uuid,
+                        "distinct_id": row.distinct_id,
+                        "session_id": row.session_id,
+                        "submitted_at": row.submitted_at,
+                        "answers": [
+                            {
+                                "question_id": a.question_id,
+                                "question_index": a.question_index,
+                                "question_text": a.question_text,
+                                "question_type": a.question_type,
+                                "answer": a.answer,
+                            }
+                            for a in row.answers
+                        ],
+                        "extra": row.extra,
+                    }
+                    for row in rows
+                ],
+                "has_more": has_more,
+                "limit": cleaned.get("limit", 100),
+                "offset": cleaned.get("offset", 0),
+            }
+        )
+        return Response(serialized.data)
 
     @extend_schema(
         operation_id="surveys_question_labels",
@@ -2658,6 +3019,32 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         )
         return activity_page_response(activity_page, limit, page, request)
 
+    @extend_schema(
+        description=(
+            "Summarize survey responses. When `question_index` or `question_id` is provided, returns a per-question "
+            "theme summary using cached `survey.question_summaries` when fresh. When neither is provided, returns "
+            "the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body "
+            "to bypass caches."
+        ),
+        # request= is critical here — without it drf-spectacular falls back to the default ModelViewSet serializer
+        # (SurveySerializerCreateUpdateOnly) and generates a Zod schema demanding name/type fields that have nothing
+        # to do with summarization.
+        request=SurveySummarizeRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                "question_index",
+                OpenApiTypes.INT,
+                required=False,
+                description="Zero-based question index. Omit to get the survey-wide headline instead.",
+            ),
+            OpenApiParameter(
+                "question_id",
+                OpenApiTypes.STR,
+                required=False,
+                description="Question UUID. Preferred over question_index — stable across question edits.",
+            ),
+        ],
+    )
     @action(methods=["POST"], detail=True, required_scopes=["survey:read"])
     def summarize_responses(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
@@ -2681,7 +3068,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         question_id = request.query_params.get("question_id", None)
 
         if question_index is None and question_id is None:
-            raise exceptions.ValidationError("question_index or question_id is required")
+            # No question specified — dispatch to the survey-wide headline summarizer.
+            # Keeps a single MCP tool surface for both per-question and whole-survey summarization.
+            return self.summary_headline(request, **kwargs)
 
         # Check for force_refresh flag in request body
         force_refresh = request.data.get("force_refresh", False)
@@ -2710,6 +3099,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         has_gemini_api_key = bool(settings.GEMINI_API_KEY)
         if not environment_is_allowed or not has_gemini_api_key:
             raise exceptions.ValidationError("survey summary is only supported in PostHog Cloud")
+
+        # Same AI-processing gate that summary_headline uses — applies to per-question summaries too.
+        if not self.team.organization.is_ai_data_processing_approved:
+            return Response(
+                {"error": "AI data processing must be approved to generate summaries"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         end_date: datetime = (survey.end_date or datetime.now()).replace(
             hour=0, minute=0, second=0, microsecond=0
