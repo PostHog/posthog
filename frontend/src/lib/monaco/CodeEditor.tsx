@@ -12,7 +12,13 @@ const LazyCodeEditor = lazy(() => import('./CodeEditorImpl').then((m) => ({ defa
 /** Lazy facade so importing CodeEditor doesn't pull monaco (~4 MB) into the importer's chunk. */
 export function CodeEditor(props: CodeEditorProps): JSX.Element {
     return (
-        <Suspense fallback={<Spinner />}>
+        <Suspense
+            fallback={
+                <div className="CodeEditor relative h-full w-full">
+                    <Spinner />
+                </div>
+            }
+        >
             <LazyCodeEditor {...props} />
         </Suspense>
     )

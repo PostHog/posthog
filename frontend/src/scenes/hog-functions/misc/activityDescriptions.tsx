@@ -27,7 +27,13 @@ const LazyDiff = lazy(() => import('./Diff').then((m) => ({ default: m.Diff })))
 /** Lazy so the activity describer registry (imported app-wide) doesn't pull monaco into its chunk. */
 export function Diff(props: DiffProps): JSX.Element {
     return (
-        <Suspense fallback={<Spinner />}>
+        <Suspense
+            fallback={
+                <div className="min-h-[300px]">
+                    <Spinner />
+                </div>
+            }
+        >
             <LazyDiff {...props} />
         </Suspense>
     )
