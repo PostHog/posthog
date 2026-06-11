@@ -176,7 +176,7 @@ class TestProvisioningAuthentication(APIBaseTest):
                 {
                     "grant_type": "authorization_code",
                     "code": code,
-                    "code_verifier": "wrong_verifier_value",
+                    "code_verifier": "wrong_verifier_value_padded_to_meet_rfc7636_length",
                 }
             ),
             content_type="application/x-www-form-urlencoded",
