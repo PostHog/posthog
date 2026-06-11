@@ -152,6 +152,12 @@ tools:
     session-recordings-update:
         operation: session_recordings_update
         enabled: false
+    single-session-summaries-list:
+        operation: single_session_summaries_list
+        enabled: false
+    single-session-summaries-retrieve:
+        operation: single_session_summaries_retrieve
+        enabled: false
 wrappers:
     query-session-recordings-list:
         schema_ref: AssistantRecordingsQuery

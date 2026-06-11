@@ -137,6 +137,12 @@ tools:
     inbox-source-configs-update:
         operation: signals_source_configs_update
         enabled: false
+    signals-scout-config-list:
+        operation: signals_scout_config_list
+        enabled: false
+    signals-scout-config-update:
+        operation: signals_scout_config_update
+        enabled: false
     signals-scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
