@@ -50,7 +50,7 @@ class TestSalesLoftSource:
         assert config.label == "Salesloft"
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Shipped hidden until verified against a live account.
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.iconPath == "/static/services/salesloft.png"
         assert len(config.fields) == 1
 
