@@ -81,8 +81,16 @@ export type CodingEvent =
     | { kind: 'assistant_text'; text: string }
     | { kind: 'thought'; text: string }
     | { kind: 'tool_call'; toolCallId: string; tool?: string; command?: string; title?: string }
+    | { kind: 'tool_result'; toolCallId: string; ok: boolean; output?: string }
     | { kind: 'permission_request'; requestId: string; options: PermissionOption[]; tool?: string; summary?: string }
-    | { kind: 'usage'; inputTokens: number; outputTokens: number; costUsd?: number }
+    | {
+          kind: 'usage'
+          inputTokens: number
+          outputTokens: number
+          cacheRead: number
+          cacheWrite: number
+          costUsd: number
+      }
     | { kind: 'turn_complete' }
     | { kind: 'task_complete'; result?: unknown }
     | { kind: 'error'; message: string }

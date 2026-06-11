@@ -19,10 +19,12 @@
 import {
     AgentRevision,
     AgentSession,
+    AssistantMessageRecord,
     CodingEvent,
     CodingLaunchConfig,
     CodingSandbox,
     ConversationMessage,
+    EMPTY_USAGE_TOTAL,
     generateHarnessKeypair,
     LogLevel,
     LogSink,
@@ -33,6 +35,9 @@ import {
     SessionEventBus,
     SessionEventKind,
     SessionInputsStore,
+    TextContent,
+    ToolCall,
+    ToolResultMessage,
 } from '@posthog/agent-shared'
 
 import type { RunOutcome, RunSessionDeps } from './driver'
@@ -134,6 +139,9 @@ export async function driveCodingSession(
     let turns = 0
     let turnText = ''
     let turnError: string | null = null
+    // Per-turn tool activity, captured for the persisted transcript.
+    let turnToolCalls = new Map<string, { tool?: string; command?: string }>()
+    let turnToolResults: { toolCallId: string; toolName: string; output: string; isError: boolean }[] = []
     let markConnected: () => void = () => undefined
     const connected = new Promise<void>((resolve) => (markConnected = resolve))
 
@@ -153,12 +161,33 @@ export async function driveCodingSession(
                     void emit('assistant_thinking_delta', { text: event.text })
                 }
                 return
-            case 'tool_call':
+            case 'tool_call': {
+                const prev = turnToolCalls.get(event.toolCallId) ?? {}
+                turnToolCalls.set(event.toolCallId, {
+                    tool: event.tool ?? prev.tool,
+                    command: event.command ?? prev.command,
+                })
                 void emit('tool_call', { tool: event.tool, command: event.command, tool_call_id: event.toolCallId })
                 return
-            case 'usage':
-                // Usage accounting from the harness stream is a follow-up.
+            }
+            case 'tool_result':
+                turnToolResults.push({
+                    toolCallId: event.toolCallId,
+                    toolName: turnToolCalls.get(event.toolCallId)?.tool ?? 'tool',
+                    output: event.output ?? '',
+                    isError: !event.ok,
+                })
+                void emit('tool_result', { tool_call_id: event.toolCallId, ok: event.ok })
                 return
+            case 'usage': {
+                const u = (session.usage_total = session.usage_total ?? { ...EMPTY_USAGE_TOTAL })
+                u.tokens_in += event.inputTokens
+                u.tokens_out += event.outputTokens
+                u.cache_read += event.cacheRead
+                u.cache_write += event.cacheWrite
+                u.cost_total += event.costUsd
+                return
+            }
             case 'permission_request':
                 // No approval queue wired yet — auto-allow (harness defaults to
                 // bypassPermissions, so this is belt-and-braces). Real gating is
@@ -229,6 +258,8 @@ export async function driveCodingSession(
             turns += 1
             turnText = ''
             turnError = null
+            turnToolCalls = new Map()
+            turnToolResults = []
             await emit('turn_started', { turn: turns })
 
             // `/command` user_message is synchronous — it returns when the turn
@@ -240,12 +271,39 @@ export async function driveCodingSession(
                 turnError = ack.error.message
             }
 
-            session.conversation.push({
+            // Persist a structured transcript matching the in-process shape: the
+            // assistant message carries the text + tool-call blocks, followed by
+            // one toolResult message per tool call.
+            const assistantContent: (TextContent | ToolCall)[] = []
+            if (turnText) {
+                assistantContent.push({ type: 'text', text: turnText })
+            }
+            for (const [id, tc] of turnToolCalls) {
+                assistantContent.push({
+                    type: 'toolCall',
+                    id,
+                    name: tc.tool ?? 'tool',
+                    arguments: tc.command ? { command: tc.command } : {},
+                })
+            }
+            const assistantMsg: AssistantMessageRecord = {
                 role: 'assistant',
-                content: [{ type: 'text', text: turnText }],
+                content: assistantContent,
                 model: rev.spec.model,
                 timestamp: Date.now(),
-            })
+            }
+            session.conversation.push(assistantMsg)
+            for (const tr of turnToolResults) {
+                const toolResultMsg: ToolResultMessage = {
+                    role: 'toolResult',
+                    toolCallId: tr.toolCallId,
+                    toolName: tr.toolName,
+                    content: [{ type: 'text', text: tr.output }],
+                    isError: tr.isError,
+                    timestamp: Date.now(),
+                }
+                session.conversation.push(toolResultMsg)
+            }
             if (turnText) {
                 await emit('assistant_text', { text: turnText })
             }

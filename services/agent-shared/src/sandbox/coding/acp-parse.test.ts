@@ -68,6 +68,93 @@ describe('parseFrame', () => {
         })
     })
 
+    it('maps a completed tool_call_update to a tool_result with its output', () => {
+        const frame: HarnessFrame = {
+            type: 'notification',
+            notification: {
+                jsonrpc: '2.0',
+                method: 'session/update',
+                params: {
+                    update: {
+                        sessionUpdate: 'tool_call_update',
+                        toolCallId: 'toolu_01C4',
+                        status: 'completed',
+                        rawOutput: { stdout: 'captured-hello', stderr: '', isError: false },
+                        content: [
+                            { type: 'content', content: { type: 'text', text: '```console\ncaptured-hello\n```' } },
+                        ],
+                    },
+                },
+            },
+        }
+        expect(parseFrame(frame)).toEqual({
+            kind: 'tool_result',
+            toolCallId: 'toolu_01C4',
+            ok: true,
+            output: 'captured-hello',
+        })
+    })
+
+    it('marks a failed tool_call_update as not ok', () => {
+        const frame: HarnessFrame = {
+            type: 'notification',
+            notification: {
+                jsonrpc: '2.0',
+                method: 'session/update',
+                params: {
+                    update: {
+                        sessionUpdate: 'tool_call_update',
+                        toolCallId: 't1',
+                        status: 'completed',
+                        rawOutput: { stdout: '', stderr: 'no such file', isError: true },
+                    },
+                },
+            },
+        }
+        expect(parseFrame(frame)).toMatchObject({
+            kind: 'tool_result',
+            toolCallId: 't1',
+            ok: false,
+            output: 'no such file',
+        })
+    })
+
+    it('ignores intermediate tool_call_update arg-streaming frames', () => {
+        const frame: HarnessFrame = {
+            type: 'notification',
+            notification: {
+                jsonrpc: '2.0',
+                method: 'session/update',
+                params: {
+                    update: { sessionUpdate: 'tool_call_update', toolCallId: 't1', rawInput: { command: 'ech' } },
+                },
+            },
+        }
+        expect(parseFrame(frame)).toBeNull()
+    })
+
+    it('maps the rich _posthog/usage_update (tokens + cache + cost)', () => {
+        const frame: HarnessFrame = {
+            type: 'notification',
+            notification: {
+                jsonrpc: '2.0',
+                method: '_posthog/usage_update',
+                params: {
+                    used: { inputTokens: 4, outputTokens: 116, cachedReadTokens: 52080, cachedWriteTokens: 17597 },
+                    cost: 0.08491875,
+                },
+            },
+        }
+        expect(parseFrame(frame)).toEqual({
+            kind: 'usage',
+            inputTokens: 4,
+            outputTokens: 116,
+            cacheRead: 52080,
+            cacheWrite: 17597,
+            costUsd: 0.08491875,
+        })
+    })
+
     it('maps a permission_request frame to options', () => {
         const frame: HarnessFrame = {
             type: 'permission_request',

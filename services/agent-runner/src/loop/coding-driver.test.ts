@@ -136,14 +136,32 @@ function makeDeps(pool: FakePool, opts: { pending?: ConversationMessage[][]; shu
 const kinds = (events: SessionEvent[]): string[] => events.map((e) => e.kind)
 
 describe('driveCodingSession', () => {
-    it('runs a single turn: emits lifecycle, captures assistant text + tool call, persists, completes', async () => {
+    it('runs a single turn: structured transcript (text + tool call + tool result) + usage, completes', async () => {
+        const usageFrame = (): ReturnType<typeof lifecycle> => ({
+            type: 'notification',
+            notification: {
+                jsonrpc: '2.0',
+                method: '_posthog/usage_update',
+                params: {
+                    used: { inputTokens: 10, outputTokens: 20, cachedReadTokens: 5, cachedWriteTokens: 3 },
+                    cost: 0.01,
+                },
+            },
+        })
         const pool = new FakePool(() => [
-            su({ sessionUpdate: 'agent_message_chunk', content: { text: 'Hello from harness' } }),
+            su({ sessionUpdate: 'agent_message_chunk', content: { text: 'Listed the files.' } }),
             su({
                 sessionUpdate: 'tool_call_update',
                 toolCallId: 't1',
                 _meta: { claudeCode: { toolName: 'Bash', bashCommand: 'ls' } },
             }),
+            su({
+                sessionUpdate: 'tool_call_update',
+                toolCallId: 't1',
+                status: 'completed',
+                rawOutput: { stdout: 'file.txt', isError: false },
+            }),
+            usageFrame(),
             lifecycle('_posthog/turn_complete'),
         ])
         const h = makeDeps(pool)
@@ -157,11 +175,39 @@ describe('driveCodingSession', () => {
             'turn_started',
             'assistant_text_delta',
             'tool_call',
+            'tool_result',
             'assistant_text',
             'completed',
         ])
-        const assistant = session.conversation.find((m) => m.role === 'assistant') as { content: { text: string }[] }
-        expect(assistant.content[0].text).toBe('Hello from harness')
+
+        // Structured transcript: assistant text + toolCall block, then a toolResult.
+        const assistant = session.conversation.find((m) => m.role === 'assistant') as {
+            content: (
+                | { type: 'text'; text: string }
+                | { type: 'toolCall'; id: string; name: string; arguments: Record<string, unknown> }
+            )[]
+        }
+        expect(assistant.content).toEqual([
+            { type: 'text', text: 'Listed the files.' },
+            { type: 'toolCall', id: 't1', name: 'Bash', arguments: { command: 'ls' } },
+        ])
+        const toolResult = session.conversation.find((m) => m.role === 'toolResult') as {
+            toolCallId: string
+            toolName: string
+            isError: boolean
+            content: { text: string }[]
+        }
+        expect(toolResult).toMatchObject({ toolCallId: 't1', toolName: 'Bash', isError: false })
+        expect(toolResult.content[0].text).toBe('file.txt')
+
+        // Usage accumulated into usage_total.
+        expect(session.usage_total).toMatchObject({
+            tokens_in: 10,
+            tokens_out: 20,
+            cache_read: 5,
+            cache_write: 3,
+            cost_total: 0.01,
+        })
         expect(h.persists).toBe(1)
         expect(pool.released).toContain(session.id)
     })

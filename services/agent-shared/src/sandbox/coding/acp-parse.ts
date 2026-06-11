@@ -12,17 +12,46 @@ import type { CodingEvent, HarnessFrame, PermissionOption } from './contract'
 
 interface SessionUpdate {
     sessionUpdate?: string
-    content?: { type?: string; text?: string }
+    // `{text}` for message/thought chunks; `[{content:{text}}]` for tool results.
+    content?: unknown
     toolCallId?: string
     title?: string
+    status?: string
     rawInput?: unknown
+    rawOutput?: { stdout?: string; stderr?: string; isError?: boolean }
     _meta?: { claudeCode?: { toolName?: string; bashCommand?: string } }
-    used?: { inputTokens?: number; outputTokens?: number }
-    cost?: { amount?: number } | null
+}
+
+interface UsageParams {
+    used?: { inputTokens?: number; outputTokens?: number; cachedReadTokens?: number; cachedWriteTokens?: number }
+    cost?: number | null
 }
 
 function num(value: unknown): number {
     return typeof value === 'number' ? value : 0
+}
+
+function chunkText(content: unknown): string {
+    return (content as { text?: string } | undefined)?.text ?? ''
+}
+
+/** Tool output: prefer the raw stdout/stderr, fall back to the ACP content blocks. */
+function toolResultText(u: SessionUpdate): string | undefined {
+    if (u.rawOutput) {
+        const parts = [u.rawOutput.stdout, u.rawOutput.isError ? u.rawOutput.stderr : ''].filter(Boolean)
+        if (parts.length) {
+            return parts.join('\n')
+        }
+    }
+    if (Array.isArray(u.content)) {
+        const texts = (u.content as Array<{ content?: { text?: string } }>)
+            .map((c) => c.content?.text)
+            .filter((t): t is string => Boolean(t))
+        if (texts.length) {
+            return texts.join('\n')
+        }
+    }
+    return undefined
 }
 
 export function parseFrame(frame: HarnessFrame): CodingEvent | null {
@@ -52,24 +81,25 @@ export function parseFrame(frame: HarnessFrame): CodingEvent | null {
         case '_posthog/console':
             return { kind: 'log', level: String(p.level ?? 'info'), message: String(p.message ?? '') }
         case '_posthog/usage_update': {
-            const used = (p.used ?? {}) as { inputTokens?: number; outputTokens?: number }
-            const cost = (p.cost ?? null) as { amount?: number } | null
+            const u = p as UsageParams
+            const used = u.used ?? {}
             return {
                 kind: 'usage',
                 inputTokens: num(used.inputTokens),
                 outputTokens: num(used.outputTokens),
-                costUsd: cost ? num(cost.amount) : undefined,
+                cacheRead: num(used.cachedReadTokens),
+                cacheWrite: num(used.cachedWriteTokens),
+                costUsd: num(u.cost),
             }
         }
         case 'session/update': {
             const u = (p.update ?? {}) as SessionUpdate
             switch (u.sessionUpdate) {
                 case 'agent_message_chunk':
-                    return { kind: 'assistant_text', text: u.content?.text ?? '' }
+                    return { kind: 'assistant_text', text: chunkText(u.content) }
                 case 'agent_thought_chunk':
-                    return { kind: 'thought', text: u.content?.text ?? '' }
+                    return { kind: 'thought', text: chunkText(u.content) }
                 case 'tool_call':
-                case 'tool_call_update':
                     return {
                         kind: 'tool_call',
                         toolCallId: u.toolCallId ?? '',
@@ -77,15 +107,32 @@ export function parseFrame(frame: HarnessFrame): CodingEvent | null {
                         command: u._meta?.claudeCode?.bashCommand,
                         title: u.title,
                     }
-                case 'usage_update':
-                    return {
-                        kind: 'usage',
-                        inputTokens: num(u.used?.inputTokens),
-                        outputTokens: num(u.used?.outputTokens),
-                        costUsd: u.cost ? num(u.cost.amount) : undefined,
+                case 'tool_call_update': {
+                    // The tool finished — surface its result.
+                    if (u.status === 'completed' || u.status === 'failed' || u.rawOutput) {
+                        return {
+                            kind: 'tool_result',
+                            toolCallId: u.toolCallId ?? '',
+                            ok: u.status !== 'failed' && !u.rawOutput?.isError,
+                            output: toolResultText(u),
+                        }
                     }
+                    // The resolved command landed (after streaming the args).
+                    if (u._meta?.claudeCode?.bashCommand) {
+                        return {
+                            kind: 'tool_call',
+                            toolCallId: u.toolCallId ?? '',
+                            tool: u._meta.claudeCode.toolName,
+                            command: u._meta.claudeCode.bashCommand,
+                            title: u.title,
+                        }
+                    }
+                    return null // intermediate rawInput streaming — noise
+                }
+                // ACP usage_update carries `used: 0` placeholders; the rich
+                // numbers come on `_posthog/usage_update`. Ignore this one.
                 default:
-                    return null // user_message_chunk echo, available_commands_update, …
+                    return null // usage_update, user_message_chunk echo, available_commands_update, …
             }
         }
         default:
