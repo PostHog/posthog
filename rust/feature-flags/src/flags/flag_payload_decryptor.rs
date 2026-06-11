@@ -33,7 +33,9 @@ pub enum FlagPayloadDecryptorError {
 /// Pads (left, NUL) or truncates to the 32 bytes Fernet requires, then url-safe
 /// base64-encodes. NOTE: this differs from `batch-import-worker`, which assumes keys
 /// are already 32 bytes. Flag keys are 43 chars (`secrets.token_urlsafe(32)`); skipping
-/// the resize makes `Fernet::new` reject them and the key would silently drop out.
+/// the resize would make `Fernet::new` reject them and startup fail with `InvalidKeys`
+/// (`from_keys` requires every key to build). With the resize, any input becomes a valid
+/// 32-byte base64 key, so this returns `None` only defensively and never in practice.
 fn flag_fernet(raw: &str) -> Option<Fernet> {
     let kb = raw.as_bytes();
     let prepared: Vec<u8> = if kb.len() >= 32 {
@@ -81,8 +83,10 @@ impl FlagPayloadDecryptor {
             return Err(FlagPayloadDecryptorError::NoKeys);
         }
         let fernets: Vec<Fernet> = keys.iter().filter_map(|k| flag_fernet(k)).collect();
-        // Loud failure: every configured key must produce a valid Fernet. A silent
-        // drop here would surface later as unexplained decrypt failures.
+        // Defensive: `flag_fernet` resizes any input to a valid 32-byte key, so this never
+        // trips in practice. It exists so that if the resize were ever removed or broken,
+        // startup fails loudly here instead of silently dropping keys (which would surface
+        // later as unexplained decrypt failures).
         if fernets.len() != keys.len() {
             return Err(FlagPayloadDecryptorError::InvalidKeys {
                 built: fernets.len(),
