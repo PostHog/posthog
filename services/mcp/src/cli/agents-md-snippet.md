@@ -1,6 +1,6 @@
 ## PostHog
 
-Use `posthog-cli api` for all PostHog-related queries and operations. Prefer `posthog-cli api` over direct MCP tool calls whenever the CLI is available. If `posthog-cli` is not installed, run it with `npx -y @posthog/cli@latest` instead (for example `npx -y @posthog/cli@latest api search feature-flag`).
+Use `posthog-cli api` for all PostHog-related queries and operations. You should use `posthog-cli api` over direct MCP tool calls whenever the CLI is available. If `posthog-cli` is not installed, run it with `npx -y @posthog/cli@latest` instead (for example `npx -y @posthog/cli@latest api search feature-flag`).
 
 The `posthog-cli api` command group is experimental. If it reports that the command group is disabled, rerun commands with `POSTHOG_CLI_EXPERIMENTAL_API=1` in the environment or pass `--experimental` immediately after `api`.
 
