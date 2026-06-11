@@ -12,8 +12,8 @@ import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFi
 import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Link } from 'lib/lemon-ui/Link'
-import { pluralize } from 'lib/utils'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
+import { pluralize } from 'lib/utils/strings'
 import { isObject } from 'lib/utils/typeChecks'
 import { urls } from 'scenes/urls'
 

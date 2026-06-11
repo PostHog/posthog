@@ -2,8 +2,8 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import { pluralize } from 'lib/utils'
 import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'

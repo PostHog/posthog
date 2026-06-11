@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable'
-import { pluralize } from 'lib/utils'
 import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 
 import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'

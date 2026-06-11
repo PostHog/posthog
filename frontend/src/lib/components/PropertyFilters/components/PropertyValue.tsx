@@ -30,8 +30,8 @@ import {
     isOperatorFlag,
     isOperatorMulti,
     isOperatorRegex,
-    toString,
 } from 'lib/utils'
+import { toString } from 'lib/utils/strings'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,

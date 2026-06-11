@@ -1,8 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { identifierToHuman, stripHTTP } from 'lib/utils'
+import { stripHTTP } from 'lib/utils'
 import { objectsEqual } from 'lib/utils/objects'
+import { identifierToHuman } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'

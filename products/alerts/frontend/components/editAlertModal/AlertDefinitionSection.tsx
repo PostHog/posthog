@@ -16,7 +16,7 @@ import { AlertSimulationResult } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { alphabet } from 'lib/utils'
+import { alphabet } from 'lib/utils/strings'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 

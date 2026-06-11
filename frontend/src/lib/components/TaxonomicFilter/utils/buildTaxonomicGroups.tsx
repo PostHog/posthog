@@ -20,7 +20,7 @@ import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywo
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { isString } from 'lib/utils/typeChecks'
 import {
     getEventDefinitionIcon,

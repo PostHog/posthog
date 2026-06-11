@@ -7,9 +7,10 @@ import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, colonDelimitedDuration, shortTimeZone } from 'lib/utils'
+import { colonDelimitedDuration, shortTimeZone } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import {
     ONE_SECOND_MS,

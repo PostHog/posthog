@@ -9,7 +9,7 @@ import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/Ingesti
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import {
     ReplayPlatform,
     replayTriggersLogic,

@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
 import { percentage } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Noun } from '~/models/groupsModel'

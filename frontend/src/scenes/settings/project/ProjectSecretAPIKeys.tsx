@@ -8,7 +8,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { PROJECT_SECRET_API_KEY_SCOPE_PRESETS } from 'lib/scopes'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
 import { ScopeAccessRow } from '../shared/ScopeAccessRow'

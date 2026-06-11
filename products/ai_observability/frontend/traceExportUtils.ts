@@ -1,5 +1,6 @@
-import { downloadFile, slugify } from 'lib/utils'
+import { downloadFile } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { slugify } from 'lib/utils/strings'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 

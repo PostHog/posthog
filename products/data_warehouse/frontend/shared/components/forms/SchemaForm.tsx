@@ -14,7 +14,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
 

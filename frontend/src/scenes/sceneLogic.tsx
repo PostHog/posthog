@@ -10,10 +10,11 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
+import { getRelativeNextPath } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
+import { identifierToHuman } from 'lib/utils/strings'
 import {
     emptySceneParams,
     forwardedRedirectQueryParams,

@@ -5,9 +5,9 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable'
-import { pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 
 import { CountedPaginatedResponse } from '~/lib/api'
 import { ApiConfig } from '~/lib/api'
