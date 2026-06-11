@@ -190,20 +190,21 @@ product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
 PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 
-# Optional SSL settings for product-DB connections. dj_database_url only sets
-# connect_timeout, so without these a direct (non-PgBouncer) product DB connects
-# with libpq's default sslmode=prefer. Aurora's pg_hba requires SSL (hostssl), so
-# direct-mode product DBs (e.g. dedicated clusters) need these set. Left unset for
-# local dev/test (plain Postgres, no SSL) so those are unaffected.
-PRODUCT_DB_SSL_MODE: str | None = os.getenv("PRODUCT_DB_SSL_MODE")
-PRODUCT_DB_SSL_ROOT_CERT: str | None = os.getenv("PRODUCT_DB_SSL_ROOT_CERT")
 
-
-def _apply_product_db_ssl_options(options: dict) -> None:
-    if PRODUCT_DB_SSL_MODE:
-        options["sslmode"] = PRODUCT_DB_SSL_MODE
-    if PRODUCT_DB_SSL_ROOT_CERT:
-        options["sslrootcert"] = PRODUCT_DB_SSL_ROOT_CERT
+# Optional, per-product SSL settings for product-DB connections. dj_database_url
+# only sets connect_timeout, so without these a direct (non-PgBouncer) product DB
+# connects with libpq's default sslmode=prefer. Aurora's pg_hba requires SSL
+# (hostssl), so a direct-mode product DB on a dedicated cluster needs these set.
+# Scoped per product (e.g. PRODUCT_DB_AGENT_PLATFORM_SSL_MODE) so enabling SSL for
+# one product DB never touches the PgBouncer-routed ones. Left unset for local
+# dev/test (plain Postgres, no SSL) so those are unaffected.
+def _apply_product_db_ssl_options(db: str, options: dict) -> None:
+    ssl_mode = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_MODE")
+    ssl_root_cert = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_ROOT_CERT")
+    if ssl_mode:
+        options["sslmode"] = ssl_mode
+    if ssl_root_cert:
+        options["sslrootcert"] = ssl_root_cert
 
 
 for route in product_routes:
@@ -228,12 +229,12 @@ for route in product_routes:
     PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
-    _apply_product_db_ssl_options(DATABASES[writer_alias]["OPTIONS"])
+    _apply_product_db_ssl_options(db, DATABASES[writer_alias]["OPTIONS"])
 
     reader_url = os.getenv(reader_env, writer_url)
     DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
-    _apply_product_db_ssl_options(DATABASES[reader_alias]["OPTIONS"])
+    _apply_product_db_ssl_options(db, DATABASES[reader_alias]["OPTIONS"])
 
     if TEST:
         # Skip the global migration-graph walk during test DB setup. Without
@@ -268,7 +269,7 @@ for route in product_routes:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
         DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
-        _apply_product_db_ssl_options(DATABASES[direct_alias]["OPTIONS"])
+        _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
