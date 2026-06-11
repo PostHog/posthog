@@ -321,7 +321,8 @@ class ChorusSourceConfig(config.Config):
 
 @config.config
 class CircleCISourceConfig(config.Config):
-    pass
+    api_token: str
+    org_slug: str
 
 
 @config.config
@@ -472,7 +473,7 @@ class DeelSourceConfig(config.Config):
 
 @config.config
 class DelightedSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -695,7 +696,7 @@ class HubspotSourceConfig(config.Config):
 
 @config.config
 class IncidentIoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -791,7 +792,8 @@ class MailerLiteSourceConfig(config.Config):
 
 @config.config
 class MailgunSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
