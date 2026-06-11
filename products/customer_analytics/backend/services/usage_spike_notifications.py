@@ -23,8 +23,9 @@ TITLE_MAX_LENGTH = 100
 BODY_MAX_LENGTH = 200
 
 
-def notify_owners_of_usage_spike(
+def notify_managers_of_usage_spike(
     *,
+    team_id: int,
     spike_id: str,
     spikes: list[dict[str, Any]],
     organization_id: str | None = None,
@@ -33,10 +34,12 @@ def notify_owners_of_usage_spike(
     detected_at: str | None = None,
 ) -> None:
     """Notify a Customer-analytics account's CSM and Account Executive that billing detected a
-    usage spike for that customer. Idempotent per (owner, spike). Never raises — the SQS consumer
-    must ack the message regardless; failures are captured to error tracking."""
+    usage spike for that customer. The account is resolved within `team_id` (the team that owns
+    the Customer-analytics accounts). Idempotent per (manager, spike). Never raises — the SQS
+    consumer must ack the message regardless; failures are captured to error tracking."""
     try:
         account = _find_account(
+            team_id=team_id,
             organization_id=organization_id,
             billing_id=billing_id,
             stripe_customer_id=stripe_customer_id,
@@ -54,9 +57,9 @@ def notify_owners_of_usage_spike(
             logger.info("usage_spike.csp_disabled", account_id=str(account.id))
             return
 
-        owner_user_ids = _get_owner_user_ids(account)
-        if not owner_user_ids:
-            logger.info("usage_spike.no_owners", account_id=str(account.id))
+        manager_user_ids = _get_manager_user_ids(account)
+        if not manager_user_ids:
+            logger.info("usage_spike.no_managers", account_id=str(account.id))
             return
 
         title = f"Usage spike: {account.name}"[:TITLE_MAX_LENGTH]
@@ -64,8 +67,8 @@ def notify_owners_of_usage_spike(
         # No per-account detail route exists, so deep-link to the accounts list.
         source_url = f"/project/{account.team.project_id}/customer_analytics/accounts"
 
-        for user_id in owner_user_ids:
-            _notify_owner(
+        for user_id in manager_user_ids:
+            _notify_manager(
                 account=account,
                 user_id=user_id,
                 spike_id=spike_id,
@@ -80,11 +83,16 @@ def notify_owners_of_usage_spike(
 
 def _find_account(
     *,
+    team_id: int,
     organization_id: str | None,
     billing_id: str | None,
     stripe_customer_id: str | None,
 ) -> Account | None:
-    candidates = Account.objects.unscoped().select_related("team").order_by("created_at")
+    # Scope to the team that owns the accounts: account identifiers (external_id/billing_id/
+    # stripe_customer_id) are user-editable, so an unscoped lookup could resolve a billing event
+    # to a customer-controlled account row. external_id is unique per team, so this also makes
+    # that lookup unambiguous.
+    candidates = Account.objects.for_team(team_id).select_related("team").order_by("created_at")
     for lookup, value in (
         ("external_id", organization_id),
         ("_properties__billing_id", billing_id),
@@ -92,7 +100,8 @@ def _find_account(
     ):
         if not value:
             continue
-        # Fetch up to 2 to detect (and warn about) an ambiguous cross-team match without loading all rows.
+        # The _properties__* JSON fields have no uniqueness constraint; fetch up to 2 to detect
+        # (and warn about) an ambiguous match without loading all rows.
         matches = list(candidates.filter(**{lookup: str(value)})[:2])
         if not matches:
             continue
@@ -115,7 +124,7 @@ def _is_csp_enabled(account: Account) -> bool:
     )
 
 
-def _get_owner_user_ids(account: Account) -> list[int]:
+def _get_manager_user_ids(account: Account) -> list[int]:
     properties = account.properties
     user_ids: list[int] = []
     for assignment in (properties.csm, properties.account_executive):
@@ -139,7 +148,7 @@ def _summarize_spikes(spikes: list[dict[str, Any]]) -> str:
     return ", ".join(parts) if parts else "Unusual usage detected"
 
 
-def _notify_owner(
+def _notify_manager(
     *,
     account: Account,
     user_id: int,
@@ -161,7 +170,7 @@ def _notify_owner(
             NotificationData(
                 team_id=account.team_id,
                 notification_type=NotificationType.USAGE_SPIKE,
-                priority=Priority.NORMAL,
+                priority=Priority.CRITICAL,
                 title=title,
                 body=body,
                 target_type=TargetType.USER,

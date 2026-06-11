@@ -9,12 +9,16 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 
-from products.customer_analytics.backend.services.usage_spike_notifications import notify_owners_of_usage_spike
+from products.customer_analytics.backend.services.usage_spike_notifications import notify_managers_of_usage_spike
 
 from ee.billing.billing_manager import BillingManager
 from ee.sqs.SQSConsumer import SQSConsumer
 
 logger = logging.getLogger(__name__)
+
+# PostHog's own team on Cloud US — owns the Customer-analytics accounts that inbound billing
+# usage-spike events resolve against. Billing emits these spike messages to the US queue.
+POSTHOG_SELF_TEAM_ID = 2
 
 
 class BillingConsumer(SQSConsumer):
@@ -161,7 +165,8 @@ class BillingConsumer(SQSConsumer):
             capture_exception(Exception("Usage spike message is missing spike_id"))
             return
 
-        notify_owners_of_usage_spike(
+        notify_managers_of_usage_spike(
+            team_id=POSTHOG_SELF_TEAM_ID,
             spike_id=str(spike_id),
             spikes=data.get("spikes", []),
             organization_id=data.get("organization_id"),
