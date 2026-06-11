@@ -167,10 +167,13 @@ function indexAfterLastMetaGroup(filtered: TaxonomicFilterGroupType[]): number {
  *    1. Dropping types that aren't available in the current `groups`
  *    2. Resolving mutually-exclusive shortcut pairs (e.g. PageviewUrls vs
  *       PageviewEvents — keep the first, drop the second)
- *    2a. Auto-injecting the SuggestedFilters ("All") tab when there's more
- *       than one substantive group — the rebuilt menu always leads with it.
- *    3. Auto-injecting Recent/Pinned meta tabs when available.
- *    4. Promoting shortcut groups (PageviewUrls / Screens / EmailAddresses
+ *    3. Auto-injecting the SuggestedFilters ("All") tab when there's more than
+ *       one substantive group — the rebuilt menu always leads with it (unlike
+ *       the legacy selector, this is unconditional: the rebuild has no
+ *       per-variant arm to protect; see the pill-gated block in
+ *       taxonomicFilterLogic.tsx for the legacy counterpart).
+ *    4. Auto-injecting Recent/Pinned meta tabs when available.
+ *    5. Promoting shortcut groups (PageviewUrls / Screens / EmailAddresses
  *       / Elements when `$autocapture` is in `eventNames`) to right after
  *       the meta block.
  */

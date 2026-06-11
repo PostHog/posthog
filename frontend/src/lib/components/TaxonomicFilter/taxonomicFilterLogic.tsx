@@ -1506,6 +1506,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 // cross-group landing spot whenever there's more than one substantive
                 // group to aggregate. It stays opt-in for the control variant, so the
                 // control arm only shows it where a call site explicitly requests it.
+                // The rebuild path (useTaxonomicFilter.ts) injects unconditionally
+                // because it has no per-variant arm to protect.
                 const pillVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN] === 'pill'
                 const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
                 if (
