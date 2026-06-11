@@ -511,6 +511,23 @@ def _row_counts_from_conn(
         return {}
 
 
+def _is_unsupported_function_error(error: Exception, function_name: str) -> bool:
+    """True when `error` says the database doesn't implement `function_name`.
+
+    Real Postgres raises `UndefinedFunction` (SQLSTATE 42883), but Postgres-wire-compatible engines
+    (DuckDB/Flight-SQL-backed proxies, etc.) accept the connection yet lack Postgres-only catalog
+    functions like `row_security_active`, surfacing the failure as a generic error whose SQLSTATE we
+    can't rely on. Match the function name plus a "missing function" signal in the message so callers
+    can degrade quietly instead of alerting on an expected, already-handled shape.
+    """
+    if isinstance(error, psycopg.errors.UndefinedFunction):
+        return True
+    message = str(error).lower()
+    if function_name.lower() not in message:
+        return False
+    return any(marker in message for marker in ("does not exist", "unknown function", "not found", "no function"))
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -566,7 +583,12 @@ def _rls_active_from_conn(
                     result[display_name] = bool(rls_active)
             return result
     except Exception as e:
-        capture_exception(e)
+        # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
+        # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
+        # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
+        # than flooding error tracking. Still capture genuinely unexpected failures.
+        if not _is_unsupported_function_error(e, "row_security_active"):
+            capture_exception(e)
         return {}
 
 
