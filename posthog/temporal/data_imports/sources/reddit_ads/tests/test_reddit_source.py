@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldOauthConfig
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
