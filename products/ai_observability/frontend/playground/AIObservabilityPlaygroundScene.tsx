@@ -44,7 +44,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { AIObservabilityRenameBanner } from '../AIObservabilityRenameBanner'
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
@@ -126,7 +125,6 @@ export function AIObservabilityPlaygroundScene(): JSX.Element {
                             }}
                             actions={<PlaygroundHeaderActions />}
                         />
-                        <AIObservabilityRenameBanner />
                         <div className="flex h-full flex-1 flex-col min-h-0">
                             <PlaygroundLayout />
                         </div>
