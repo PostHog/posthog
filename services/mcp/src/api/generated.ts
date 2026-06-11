@@ -7139,7 +7139,7 @@ export namespace Schemas {
 
     /**
      * * `langgraph` - LangGraph
-    * `sandbox` - Sandbox
+     * * `sandbox` - Sandbox
      */
     export type AgentRuntimeEnum = typeof AgentRuntimeEnum[keyof typeof AgentRuntimeEnum];
 
@@ -11662,9 +11662,9 @@ export namespace Schemas {
 
     /**
      * The products/tasks Task backing a sandbox conversation.
-
-    Carries the IDs the frontend's `sandboxStreamLogic.bootstrapRun` opens SSE / replays
-    the `logs/` history against. Null for LangGraph conversations.
+     *
+     * Carries the IDs the frontend's `sandboxStreamLogic.bootstrapRun` opens SSE / replays
+     * the `logs/` history against. Null for LangGraph conversations.
      */
     export interface ConversationSandboxTask {
       /** The backing products/tasks Task id. */
@@ -11722,9 +11722,9 @@ export namespace Schemas {
       /** @nullable */
       readonly agent_mode: string | null;
       /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; 'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint instead.
-
-      * `langgraph` - LangGraph
-      * `sandbox` - Sandbox */
+       *
+       * * `langgraph` - LangGraph
+       * * `sandbox` - Sandbox */
       readonly agent_runtime: AgentRuntimeEnum;
       readonly is_sandbox: boolean;
       /** Return pending approval cards as structured data.
@@ -29623,9 +29623,9 @@ export namespace Schemas {
       /** @nullable */
       readonly agent_mode?: string | null;
       /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; 'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint instead.
-
-      * `langgraph` - LangGraph
-      * `sandbox` - Sandbox */
+       *
+       * * `langgraph` - LangGraph
+       * * `sandbox` - Sandbox */
       readonly agent_runtime?: AgentRuntimeEnum;
       readonly is_sandbox?: boolean;
       /** Return pending approval cards as structured data.
