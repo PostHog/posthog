@@ -36,6 +36,7 @@ def extract_detector_series(
     *,
     series_index: int = 0,
     date_from: str | None = None,
+    high_frequency: bool = False,
 ) -> ExtractionResult:
     """Run a trends insight over the detector's lookback window and normalize it into series.
 
@@ -61,8 +62,10 @@ def extract_detector_series(
     else:
         filters_override = _date_range_override_for_detector(query, min_samples)
 
+    # Hourly insights and every-15-minutes alerts both move faster than the recent-results cache
+    # can track (its key uses relative times), so recompute fresh. Simulation passes high_frequency=False.
     execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-    if query.interval == IntervalType.HOUR:
+    if query.interval == IntervalType.HOUR or high_frequency:
         execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
     calculation_result = calculate_for_query_based_insight(
@@ -188,7 +191,14 @@ class TrendsDetectorExtractor:
             raise ValueError("TrendsDetectorExtractor requires detector_config — dispatcher invariant violated")
         trends_query = TrendsQuery.model_validate(query)
         series_index = (alert.config or {}).get("series_index", 0)
-        return extract_detector_series(insight, alert.team, trends_query, detector_config, series_index=series_index)
+        return extract_detector_series(
+            insight,
+            alert.team,
+            trends_query,
+            detector_config,
+            series_index=series_index,
+            high_frequency=alert.is_high_frequency_interval,
+        )
 
 
 def simulate_detector_on_insight(

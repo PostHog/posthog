@@ -194,6 +194,11 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
 
+    @property
+    def is_high_frequency_interval(self) -> bool:
+        """Alert checks every 15 minutes — too fast to trust the recent-results cache."""
+        return self.calculation_interval == AlertCalculationInterval.EVERY_15_MINUTES
+
     def get_subscribed_users_emails(self) -> list[str]:
         return list(
             self.subscribed_users.filter(organization_membership__organization=self.team.organization).values_list(
@@ -264,7 +269,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "alert_name": self.name,
             "condition_type": self.condition.get("type") if self.condition else None,
             "calculation_interval": self.calculation_interval,
-            "is_high_frequency_interval": self.calculation_interval == AlertCalculationInterval.EVERY_15_MINUTES,
+            "is_high_frequency_interval": self.is_high_frequency_interval,
             "enabled": self.enabled,
             "skip_weekend": bool(self.skip_weekend),
             "has_schedule_restriction": has_schedule_restriction,

@@ -66,8 +66,10 @@ class TrendsExtractor:
         lookback_intervals = lookback_intervals_for(condition)
         interval_type = None if is_non_time_series else query.interval
 
+        # Hourly insights and every-15-minutes alerts both move faster than the recent-results
+        # cache can track (its key uses relative times), so recompute fresh in both cases.
         execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        if query.interval == IntervalType.HOUR:
+        if query.interval == IntervalType.HOUR or alert.is_high_frequency_interval:
             execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
         match condition.type:
