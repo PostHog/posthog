@@ -797,10 +797,10 @@ class ModalSandbox(SandboxBase):
 
     def _agentsh_daemon_is_healthy(self, max_attempts: int = 30, poll_interval: float = 0.5) -> bool:
         health_script = (
-            f"for _ in $(seq 1 {max_attempts}); do "
+            f"for i in $(seq 1 {max_attempts}); do "
             f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:{AGENTSH_DAEMON_PORT}/health); "
             f'  [ "$status" = "200" ] && exit 0; '
-            f"  sleep {poll_interval}; "
+            f'  [ "$i" -lt {max_attempts} ] && sleep {poll_interval}; '
             f"done; "
             f"exit 1"
         )
