@@ -345,12 +345,14 @@ export const clustersLogic = kea<clustersLogicType>([
                         }
                     )
 
-                    return (response.results || []).map((row: string[]) => ({
-                        runId: row[0],
-                        windowEnd: row[1],
-                        timestamp: row[2],
-                        label: dayjs(row[2]).format('MMM D, YYYY h:mm A'),
-                    }))
+                    return (response.results || []).map(
+                        (row: string[]): ClusteringRunOption => ({
+                            runId: row[0],
+                            windowEnd: row[1],
+                            timestamp: row[2],
+                            label: dayjs(row[2]).format('MMM D, YYYY h:mm A'),
+                        })
+                    )
                 },
             },
         ],
