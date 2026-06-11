@@ -75,20 +75,31 @@ def test_format_kv_block_empty() -> None:
     assert _format_kv_block([]) == []
 
 
-_SAMPLE_MANIFEST = {
-    "metadata": {"categories": []},
-    "config": {"boot_modules": ["hogli_commands.prechecks", "hogli_commands.prechecks"]},
-    "tools": {
-        "doctor": {"click": "hogli_commands.doctor:doctor"},
-        "doctor:report": {"click": "hogli_commands.doctor:doctor_report"},
-        "noclick": {"cmd": "echo hi"},
-        "bad:format": {"click": "no_colon_here"},
-    },
-}
+class _FakeManifest:
+    """Minimal stand-in for ``hogli.manifest.Manifest`` (structural match)."""
+
+    def __init__(self, commands: dict[str, dict], boot_modules: list[str] | None = None) -> None:
+        self._commands = commands
+        self.config = {"boot_modules": boot_modules or []}
+
+    def get_all_commands(self) -> list[str]:
+        return list(self._commands)
+
+    def get_command_config(self, command_name: str) -> dict | None:
+        return self._commands.get(command_name)
 
 
 def test_collect_import_targets_extracts_click_and_boot_modules() -> None:
-    targets = _collect_import_targets(_SAMPLE_MANIFEST)
+    manifest = _FakeManifest(
+        {
+            "doctor": {"click": "hogli_commands.doctor:doctor"},
+            "doctor:report": {"click": "hogli_commands.doctor:doctor_report"},
+            "noclick": {"cmd": "echo hi"},
+            "bad:format": {"click": "no_colon_here"},
+        },
+        boot_modules=["hogli_commands.prechecks"],
+    )
+    targets = _collect_import_targets(manifest)
 
     assert ("doctor", "hogli_commands.doctor", "doctor") in targets
     assert ("doctor:report", "hogli_commands.doctor", "doctor_report") in targets
@@ -99,21 +110,15 @@ def test_collect_import_targets_extracts_click_and_boot_modules() -> None:
     assert not any(label == "bad:format" for label, _, _ in targets)
 
 
-def test_collect_import_targets_deduplicates_boot_modules() -> None:
-    targets = _collect_import_targets(_SAMPLE_MANIFEST)
-    boot = [t for t in targets if t == ("hogli_commands.prechecks", "hogli_commands.prechecks", None)]
-    assert len(boot) == 1
-
-
 def test_probe_command_imports_reports_all_ok() -> None:
-    manifest = {"tools": {"doctor": {"click": "hogli_commands.doctor:doctor"}}}
+    manifest = _FakeManifest({"doctor": {"click": "hogli_commands.doctor:doctor"}})
     probed, failures = _probe_command_imports(manifest)
     assert probed == 1
     assert failures == []
 
 
 def test_probe_command_imports_flags_missing_module() -> None:
-    manifest = {"tools": {"ghost": {"click": "hogli_commands.does_not_exist:thing"}}}
+    manifest = _FakeManifest({"ghost": {"click": "hogli_commands.does_not_exist:thing"}})
     probed, failures = _probe_command_imports(manifest)
     assert probed == 1
     assert len(failures) == 1
@@ -123,7 +128,7 @@ def test_probe_command_imports_flags_missing_module() -> None:
 
 
 def test_probe_command_imports_flags_missing_attribute() -> None:
-    manifest = {"tools": {"typo": {"click": "hogli_commands.doctor:not_a_real_command"}}}
+    manifest = _FakeManifest({"typo": {"click": "hogli_commands.doctor:not_a_real_command"}})
     probed, failures = _probe_command_imports(manifest)
     assert probed == 1
     assert failures == [("typo", "missing attribute 'not_a_real_command'")]

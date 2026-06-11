@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 import click
 
@@ -1820,19 +1821,20 @@ def _system_info() -> list[tuple[str, str]]:
 
 def _repo_info(repo_root: Path) -> list[tuple[str, str]]:
     """Collect git branch, HEAD, and working-tree dirtiness."""
-    git = ["git", "-C", str(repo_root)]
+    repo_str = str(repo_root)
+    git = ["git", "-C", repo_str]
     branch = _run_output([*git, "rev-parse", "--abbrev-ref", "HEAD"]) or "unknown"
     commit = _run_output([*git, "log", "-1", "--format=%h %s"]) or "unknown"
     status = _run_output([*git, "status", "--porcelain"])
-    dirty_count = len([line for line in status.splitlines() if line.strip()]) if status else 0
+    dirty_count = len(status.splitlines()) if status else 0
 
     pairs = [
-        ("path", str(repo_root)),
+        ("path", repo_str),
         ("branch", branch),
         ("commit", commit),
         ("dirty", "clean" if dirty_count == 0 else f"{dirty_count} uncommitted file(s)"),
     ]
-    if ".claude/worktrees/" in str(repo_root):
+    if ".claude/worktrees/" in repo_str:
         pairs.append(("worktree", "yes"))
     return pairs
 
@@ -1858,7 +1860,7 @@ def _toolchain_info(repo_root: Path) -> list[tuple[str, str]]:
 
     flox_ver = _run_output(["flox", "--version"])
     if os.environ.get("FLOX_ENV_DESCRIPTION") or os.environ.get("FLOX_ENV"):
-        pairs.append(("flox", f"active{f' — {flox_ver}' if flox_ver else ''}"))
+        pairs.append(("flox", f"active — {flox_ver}" if flox_ver else "active"))
     elif flox_ver:
         pairs.append(("flox", f"not active ({flox_ver} on PATH)"))
     else:
@@ -1887,47 +1889,47 @@ def _checks_info(repo_root: Path) -> list[tuple[str, str]]:
     return pairs
 
 
-def _collect_import_targets(manifest_data: dict) -> list[tuple[str, str, str | None]]:
+class _ManifestLike(Protocol):
+    """The slice of ``hogli.manifest.Manifest`` the import probe relies on."""
+
+    config: dict
+
+    def get_all_commands(self) -> list[str]: ...
+
+    def get_command_config(self, command_name: str) -> dict | None: ...
+
+
+def _collect_import_targets(manifest: _ManifestLike) -> list[tuple[str, str, str | None]]:
     """Enumerate ``(label, module_path, attr)`` for every importable command + boot module.
 
     ``attr`` is the click command symbol for ``click:`` entries, or ``None`` for
     boot modules (which we only need to import, not resolve an attribute on).
+    Command discovery and the metadata/config skip rules are delegated to the
+    manifest API so this stays in lockstep with the framework's schema.
     """
     targets: list[tuple[str, str, str | None]] = []
-    seen: set[tuple[str, str, str | None]] = set()
 
-    def _add(label: str, module_path: str, attr: str | None) -> None:
-        key = (label, module_path, attr)
-        if key not in seen:
-            seen.add(key)
-            targets.append(key)
+    for cmd_name in manifest.get_all_commands():
+        click_str = (manifest.get_command_config(cmd_name) or {}).get("click")
+        if isinstance(click_str, str) and click_str.count(":") == 1:
+            module_path, attr = click_str.split(":", 1)
+            if module_path and attr:
+                targets.append((cmd_name, module_path, attr))
 
-    for category_key, commands in manifest_data.items():
-        if category_key in {"metadata", "config"} or not isinstance(commands, dict):
-            continue
-        for cmd_name, cfg in commands.items():
-            if not isinstance(cfg, dict):
-                continue
-            click_str = cfg.get("click")
-            if isinstance(click_str, str) and click_str.count(":") == 1:
-                module_path, attr = click_str.split(":", 1)
-                if module_path and attr:
-                    _add(cmd_name, module_path, attr)
-
-    for module_path in (manifest_data.get("config", {}) or {}).get("boot_modules", []) or []:
+    for module_path in manifest.config.get("boot_modules", []) or []:
         if isinstance(module_path, str) and module_path:
-            _add(module_path, module_path, None)
+            targets.append((module_path, module_path, None))
 
     return targets
 
 
-def _probe_command_imports(manifest_data: dict) -> tuple[int, list[tuple[str, str]]]:
+def _probe_command_imports(manifest: _ManifestLike) -> tuple[int, list[tuple[str, str]]]:
     """Import every command + boot module, returning ``(probed, failures)``.
 
     Surfaces broken modules that would otherwise fail opaquely at invoke time —
     a common cause of confusing ``hogli`` startup behaviour.
     """
-    targets = _collect_import_targets(manifest_data)
+    targets = _collect_import_targets(manifest)
     module_cache: dict[str, object] = {}
     failures: list[tuple[str, str]] = []
 
@@ -1946,24 +1948,34 @@ def _probe_command_imports(manifest_data: dict) -> tuple[int, list[tuple[str, st
     return len(targets), failures
 
 
-def _build_report(repo_root: Path, manifest_data: dict) -> str:
+def _build_report(repo_root: Path, manifest: _ManifestLike) -> str:
     """Assemble the full diagnostics report body (no surrounding code fence)."""
     timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines: list[str] = [f"hogli doctor:report — {timestamp}"]
 
-    for title, pairs in (
-        ("System", _system_info()),
-        ("Repo", _repo_info(repo_root)),
-        ("Toolchain", _toolchain_info(repo_root)),
-        ("Checks", _checks_info(repo_root)),
-    ):
+    # Each collector shells out to independent binaries (git, node, docker, …),
+    # so gather them concurrently — a single hung tool can't serialize the whole
+    # report, which matters since this runs precisely when the env misbehaves.
+    sections: list[tuple[str, Callable[[], list[tuple[str, str]]]]] = [
+        ("System", _system_info),
+        ("Repo", lambda: _repo_info(repo_root)),
+        ("Toolchain", lambda: _toolchain_info(repo_root)),
+        ("Checks", lambda: _checks_info(repo_root)),
+    ]
+    collected: list[list[tuple[str, str]]] = [[] for _ in sections]
+    with ThreadPoolExecutor(max_workers=len(sections)) as pool:
+        futures = {pool.submit(collect): i for i, (_, collect) in enumerate(sections)}
+        for future in as_completed(futures):
+            collected[futures[future]] = future.result()
+
+    for (title, _), pairs in zip(sections, collected):
         lines.append("")
         lines.append(f"== {title} ==")
         lines.extend(_format_kv_block(pairs))
 
     lines.append("")
     lines.append("== Command imports ==")
-    probed, failures = _probe_command_imports(manifest_data)
+    probed, failures = _probe_command_imports(manifest)
     if not failures:
         lines.append(f"probed {probed} target(s): all import OK")
     else:
@@ -2004,7 +2016,7 @@ def doctor_report(no_copy: bool) -> None:
     from hogli.manifest import REPO_ROOT, get_manifest
 
     click.echo("\nGathering diagnostics…\n")
-    report = _build_report(REPO_ROOT, get_manifest().data)
+    report = _build_report(REPO_ROOT, get_manifest())
 
     click.echo("```text")
     click.echo(report)
