@@ -6160,6 +6160,42 @@ export type BatchExportServiceS3 = {
     }
 }
 
+export type BatchExportServiceAwsS3 = {
+    type: 'AwsS3'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        encryption: string | null
+        kms_key_id: string | null
+        file_format: string
+        max_file_size_mb: number | null
+    }
+}
+
+export type BatchExportServiceS3Compatible = {
+    type: 'S3Compatible'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        endpoint_url: string
+        use_virtual_style_addressing: boolean
+        file_format: string
+        max_file_size_mb: number | null
+    }
+}
+
 export type BatchExportServicePostgres = {
     type: 'Postgres'
     config: {
@@ -6281,7 +6317,11 @@ export type BatchExportServiceAzureBlob = {
 // frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
+    // 'S3' is the legacy alias kept for reading existing rows and the BatchExportScene validity
+    // guard — it is filtered out of the destination picker in favour of AwsS3 + S3Compatible.
     'S3',
+    'AwsS3',
+    'S3Compatible',
     'Snowflake',
     'Postgres',
     'BigQuery',
@@ -6292,6 +6332,8 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
 ]
 export type BatchExportService =
     | BatchExportServiceS3
+    | BatchExportServiceAwsS3
+    | BatchExportServiceS3Compatible
     | BatchExportServiceSnowflake
     | BatchExportServicePostgres
     | BatchExportServiceBigQuery

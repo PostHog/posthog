@@ -519,17 +519,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dateTo,
         }),
         reportDashboardPropertiesChanged: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
-        reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
+        reportDashboardPinToggled: (dashboardId: number, pinned: boolean, source: DashboardEventSource) => ({
+            dashboardId,
             pinned,
             source,
         }),
         reportDashboardFrontEndUpdate: (
+            dashboardId: number | undefined,
             attribute: 'name' | 'description' | 'tags',
             originalLength: number,
             newLength: number
-        ) => ({ attribute, originalLength, newLength }),
-        reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
-        reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
+        ) => ({ dashboardId, attribute, originalLength, newLength }),
+        reportDashboardShareToggled: (dashboardId: number | undefined, isShared: boolean) => ({
+            dashboardId,
+            isShared,
+        }),
+        reportDashboardWhitelabelToggled: (dashboardId: number | undefined, isWhiteLabelled: boolean) => ({
+            dashboardId,
+            isWhiteLabelled,
+        }),
         reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized', layoutZoom: number) => ({
             dashboardId,
             action,
@@ -1430,21 +1438,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard: sanitizeDashboard(dashboard),
             })
         },
-        reportDashboardPinToggled: async (payload) => {
-            posthog.capture(`dashboard pin toggled`, payload)
+        reportDashboardPinToggled: async ({ dashboardId, pinned, source }) => {
+            posthog.capture(`dashboard pin toggled`, {
+                dashboard_id: dashboardId,
+                pinned,
+                source,
+            })
         },
-        reportDashboardFrontEndUpdate: async ({ attribute, originalLength, newLength }) => {
+        reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {
             posthog.capture(`dashboard frontend updated`, {
+                dashboard_id: dashboardId,
                 attribute,
                 original_length: originalLength,
                 new_length: newLength,
             })
         },
-        reportDashboardShareToggled: async ({ isShared }) => {
-            posthog.capture(`dashboard share toggled`, { is_shared: isShared })
+        reportDashboardShareToggled: async ({ dashboardId, isShared }) => {
+            posthog.capture(`dashboard share toggled`, { dashboard_id: dashboardId, is_shared: isShared })
         },
-        reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
-            posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
+        reportDashboardWhitelabelToggled: async ({ dashboardId, isWhiteLabelled }) => {
+            posthog.capture(`dashboard whitelabel toggled`, {
+                dashboard_id: dashboardId,
+                is_whitelabelled: isWhiteLabelled,
+            })
         },
         reportDashboardTileRepositioned: async ({ dashboardId, action, layoutZoom }) => {
             posthog.capture('dashboard tile repositioned', {
