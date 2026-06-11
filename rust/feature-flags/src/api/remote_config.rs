@@ -24,30 +24,39 @@ use crate::{
 };
 use axum::{
     debug_handler,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
 };
+use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 use tracing::warn;
 
+/// Query params. SDKs pass `?token=phc_...` (the project key) and call this with `@current`
+/// as the URL segment; the token resolves the project, matching Django.
+#[derive(Deserialize)]
+pub struct RemoteConfigQuery {
+    token: Option<String>,
+}
+
 enum AuthOutcome {
     Authorized {
         should_decrypt: bool,
-        /// The team the request is scoped to (== project_id), used as the throttle key.
+        /// The team the request is scoped to, used as the throttle key.
         team_id: i32,
     },
     /// Credential is valid but not for this project (Django: 403 team mismatch).
     Forbidden,
-    /// No team with id == project_id (Django: `view.team` raises -> 404 "Project not found").
+    /// No team with the scoped id (Django: `view.team` raises -> 404 "Project not found").
     ProjectNotFound,
 }
 
 #[debug_handler]
 pub async fn remote_config(
     State(state): State<AppState>,
-    Path((project_id, key)): Path<(i64, String)>,
+    Path((project_segment, key)): Path<(String, String)>,
+    Query(params): Query<RemoteConfigQuery>,
     method: Method,
     headers: HeaderMap,
 ) -> Result<Response, FlagError> {
@@ -58,7 +67,27 @@ pub async fn remote_config(
         return Ok(flag_definitions::handle_non_get_method(&method));
     }
 
-    let (should_decrypt, team_id) = match authenticate(&state, project_id, &headers).await? {
+    // Resolve the target project. SDKs call this with `@current` as the URL segment plus a
+    // `?token=phc_...` project key; Django resolves the project from the token first, so the
+    // token wins when present (and `@current` never needs interpreting). Without a token, a
+    // numeric segment is the project id; `@current` and other non-numeric values 404 — the
+    // `@current`-without-token path resolves the caller's current team, which is not an SDK
+    // call and is not ported (Django's `int()` ValueError also maps non-numeric to 404).
+    let (scope_team_id, scope_project_id): (i32, i64) = if let Some(token) = params.token.as_deref()
+    {
+        match state.flag_service().verify_token_and_get_team(token).await {
+            Ok(team) => (team.id, project_id_for_team(&state, team.id).await?),
+            // Django raises AuthenticationFailed for an invalid `?token=`.
+            Err(_) => return Ok(StatusCode::UNAUTHORIZED.into_response()),
+        }
+    } else {
+        match project_segment.parse::<i32>() {
+            Ok(id) => (id, i64::from(id)),
+            Err(_) => return Ok(StatusCode::NOT_FOUND.into_response()),
+        }
+    };
+
+    let (should_decrypt, team_id) = match authenticate(&state, scope_team_id, &headers).await? {
         AuthOutcome::Authorized {
             should_decrypt,
             team_id,
@@ -73,7 +102,7 @@ pub async fn remote_config(
 
     // Flag lookup scoped to the project. 404 if missing or not a remote config flag.
     let Some((filters, is_remote_configuration, has_encrypted_payloads)) =
-        load_remote_config_flag(&state, project_id, &key).await?
+        load_remote_config_flag(&state, scope_project_id, &key).await?
     else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
@@ -152,34 +181,27 @@ fn is_falsy(v: &Value) -> bool {
     }
 }
 
-/// Authenticates and resolves the decrypt gate, mirroring Django.
+/// Authenticates and resolves the decrypt gate against the already-resolved scope team,
+/// mirroring Django.
 ///
-/// - `phs_` (team/project secret): the token's team must be `project_id`. On mismatch,
-///   403 if another team owns the project, 404 if no such project exists. Never decrypts.
-/// - `phx_` (personal API key): validated (scopes + access) against the team whose id
-///   is `project_id`. Decrypts.
+/// - `phs_` (team/project secret): the token's team must be `scope_team_id`. On mismatch,
+///   403 if that team exists, 404 if it does not (Django's `view.team` raises). Never decrypts.
+/// - `phx_` (personal API key): validated (scopes + access) against `Team(scope_team_id)`.
+///   Decrypts.
 async fn authenticate(
     state: &AppState,
-    project_id: i64,
+    scope_team_id: i32,
     headers: &HeaderMap,
 ) -> Result<AuthOutcome, FlagError> {
-    // Team ids are i32, so a project_id outside that range can't name any team. Treat it
-    // as 404 up front, the same for every auth method (Django resolves a missing project
-    // to 404 regardless of credential).
-    let project_id: i32 = match i32::try_from(project_id) {
-        Ok(id) => id,
-        Err(_) => return Ok(AuthOutcome::ProjectNotFound),
-    };
-
     if let Some(token) = auth::extract_team_secret_token(headers) {
         let (team_id, _api_token, _is_project_secret) =
             auth::validate_secret_api_token(state, &token).await?;
-        // Django: authenticated_team.id == view.team.id, where view.team = Team(id=project_id).
-        if team_id != project_id {
+        // Django: authenticated_team.id == view.team.id.
+        if team_id != scope_team_id {
             // Mismatch resolves like Django: 403 when a real (different) team owns the
             // project, 404 when no such team exists (Django's `view.team` raises). The
             // lookup only runs on this error path, never on the matching hot path.
-            return match state.flag_service().get_team_by_id(project_id).await {
+            return match state.flag_service().get_team_by_id(scope_team_id).await {
                 Ok(_) => Ok(AuthOutcome::Forbidden),
                 Err(FlagError::SecretApiTokenInvalid) | Err(FlagError::RowNotFound) => {
                     Ok(AuthOutcome::ProjectNotFound)
@@ -194,8 +216,8 @@ async fn authenticate(
     }
 
     if let Some(key) = auth::extract_personal_api_key(headers)? {
-        // view.team = Team(id=project_id); missing -> 404.
-        let team = match state.flag_service().get_team_by_id(project_id).await {
+        // view.team = Team(scope_team_id); missing -> 404.
+        let team = match state.flag_service().get_team_by_id(scope_team_id).await {
             Ok(team) => team,
             Err(FlagError::SecretApiTokenInvalid) | Err(FlagError::RowNotFound) => {
                 return Ok(AuthOutcome::ProjectNotFound)
@@ -217,11 +239,33 @@ async fn authenticate(
 
         return Ok(AuthOutcome::Authorized {
             should_decrypt: true,
-            team_id: project_id,
+            team_id: scope_team_id,
         });
     }
 
     Err(FlagError::NoAuthenticationProvided)
+}
+
+/// Resolves a team's `project_id` (falling back to its own id if unset). Used on the
+/// `?token=` path, where the flag is scoped to the token team's project, not its team id.
+async fn project_id_for_team(state: &AppState, team_id: i32) -> Result<i64, FlagError> {
+    let client: common_database::PostgresReader = state.database_pools.non_persons_reader.clone();
+    let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "remote_config")
+        .await
+        .map_err(|e| {
+            warn!("remote_config: failed to get db connection: {e}");
+            FlagError::DatabaseUnavailable
+        })?;
+    let row: (i64,) =
+        sqlx::query_as("SELECT COALESCE(project_id, id)::bigint FROM posthog_team WHERE id = $1")
+            .bind(team_id)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(|e| {
+                warn!("remote_config project lookup failed: {e}");
+                FlagError::DatabaseUnavailable
+            })?;
+    Ok(row.0)
 }
 
 /// Loads `(filters, is_remote_configuration, has_encrypted_payloads)` for a flag matched

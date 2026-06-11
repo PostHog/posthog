@@ -361,6 +361,122 @@ async fn test_remote_config_oversized_numeric_id_returns_404() {
 }
 
 #[tokio::test]
+async fn test_remote_config_at_current_with_token_resolves_project() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    context.populate_cache_for_team(team.id).await.unwrap();
+    insert_rc_flag(
+        &context,
+        team.id,
+        "rc-current",
+        "plain-payload",
+        true,
+        false,
+    )
+    .await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    // How every server SDK calls this: `@current` segment + a `?token=` project key.
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/rc-current/remote_config?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        Value::String("plain-payload".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_remote_config_at_current_without_token_returns_404() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (_team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    // `@current` without a `?token=` needs the caller's current team (not an SDK path, not
+    // ported), and any other non-numeric segment is Django's int() ValueError -> 404.
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/x/remote_config",
+            server.addr
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 404);
+}
+
+#[tokio::test]
+async fn test_remote_config_token_override_cross_team_returns_403() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (_team_a, secret_a, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    let (team_b, _secret_b, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    context.populate_cache_for_team(team_b.id).await.unwrap();
+    insert_rc_flag(&context, team_b.id, "b-flag", "plain", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    // ?token resolves the project to team_b, but the secret key is team_a's -> 403.
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/b-flag/remote_config?token={}",
+            server.addr, team_b.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_a}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 403);
+}
+
+#[tokio::test]
+async fn test_remote_config_invalid_token_returns_401() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (_team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/x/remote_config?token=phc_does_not_exist",
+            server.addr
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
 async fn test_remote_config_no_auth_returns_401() {
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
