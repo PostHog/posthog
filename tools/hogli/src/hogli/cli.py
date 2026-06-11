@@ -283,13 +283,9 @@ _WRAP_FILE_PLACEHOLDER = "{file}"
 # `hogli run`). Manifest commands opt in via `needs_secrets: true`.
 _BUILTIN_COMMANDS_NEEDING_SECRETS = frozenset({"run"})
 
-# True only while hogli runs as the process entrypoint — the `hogli` console
-# script or `python -m hogli`, both of which route through `main`. The secret
-# wrap replaces the process image via os.execvp: that is the whole point when
-# hogli *is* the process, but fatal when hogli is embedded in-process (a click
-# CliRunner test, or any library that imports and invokes the group), where
-# execvp would replace and silently kill the host. Gating the re-exec on this
-# keeps embedders alive without weakening the wrap for real CLI runs.
+# False until `main()` flips it (the only path the `hogli` script and
+# `python -m hogli` both take). The secret-wrap re-exec is gated on it; see
+# `_maybe_reexec_via_wrap` for why embedded callers must not execvp.
 _is_process_entrypoint = False
 
 
