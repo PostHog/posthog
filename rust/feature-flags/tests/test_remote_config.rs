@@ -361,6 +361,65 @@ async fn test_remote_config_oversized_numeric_id_returns_404() {
 }
 
 #[tokio::test]
+async fn test_remote_config_no_auth_returns_401() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, _secret, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-noauth", "plain", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-noauth"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
+async fn test_remote_config_personal_key_without_flag_scopes_denied() {
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_noscope");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    // Key with a non-flag scope: must be denied and never see the decrypted payload.
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(user_id, "RC NoScope", vec!["dashboard:read"], None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-enc-noscope", TOK_PRIMARY, true, true).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-enc-noscope"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = response.text().await.unwrap();
+    assert_eq!(status, 403, "body: {body}");
+    // The deny path must never leak plaintext (PLAINTEXT is `{"hello":"world",...}`).
+    assert!(!body.contains("world"), "leaked plaintext: {body}");
+}
+
+#[tokio::test]
 async fn test_remote_config_empty_payload_returns_empty_body() {
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
