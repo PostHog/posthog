@@ -39644,6 +39644,25 @@
             ],
             "description": "A single (leaf) detector config"
         },
+        "SlackIntegrationScope": {
+            "enum": [
+                "app_mentions:read",
+                "channels:history",
+                "channels:read",
+                "chat:write",
+                "chat:write.customize",
+                "groups:history",
+                "groups:read",
+                "links:read",
+                "links:write",
+                "reactions:read",
+                "reactions:write",
+                "team:read",
+                "users:read",
+                "users:read.email"
+            ],
+            "type": "string"
+        },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
