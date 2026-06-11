@@ -489,6 +489,21 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             assert "mat_typed_json_float" not in printed, printed
             assert "JSONExtract(events.properties" in printed, printed
 
+    def test_typed_jsonextract_rewritten_despite_type_spelling_differences(self):
+        with materialized("events", "typed_json_dt", column_type="DateTime64(6, 'UTC')"):
+            printed = self._print_select(
+                "select JSONExtract(properties, 'typed_json_dt', 'DateTime64(6,\\'UTC\\')') from events"
+            )
+            assert "mat_typed_json_dt" in printed, printed
+            assert "JSONExtract(events.properties" not in printed, printed
+
+    def test_typed_jsonextract_not_rewritten_for_nullability_widening(self):
+        # JSONExtract(..., 'String') yields '' for missing keys while a Nullable(String)
+        # column yields NULL, so this rewrite would change results despite looking lossless.
+        with materialized("events", "$browser", is_nullable=True):
+            printed = self._print_select("select JSONExtract(properties, '$browser', 'String') from events")
+            assert "mat_" not in printed, printed
+
     def test_jsonextractint_not_rewritten_even_with_mat_column(self):
         with materialized("events", "$browser"):
             printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")

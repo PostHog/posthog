@@ -1552,6 +1552,15 @@ class ClickHousePrinter(BasePrinter):
             raise ImpossibleASTError("Impossible")
 
     def visit_call(self, node: ast.Call):
+        # The type-name argument reaches ClickHouse's type parser verbatim, so bound it to
+        # type names we can classify — mirroring the whitelist CAST already enforces.
+        if node.name.lower() in ("accuratecast", "accuratecastornull"):
+            type_arg = node.args[1] if len(node.args) > 1 else None
+            if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+                raise QueryError(f"{node.name} requires a constant string type name as its second argument")
+            if parse_sql_runtime_type(type_arg.value).family == "unknown":
+                raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
+
         # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
         # skipping indexes can be used when possible.
         if optimized_materialized_range_if_null := self._get_optimized_materialized_range_if_null_call(node):

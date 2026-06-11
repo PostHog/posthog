@@ -3999,6 +3999,27 @@ class TestPrinter(BaseTest):
             self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
 
+    @parameterized.expand(
+        [
+            ("int", "accurateCast('1', 'Int64')"),
+            ("nullable", "accurateCastOrNull('1', 'Nullable(Int64)')"),
+            ("array", "accurateCast('[]', 'Array(String)')"),
+            ("datetime", "accurateCast('2024-01-01', 'DateTime64(6, \\'UTC\\')')"),
+        ]
+    )
+    def test_accurate_cast_known_type_names_print(self, _name, expr):
+        assert "accurateCast" in self._expr(expr)
+
+    def test_accurate_cast_unknown_type_name_rejected(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("accurateCast('1', 'TotallyMadeUpType')")
+        self.assertIn("Unsupported type in accurateCast", str(ctx.exception))
+
+    def test_accurate_cast_non_constant_type_name_rejected(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("accurateCast('1', concat('Int', '64'))")
+        self.assertIn("constant string type name", str(ctx.exception))
+
     def test_cte_materialization_hint_not_supported(self):
         with self.assertRaises(ImpossibleASTError) as ctx:
             self._select(

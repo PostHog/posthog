@@ -18,7 +18,7 @@ from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
-from posthog.hogql.type_system import parse_sql_runtime_type
+from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_columns import (
@@ -390,8 +390,12 @@ class PropertySwapper(CloningVisitor):
         if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
             return False
 
-        requested_type = parse_sql_runtime_type(type_arg.value)
-        materialized_type = parse_sql_runtime_type(mat_col.type)
+        # Normalize before comparing so formatting differences in the type spelling
+        # (whitespace, quoting) don't block the rewrite; semantic differences
+        # (nullability, width, timezone) still do, because JSON helper semantics for
+        # missing keys and out-of-range values differ from bare column semantics.
+        requested_type = normalized_runtime_type(parse_sql_runtime_type(type_arg.value))
+        materialized_type = normalized_runtime_type(parse_sql_runtime_type(mat_col.type))
         return requested_type.family != "unknown" and requested_type == materialized_type
 
     def visit_compare_operation(self, node: ast.CompareOperation):

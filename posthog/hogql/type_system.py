@@ -477,6 +477,21 @@ def runtime_type_from_database_field(database_field: DatabaseField) -> RuntimeTy
 
 
 @lru_cache(maxsize=1024)
+def normalized_runtime_type(runtime_type: RuntimeType) -> RuntimeType:
+    """Erase display-only fields (source text, LowCardinality wrapper) recursively, so two
+    spellings of the same type (whitespace, quoting, LC encoding) compare equal."""
+    return dataclasses.replace(
+        runtime_type,
+        source=None,
+        low_cardinality=False,
+        item_type=normalized_runtime_type(runtime_type.item_type) if runtime_type.item_type else None,
+        item_types=tuple(normalized_runtime_type(item) for item in runtime_type.item_types),
+        key_type=normalized_runtime_type(runtime_type.key_type) if runtime_type.key_type else None,
+        value_type=normalized_runtime_type(runtime_type.value_type) if runtime_type.value_type else None,
+        wrapped_type=normalized_runtime_type(runtime_type.wrapped_type) if runtime_type.wrapped_type else None,
+    )
+
+
 def parse_sql_runtime_type(type_name: str, dialect: HogQLDialect = "clickhouse") -> RuntimeType:
     if dialect == "clickhouse":
         return parse_clickhouse_type(type_name)
