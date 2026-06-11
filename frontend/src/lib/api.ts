@@ -2863,9 +2863,11 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
-                orderBy?: 'latest' | 'earliest'
+                orderBy?: 'timestamp' | 'duration'
+                orderDirection?: 'ASC' | 'DESC'
                 limit?: number
                 after?: string
+                offset?: number
                 prefetchSpans?: number
             },
             signal?: AbortSignal

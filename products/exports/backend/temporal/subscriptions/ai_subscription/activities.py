@@ -260,7 +260,8 @@ async def _deliver_ai_subscription(
         # delivery, so a missing reference is a wiring bug, not a runtime state.
         raise ApplicationError(f"AI delivery for subscription {subscription.id} has no delivery_id", non_retryable=True)
 
-    markdown = await _load_ai_report(inputs.delivery_id)
+    delivery_id = inputs.delivery_id
+    markdown = await _load_ai_report(delivery_id)
     if markdown is None:
         # Generation persists the report before delivery is scheduled, so a missing report
         # means the row was lost. Non-retryable: re-running *delivery* can't regenerate the
@@ -282,6 +283,7 @@ async def _deliver_ai_subscription(
                 subscription=subscription,
                 markdown=markdown,
                 delivery_run_id=workflow_run_id,
+                delivery_id=delivery_id,
             )
 
         return await deliver_email(subscription, inputs, recipient_results, _send_email)
@@ -290,7 +292,7 @@ async def _deliver_ai_subscription(
             subscription,
             recipient_results,
             lambda integration: send_slack_ai_subscription_report(
-                subscription=subscription, markdown=markdown, integration=integration
+                subscription=subscription, markdown=markdown, integration=integration, delivery_id=delivery_id
             ),
         )
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,

@@ -274,11 +274,14 @@ tools:
         description: >
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
             to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the
-            run surfaced to the inbox) and `emitted_finding_ids`. Pass `emitted=true` to return only runs that emitted
-            at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive
-            substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass
-            `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a
-            window. Results capped at 100.
+            run surfaced to the inbox), `emitted_finding_ids`, and — for runs that didn't complete cleanly — `error`
+            (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with
+            `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary
+            scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs
+            that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a
+            case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit
+            findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`)
+            to scope to a window. Results capped at 100.
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
@@ -290,10 +293,11 @@ tools:
             idempotent: true
         title: Get a scout run by ID
         description: >
-            Return the full `SignalScoutRun` row, including the agent's end-of-run `summary`, `emitted_count`, and
-            `emitted_finding_ids`. Status, timestamps, and error flow from the linked `tasks.TaskRun`; emitted findings
-            live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in
-            `emitted_finding_ids`). Strictly team-scoped — a UUID belonging to another team returns 404.
+            Return the full `SignalScoutRun` row for the given `run_id`, including the agent's end-of-run `summary`,
+            `emitted_count`, and `emitted_finding_ids`. Status, timestamps, `error` (full TaskRun error message), and
+            the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows
+            queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly
+            team-scoped — a UUID belonging to another team returns 404.
     signals-scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true
@@ -332,7 +336,9 @@ tools:
         title: Search the scout scratchpad
         description: >
             Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive
-            substring match on the entry's `content` and `key`. Results capped at 100.
+            substring match on the entry's `content` and `key`. Pass `keys_only=true` to scan which memories exist
+            without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview
+            — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 100.
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false
