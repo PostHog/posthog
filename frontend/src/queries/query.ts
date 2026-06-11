@@ -1,6 +1,6 @@
 import api, { ApiMethodOptions } from 'lib/api'
 import posthog from 'lib/posthog-typed'
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 
 import {
     DashboardFilter,

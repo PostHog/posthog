@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { makeDelay } from 'lib/utils'
+import { makeDelay } from 'lib/utils/async'
 
 import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_FREQUENTIST_FIVE_VARIANTS from '~/mocks/fixtures/api/experiments/experiment_frequentist_five_variants.json'
