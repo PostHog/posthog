@@ -10,9 +10,11 @@ import { UUIDT } from '~/utils/utils'
 
 import { EventFilterManager } from '../common/event-filters'
 import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { createOkContext } from '../pipelines/helpers'
+import { drop, ok } from '../pipelines/results'
 import { HEATMAPS_OUTPUT } from './outputs'
 import { HeatmapsPipelineConfig, createHeatmapsPipeline } from './pipeline'
 
@@ -28,6 +30,7 @@ describe('HeatmapsPipeline', () => {
     let mockTeamManager: jest.Mocked<TeamManager>
     let mockEventIngestionRestrictionManager: jest.Mocked<EventIngestionRestrictionManager>
     let mockEventFilterManager: jest.Mocked<EventFilterManager>
+    let mockCookielessManager: jest.Mocked<CookielessManager>
     let promiseScheduler: PromiseScheduler
     let config: HeatmapsPipelineConfig
 
@@ -114,6 +117,12 @@ describe('HeatmapsPipeline', () => {
             getFilter: jest.fn().mockReturnValue(undefined),
         } as unknown as jest.Mocked<EventFilterManager>
 
+        // Passthrough by default: events round-trip unchanged. The apply step reads `.value.event`
+        // from each result, so returning `ok(e)` leaves the distinct id untouched.
+        mockCookielessManager = {
+            doBatch: jest.fn().mockImplementation((events: any[]) => Promise.resolve(events.map((e) => ok(e)))),
+        } as unknown as jest.Mocked<CookielessManager>
+
         promiseScheduler = new PromiseScheduler()
 
         config = {
@@ -141,6 +150,7 @@ describe('HeatmapsPipeline', () => {
             teamManager: mockTeamManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager,
+            cookielessManager: mockCookielessManager,
             promiseScheduler,
         }
     })
@@ -152,6 +162,32 @@ describe('HeatmapsPipeline', () => {
         expect(heatmaps).toHaveLength(1)
         expect(heatmaps[0].type).toBe('click')
         expect(heatmaps[0].session_id).toBe('session-1')
+        expect(dlqProducedFor()).toHaveLength(0)
+    })
+
+    it('extracts heatmaps using the cookieless-rewritten distinct id', async () => {
+        // Cookieless events arrive with a sentinel distinct id; the cookieless step rewrites it to a
+        // deterministic hash, which extraction must use.
+        mockCookielessManager.doBatch.mockImplementation((events: any[]) =>
+            Promise.resolve(events.map((e) => ok({ ...e, event: { ...e.event, distinct_id: 'hashed-cookieless-id' } })))
+        )
+
+        await runPipeline([createMessage('$$heatmap')])
+
+        const heatmaps = heatmapsProducedFor()
+        expect(heatmaps).toHaveLength(1)
+        expect(heatmaps[0].distinct_id).toBe('hashed-cookieless-id')
+        expect(mockCookielessManager.doBatch).toHaveBeenCalledTimes(1)
+    })
+
+    it('drops $$heatmap events that cookieless processing rejects', async () => {
+        mockCookielessManager.doBatch.mockImplementation((events: any[]) =>
+            Promise.resolve(events.map(() => drop('cookieless_team_disabled')))
+        )
+
+        await runPipeline([createMessage('$$heatmap')])
+
+        expect(heatmapsProducedFor()).toHaveLength(0)
         expect(dlqProducedFor()).toHaveLength(0)
     })
 

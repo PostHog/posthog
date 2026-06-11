@@ -13,7 +13,9 @@ import {
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
 import { addTeamToContext } from '../common/subpipelines/helpers'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
+    createApplyCookielessProcessingStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
     createResolveTeamStep,
@@ -42,6 +44,7 @@ export interface HeatmapsPipelineConfig {
     // needs their business methods.
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventFilterManager: EventFilterManager
+    cookielessManager: CookielessManager
     promiseScheduler: PromiseScheduler
 }
 
@@ -56,7 +59,14 @@ interface HeatmapsPipelineContext {
 export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TContext extends HeatmapsPipelineContext>(
     config: HeatmapsPipelineConfig
 ) {
-    const { outputs, teamManager, eventIngestionRestrictionManager, eventFilterManager, promiseScheduler } = config
+    const {
+        outputs,
+        teamManager,
+        eventIngestionRestrictionManager,
+        eventFilterManager,
+        cookielessManager,
+        promiseScheduler,
+    } = config
 
     const pipelineConfig: PipelineConfig = {
         outputs,
@@ -81,19 +91,28 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
                         .filterMap(addTeamToContext, (b) =>
                             b
                                 .teamAware((b) =>
-                                    b.sequentially((b) =>
-                                        b
-                                            .pipe(createValidateEventMetadataStep())
-                                            .pipe(createValidateEventPropertiesStep())
-                                            .pipe(createApplyEventFiltersStep(eventFilterManager))
-                                            .pipe(createDropOldEventsStep())
-                                            .pipe(createCheckHeatmapOptInStep())
-                                            .pipe(createDisablePersonProcessingStep())
-                                            .pipe(createNormalizeEventStep())
-                                            .pipe(createPrepareEventStep())
-                                            .pipe(createExtractHeatmapDataStep(outputs))
-                                            .pipe(createSkipEmitEventStep())
-                                    )
+                                    b
+                                        .sequentially((b) =>
+                                            b
+                                                .pipe(createValidateEventMetadataStep())
+                                                .pipe(createValidateEventPropertiesStep())
+                                                .pipe(createApplyEventFiltersStep(eventFilterManager))
+                                                .pipe(createDropOldEventsStep())
+                                        )
+                                        // Cookieless events arrive with a sentinel distinct id; rewrite it to the
+                                        // deterministic server-side hash (and derive the session) before extraction,
+                                        // which keys heatmaps on distinct id and session id.
+                                        .gather()
+                                        .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
+                                        .sequentially((b) =>
+                                            b
+                                                .pipe(createCheckHeatmapOptInStep())
+                                                .pipe(createDisablePersonProcessingStep())
+                                                .pipe(createNormalizeEventStep())
+                                                .pipe(createPrepareEventStep())
+                                                .pipe(createExtractHeatmapDataStep(outputs))
+                                                .pipe(createSkipEmitEventStep())
+                                        )
                                 )
                                 .handleIngestionWarnings(outputs)
                         )

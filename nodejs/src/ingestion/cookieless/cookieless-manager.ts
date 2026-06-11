@@ -13,10 +13,13 @@ import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
+import { CommonConfig } from '../../common/config'
 import { cookielessRedisErrorCounter } from '../../common/metrics'
+import { createCookielessRedisConnectionConfig } from '../../config/redis-pools'
 import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
+import { createRedisPoolFromConfig } from '../../utils/db/redis'
 import { logger } from '../../utils/logger'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
@@ -1023,4 +1026,33 @@ export function extractRootDomain(input: string): string {
 
     // Add the port back if it exists
     return port ? `${domain}:${port}` : domain
+}
+
+/** Config a `CookielessManagerComponent` needs to build the manager and its own Redis pool. */
+export type CookielessManagerComponentConfig = CookielessServerConfig &
+    Pick<CommonConfig, 'REDIS_URL' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'>
+
+/**
+ * Scope entry for a `CookielessManager`. `start` creates the dedicated cookieless Redis pool and
+ * the manager; `stop` shuts the manager down (clearing its cleanup interval) and drains the pool.
+ */
+export class CookielessManagerComponent {
+    constructor(private readonly config: CookielessManagerComponentConfig) {}
+
+    start(): Promise<{ value: CookielessManager; stop: () => Promise<void> }> {
+        const redisPool = createRedisPoolFromConfig({
+            connection: createCookielessRedisConnectionConfig(this.config),
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+        const manager = new CookielessManager(this.config, redisPool)
+        return Promise.resolve({
+            value: manager,
+            stop: async (): Promise<void> => {
+                manager.shutdown()
+                await redisPool.drain()
+                await redisPool.clear()
+            },
+        })
+    }
 }

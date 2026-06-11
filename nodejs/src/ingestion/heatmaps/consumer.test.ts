@@ -4,6 +4,7 @@ import { TeamManagerComponent } from '../../utils/team-manager'
 import { ProducerName } from '../common/outputs'
 import { newScope } from '../common/scopes'
 import { IngestionOutputsConfig } from '../config'
+import { CookielessManagerComponentConfig } from '../cookieless/cookieless-manager'
 import { KafkaProducerRegistry } from '../outputs/kafka-producer-registry'
 import { HeatmapsConsumerConfig, HeatmapsSharedScope, createHeatmapsConsumer } from './consumer'
 import * as pipelineModule from './pipeline'
@@ -20,6 +21,7 @@ describe('createHeatmapsConsumer', () => {
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
             DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
             ...({} as IngestionOutputsConfig),
+            ...({} as CookielessManagerComponentConfig),
         }
     }
 
