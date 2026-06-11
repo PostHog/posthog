@@ -2,22 +2,17 @@ import math
 from contextlib import asynccontextmanager
 
 import pytest
-from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.models.team import Team
 from posthog.temporal.ai_observability.team_discovery import (
     DEFAULT_GUARANTEED_TEAM_IDS,
     DEFAULT_SAMPLE_PERCENTAGE,
     TeamDiscoveryInput,
     _get_ai_observability_workflow_config,
-    _get_teams_with_enabled_clustering_jobs,
     get_team_ids_for_ai_observability,
 )
-
-from products.ai_observability.backend.models.clustering_job import ClusteringJob
 
 
 @asynccontextmanager
@@ -117,10 +112,6 @@ class TestGetLlmaWorkflowConfig:
         assert isinstance(config.sample_percentage, float)
 
 
-OPTED_IN_PATH = "posthog.temporal.ai_observability.team_discovery._get_teams_with_enabled_clustering_jobs"
-
-
-@patch(OPTED_IN_PATH, lambda team_ids: set())
 @patch(FF_PAYLOAD_PATH, return_value=None)
 @patch("posthog.temporal.ai_observability.team_discovery.Heartbeater", _noop_heartbeater)
 @pytest.mark.asyncio
@@ -292,52 +283,6 @@ class TestGetTeamIdsForAIObservability:
         assert set(passed_trigger_events) < set(AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
 
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
-    async def test_opted_in_teams_always_included(self, mock_get_teams, mock_ff):
-        """Teams with an enabled ClusteringJob are processed deterministically, even
-        when the random sample would have skipped them (0% sample here)."""
-        mock_ff.return_value = {"guaranteed_team_ids": [1], "sample_percentage": 0.0}
-        mock_get_teams.return_value = [8888, 7777]
-        inputs = TeamDiscoveryInput()
-
-        with patch(OPTED_IN_PATH, lambda team_ids: {8888}):
-            result = await get_team_ids_for_ai_observability(inputs)
-
-        assert 8888 in result  # opted in -> included despite 0% sample
-        assert 7777 not in result  # not opted in and not sampled
-        assert 1 in result  # guaranteed
-
-    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
-    async def test_opted_in_teams_respect_skip(self, mock_get_teams, mock_ff):
-        """skip_team_ids wins over the opted-in set."""
-        mock_ff.return_value = {"guaranteed_team_ids": [1], "skip_team_ids": [8888], "sample_percentage": 0.0}
-        mock_get_teams.return_value = [8888, 7777]
-        inputs = TeamDiscoveryInput()
-
-        with patch(OPTED_IN_PATH, lambda team_ids: {8888}):
-            result = await get_team_ids_for_ai_observability(inputs)
-
-        assert 8888 not in result
-
-    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
-    async def test_opted_in_lookup_scoped_to_remaining_teams(self, mock_get_teams, mock_ff):
-        """The opted-in lookup is passed only the non-guaranteed, non-skip teams so it
-        stays bounded to candidates that actually have AI events."""
-        mock_ff.return_value = {"guaranteed_team_ids": [1], "skip_team_ids": [7777], "sample_percentage": 0.0}
-        mock_get_teams.return_value = [8888, 7777, 6666]
-        inputs = TeamDiscoveryInput()
-
-        captured: dict[str, list[int]] = {}
-
-        def _capture(team_ids: list[int]) -> set[int]:
-            captured["team_ids"] = team_ids
-            return set()
-
-        with patch(OPTED_IN_PATH, _capture):
-            await get_team_ids_for_ai_observability(inputs)
-
-        assert set(captured["team_ids"]) == {8888, 6666}
-
-    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_lookback_uses_inputs_value(self, mock_get_teams, _mock_ff):
         """The discovery activity scopes its eligibility query to the caller's
         TeamDiscoveryInput.lookback_days (passed by the coordinator from the
@@ -352,26 +297,3 @@ class TestGetTeamIdsForAIObservability:
         begin, end = mock_get_teams.call_args.args[0], mock_get_teams.call_args.args[1]
         delta_days = (end - begin).total_seconds() / 86400
         assert 2.99 < delta_days < 3.01
-
-
-class TestGetTeamsWithEnabledClusteringJobs(APIBaseTest):
-    def test_empty_input_returns_empty(self):
-        assert _get_teams_with_enabled_clustering_jobs([]) == set()
-
-    def test_returns_only_teams_with_an_enabled_job(self):
-        # APIBaseTest's team is auto-seeded with enabled default jobs via the Team
-        # post_save signal; disable them so it reads as not opted in.
-        ClusteringJob.objects.filter(team=self.team).update(enabled=False)
-
-        opted_in_team = Team.objects.create(organization=self.organization, name="opted in")
-
-        result = _get_teams_with_enabled_clustering_jobs([self.team.id, opted_in_team.id])
-
-        assert result == {opted_in_team.id}
-
-    def test_deduplicates_teams_with_multiple_enabled_jobs(self):
-        # The default seed already gives self.team three enabled jobs; a distinct()
-        # query must still return the team id once.
-        result = _get_teams_with_enabled_clustering_jobs([self.team.id])
-
-        assert result == {self.team.id}
