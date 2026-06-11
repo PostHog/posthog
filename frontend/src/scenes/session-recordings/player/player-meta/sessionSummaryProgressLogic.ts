@@ -115,7 +115,10 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                         ...state,
                         [sessionId]: {
                             maxStep: Math.max(existing.maxStep, progress.step),
-                            hasRetried: existing.hasRetried || progress.step < existing.maxStep,
+                            // A step below the max seen means the backend workflow restarted.
+                            // Cleared once the retry catches back up, so the warning only
+                            // shows while the run is actually behind.
+                            hasRetried: progress.step < existing.maxStep,
                         },
                     }
                 },

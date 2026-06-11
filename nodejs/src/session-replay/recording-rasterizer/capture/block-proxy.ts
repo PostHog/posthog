@@ -31,9 +31,22 @@ export class BlockProxy {
         this.sessionId = input.session_id
 
         const url = `${this.cfg.recordingApiBaseUrl}/api/projects/${input.team_id}/recordings/${input.session_id}/blocks`
-        const resp = await internalFetch(url, {
-            headers: { 'X-Internal-Api-Secret': this.cfg.recordingApiSecret },
-        })
+        let resp: Awaited<ReturnType<typeof internalFetch>>
+        try {
+            resp = await internalFetch(url, {
+                headers: { 'X-Internal-Api-Secret': this.cfg.recordingApiSecret },
+            })
+        } catch (err) {
+            // Network-level failures (connect timeouts, DNS) otherwise surface as bare
+            // undici errors with no hint of which host was unreachable.
+            const reason = err instanceof Error ? err.message || err.name : String(err)
+            throw new RasterizationError(
+                `Failed to reach recording API for block listing: ${url}: ${reason}`,
+                true,
+                'BLOCK_LISTING_UNREACHABLE',
+                err
+            )
+        }
         if (resp.status < 200 || resp.status >= 300) {
             const body = await resp.text()
             throw new RasterizationError(

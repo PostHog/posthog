@@ -86,6 +86,23 @@ describe('BlockProxy', () => {
             })
         })
 
+        it('wraps network-level failures with the target URL', async () => {
+            const connectError = new Error('Connect Timeout Error')
+            connectError.name = 'ConnectTimeoutError'
+            mockInternalFetch.mockRejectedValue(connectError)
+
+            const proxy = new BlockProxy(testCfg, mockLog)
+            await expect(proxy.fetchBlocks(baseInput())).rejects.toMatchObject({
+                name: 'RasterizationError',
+                retryable: true,
+                code: 'BLOCK_LISTING_UNREACHABLE',
+                message: expect.stringContaining(
+                    'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks'
+                ),
+                cause: connectError,
+            })
+        })
+
         it('throws on invalid blocks response', async () => {
             mockInternalFetch.mockResolvedValue({
                 status: 200,

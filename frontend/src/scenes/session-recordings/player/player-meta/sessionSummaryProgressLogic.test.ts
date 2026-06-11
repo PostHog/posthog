@@ -134,6 +134,73 @@ describe('sessionSummaryProgressLogic', () => {
         })
     })
 
+    describe('retryStateBySessionId', () => {
+        const progress = (step: number): any => ({
+            phase: 'phase',
+            step,
+            total_steps: 8,
+            rasterizer_workflow_id: null,
+            segments_total: 0,
+            segments_completed: 0,
+            rasterizer: null,
+        })
+
+        it('flags a retry when the step regresses and clears it once caught back up', async () => {
+            logic.actions.setProgress(SESSION_ID, progress(3))
+            await expectLogic(logic).toMatchValues({
+                retryStateBySessionId: expect.objectContaining({
+                    [SESSION_ID]: { maxStep: 3, hasRetried: false },
+                }),
+            })
+
+            // Backend workflow restarted: step goes backwards
+            logic.actions.setProgress(SESSION_ID, progress(0))
+            await expectLogic(logic).toMatchValues({
+                retryStateBySessionId: expect.objectContaining({
+                    [SESSION_ID]: { maxStep: 3, hasRetried: true },
+                }),
+            })
+
+            // Still behind the previous max: warning stays
+            logic.actions.setProgress(SESSION_ID, progress(2))
+            await expectLogic(logic).toMatchValues({
+                retryStateBySessionId: expect.objectContaining({
+                    [SESSION_ID]: { maxStep: 3, hasRetried: true },
+                }),
+            })
+
+            // Caught back up: warning clears
+            logic.actions.setProgress(SESSION_ID, progress(3))
+            await expectLogic(logic).toMatchValues({
+                retryStateBySessionId: expect.objectContaining({
+                    [SESSION_ID]: { maxStep: 3, hasRetried: false },
+                }),
+            })
+        })
+
+        it('resets on a new summarization run and on summary arrival', async () => {
+            logic.actions.setProgress(SESSION_ID, progress(5))
+            logic.actions.setProgress(SESSION_ID, progress(1))
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization(SESSION_ID)
+            }).toMatchValues({
+                retryStateBySessionId: expect.objectContaining({
+                    [SESSION_ID]: { maxStep: 0, hasRetried: false },
+                }),
+            })
+
+            logic.actions.setProgress(SESSION_ID, progress(4))
+            logic.actions.setProgress(SESSION_ID, progress(2))
+            await expectLogic(logic, () => {
+                logic.actions.setSummary(SESSION_ID, { segments: [] } as any)
+            }).toMatchValues({
+                retryStateBySessionId: expect.objectContaining({
+                    [SESSION_ID]: { maxStep: 0, hasRetried: false },
+                }),
+            })
+        })
+    })
+
     describe('forceRestart flag', () => {
         // The cancel-tracking + in-flight maps in the logic file are module
         // singletons, so each test uses a fresh session id to avoid leaking

@@ -785,6 +785,48 @@ async def _get_rasterizer_frame_progress(client: Any, rasterizer_workflow_id: st
         return None
 
 
+async def _record_terminal_workflow_failure(
+    handle: WorkflowHandle,
+    status: WorkflowExecutionStatus,
+    *,
+    team_id: int,
+    session_id: str,
+) -> None:
+    """Record why a summary workflow ended in a terminal failure state.
+
+    The polling loop only sees the terminal status; the failure cause lives in
+    the workflow result. Surface it to logs and error tracking so failures can
+    be diagnosed without Temporal UI access. Best-effort: must never break the
+    user-facing stream.
+    """
+    if status == WorkflowExecutionStatus.CANCELED:
+        # User-initiated; not an error.
+        return
+    try:
+        await handle.result()
+    except Exception as e:
+        cause = getattr(e, "cause", None)
+        logger.exception(
+            "session summary workflow ended in terminal failure state",
+            workflow_id=handle.id,
+            team_id=team_id,
+            session_id=session_id,
+            status=status.name,
+            failure=str(cause) if cause is not None else str(e),
+            signals_type="session-summaries",
+        )
+        capture_exception(
+            e,
+            additional_properties={
+                "team_id": team_id,
+                "session_id": session_id,
+                "workflow_id": handle.id,
+                "workflow_status": status.name,
+                "signals_type": "session-summaries",
+            },
+        )
+
+
 async def _fetch_summary_progress(client: Any, handle: WorkflowHandle) -> dict[str, Any] | None:
     """Returns None when the workflow isn't queryable yet — caller should sleep and retry."""
     try:
@@ -958,6 +1000,7 @@ async def execute_summarize_session_video_stream(
                 WorkflowExecutionStatus.TERMINATED,
                 WorkflowExecutionStatus.TIMED_OUT,
             ):
+                await _record_terminal_workflow_failure(handle, status, team_id=team.id, session_id=session_id)
                 status_messages = {
                     WorkflowExecutionStatus.FAILED: "Something went wrong while generating the summary. Please try again.",
                     WorkflowExecutionStatus.CANCELED: "The summary generation was canceled.",

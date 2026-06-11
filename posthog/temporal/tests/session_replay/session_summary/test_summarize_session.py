@@ -443,6 +443,69 @@ class TestExecuteSummarizeSessionVideoStream:
         handle.query.assert_not_called()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "terminal_status,should_capture",
+        [
+            (WorkflowExecutionStatus.FAILED, True),
+            (WorkflowExecutionStatus.TERMINATED, True),
+            (WorkflowExecutionStatus.TIMED_OUT, True),
+            (WorkflowExecutionStatus.CANCELED, False),
+        ],
+    )
+    async def test_terminal_failure_records_workflow_failure_cause(
+        self,
+        terminal_status: WorkflowExecutionStatus,
+        should_capture: bool,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+    ):
+        handle = self._make_handle([(terminal_status, None)])
+        handle.result = AsyncMock(side_effect=RuntimeError("rasterizer ConnectTimeoutError"))
+
+        with (
+            patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=None)),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
+                return_value=(None, None, None, MagicMock(), "workflow-id"),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
+                AsyncMock(return_value=handle),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.async_connect",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.asyncio.sleep",
+                AsyncMock(),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.capture_exception",
+            ) as mock_capture,
+        ):
+            events = await self._collect(
+                execute_summarize_session_video_stream(
+                    session_id=mock_session_id,
+                    user=mock_user,
+                    team=mock_team,
+                )
+            )
+
+        # The user-facing error event is yielded regardless of failure recording
+        assert len(events) == 1
+        if should_capture:
+            mock_capture.assert_called_once()
+            props = mock_capture.call_args.kwargs["additional_properties"]
+            assert props["workflow_status"] == terminal_status.name
+            assert props["session_id"] == mock_session_id
+        else:
+            # User-initiated cancel is not an error and short-circuits before fetching the result
+            mock_capture.assert_not_called()
+            handle.result.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_completed_without_db_row_yields_error_event(
         self,
         mock_session_id: str,

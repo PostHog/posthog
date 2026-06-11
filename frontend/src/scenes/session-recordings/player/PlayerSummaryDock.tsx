@@ -222,7 +222,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
                             {sessionSummaryHasRetried && (
                                 <LemonBanner type="warning" className="mb-2">
                                     <div className="text-sm font-normal">
-                                        Transient error generating the summary. Retrying...
+                                        Hit a temporary error — retrying automatically...
                                     </div>
                                 </LemonBanner>
                             )}
