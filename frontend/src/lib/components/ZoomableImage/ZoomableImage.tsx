@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 const MIN_SCALE = 1
 const MAX_SCALE = 8
 const ZOOM_STEP = 0.5
-const WHEEL_ZOOM_SENSITIVITY = 0.0015
+const WHEEL_ZOOM_SENSITIVITY = 0.006 // effective sensitivity per pixel of deltaY
 
 interface Transform {
     scale: number
@@ -31,7 +31,6 @@ export interface ZoomableImageProps {
  * Useful for inspecting large screenshots where the detail matters.
  */
 export function ZoomableImage({ src, alt, resetKey, className }: ZoomableImageProps): JSX.Element {
-    const containerRef = useRef<HTMLDivElement>(null)
     const [transform, setTransform] = useState<Transform>(DEFAULT_TRANSFORM)
     const dragState = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(
         null
@@ -54,18 +53,13 @@ export function ZoomableImage({ src, alt, resetKey, className }: ZoomableImagePr
         })
     }, [])
 
-    const handleWheel = useCallback((e: React.WheelEvent): void => {
-        e.preventDefault()
-        const delta = -e.deltaY * WHEEL_ZOOM_SENSITIVITY * 4
-        setTransform((prev) => {
-            const nextScale = clamp(prev.scale + delta, MIN_SCALE, MAX_SCALE)
-            if (nextScale === MIN_SCALE) {
-                return DEFAULT_TRANSFORM
-            }
-            const ratio = nextScale / prev.scale
-            return { scale: nextScale, x: prev.x * ratio, y: prev.y * ratio }
-        })
-    }, [])
+    const handleWheel = useCallback(
+        (e: React.WheelEvent): void => {
+            e.preventDefault()
+            zoomBy(-e.deltaY * WHEEL_ZOOM_SENSITIVITY)
+        },
+        [zoomBy]
+    )
 
     const reset = useCallback((): void => setTransform(DEFAULT_TRANSFORM), [])
 
@@ -114,7 +108,6 @@ export function ZoomableImage({ src, alt, resetKey, className }: ZoomableImagePr
     return (
         <div className={`relative flex flex-col items-stretch ${className ?? ''}`}>
             <div
-                ref={containerRef}
                 className="relative flex-1 flex items-center justify-center overflow-hidden bg-bg-light rounded select-none"
                 onWheel={handleWheel}
                 onPointerDown={handlePointerDown}
