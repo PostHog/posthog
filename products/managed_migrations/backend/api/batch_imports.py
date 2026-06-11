@@ -305,8 +305,18 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
         write_only=True,
         required=True,
     )
-    access_key = serializers.CharField(write_only=True, required=True)
-    secret_key = serializers.CharField(write_only=True, required=True)
+    access_key = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Source access key / API key. Required for Amplitude; unused for Mixpanel, which authenticates with the project secret alone.",
+    )
+    secret_key = serializers.CharField(
+        write_only=True,
+        required=True,
+        help_text="Source secret. For Mixpanel this is the project API secret, found under Project settings → Access keys.",
+    )
     is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
@@ -369,6 +379,9 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
         # For Amplitude, ensure at least one of import_events or generate_identify_events is enabled
         source_type = data.get("source_type")
         if source_type == "amplitude":
+            if not data.get("access_key"):
+                raise serializers.ValidationError("Access key is required for Amplitude migrations.")
+
             import_events = data.get("import_events", True)
             generate_identify_events = data.get("generate_identify_events", True)
 
