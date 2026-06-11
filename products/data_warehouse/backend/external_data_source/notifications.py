@@ -12,8 +12,6 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 
 logger = structlog.get_logger(__name__)
 
-ERROR_SNIPPET_MAX_LENGTH = 300
-
 
 def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta(hours=24)) -> list[int]:
     """Teams with still-failing schemas whose latest failure happened within the lookback.
@@ -56,14 +54,13 @@ def notify_external_data_sync_failures(team_id: int) -> None:
 
         items = []
         for schema in failing_schemas:
-            error = schema.latest_error or "Unknown error"
-            if len(error) > ERROR_SNIPPET_MAX_LENGTH:
-                error = error[: ERROR_SNIPPET_MAX_LENGTH - 1] + "…"
             items.append(
                 {
                     "schema_name": schema.name,
                     "source_type": schema.source.source_type,
-                    "error": error,
+                    # The template truncates for display (truncatechars), and the rendered
+                    # HTML is what crosses the Celery boundary — no need to cap here.
+                    "error": schema.latest_error or "Unknown error",
                     "paused": not schema.should_sync,
                     "url": (
                         f"{settings.SITE_URL}/project/{team_id}/data-management/sources/"

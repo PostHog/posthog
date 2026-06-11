@@ -7,7 +7,6 @@ from unittest.mock import patch
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.external_data_source.notifications import (
-    ERROR_SNIPPET_MAX_LENGTH,
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
 )
@@ -97,23 +96,6 @@ class TestNotifyExternalDataSyncFailures:
             notify_external_data_sync_failures(team.pk)
 
         mock_sender.assert_not_called()
-
-    def test_truncates_long_errors(self):
-        team, source = _create_team_and_source()
-        ExternalDataSchema.objects.create(
-            name="Charge",
-            team=team,
-            source=source,
-            status=ExternalDataSchema.Status.FAILED,
-            latest_error="x" * 1000,
-        )
-
-        with patch(SENDER_PATH) as mock_sender:
-            notify_external_data_sync_failures(team.pk)
-
-        (_, items) = mock_sender.call_args.args
-        assert len(items[0]["error"]) == ERROR_SNIPPET_MAX_LENGTH
-        assert items[0]["error"].endswith("…")
 
     def test_missing_error_defaults_to_unknown(self):
         team, source = _create_team_and_source()
