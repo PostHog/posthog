@@ -22577,6 +22577,7 @@ export namespace Schemas {
     /**
      * * `slack` - slack
      * * `webhook` - webhook
+     * * `teams` - teams
      */
     export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
 
@@ -22584,6 +22585,7 @@ export namespace Schemas {
     export const NotificationDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
+      Teams: 'teams',
     } as const;
 
     export interface LogsAlertConfiguration {
@@ -22685,10 +22687,11 @@ export namespace Schemas {
     }
 
     export interface LogsAlertCreateDestination {
-      /** Destination type — slack or webhook.
+      /** Destination type — slack, webhook, or teams.
        *
        * * `slack` - slack
-       * * `webhook` - webhook */
+       * * `webhook` - webhook
+       * * `teams` - teams */
       type: NotificationDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -22696,7 +22699,7 @@ export namespace Schemas {
       slack_channel_id?: string;
       /** Human-readable channel name for display. */
       slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook. */
+      /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
       webhook_url?: string;
     }
 
