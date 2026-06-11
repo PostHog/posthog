@@ -968,6 +968,25 @@ describe('LogsIngestionConsumer', () => {
             expect(team2BytesReceived?.value.count).toBe(200)
             expect(team2BytesIngested?.value.count).toBe(200)
         })
+
+        it('should emit bytes_ingested_records from the bytes_uncompressed_records header', async () => {
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                bytes_uncompressed_records: '900',
+                record_count: '5',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const appMetricsMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+            const bytesIngested = appMetricsMessages.find((m) => m.value.metric_name === 'bytes_ingested')
+            const bytesIngestedRecords = appMetricsMessages.find(
+                (m) => m.value.metric_name === 'bytes_ingested_records'
+            )
+            expect(bytesIngested?.value.count).toBe(1024)
+            expect(bytesIngestedRecords?.value.count).toBe(900)
+        })
     })
 
     describe('trackOutgoingTrafficAndBuildUsageStats', () => {
@@ -991,6 +1010,29 @@ describe('LogsIngestionConsumer', () => {
             expect(stats!.bytesDropped).toBe(0)
             expect(stats!.recordsDropped).toBe(0)
             expect(stats!.piiReplacements).toBe(0)
+        })
+
+        it('should sum bytesAllowedRecords and treat a missing header as zero', async () => {
+            const messages = [
+                ...(await createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '100',
+                    bytes_uncompressed_records: '80',
+                    record_count: '1',
+                })),
+                ...(await createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                })),
+            ]
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](parsed, [])
+
+            const stats = usageStats.get(team.id)
+            expect(stats!.bytesAllowed).toBe(300)
+            expect(stats!.bytesAllowedRecords).toBe(80)
         })
 
         it('should aggregate stats for multiple messages from same team', async () => {
@@ -1133,6 +1175,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsReceived: 10,
                         bytesAllowed: 800,
                         recordsAllowed: 8,
+                        bytesAllowedRecords: 700,
                         bytesDropped: 200,
                         recordsDropped: 2,
                         piiReplacements: 0,
@@ -1145,12 +1188,13 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            expect(messages).toHaveLength(7)
+            expect(messages).toHaveLength(8)
 
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
             expect(metricNames).toContain('bytes_received')
             expect(metricNames).toContain('records_received')
             expect(metricNames).toContain('bytes_ingested')
+            expect(metricNames).toContain('bytes_ingested_records')
             expect(metricNames).toContain('records_ingested')
             expect(metricNames).toContain('bytes_dropped')
             expect(metricNames).toContain('records_dropped')
@@ -1172,6 +1216,7 @@ describe('LogsIngestionConsumer', () => {
                             recordsReceived: 5,
                             bytesAllowed: 500,
                             recordsAllowed: 5,
+                            bytesAllowedRecords: 0,
                             bytesDropped: 0,
                             recordsDropped: 0,
                             piiReplacements: 0,
@@ -1204,6 +1249,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsReceived: 10,
                         bytesAllowed: 1000,
                         recordsAllowed: 10,
+                        bytesAllowedRecords: 0,
                         bytesDropped: 0,
                         recordsDropped: 0,
                         piiReplacements: 0,
@@ -1243,6 +1289,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsReceived: 1,
                         bytesAllowed: 100,
                         recordsAllowed: 1,
+                        bytesAllowedRecords: 0,
                         bytesDropped: 0,
                         recordsDropped: 0,
                         piiReplacements: 0,
@@ -1256,6 +1303,7 @@ describe('LogsIngestionConsumer', () => {
                         recordsReceived: 2,
                         bytesAllowed: 200,
                         recordsAllowed: 2,
+                        bytesAllowedRecords: 0,
                         bytesDropped: 0,
                         recordsDropped: 0,
                         piiReplacements: 0,
