@@ -1,6 +1,6 @@
-import { withForwardedSearchParams } from './sceneLogicUtils'
+import { withForwardedSearchParams } from './sceneLogic'
 
-describe('sceneLogicUtils', () => {
+describe('sceneLogic', () => {
     describe('withForwardedSearchParams', () => {
         it('returns original URL when no params to forward', () => {
             const redirectUrl = '/dashboard'
