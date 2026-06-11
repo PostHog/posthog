@@ -843,13 +843,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filterTestAccounts,
                 shouldStripQueryParams,
                 includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
-                // `null` (untouched) is normalized to `undefined` so the field is omitted from the
-                // query payload and the backend's per-team default decides. An explicit choice is
-                // gated on the flag so killing the flag can never send a stale `true` to the backend.
+                // `null` (untouched) → omitted, so the backend's per-team default decides.
+                // Explicit `false` (opt-out) → always sent, even if the flag is later killed.
+                // Explicit `true` (opt-in) → only sent while the flag is on; with the flag off we
+                // omit it (fall back to the default) rather than flipping it to `false`, which on an
+                // unrestricted team would wrongly opt the user out instead of leaving them default-on.
                 useWebAnalyticsPrecompute:
                     useWebAnalyticsPrecompute == null
                         ? undefined
-                        : useWebAnalyticsPrecompute && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE],
+                        : useWebAnalyticsPrecompute === false
+                          ? false
+                          : featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE]
+                            ? true
+                            : undefined,
             }),
         ],
         filters: [
