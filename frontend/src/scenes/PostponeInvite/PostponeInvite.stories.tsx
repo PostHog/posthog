@@ -9,6 +9,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        mockDate: '2026-06-03 10:00:00', // Before the "Tonight" cutoff, so the option always renders
     },
     decorators: [
         mswDecorator({

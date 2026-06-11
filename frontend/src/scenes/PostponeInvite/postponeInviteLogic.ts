@@ -24,10 +24,15 @@ export interface PostponeInviteResult {
 }
 
 export type PostponeOptionKey = 'hour' | 'tonight' | 'tomorrow'
+// Named alias because kea-typegen drops inline string-literal unions in loader payload types,
+// producing invalid generated code (`PostponeOptionKey | ;`).
+export type PostponeSubmitOption = PostponeOptionKey | 'custom'
 
 // Wall-clock targets for the preset options, in the recipient's local (browser) timezone.
 const TONIGHT_HOUR = 18
 const TOMORROW_HOUR = 9
+// How often time-dependent options (e.g. "Tonight") are re-evaluated while the page stays open.
+const NOW_REFRESH_INTERVAL_MS = 30_000
 
 export const postponeInviteLogic = kea<postponeInviteLogicType>([
     path(['scenes', 'PostponeInvite', 'postponeInviteLogic']),
@@ -36,7 +41,8 @@ export const postponeInviteLogic = kea<postponeInviteLogicType>([
         setCustomDate: (customDate: Dayjs | null) => ({ customDate }),
         postponeByOption: (option: PostponeOptionKey) => ({ option }),
         postponeCustom: true,
-        setSubmittingOption: (option: PostponeOptionKey | 'custom') => ({ option }),
+        setSubmittingOption: (option: PostponeSubmitOption) => ({ option }),
+        setNow: (now: Dayjs) => ({ now }),
     }),
     loaders(({ values }) => ({
         invite: [
@@ -50,7 +56,7 @@ export const postponeInviteLogic = kea<postponeInviteLogicType>([
         result: [
             null as PostponeInviteResult | null,
             {
-                postpone: async ({ sendAt, option }: { sendAt: Dayjs; option: PostponeOptionKey | 'custom' }) => {
+                postpone: async ({ sendAt, option }: { sendAt: Dayjs; option: PostponeSubmitOption }) => {
                     return await api.create<PostponeInviteResult>('api/invite_postpone', {
                         token: values.token,
                         send_at: sendAt.toISOString(),
@@ -63,9 +69,11 @@ export const postponeInviteLogic = kea<postponeInviteLogicType>([
     reducers({
         token: ['' as string, { loadInvite: (_, { token }) => token }],
         customDate: [null as Dayjs | null, { setCustomDate: (_, { customDate }) => customDate }],
+        // Refreshed on an interval so time-dependent selectors don't go stale while the page is open.
+        now: [dayjs() as Dayjs, { setNow: (_, { now }) => now }],
         // Which option is mid-request, so only the clicked button shows a spinner.
         submittingOption: [
-            null as PostponeOptionKey | 'custom' | null,
+            null as PostponeSubmitOption | null,
             {
                 setSubmittingOption: (_, { option }) => option,
                 postponeSuccess: () => null,
@@ -91,7 +99,7 @@ export const postponeInviteLogic = kea<postponeInviteLogicType>([
     }),
     selectors({
         // "Tonight" only makes sense while it's still before the evening cutoff.
-        tonightAvailable: [() => [], (): boolean => dayjs().hour() < TONIGHT_HOUR],
+        tonightAvailable: [(s) => [s.now], (now: Dayjs): boolean => now.hour() < TONIGHT_HOUR],
     }),
     listeners(({ actions, values }) => ({
         // Compute the absolute target at click time (not at mount) so "in an hour" stays accurate.
@@ -114,7 +122,11 @@ export const postponeInviteLogic = kea<postponeInviteLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadInvite(router.values.searchParams['token'] ?? '')
+        cache.disposables.add(() => {
+            const intervalId = setInterval(() => actions.setNow(dayjs()), NOW_REFRESH_INTERVAL_MS)
+            return () => clearInterval(intervalId)
+        })
     }),
 ])
