@@ -951,3 +951,76 @@ export function getOrderedMetricsWithResults(
             metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
 }
+
+export type MetricWithResult = {
+    metric: ExperimentMetric
+    result: CachedNewExperimentQueryResponse | undefined
+    error: unknown
+    displayIndex: number
+    metricIndex: number
+}
+
+/**
+ * Pure zip of one metric type (`primary` | `secondary`) with its results and errors, in display order.
+ * Same shaping as {@link getOrderedMetricsWithResults} but curried over the experiment, so a caller can
+ * bind it once per experiment instance and reuse it for both primary and secondary:
+ *
+ *   const zip = metricResults(experiment)
+ *   const primary = zip(primaryResults, primaryErrors, 'primary')
+ *   const secondary = zip(secondaryResults, secondaryErrors, 'secondary')
+ *
+ * Used by the recalculation flow; the legacy per-metric path keeps using getOrderedMetricsWithResults.
+ */
+export const metricResults =
+    (experiment: Experiment) =>
+    (
+        results: CachedNewExperimentQueryResponse[],
+        errors: unknown[],
+        type: 'primary' | 'secondary'
+    ): MetricWithResult[] => {
+        const regularMetrics = (
+            type === 'secondary' ? experiment.metrics_secondary || [] : experiment.metrics || []
+        ) as ExperimentMetric[]
+
+        const sharedMetrics = (experiment.saved_metrics || [])
+            .filter((sharedMetric) => sharedMetric.metadata?.type === type)
+            .map((sharedMetric) => ({
+                ...sharedMetric.query,
+                name: sharedMetric.name,
+                sharedMetricId: sharedMetric.saved_metric,
+                isSharedMetric: true,
+                breakdownFilter: {
+                    ...sharedMetric.query?.breakdownFilter,
+                    breakdowns: sharedMetric.metadata?.breakdowns || [],
+                },
+            })) as ExperimentMetric[]
+
+        // Enrichment lifts query.uuid to the top level, so both shapes carry `.uuid`. Keep only metrics
+        // that have one — and capture the original index now, since it's the retry position downstream.
+        const indexedMetrics = [...regularMetrics, ...sharedMetrics]
+            .map((metric, index) => ({ metric, index }))
+            .filter((entry): entry is { metric: ExperimentMetric & { uuid: string }; index: number } =>
+                Boolean(entry.metric.uuid)
+            )
+
+        const metricsMap = new Map(indexedMetrics.map(({ metric }) => [metric.uuid, metric]))
+        const resultsMap = new Map(indexedMetrics.map(({ metric, index }) => [metric.uuid, results[index]]))
+        const errorsMap = new Map(indexedMetrics.map(({ metric, index }) => [metric.uuid, errors[index]]))
+        const originalIndexMap = new Map(indexedMetrics.map(({ metric, index }) => [metric.uuid, index]))
+
+        const orderedUuids =
+            type === 'secondary'
+                ? experiment.secondary_metrics_ordered_uuids || []
+                : experiment.primary_metrics_ordered_uuids || []
+
+        return orderedUuids
+            .map((uuid) => metricsMap.get(uuid))
+            .filter((metric): metric is ExperimentMetric & { uuid: string } => Boolean(metric))
+            .map((metric, index) => ({
+                metric,
+                result: resultsMap.get(metric.uuid),
+                error: errorsMap.get(metric.uuid),
+                displayIndex: index,
+                metricIndex: originalIndexMap.get(metric.uuid) ?? index,
+            }))
+    }
