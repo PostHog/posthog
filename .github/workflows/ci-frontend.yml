@@ -221,6 +221,21 @@ jobs:
                   order-by: 'Size:desc'
                   strip-hash: "-[A-Za-z0-9]{8}\\.js$"
 
+            # The eager graph check runs inside build:with-report (no token in that
+            # subprocess); this posts/updates its sticky PR comment from the report it
+            # writes. After compressed-size-action the tree is on the BASE branch, so
+            # guard for the script's absence (also covers branches predating the check).
+            - name: Post eager graph comment
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-eager-graph-comment.mjs ]; then
+                      node frontend/bin/post-eager-graph-comment.mjs
+                  else
+                      echo "Skipping eager graph comment — script not present on this checkout"
+                  fi
+
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 

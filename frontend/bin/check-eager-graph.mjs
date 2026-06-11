@@ -76,6 +76,7 @@ if (!fs.existsSync(metaPath)) {
 
 const inputs = JSON.parse(fs.readFileSync(metaPath, 'utf-8')).inputs
 const summaryLines = ['## Eager graph check', '', '| Root | Eager size | Budget | Files |', '| --- | --- | --- | --- |']
+const report = { roots: [] }
 
 for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     if (!inputs[root]) {
@@ -91,6 +92,10 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     for (const file of seen) {
         totalBytes += inputs[file].bytes
     }
+    const largest = [...seen]
+        .map((f) => [f, inputs[f].bytes])
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 15)
 
     const overBudget = totalBytes > budgetBytes
     const status = overBudget ? '❌' : '✅'
@@ -100,10 +105,6 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     summaryLines.push(`| ${status} \`${root}\` | ${formatMB(totalBytes)} | ${formatMB(budgetBytes)} | ${seen.size} |`)
 
     if (overBudget) {
-        const largest = [...seen]
-            .map((f) => [f, inputs[f].bytes])
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 15)
         fail(
             `Eager graph for '${root}' is ${formatMB(totalBytes)}, over the ${formatMB(budgetBytes)} budget.\n` +
                 `Something newly reachable through static imports is inflating it. Largest files in the closure:\n` +
@@ -113,16 +114,34 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
         )
     }
 
+    const forbiddenHits = []
     for (const forbiddenSubstr of forbidden) {
         const hit = [...seen].find((f) => f.includes(forbiddenSubstr))
         if (hit) {
+            forbiddenHits.push({ module: forbiddenSubstr, chain: chainTo(parentOf, hit) })
             fail(
                 `'${forbiddenSubstr}' is statically reachable from '${root}' — it must stay behind a dynamic import.\n` +
                     `Import chain:\n   ${chainTo(parentOf, hit).join('\n   -> ')}`
             )
         }
     }
+
+    report.roots.push({
+        root,
+        label,
+        bytes: totalBytes,
+        files: seen.size,
+        budgetBytes,
+        overBudget,
+        forbidden,
+        forbiddenHits,
+        largest: largest.map(([f, b]) => ({ file: f, bytes: b })),
+    })
 }
+
+// Consumed by bin/post-eager-graph-comment.mjs in CI; written even on failure so
+// the PR comment can show what went over.
+fs.writeFileSync(path.join(frontendDir, 'eager-graph-report.json'), JSON.stringify(report, null, 2))
 
 if (process.env.GITHUB_STEP_SUMMARY) {
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryLines.join('\n') + '\n')
