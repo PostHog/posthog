@@ -410,9 +410,13 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
     ),
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        # Dagster terminates the run if it exceeds this; the next scheduled
-        # tick (5 min later) starts fresh.
-        "dagster/max_runtime": str(45 * 60),
+        # Dagster terminates the run if it exceeds this. The long pole is the
+        # initial cold warm of the whole team list (28-day buckets for every
+        # tile); 90 min leaves headroom for it even as the audience grows.
+        # Steady-state ticks (only today's 1-day bucket is stale) finish in
+        # minutes, and the schedule's concurrent-run guard skips any hourly tick
+        # that fires while a long run is still going, so runs never overlap.
+        "dagster/max_runtime": str(90 * 60),
     },
 )
 def web_analytics_eager_baseline_warming_job():
