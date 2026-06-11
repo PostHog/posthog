@@ -15,6 +15,7 @@ from rest_framework import serializers
 from posthog.schema import Severity
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
     MAX_TAG_LENGTH,
@@ -1015,3 +1016,43 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+
+class SignalScoutConfigCreateSerializer(serializers.Serializer):
+    """Request body for registering a scout config without waiting for the coordinator tick.
+
+    Upsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already
+    registered the row, the provided tunables are applied to it instead.
+    """
+
+    skill_name = serializers.CharField(
+        max_length=200,
+        help_text=(
+            "The `signals-scout-*` skill to register a config for. The skill must already "
+            "exist on this project — author it via the skills store first."
+        ),
+    )
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether this scout runs on its schedule. Defaults to true.",
+    )
+    emit = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs "
+            "but emits nothing. Defaults to true."
+        ),
+    )
+    run_interval_minutes = serializers.IntegerField(
+        required=False,
+        min_value=10,
+        max_value=43200,
+        help_text="Minutes between runs (10–43200). Defaults to 60 (hourly).",
+    )
+
+    def validate_skill_name(self, value: str) -> str:
+        # A config for a non-scout skill would never dispatch (the coordinator only considers
+        # `signals-scout-*` names), so reject it here instead of minting an invisible orphan.
+        if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
+            raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
+        return value
