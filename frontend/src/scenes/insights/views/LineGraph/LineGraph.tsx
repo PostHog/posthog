@@ -897,16 +897,6 @@ export function LineGraph_({
                                         interval={interval}
                                         dateRange={insightData?.resolved_date_range}
                                         showShiftKeyHint={isBar && isStacked && !isHighlightBarMode && !inSurveyView}
-                                        showTotal={
-                                            !isPercentStackView &&
-                                            !showPercentView &&
-                                            seriesData.every(
-                                                (s) =>
-                                                    !s?.action?.math ||
-                                                    s.action.math === 'total' ||
-                                                    s.action.math === 'sum'
-                                            )
-                                        }
                                         formatCompareLabel={tooltipConfig?.formatCompareLabel}
                                         onClose={pinTooltip ? () => unpinTooltip(tooltipId) : undefined}
                                         onRowClick={

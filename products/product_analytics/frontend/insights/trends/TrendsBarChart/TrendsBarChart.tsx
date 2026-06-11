@@ -341,6 +341,16 @@ export function TrendsBarChart({
                     formula={formula}
                     showPercentView={isStickiness}
                     isPercentStackView={isPercentStackView}
+                    showTotal={
+                        !isPercentStackView &&
+                        !isStickiness &&
+                        tooltipCtx.seriesData.every(
+                            (s) =>
+                                !s.series.meta?.action?.math ||
+                                s.series.meta.action.math === 'total' ||
+                                s.series.meta.action.math === 'sum'
+                        )
+                    }
                     baseCurrency={baseCurrency}
                     groupTypeLabel={resolvedGroupTypeLabel}
                     formatCompareLabel={context?.formatCompareLabel}

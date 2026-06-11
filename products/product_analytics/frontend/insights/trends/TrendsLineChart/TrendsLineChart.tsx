@@ -240,6 +240,16 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                     formula={formula}
                     showPercentView={isStickiness}
                     isPercentStackView={isPercentStackView}
+                    showTotal={
+                        !isPercentStackView &&
+                        !isStickiness &&
+                        ctx.seriesData.every(
+                            (s) =>
+                                !s.series.meta?.action?.math ||
+                                s.series.meta.action.math === 'total' ||
+                                s.series.meta.action.math === 'sum'
+                        )
+                    }
                     baseCurrency={baseCurrency}
                     groupTypeLabel={resolvedGroupTypeLabel}
                     formatCompareLabel={context?.formatCompareLabel}
