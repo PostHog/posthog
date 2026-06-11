@@ -11,8 +11,12 @@ description: >
 # Setting up a data warehouse source
 
 Use this skill when the user wants to connect an external data source to PostHog's data warehouse for the first time.
-The setup has a specific three-step flow (wizard → db-schema → create) — skipping steps leads to failed sources and
-confused users.
+
+**Default to the one-step flow:** `data-warehouse-source-setup` validates credentials, discovers every table, enables
+them with sensible sync defaults (incremental where possible), and creates the source in a single call — no
+`schemas` array to assemble. For credentials, hand the user a secure browser link with `data-warehouse-source-connect-link`
+instead of collecting secrets in chat. Only drop to the manual `wizard → db-schema → create` flow when the user wants to
+hand-pick which tables sync or set non-default sync types per table.
 
 ## When to use this skill
 
@@ -25,9 +29,11 @@ confused users.
 
 | Tool                                                   | Purpose                                                                          |
 | ------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| `external-data-sources-wizard`                         | Discover which source types exist and what fields each needs                     |
-| `external-data-sources-db-schema`                      | Validate credentials and list tables with available sync methods per table       |
-| `external-data-sources-create`                         | Create the source — requires a `schemas` array built from the db-schema response |
+| `data-warehouse-source-connect-link`                   | **Preferred for credentials** — get a secure browser/OAuth link so the user authenticates without pasting secrets in chat |
+| `data-warehouse-source-setup`                          | **Preferred to create** — one call: validate creds, discover tables, apply sync defaults, create the source |
+| `external-data-sources-wizard`                         | Discover which source types exist and what fields each needs (advanced flow)     |
+| `external-data-sources-db-schema`                      | Validate credentials and list tables with available sync methods per table (advanced flow) |
+| `external-data-sources-create`                         | Advanced create — requires a `schemas` array built from the db-schema response   |
 | `external-data-sources-check-cdc-prerequisites-create` | Postgres CDC pre-flight check (optional, only for Postgres CDC)                  |
 | `external-data-sources-webhook-info-retrieve`          | Check if a source supports webhooks and whether one has been registered          |
 | `external-data-sources-create-webhook-create`          | Register a webhook with the external service after source creation               |
@@ -35,10 +41,40 @@ confused users.
 | `external-data-sources-list`                           | After creation, confirm the source is listed and see its initial status          |
 | `external-data-schemas-list`                           | See per-table sync status once the source is created                             |
 
-## The three-step flow
+## Recommended: one-step setup
 
-Every source setup follows the same shape. Don't try to shortcut to `external-data-sources-create` — you need the
-db-schema response to build a valid `schemas` payload.
+Most setups should use this path — it avoids the most common failures (skipping db-schema, malformed `schemas`,
+missing required fields).
+
+1. **Discover the source type and its fields** (optional): `external-data-sources-wizard` lists every source type and
+   the credential fields each needs. Use it to know what to ask the user for; skip it if the source type is obvious.
+2. **Collect credentials securely**: call `data-warehouse-source-connect-link({source_type})`. It returns a
+   `connect_url` to share with the user:
+   - **OAuth sources** (Hubspot, Salesforce, Google Ads, …) → an authorize URL. After the user authorizes, pass the
+     returned `integration_field` key with the integration id to setup (e.g. `{"hubspot_integration_id": 123}` — find
+     the id via `integrations-list`), or let them finish in the opened PostHog form.
+   - **Credential sources** (Postgres, MySQL, Stripe API key, …) → a deep link to the prefilled PostHog source-setup
+     form where they enter credentials over TLS. Then poll `external-data-sources-list` for the new source.
+
+   Never ask the user to paste raw database passwords or API keys into the chat.
+3. **Create in one call**: `data-warehouse-source-setup({source_type, payload, prefix})`. The server validates
+   credentials, discovers all tables, enables them with sync defaults (incremental where a tracking column exists,
+   else append, else full_refresh — never CDC), sets `created_via=mcp`, and creates the source. The `payload` carries
+   credentials or the OAuth integration id; no `schemas` array is needed. On success you get the new source `id`; call
+   `external-data-schemas-list` to show the user what was enabled and how each table will sync.
+
+Notes specific to this path:
+
+- **All discovered tables are enabled.** That's intended (incremental defaults keep ongoing cost low), but flag row
+  counts for very large tables and offer the advanced flow if the user wants to sync only a subset.
+- **Webhook-only tables are left disabled** (they need the separate webhook-registration step — see Step 6). CDC is
+  never chosen automatically; use the advanced flow + CDC steps for near-real-time Postgres.
+- Inline credentials in `payload` still work for headless/automation, but prefer the connect-link handoff above.
+
+## Advanced: hand-pick tables (three-step flow)
+
+Use this when the user wants to choose exactly which tables sync or set non-default sync types. Don't try to shortcut
+to `external-data-sources-create` — you need the db-schema response to build a valid `schemas` payload.
 
 ```text
          ┌────────────────────┐
@@ -262,8 +298,10 @@ If the user wants near-real-time replication from Postgres:
   response. You can't "also add an orders table" unless db-schema found one.
 - **Prefix is load-bearing.** It's part of every HogQL query the user will ever write against these tables. Pick
   something short, descriptive, and not already taken.
-- **OAuth sources are different.** Hubspot, Salesforce, Google Ads etc. need the user to authorize via the PostHog
-  UI. Direct them there — don't try to collect OAuth tokens in chat.
+- **Prefer the secure connect-link for any credentials.** Use `data-warehouse-source-connect-link` so the user
+  authenticates in their browser — OAuth sources (Hubspot, Salesforce, Google Ads) authorize via PostHog, and
+  credential sources (Postgres, Stripe key, …) enter secrets directly in the PostHog UI. Don't collect OAuth tokens or
+  database passwords in chat; pass an integration id to setup instead, or let the user finish in the UI.
 - **Webhooks are a separate step after create.** Setting `sync_type: "webhook"` on a schema doesn't register the
   webhook — the `create-webhook` call does. Always follow create → create-webhook → webhook-info for webhook-type
   schemas, and never leave a webhook schema dangling without registration (it just won't receive events).
