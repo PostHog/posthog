@@ -103,48 +103,57 @@ impl From<&RawRubyFrame> for Frame {
 mod test {
     use super::*;
 
-    #[test]
-    fn test_get_context_preserves_file_order() {
-        // The ruby SDK sends pre/post_context as file-order slices around the
-        // crash line, so line 10 here is preceded by lines 7-9 and followed by 11-13
-        let frame = RawRubyFrame {
+    fn frame(lineno: u32, pre_context: &[&str], post_context: &[&str]) -> RawRubyFrame {
+        RawRubyFrame {
             path: None,
-            context_line: Some("line 10".to_string()),
+            context_line: Some(format!("line {lineno}")),
             filename: "app.rb".to_string(),
             function: "call".to_string(),
-            lineno: Some(10),
-            pre_context: vec![
-                "line 7".to_string(),
-                "line 8".to_string(),
-                "line 9".to_string(),
-            ],
-            post_context: vec![
-                "line 11".to_string(),
-                "line 12".to_string(),
-                "line 13".to_string(),
-            ],
+            lineno: Some(lineno),
+            pre_context: pre_context.iter().map(|s| s.to_string()).collect(),
+            post_context: post_context.iter().map(|s| s.to_string()).collect(),
             meta: CommonFrameMetadata::default(),
-        };
+        }
+    }
 
-        let context = frame.get_context().unwrap();
+    #[test]
+    fn test_get_context_pairs_lines_with_numbers() {
+        // pre/post_context arrive in file order; before is emitted
+        // nearest-line-first and the frontend sorts by line number
+        type Case = (u32, &'static [&'static str], &'static [(u32, &'static str)]);
+        let cases: &[Case] = &[
+            (
+                10,
+                &["line 7", "line 8", "line 9"],
+                &[(9, "line 9"), (8, "line 8"), (7, "line 7")],
+            ),
+            // SDK omitted context lines entirely
+            (10, &[], &[]),
+            // more pre-context lines than lines above lineno: offsets saturate at 0
+            (2, &["a", "b", "c"], &[(1, "c"), (0, "b"), (0, "a")]),
+        ];
 
-        assert_eq!(context.line, ContextLine::new(10, "line 10"));
-        // before is emitted nearest-line-first; the frontend sorts by line number
-        assert_eq!(
-            context.before,
-            vec![
-                ContextLine::new(9, "line 9"),
-                ContextLine::new(8, "line 8"),
-                ContextLine::new(7, "line 7"),
-            ]
-        );
-        assert_eq!(
-            context.after,
-            vec![
-                ContextLine::new(11, "line 11"),
-                ContextLine::new(12, "line 12"),
-                ContextLine::new(13, "line 13"),
-            ]
-        );
+        for (lineno, pre, expected_before) in cases {
+            let context = frame(*lineno, pre, &["next 1", "next 2"])
+                .get_context()
+                .unwrap();
+
+            assert_eq!(
+                context.line,
+                ContextLine::new(*lineno, format!("line {lineno}"))
+            );
+            let expected: Vec<ContextLine> = expected_before
+                .iter()
+                .map(|(number, line)| ContextLine::new(*number, *line))
+                .collect();
+            assert_eq!(context.before, expected);
+            assert_eq!(
+                context.after,
+                vec![
+                    ContextLine::new(lineno + 1, "next 1"),
+                    ContextLine::new(lineno + 2, "next 2"),
+                ]
+            );
+        }
     }
 }
