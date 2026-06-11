@@ -171,7 +171,7 @@ describe('example: agent-approval-demo bundle', () => {
         // The model received the synthetic queued envelope, not the real result.
         const queuedEnvelope = findApprovalPayload(session!.conversation, 'queued')
         expect(queuedEnvelope).not.toBeNull()
-        expect(queuedEnvelope!.approval_url).toMatch(/\/approvals\//)
+        expect(queuedEnvelope!.approval_url).toMatch(/\/approvals\?request=/)
 
         // The approval row is queryable via janitor — same surface the Django
         // proxy hits, same surface the agent-console talks to.
