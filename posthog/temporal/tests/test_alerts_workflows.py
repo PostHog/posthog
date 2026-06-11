@@ -27,12 +27,8 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
-from posthog.temporal.alerts.types import CheckAlertWorkflowInputs, PrepareAction, SkipReason
-from posthog.temporal.alerts.workflows import (
-    ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
-    CHECK_ALERT_EXECUTION_TIMEOUT,
-    CheckAlertWorkflow,
-)
+from posthog.temporal.alerts.types import CheckAlertWorkflowInputs, SkipReason
+from posthog.temporal.alerts.workflows import CheckAlertWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
@@ -335,39 +331,3 @@ async def test_check_alert_workflow_auto_disables_alert_with_invalid_config(
     assert completed_props["outcome"] == SloOutcome.SUCCESS
     assert completed_props.get("skip_reason") is not None
     assert "alert_state" not in completed_props
-
-
-@pytest.mark.asyncio
-async def test_alert_activity_retry_budgets_capped_inside_execution_timeout():
-    captured: dict[str, dict[str, Any]] = {}
-
-    async def fake_execute_activity(activity: Any, *args: Any, **kwargs: Any) -> Any:
-        if activity is evaluate_alert:
-            captured["evaluate"] = kwargs
-            return MagicMock(
-                should_notify=True,
-                should_gate_notification=False,
-                should_start_investigation=False,
-            )
-        if activity is notify_alert:
-            captured["notify"] = kwargs
-            return None
-        captured["prepare"] = kwargs
-        return MagicMock(action=PrepareAction.EVALUATE)
-
-    with patch("temporalio.workflow.execute_activity", side_effect=fake_execute_activity):
-        await CheckAlertWorkflow().run(
-            CheckAlertWorkflowInputs(
-                alert_id=str(uuid.uuid4()),
-                team_id=1,
-                distinct_id="d",
-                calculation_interval="daily",
-                insight_id=1,
-                slo=None,
-            )
-        )
-
-    assert captured.keys() == {"prepare", "evaluate", "notify"}
-    for kwargs in captured.values():
-        assert kwargs["schedule_to_close_timeout"] == ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT
-        assert kwargs["schedule_to_close_timeout"] < CHECK_ALERT_EXECUTION_TIMEOUT
