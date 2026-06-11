@@ -854,6 +854,121 @@ describe('sandboxStreamLogic', () => {
                 customInput: undefined,
             })
         })
+
+        it('keeps the card pending and surfaces an error when the reply POST fails', async () => {
+            jest.spyOn(api.conversations, 'permission').mockRejectedValue({ status: 502 })
+            const exceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+
+            await expectLogic(logic, () => {
+                logic.actions.respondToPermission({
+                    conversationId: 'conv-1',
+                    requestId: 'req-1',
+                    optionId: 'allow_once',
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
+            expect(logic.values.sseStatus).toEqual('error')
+            expect(exceptionSpy).toHaveBeenCalled()
+        })
+
+        it('ignores a replayed permission_request envelope once the request is resolved', async () => {
+            jest.spyOn(api.conversations, 'permission').mockResolvedValue({ status: 'ok' } as any)
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockEventSource.latest()
+
+            await expectLogic(logic, () => {
+                source.emitMessage({ ...permissionFrame })
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.respondToPermission({
+                    conversationId: 'conv-1',
+                    requestId: 'req-1',
+                    optionId: 'allow_once',
+                })
+            }).toFinishAllListeners()
+            expect(logic.values.pendingPermissionRequest).toBeNull()
+
+            // A reconnect's full replay re-delivers the envelope verbatim.
+            await expectLogic(logic, () => {
+                source.emitMessage({ ...permissionFrame })
+            }).toFinishAllListeners()
+
+            expect(logic.values.pendingPermissionRequest).toBeNull()
+            expect(captureSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not double-capture telemetry when the same envelope arrives twice while pending', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockEventSource.latest()
+
+            await expectLogic(logic, () => {
+                source.emitMessage({ ...permissionFrame })
+                source.emitMessage({ ...permissionFrame })
+            }).toFinishAllListeners()
+
+            expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
+            expect(captureSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('re-derives a pending approval from a logged _posthog/permission_request without telemetry', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/permission_request', {
+                    requestId: 'req-1',
+                    toolCall: permissionFrame.toolCall,
+                    options: permissionFrame.options,
+                }) as any,
+            ])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
+            expect(captureSpy).not.toHaveBeenCalled()
+        })
+
+        it('drops a logged permission_request that has a matching permission_resolved entry', async () => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/permission_request', {
+                    requestId: 'req-1',
+                    toolCall: permissionFrame.toolCall,
+                    options: permissionFrame.options,
+                }) as any,
+                notification('_posthog/permission_resolved', { requestId: 'req-1', optionId: 'allow_once' }) as any,
+            ])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            expect(logic.values.pendingPermissionRequest).toBeNull()
+        })
+
+        it('clears the pending card when another client resolves the request', async () => {
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+            expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/permission_resolved', { requestId: 'req-1' }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.pendingPermissionRequest).toBeNull()
+        })
+
+        it('drops the pending card when the run reaches a terminal status, but not before', () => {
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+
+            logic.actions.handleTerminalStatus({ status: 'queued' })
+            expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
+
+            logic.actions.handleTerminalStatus({ status: 'completed' })
+            expect(logic.values.pendingPermissionRequest).toBeNull()
+        })
     })
 
     describe('option-kind mapping', () => {

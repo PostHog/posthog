@@ -15,12 +15,14 @@ import {
     type PermissionOption,
     type PermissionRequestFrame,
     type PosthogErrorParams,
+    type PosthogPermissionRequestParams,
     type PosthogProgressParams,
     type SseErrorFrameData,
     type StoredLogEntry,
     isKnownSessionUpdate,
     isNotificationFrame,
     isPermissionRequestFrame,
+    isPosthogNotification,
     isSessionUpdateNotification,
     isTaskRunStateFrame,
 } from './types/sandboxWireTypes'
@@ -199,13 +201,17 @@ function parsePermissionOption(raw: unknown): PermissionOption | null {
 }
 
 /**
- * Parses a `data.type === 'permission_request'` SSE frame into a `PermissionRequestRecord`.
+ * Parses a permission request into a `PermissionRequestRecord` — either the live
+ * `data.type === 'permission_request'` SSE envelope or the `_posthog/permission_request`
+ * notification params the agent-server persists to the run log (both carry the same fields).
  * The toolCall payload mirrors the ACP `tool_call` shape; reusing `resolveToolKey` keys the
  * request onto the same `toolCallId` as the rendered tool card. Returns null when the frame
  * is malformed or carries no usable options. The wire payload is typed, not validated, so
  * every field read keeps its runtime check.
  */
-export function parsePermissionRequestFrame(frame: PermissionRequestFrame): PermissionRequestRecord | null {
+export function parsePermissionRequestFrame(
+    frame: PermissionRequestFrame | PosthogPermissionRequestParams
+): PermissionRequestRecord | null {
     const requestId = frame.requestId
     if (typeof requestId !== 'string') {
         return null
@@ -288,11 +294,26 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         ingestAcpFrame: (entry: StoredLogEntry) => ({ entry }),
         /** Internal: records an entry's serialized hash so reconnect replay can dedup it. */
         markEntryIngested: (hash: string) => ({ hash }),
-        ingestPermissionRequest: (record: PermissionRequestRecord) => ({ record }),
+        /**
+         * Surface a permission request. `replayedFromHistory` marks requests re-derived from the
+         * `logs/` bootstrap — they restore card state but don't re-fire telemetry (the event
+         * already fired when the request was live).
+         */
+        ingestPermissionRequest: (record: PermissionRequestRecord, replayedFromHistory: boolean = false) => ({
+            record,
+            replayedFromHistory,
+        }),
+        /**
+         * The request was answered — by this client (successful POST), another tab/client, or a
+         * `_posthog/permission_resolved` log entry. Clears the matching card and pins the id so
+         * reconnect/bootstrap replays cannot re-surface it.
+         */
+        markPermissionRequestResolved: (requestId: string) => ({ requestId }),
         /**
          * User picked an option on the approval card. POSTs the reply to the sandbox `permission/`
-         * endpoint (which routes to the products/tasks `permission_response` command) and clears
-         * the pending request. `customInput` carries `reject_with_feedback` text.
+         * endpoint (which routes to the products/tasks `permission_response` command); the pending
+         * request clears only once the POST succeeds, so a failure keeps the card for retry.
+         * `customInput` carries `reject_with_feedback` text.
          */
         respondToPermission: (payload: {
             conversationId: string
@@ -443,9 +464,40 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             null as PermissionRequestRecord | null,
             {
                 ingestPermissionRequest: (_, { record }) => record,
-                respondToPermission: () => null,
+                // Cleared on resolution (successful POST or a permission_resolved entry), NOT on
+                // respondToPermission dispatch — a failed POST keeps the card so the user can retry.
+                markPermissionRequestResolved: (state, { requestId }) =>
+                    state?.requestId === requestId ? null : state,
                 clearPermissionRequest: () => null,
+                // A terminal run can't accept approvals — drop a card re-derived from its history.
+                handleTerminalStatus: (state, { status }) => (isTerminalRunStatus(status) ? null : state),
                 reset: () => null,
+            },
+        ],
+        // requestIds ever surfaced, so a reconnect's full replay can't double-fire telemetry or
+        // re-ingest a request this client already knows about.
+        seenPermissionRequestIds: [
+            new Set<string>(),
+            {
+                ingestPermissionRequest: (state, { record }) => {
+                    const next = new Set(state)
+                    next.add(record.requestId)
+                    return next
+                },
+                reset: () => new Set<string>(),
+            },
+        ],
+        // requestIds answered (locally or observed via permission_resolved) — replayed requests
+        // with these ids must never re-surface as pending.
+        resolvedPermissionRequestIds: [
+            new Set<string>(),
+            {
+                markPermissionRequestResolved: (state, { requestId }) => {
+                    const next = new Set(state)
+                    next.add(requestId)
+                    return next
+                },
+                reset: () => new Set<string>(),
             },
         ],
         currentMode: [
@@ -502,7 +554,15 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
             breakpoint()
-            entries.filter(isNotificationFrame).forEach((entry) => actions.ingestAcpFrame(entry))
+            // Flag history replay so re-derived permission requests restore card state without
+            // re-firing telemetry. The forEach dispatches synchronously, so the flag can't leak
+            // into live SSE ingestion.
+            cache.bootstrapReplay = true
+            try {
+                entries.filter(isNotificationFrame).forEach((entry) => actions.ingestAcpFrame(entry))
+            } finally {
+                cache.bootstrapReplay = false
+            }
 
             const result = await fetchRunStatus(taskId, runId)
             breakpoint()
@@ -552,8 +612,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         if (isNotificationFrame(data)) {
                             actions.ingestAcpFrame(data)
                         } else if (isPermissionRequestFrame(data)) {
+                            // requestId-keyed dedup: the notification hash store doesn't cover this
+                            // envelope, so a reconnect's full replay re-delivers it verbatim.
                             const record = parsePermissionRequestFrame(data)
-                            if (record) {
+                            if (
+                                record &&
+                                !values.seenPermissionRequestIds.has(record.requestId) &&
+                                !values.resolvedPermissionRequestIds.has(record.requestId)
+                            ) {
                                 actions.ingestPermissionRequest(record)
                             }
                         } else if (isTaskRunStateFrame(data)) {
@@ -641,7 +707,10 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 { pauseOnPageHidden: false }
             )
         },
-        ingestPermissionRequest: ({ record }) => {
+        ingestPermissionRequest: ({ record, replayedFromHistory }) => {
+            if (replayedFromHistory) {
+                return
+            }
             // conversation_id / trace_id are correlated by the caller (the SSE bypasses Django);
             // emit what this logic knows.
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
@@ -661,6 +730,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     optionId,
                     customInput,
                 })
+                actions.markPermissionRequestResolved(requestId)
             } catch (error) {
                 posthog.captureException(error)
                 actions.handleStreamError({ errorTitle: 'Failed to send approval', retryable: true })
@@ -717,6 +787,28 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             if (method === '_posthog/error') {
                 const error = (notification.params ?? {}) as PosthogErrorParams
                 actions.pushErrorItem(String(error.message ?? notification.error?.message ?? 'Agent error'))
+                return
+            }
+            // The agent-server persists the permission lifecycle to the run log as these two
+            // notifications — pending approvals are re-derived from them on bootstrap (a reload
+            // mid-approval would otherwise lose the card while the agent stays blocked), and a
+            // resolution observed here (e.g. answered in another tab) clears the local card.
+            if (isPosthogNotification(notification, '_posthog/permission_request')) {
+                const record = parsePermissionRequestFrame(notification.params ?? {})
+                if (
+                    record &&
+                    !values.seenPermissionRequestIds.has(record.requestId) &&
+                    !values.resolvedPermissionRequestIds.has(record.requestId)
+                ) {
+                    actions.ingestPermissionRequest(record, cache.bootstrapReplay === true)
+                }
+                return
+            }
+            if (isPosthogNotification(notification, '_posthog/permission_resolved')) {
+                const requestId = notification.params?.requestId
+                if (typeof requestId === 'string' && requestId) {
+                    actions.markPermissionRequestResolved(requestId)
+                }
                 return
             }
             if (method?.startsWith('_posthog/')) {
