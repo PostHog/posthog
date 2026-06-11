@@ -18,7 +18,15 @@ from posthog.utils import get_instance_region
 
 from products.streamlit_apps.backend.logic.oauth import create_sandbox_bridge_token, get_streamlit_oauth_app
 from products.streamlit_apps.backend.logic.zip_validator import MAX_UNCOMPRESSED_SIZE, is_safe_zip_path
-from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
+from products.streamlit_apps.backend.models import (
+    MAX_CPU_CORES,
+    MAX_MEMORY_GB,
+    MIN_CPU_CORES,
+    MIN_MEMORY_GB,
+    StreamlitApp,
+    StreamlitAppSandbox,
+    StreamlitAppVersion,
+)
 from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import SandboxBase, SandboxConfig, SandboxTemplate, get_sandbox_class
@@ -98,8 +106,8 @@ def _build_sandbox_config(app: StreamlitApp, version: StreamlitAppVersion) -> Sa
     config = SandboxConfig(
         name=f"streamlit-{app.short_id}",
         template=SandboxTemplate.STREAMLIT_BASE,
-        cpu_cores=app.cpu_cores,
-        memory_gb=app.memory_gb,
+        cpu_cores=min(max(app.cpu_cores, MIN_CPU_CORES), MAX_CPU_CORES),
+        memory_gb=min(max(app.memory_gb, MIN_MEMORY_GB), MAX_MEMORY_GB),
         # TODO: Ideally we'd add a auto_suspend config the user can set that defines the TTL.
         #       After X minutes of inactivity, kill the sandbox.
         ttl_seconds=60 * 15,

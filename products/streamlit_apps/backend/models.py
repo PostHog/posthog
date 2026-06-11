@@ -5,6 +5,11 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.utils import generate_short_id
 
+MIN_CPU_CORES = 0.25
+MAX_CPU_CORES = 8.0
+MIN_MEMORY_GB = 0.5
+MAX_MEMORY_GB = 16.0
+
 
 class StreamlitApp(TeamScopedRootMixin):
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin is fail-closed for

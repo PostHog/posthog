@@ -581,6 +581,23 @@ class TestBuildSandboxConfig(BaseTest):
         config = _build_sandbox_config(app, version)
         assert config.snapshot_id is None
 
+    @parameterized.expand(
+        [
+            (0.01, 64, 0.25, 16.0),
+            (100, 0.1, 8.0, 0.5),
+            (2, 4, 2.0, 4.0),
+        ]
+    )
+    def test_config_clamps_resources_to_server_side_bounds(self, cpu, memory, expected_cpu, expected_memory):
+        from products.streamlit_apps.backend.logic.app_runtime import _build_sandbox_config
+
+        app = StreamlitApp.objects.create(team=self.team, name="Test App", cpu_cores=cpu, memory_gb=memory)
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+
+        config = _build_sandbox_config(app, version)
+        assert config.cpu_cores == expected_cpu
+        assert config.memory_gb == expected_memory
+
     def test_config_does_not_inject_bridge_env_vars(self):
         """The bridge token is delivered via /run/bridge_token (file-based),
         never as an env var. POSTHOG_BRIDGE_URL was removed too — the in-sandbox
