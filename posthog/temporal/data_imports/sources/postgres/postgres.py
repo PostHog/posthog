@@ -565,6 +565,13 @@ def _rls_active_from_conn(
                 if display_name is not None:
                     result[display_name] = bool(rls_active)
             return result
+    except (psycopg.errors.QueryCanceled, psycopg.errors.UndefinedFunction, psycopg.errors.FeatureNotSupported):
+        # Advisory check only — every table just omits the RLS warning. These are expected, benign
+        # outcomes, not failures to report: a statement timeout (the catalog query is bounded to 30s
+        # and can exceed it on a large/slow database) or an engine that doesn't implement
+        # row_security_active() (e.g. CockroachDB raises UndefinedFunction). Capturing them only adds
+        # noise; genuinely unexpected errors still fall through to capture_exception below.
+        return {}
     except Exception as e:
         capture_exception(e)
         return {}

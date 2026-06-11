@@ -2713,6 +2713,72 @@ class TestRlsDetectionRealDb:
             finally:
                 dj_cursor.execute("RESET ROLE")
 
+    @pytest.mark.parametrize(
+        "raised",
+        [
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            psycopg.errors.UndefinedFunction("unknown function: row_security_active()"),
+            psycopg.errors.FeatureNotSupported("row level security is not supported"),
+        ],
+    )
+    def test_rls_active_from_conn_swallows_expected_errors_without_capturing(self, raised):
+        # The RLS check is advisory: a statement timeout (the catalog query is bounded to 30s) or an
+        # engine that lacks row_security_active() (e.g. CockroachDB -> UndefinedFunction) must not be
+        # reported as an error — it just means "no RLS warning". Regression for noisy capture_exception.
+        discovered = {"public.t": (None, "public", "t")}
+
+        def execute_side_effect(statement, *args, **kwargs):
+            if "row_security_active" in str(statement):
+                raise raised
+
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = execute_side_effect
+        cursor.__enter__.return_value = cursor
+        cursor.__exit__.return_value = False
+
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor
+
+        with (
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.postgres._get_discovered_tables",
+                return_value=(discovered, False),
+            ),
+            mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock,
+        ):
+            result = _rls_active_from_conn(cast(Any, connection), "public", ["t"])
+
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_rls_active_from_conn_still_captures_unexpected_errors(self):
+        # Guard against blanket suppression: a genuinely unexpected failure must still be reported.
+        discovered = {"public.t": (None, "public", "t")}
+
+        def execute_side_effect(statement, *args, **kwargs):
+            if "row_security_active" in str(statement):
+                raise psycopg.errors.SyntaxError("syntax error")
+
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = execute_side_effect
+        cursor.__enter__.return_value = cursor
+        cursor.__exit__.return_value = False
+
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor
+
+        with (
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.postgres._get_discovered_tables",
+                return_value=(discovered, False),
+            ),
+            mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock,
+        ):
+            result = _rls_active_from_conn(cast(Any, connection), "public", ["t"])
+
+        assert result == {}
+        capture_mock.assert_called_once()
+
     @pytest.mark.django_db
     def test_rls_active_from_conn_runs_without_schema_or_names(self):
         # Regression: an early-return guard used to bail when no schema and no names were given,
