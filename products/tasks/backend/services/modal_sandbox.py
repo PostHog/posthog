@@ -755,6 +755,13 @@ class ModalSandbox(SandboxBase):
         result = self.execute(setup_script, timeout_seconds=30)
         if not self._agentsh_daemon_is_healthy():
             agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+            logger.error(
+                "agentsh daemon failed to start in sandbox %s (setup exit_code=%s); stderr=%r agentsh_log=%r",
+                self.id,
+                result.exit_code,
+                result.stderr.strip()[:1000],
+                agentsh_log.stdout.strip()[:2000],
+            )
             raise SandboxExecutionError(
                 "Failed to start agentsh daemon",
                 {
@@ -770,6 +777,12 @@ class ModalSandbox(SandboxBase):
         session_check = self.execute(f"cat {SESSION_ID_FILE}", timeout_seconds=5)
         if session_check.exit_code != 0 or not session_check.stdout.strip():
             agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+            logger.error(
+                "agentsh session creation failed in sandbox %s; stderr=%r agentsh_log=%r",
+                self.id,
+                session_check.stderr.strip()[:1000],
+                agentsh_log.stdout.strip()[:2000],
+            )
             raise SandboxExecutionError(
                 "Failed to create agentsh session",
                 {
