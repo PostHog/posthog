@@ -60,6 +60,9 @@ class FakeCodingSandbox implements CodingSandbox {
     async isAlive(): Promise<boolean> {
         return true
     }
+    async logs(): Promise<string> {
+        return ''
+    }
     async destroy(): Promise<void> {}
 }
 

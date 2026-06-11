@@ -625,12 +625,11 @@ notification:{jsonrpc, method, params}}` where method is ACP
 Two local-dev gotchas found (and worked around) — neither is an
 architecture issue:
 
-1. **`context_window` gap.** The harness GETs `<gateway>/v1/models` and
-   hard-requires `context_window` on each entry
-   (`base-acp-agent.ts:144`); the local ai-gateway omits it, crashing
-   session init. Worked around with a tiny passthrough shim that injects it
-   (`agent-runner/bin/gateway-model-meta-shim.cjs`). Proper fix: the
-   gateway should return `context_window` (prod presumably does).
+1. **`context_window` requirement.** The harness GETs `<gateway>/v1/models`
+   and hard-requires `context_window` on each entry (`base-acp-agent.ts:144`)
+   — it crashes session init without it. The ai-gateway must return it (the
+   field was missing from `pricing.Entry`; fixed gateway-side). A local-dev
+   shim was used briefly and has been removed now the gateway returns it.
 2. **Model id format.** The gateway's `/v1/models` lists
    `anthropic/claude-opus-4.8`, but its inference endpoints only route the
    bare provider SKU `claude-sonnet-4-6` (the same form pi-ai/the normal
@@ -659,9 +658,9 @@ Still owed: wire `runCodingSession` into the worker (a guard-clause branch
 in `runSession` on `spec.sandbox` + a `CodingSandboxPool` on
 `RunSessionDeps` + event→bus/log mapping — deferred to avoid clobbering
 concurrent work in the runner), and the inference proxy / tier-3 MCP
-broker / Modal backend / snapshot. Two local-dev shims remain (gateway
-`context_window` injection, model-SKU selection) — both are local-gateway
-quirks to productionize away, not platform issues.
+broker / Modal backend / snapshot. One local-dev gotcha remains (model-SKU
+selection — the gateway routes the bare SKU) — a local-gateway quirk, not
+a platform issue.
 
 ## 12. Dependencies + what this enables
 

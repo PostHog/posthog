@@ -181,6 +181,18 @@ export async function driveCodingSession(
 
     let sandbox: CodingSandbox | undefined
     let subscription: { close: () => void } | undefined
+
+    // Append the harness's container logs to a failure reason so a boot/runtime
+    // crash is debuggable (otherwise the supervisor only sees an ECONNREFUSED
+    // to a now-closed port). Owner-facing — lands in log_entries.
+    const withHarnessLogs = async (reason: string): Promise<string> => {
+        if (!sandbox) {
+            return reason
+        }
+        const logs = (await sandbox.logs().catch(() => '')).slice(-4000)
+        return logs ? `${reason}\n--- harness logs (tail) ---\n${logs}` : reason
+    }
+
     try {
         sandbox = await deps.codingPool.acquireForSession({
             sessionId: session.id,
@@ -240,8 +252,9 @@ export async function driveCodingSession(
             await deps.onTurnPersist?.(session)
 
             if (turnError) {
-                await emit('failed', { reason: turnError })
-                return { state: 'failed', reason: turnError, turns }
+                const reason = await withHarnessLogs(turnError)
+                await emit('failed', { reason })
+                return { state: 'failed', reason, turns }
             }
 
             // Drain any /send that landed while this turn ran.
@@ -261,7 +274,7 @@ export async function driveCodingSession(
         if (deps.shutdownSignal?.aborted) {
             return { state: 'suspended', reason: 'shutdown', turns }
         }
-        const reason = err instanceof Error ? err.message : 'coding_session_error'
+        const reason = await withHarnessLogs(err instanceof Error ? err.message : 'coding_session_error')
         await emit('failed', { reason })
         return { state: 'failed', reason, turns }
     } finally {

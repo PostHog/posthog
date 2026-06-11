@@ -130,6 +130,8 @@ export interface CodingSandbox {
     /** Open the SSE event stream (Bearer-authed). Connecting initializes the session. */
     openEvents(onFrame: (frame: HarnessFrame) => void): EventSubscription
     isAlive(): Promise<boolean>
+    /** Recent harness stdout/stderr — for surfacing a boot/runtime crash in the failure reason. */
+    logs(tail?: number): Promise<string>
     destroy(): Promise<void>
 }
 

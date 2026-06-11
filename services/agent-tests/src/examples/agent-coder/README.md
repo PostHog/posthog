@@ -36,8 +36,7 @@ End-to-end coverage lives in
 (opt-in: needs Docker, the published image, and the local ai-gateway). It
 drives this exact shape through the real harness to completion.
 
-> Local-dev note: the dev ai-gateway omits `context_window` on `/v1/models`
-> (the harness requires it) and routes only the bare model SKU
-> (`claude-sonnet-4-6`). The e2e test injects `context_window` via a tiny
-> in-process shim and sets the SKU accordingly. Both are local-gateway
-> quirks, not platform issues — see the plan §11.
+> Local-dev note: the ai-gateway must return `context_window` on
+> `/v1/models` (the harness requires it) and route the bare model SKU
+> (`claude-sonnet-4-6`). Both are gateway-side concerns, not platform
+> issues — see the plan §11.

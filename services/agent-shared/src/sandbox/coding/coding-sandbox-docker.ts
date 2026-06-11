@@ -163,6 +163,13 @@ class DockerCodingSandbox implements CodingSandbox {
         return code === 0 && stdout.trim() === 'true'
     }
 
+    async logs(tail = 60): Promise<string> {
+        const { stdout, stderr } = await runDocker(['logs', '--tail', String(tail), this.state.containerId]).catch(
+            () => ({ stdout: '', stderr: '' })
+        )
+        return `${stdout}${stderr}`.trim()
+    }
+
     async destroy(): Promise<void> {
         this.alive = false
         await runDocker(['rm', '-f', this.state.containerId]).catch(() => undefined)
@@ -277,6 +284,12 @@ export class DockerCodingSandboxPool implements CodingSandboxPool {
     private async waitForHealth(healthUrl: string, containerId: string): Promise<void> {
         const deadline = Date.now() + 30_000
         while (Date.now() < deadline) {
+            // If the harness crashed at boot the container exits — surface its
+            // logs instead of polling a dead port for the full timeout.
+            const { stdout: running } = await runDocker(['inspect', '-f', '{{.State.Running}}', containerId])
+            if (running.trim() === 'false') {
+                throw new Error(`coding sandbox harness exited at boot:\n${await this.containerLogs(containerId)}`)
+            }
             try {
                 const res = await httpJson('GET', healthUrl, { timeoutMs: 2_000 })
                 if (res.status === 200) {
@@ -287,8 +300,17 @@ export class DockerCodingSandboxPool implements CodingSandboxPool {
             }
             await new Promise((r) => setTimeout(r, 150))
         }
+        const logs = await this.containerLogs(containerId)
         await runDocker(['rm', '-f', containerId]).catch(() => undefined)
-        throw new Error('coding sandbox harness failed health check')
+        throw new Error(`coding sandbox harness failed health check:\n${logs}`)
+    }
+
+    private async containerLogs(containerId: string, tail = 60): Promise<string> {
+        const { stdout, stderr } = await runDocker(['logs', '--tail', String(tail), containerId]).catch(() => ({
+            stdout: '',
+            stderr: '',
+        }))
+        return `${stdout}${stderr}`.trim() || '(no container logs)'
     }
 
     async release(sessionId: string): Promise<void> {
