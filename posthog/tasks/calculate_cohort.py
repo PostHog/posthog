@@ -647,7 +647,11 @@ def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) ->
         )
 
 
-@shared_task(ignore_result=True, max_retries=1)
+# No task-level retry: transient failures are already retried per page with backoff
+# inside get_cohort_actors_for_feature_flag, and by the time an exception propagates
+# here the task has recorded final error state (calculation history, errors_calculating,
+# is_calculating=False) — a Celery retry after that would contradict the recorded state.
+@shared_task(ignore_result=True, max_retries=0)
 def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int) -> None:
     from posthog.api.cohort import get_cohort_actors_for_feature_flag
 

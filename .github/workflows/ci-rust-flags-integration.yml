@@ -170,6 +170,9 @@ jobs:
                   # fresh cohort data. Without this, tests that create new cohorts
                   # after the first cache load would see stale definitions.
                   CACHE_TTL_SECONDS: '0'
+                  # Must match INTERNAL_REQUEST_TOKEN in the pytest step — used by the
+                  # batch flag evaluation tests (static cohort generation).
+                  INTERNAL_REQUEST_TOKEN: 'rust-integration-internal-token'
                   RUST_BACKTRACE: '1'
 
             - name: Start Django API server
@@ -205,7 +208,7 @@ jobs:
 
             - name: Run integration tests
               run: |
-                  pytest posthog/api/test/rust_integration/test_flags.py -v --tb=short
+                  pytest posthog/api/test/rust_integration/ -v --tb=short
               env:
                   SKIP_RUST_INTEGRATION_TESTS: '0'
                   FEATURE_FLAGS_SERVICE_URL: 'http://127.0.0.1:3001'
@@ -213,6 +216,8 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
                   PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog_persons'
+                  # Must match the Rust service env above.
+                  INTERNAL_REQUEST_TOKEN: 'rust-integration-internal-token'
 
             - name: Dump Rust flags service logs
               if: failure()
