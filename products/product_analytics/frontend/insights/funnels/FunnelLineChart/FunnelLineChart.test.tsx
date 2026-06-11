@@ -155,6 +155,47 @@ describe('FunnelLineChart', () => {
         })
     })
 
+    describe('legend', () => {
+        it('renders a legend item per breakdown series when showLegend is true', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: true },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const legend = await screen.findByTestId('funnel-line-legend')
+            const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
+            expect(labels).toEqual(['Spike', 'Bramble'])
+        })
+
+        it('labels the single conversion series when showLegend is true without a breakdown', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const legend = await screen.findByTestId('funnel-line-legend')
+            const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
+            expect(labels).toEqual([FUNNEL_CONVERSION_SERIES_LABEL])
+        })
+
+        it('omits the legend when showLegend is not set', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
+        })
+    })
+
     describe('annotations', () => {
         it.each([
             { inSharedMode: false, expectsBadges: true },

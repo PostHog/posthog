@@ -141,6 +141,8 @@ export function InsightDisplayConfig(): JSX.Element {
     const isCumulativeLineDisplay = display === ChartDisplayType.ActionsLineGraphCumulative
     const showAxisLabelsConfig =
         isTrends && (isLineDisplay || isBarDisplay) && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]
+    // The legacy funnel trends graph doesn't support a legend, so only offer the toggle on the hog-charts version
+    const showFunnelLegendConfig = isTrendsFunnel && !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL]
     const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
@@ -219,7 +221,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                 ...(isLifecycle ? [{ label: () => <LifecyclePercentagesFilter /> }] : []),
                                 ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                                 ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
-                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                ...(hasLegend || showFunnelLegendConfig ? [{ label: () => <ShowLegendFilter /> }] : []),
                                 ...(display === ChartDisplayType.ActionsPie
                                     ? [{ label: () => <ShowPieTotalFilter /> }]
                                     : []),

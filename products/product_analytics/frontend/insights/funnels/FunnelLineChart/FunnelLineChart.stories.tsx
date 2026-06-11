@@ -103,6 +103,10 @@ export const ValueLabels: Story = {
     render: () => renderFunnelLineChart(funnelHistoricalTrendsFixture, { showValuesOnSeries: true }),
 }
 
+export const WithLegend: Story = {
+    render: () => renderFunnelLineChart(funnelHistoricalTrendsFixture, { showLegend: true }),
+}
+
 export const GoalLine: Story = {
     render: () =>
         renderFunnelLineChart(funnelHistoricalTrendsFixture, {
