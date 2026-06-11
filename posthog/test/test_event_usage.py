@@ -7,6 +7,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.event_usage import (
     EventSource,
     get_event_source,
@@ -30,6 +31,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -52,6 +55,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": "posthog/cursor 1.0",
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -75,6 +80,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": None,
                     "$session_id": None,
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": "claude-code",
                     "mcp_client_version": "1.2.3",
@@ -93,6 +100,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -112,6 +121,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": "/insights",
                     "$session_id": "sess-123",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -130,6 +141,8 @@ class TestReportUserAction(BaseTest):
                     "$pathname": None,
                     "$session_id": None,
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -157,6 +170,40 @@ class TestReportUserAction(BaseTest):
         mock_capture.assert_called_once()
         captured_props = mock_capture.call_args[1]["properties"]
         assert captured_props == {**expected_properties, "$set_once": {"email": self.user.email}}
+
+    @parameterized.expand(
+        [
+            ("plain", "claude-code/1.2.3", "claude-code/1.2.3"),
+            ("control_chars_stripped", "claude-code/1.2.3\r\nX-Evil: 1", "claude-code/1.2.3X-Evil: 1"),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_user_agent_header_reaches_capture(self, _name, header_value, expected, mock_capture):
+        factory = APIRequestFactory()
+        request = factory.get("/fake", headers={"User-Agent": header_value})
+
+        report_user_action(self.user, "test event", request=request)
+
+        assert mock_capture.call_args[1]["properties"]["user_agent"] == expected
+
+    @parameterized.expand(
+        [
+            ("personal_api_key", AccessMethod.PERSONAL_API_KEY, "personal_api_key"),
+            ("oauth", AccessMethod.OAUTH, "oauth"),
+            ("id_jag", AccessMethod.ID_JAG, "id_jag"),
+            ("project_secret_api_key", AccessMethod.PROJECT_SECRET_API_KEY, "project_secret_api_key"),
+            ("team_secret_token", AccessMethod.TEAM_SECRET_TOKEN, "team_secret_token"),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_access_method_from_query_tags_reaches_capture(self, _name, tagged, expected, mock_capture):
+        factory = APIRequestFactory()
+        request = factory.get("/fake")
+
+        with tags_context(access_method=tagged):
+            report_user_action(self.user, "test event", request=request)
+
+        assert mock_capture.call_args[1]["properties"]["access_method"] == expected
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_no_request_passes_properties_unchanged(self, mock_capture):
