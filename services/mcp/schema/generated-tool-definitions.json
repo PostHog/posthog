@@ -618,6 +618,21 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-documents-search": {
+        "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Search business knowledge",
+        "title": "Search business knowledge",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
     "business-knowledge-sources-list": {
         "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
         "category": "Business knowledge",
@@ -5025,7 +5040,7 @@
         }
     },
     "session-recording-get": {
-        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, offer to use `session-recording-summarize` (note: very slow, ~5 minutes on average). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session recording",
@@ -5095,7 +5110,7 @@
         }
     },
     "session-recording-summaries-list": {
-        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear.",
+        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear. Note: this reads the legacy session-summary store, which is being retired — for new summaries the forward path is Replay Vision summarizer scanners (`vision-observations-list` / `vision-scanners-observations-list`).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "List session summaries",
@@ -5109,7 +5124,7 @@
         }
     },
     "session-recording-summary-get": {
-        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet — to create one, use `session-recording-summarize` (slow, ~5 min) rather than this read endpoint.",
+        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet. This reads the legacy session-summary store, which is being retired — to create a new summary, use a Replay Vision summarizer scanner via `vision-scanners-scan-session` rather than this read endpoint.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session summary",
