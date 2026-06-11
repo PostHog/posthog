@@ -30,7 +30,10 @@ def register_missing_configs(team_id: int) -> set[str]:
             deleted=False,
         ).values_list("name", flat=True)
     )
-    existing = set(SignalScoutConfig.all_teams.filter(team_id=team_id).values_list("skill_name", flat=True))
+    configs = SignalScoutConfig.objects.for_team(team_id)
+    existing = set(configs.values_list("skill_name", flat=True))
     for name in sorted(skill_names - existing):
-        SignalScoutConfig.all_teams.get_or_create(team_id=team_id, skill_name=name)
+        # `team_id` must be passed as a kwarg: `get_or_create` builds the created row from
+        # kwargs/defaults only — the queryset's team filter does not propagate into `create`.
+        configs.get_or_create(team_id=team_id, skill_name=name)
     return skill_names
