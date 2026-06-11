@@ -1,21 +1,21 @@
-import { Message, MessageHeader } from 'node-rdkafka'
-
 import { ingestionLagGauge, ingestionLagHistogram } from '../../../common/metrics'
-import { PipelineResultWithContext } from '../../pipelines/pipeline.interface'
-import { PipelineResult, isOkResult, ok } from '../../pipelines/results'
+import { IngestedEventInfo } from '../../event-processing/emit-event-step'
+import { PipelineResult, ok } from '../../pipelines/results'
 import { ProcessingStep } from '../../pipelines/steps'
 
 export interface RecordIngestionLagInput {
-    elements: PipelineResultWithContext<
-        unknown,
-        { message: Pick<Message, 'topic' | 'partition' | 'headers'> },
-        string
-    >[]
+    ingested: Promise<IngestedEventInfo | null>[]
 }
 
 /**
- * AfterBatch processing step that records ingestion lag for every OK result
- * in the batch, computed from the `now` Kafka header set by capture.
+ * Records ingestion lag for each ingested event, computed from the capture
+ * time (`now` header) once the emission has been acked by Kafka. No sample
+ * is recorded for events that were not ingested (failed emission, null info)
+ * or that have no capture time.
+ *
+ * The step does not await the promises — it observes them and passes the
+ * input through unchanged, so it can be placed anywhere downstream of the
+ * emitting step.
  *
  * Pipeline and lane identity come from the registry-wide default labels
  * (`ingestion_pipeline`, `ingestion_lane`), so the metrics only carry
@@ -23,38 +23,22 @@ export interface RecordIngestionLagInput {
  */
 export function createRecordIngestionLagStep<T extends RecordIngestionLagInput>(): ProcessingStep<T, T> {
     return function recordIngestionLagStep(input: T): Promise<PipelineResult<T>> {
-        const nowMs = Date.now()
-
-        for (const element of input.elements) {
-            if (!isOkResult(element.result)) {
-                continue
-            }
-
-            const { message } = element.context
-            const capturedAt = parseNowHeader(message.headers)
-            if (capturedAt === undefined) {
-                continue
-            }
-
-            const lag = nowMs - capturedAt.getTime()
-            const partition = String(message.partition)
-            ingestionLagGauge.labels({ topic: message.topic, partition }).set(lag)
-            ingestionLagHistogram.labels({ partition }).observe(lag)
+        for (const promise of input.ingested) {
+            void promise.then(recordIngestionLag, () => {
+                // The emission failed — the event was not ingested, so no lag sample
+            })
         }
-
         return Promise.resolve(ok(input))
     }
 }
 
-function parseNowHeader(headers: MessageHeader[] | undefined): Date | undefined {
-    for (const header of headers ?? []) {
-        const value = header['now']
-        if (value !== undefined) {
-            const parsed = new Date(value.toString())
-            if (!isNaN(parsed.getTime())) {
-                return parsed
-            }
-        }
+function recordIngestionLag(info: IngestedEventInfo | null): void {
+    if (info === null || info.capturedAt === undefined) {
+        return
     }
-    return undefined
+
+    const lag = Date.now() - info.capturedAt.getTime()
+    const partition = String(info.partition)
+    ingestionLagGauge.labels({ topic: info.topic, partition }).set(lag)
+    ingestionLagHistogram.labels({ partition }).observe(lag)
 }

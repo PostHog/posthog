@@ -12,6 +12,7 @@ import { PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-
 import { AiEventOutput, AsyncOutput, EVENTS_OUTPUT, EventOutput } from '../../analytics/outputs'
 import { PersonDistinctIdsOutput, PersonsOutput } from '../../analytics/outputs'
 import { IngestionWarningsOutput } from '../../common/outputs'
+import { createRecordIngestionLagStep } from '../../common/steps/record-ingestion-lag'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '../../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../../event-processing/event-pipeline-options'
@@ -136,4 +137,5 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
                 ]
             )
         )
+        .pipe(createRecordIngestionLagStep())
 }

@@ -1,12 +1,14 @@
-import { Message } from 'node-rdkafka'
-
-import { createTestMessage } from '../../../../tests/helpers/kafka-message'
 import { ingestionLagGauge, ingestionLagHistogram } from '../../../common/metrics'
-import { createContext } from '../../pipelines/helpers'
-import { drop, isOkResult, ok } from '../../pipelines/results'
+import { IngestedEventInfo } from '../../event-processing/emit-event-step'
+import { isOkResult } from '../../pipelines/results'
 import { RecordIngestionLagInput, createRecordIngestionLagStep } from './record-ingestion-lag'
 
 const FAKE_NOW_MS = 1702654321987 // 2023-12-15T14:32:01.987Z
+
+async function flushMicrotasks(): Promise<void> {
+    await Promise.resolve()
+    await Promise.resolve()
+}
 
 async function getGaugeValue(topic: string, partition: string): Promise<number | undefined> {
     const metric = await ingestionLagGauge.get()
@@ -36,24 +38,17 @@ describe('record-ingestion-lag', () => {
         jest.useRealTimers()
     })
 
-    function createMessageWithNow(lagMs: number, overrides: Partial<Message> = {}): Message {
-        return createTestMessage({
-            headers: [{ now: Buffer.from(new Date(FAKE_NOW_MS - lagMs).toISOString()) }],
-            ...overrides,
-        })
-    }
-
-    function createInput(messages: { message: Message; isOk?: boolean }[]): RecordIngestionLagInput {
+    function ingestedInfo(lagMs: number, partition: number = 5): IngestedEventInfo {
         return {
-            elements: messages.map(({ message, isOk = true }) =>
-                createContext(isOk ? ok<unknown>(undefined) : drop<unknown>('test-drop'), { message })
-            ),
+            capturedAt: new Date(FAKE_NOW_MS - lagMs),
+            topic: 'test-topic',
+            partition,
         }
     }
 
-    it('records gauge and histogram lag for ok elements from the now header', async () => {
+    it('records gauge and histogram lag once the ingested promise resolves', async () => {
         const step = createRecordIngestionLagStep()
-        const input = createInput([{ message: createMessageWithNow(5432) }])
+        const input: RecordIngestionLagInput = { ingested: [Promise.resolve(ingestedInfo(5432))] }
 
         const result = await step(input)
 
@@ -61,19 +56,43 @@ describe('record-ingestion-lag', () => {
         if (isOkResult(result)) {
             expect(result.value).toBe(input)
         }
+        await flushMicrotasks()
         expect(await getGaugeValue('test-topic', '5')).toBe(5432)
         expect(await getHistogramCountAndSum('5')).toEqual({ count: 1, sum: 5432 })
     })
 
-    it('records each element separately, gauge keeps the last value per partition', async () => {
+    it('measures lag at ack time, not at processing time', async () => {
         const step = createRecordIngestionLagStep()
-        const input = createInput([
-            { message: createMessageWithNow(5000) },
-            { message: createMessageWithNow(2000) },
-            { message: createMessageWithNow(3000, { partition: 7 }) },
-        ])
+        let ack!: (info: IngestedEventInfo) => void
+        const pending = new Promise<IngestedEventInfo>((resolve) => {
+            ack = resolve
+        })
+
+        await step({ ingested: [pending] })
+        await flushMicrotasks()
+        expect(await getHistogramCountAndSum('5')).toBeNull()
+
+        // The ack arrives one second after processing
+        jest.setSystemTime(FAKE_NOW_MS + 1000)
+        ack(ingestedInfo(2000))
+        await flushMicrotasks()
+
+        expect(await getGaugeValue('test-topic', '5')).toBe(3000)
+        expect(await getHistogramCountAndSum('5')).toEqual({ count: 1, sum: 3000 })
+    })
+
+    it('records each ingested event separately, gauge keeps the last value per partition', async () => {
+        const step = createRecordIngestionLagStep()
+        const input: RecordIngestionLagInput = {
+            ingested: [
+                Promise.resolve(ingestedInfo(5000)),
+                Promise.resolve(ingestedInfo(2000)),
+                Promise.resolve(ingestedInfo(3000, 7)),
+            ],
+        }
 
         await step(input)
+        await flushMicrotasks()
 
         expect(await getGaugeValue('test-topic', '5')).toBe(2000)
         expect(await getGaugeValue('test-topic', '7')).toBe(3000)
@@ -81,27 +100,29 @@ describe('record-ingestion-lag', () => {
         expect(await getHistogramCountAndSum('7')).toEqual({ count: 1, sum: 3000 })
     })
 
-    it('skips non-ok elements', async () => {
+    it.each([
+        ['the emission failed', (): Promise<IngestedEventInfo | null> => Promise.reject(new Error('produce failed'))],
+        ['the event was not ingested', (): Promise<IngestedEventInfo | null> => Promise.resolve(null)],
+        [
+            'the capture time is missing',
+            (): Promise<IngestedEventInfo | null> => Promise.resolve({ topic: 'test-topic', partition: 5 }),
+        ],
+    ])('records no sample when %s', async (_name, makePromise) => {
         const step = createRecordIngestionLagStep()
-        const input = createInput([{ message: createMessageWithNow(5000), isOk: false }])
 
-        await step(input)
+        await step({ ingested: [makePromise()] })
+        await flushMicrotasks()
 
         expect(await getGaugeValue('test-topic', '5')).toBeUndefined()
         expect(await getHistogramCountAndSum('5')).toBeNull()
     })
 
-    it.each([
-        ['no headers', createTestMessage({ headers: undefined })],
-        ['no now header', createTestMessage({ headers: [{ token: Buffer.from('test-token') }] })],
-        ['unparseable now header', createTestMessage({ headers: [{ now: Buffer.from('not-a-date') }] })],
-    ])('skips elements with %s', async (_name, message) => {
+    it('records no sample when nothing was emitted', async () => {
         const step = createRecordIngestionLagStep()
-        const input = createInput([{ message }])
 
-        await step(input)
+        await step({ ingested: [] })
+        await flushMicrotasks()
 
-        expect(await getGaugeValue('test-topic', '5')).toBeUndefined()
         expect(await getHistogramCountAndSum('5')).toBeNull()
     })
 })

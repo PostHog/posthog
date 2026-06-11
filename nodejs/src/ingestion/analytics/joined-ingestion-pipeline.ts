@@ -19,7 +19,6 @@ import {
 } from '../common/steps/event-filters-steps'
 import { GroupStoreBatchContext, createGroupStoreBeforeBatchStep } from '../common/steps/group-store-batch-step'
 import { PersonsStoreBatchContext, createPersonsStoreBeforeBatchStep } from '../common/steps/persons-store-batch-step'
-import { createRecordIngestionLagStep } from '../common/steps/record-ingestion-lag'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyEventRestrictionsStep,
@@ -261,7 +260,6 @@ export function createJoinedIngestionPipeline<
                 .handleSideEffects(promiseScheduler, { await: false }),
         (afterBatch) =>
             afterBatch
-                .pipe(createRecordIngestionLagStep())
                 .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
                 .pipe(createFlushEventFiltersBatchAppMetricsStep()),
         // Batch stores are singleton persistent caches, but each batch receives a
