@@ -4799,6 +4799,14 @@ class SignalsScoutSignalExtra(BaseModel):
     severity: Severity | None = None
     skill_name: str
     skill_version: float
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the"
+            " finding. Each scout maintains and evolves its own vocabulary over time;"
+            " the harness normalizes and caps these at emit."
+        ),
+    )
     task_run_id: str = Field(
         ...,
         description=(
@@ -5231,6 +5239,11 @@ class TraceNeighborsQueryResponse(BaseModel):
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
+
+
+class TraceOrderColumn(StrEnum):
+    TIMESTAMP = "timestamp"
+    DURATION = "duration"
 
 
 class DetailedResultsAggregationType(StrEnum):
@@ -7827,6 +7840,13 @@ class LifecycleFilter(BaseModel):
         extra="forbid",
     )
     showLegend: bool | None = False
+    showPercentagesOnSeries: bool | None = Field(
+        default=None,
+        description=(
+            "Append per-band percentage to each value label (e.g. `580 (42%)`)."
+            " Requires `showValuesOnSeries` — on its own it has no visible effect."
+        ),
+    )
     showValuesOnSeries: bool | None = None
     stacked: bool | None = True
     toggledLifecycles: list[LifecycleToggle] | None = None
@@ -24487,7 +24507,14 @@ class TraceSpansQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: LogsOrderBy | None = None
+    orderBy: TraceOrderColumn | None = Field(
+        default=None,
+        description=(
+            "Column to order by. Defaults to timestamp. `timestamp` paginates via"
+            " keyset cursor (`after`); other columns via `offset`."
+        ),
+    )
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Order direction. Defaults to DESC.")
     prefetchSpans: int | None = Field(
         default=None,
         description=("Prefetch up to this many spans per trace and include them in results"),

@@ -16,6 +16,10 @@ ui_apps:
         type: custom
         app_name: Query Results
         description: Interactive visualization for PostHog query results
+    render-ui:
+        type: custom
+        app_name: PostHog Render UI
+        description: Renders the visualization for a PostHog MCP tool result
 tools:
     activity-retrieve:
         operation: organizations_projects_activity_retrieve
