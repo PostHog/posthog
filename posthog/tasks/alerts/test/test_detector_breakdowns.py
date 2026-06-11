@@ -18,24 +18,15 @@ from posthog.schema import (
 
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
-from posthog.tasks.alerts.utils import AlertEvaluationResult
 
 from products.alerts.backend.evaluation.detector import (
     evaluate_with_detector,
     extract_detector_series,
     simulate_detector_on_insight,
 )
+from products.alerts.backend.evaluation.dispatcher import check_detector_alert
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
-
-
-def check_trends_alert_with_detector(
-    alert: Any, insight: Any, query: TrendsQuery, detector_config: dict[str, Any]
-) -> AlertEvaluationResult:
-    """Evaluate a detector alert through the extractor + detector scorer (test convenience)."""
-    series_index = (alert.config or {}).get("series_index", 0)
-    result = extract_detector_series(insight, alert.team, query, detector_config, series_index=series_index)
-    return evaluate_with_detector(result, detector_config)
 
 
 def _make_trend_result(label: str, data: list[float], breakdown_value: str = "") -> dict[str, Any]:
@@ -115,7 +106,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         insight = MagicMock(spec=Insight)
         query = _make_query_with_breakdown()
 
-        result = check_trends_alert_with_detector(alert, insight, query, ZSCORE_DETECTOR_CONFIG)
+        result = check_detector_alert(alert, insight, query)
 
         assert result.breaches is not None and len(result.breaches) > 0
         assert "staking" in result.breaches[0]
@@ -143,7 +134,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         insight = MagicMock(spec=Insight)
         query = _make_query_with_breakdown()
 
-        result = check_trends_alert_with_detector(alert, insight, query, ZSCORE_DETECTOR_CONFIG)
+        result = check_detector_alert(alert, insight, query)
 
         assert result.breaches == []
         assert result.value is None
@@ -175,7 +166,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         insight = MagicMock(spec=Insight)
         query = _make_query_with_breakdown()
 
-        result = check_trends_alert_with_detector(alert, insight, query, ZSCORE_DETECTOR_CONFIG)
+        result = check_detector_alert(alert, insight, query)
 
         # The anomalous breakdown is beyond the cap, so it should NOT fire
         assert result.breaches == []
@@ -199,7 +190,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         insight = MagicMock(spec=Insight)
         query = _make_query_with_breakdown()
 
-        result = check_trends_alert_with_detector(alert, insight, query, ZSCORE_DETECTOR_CONFIG)
+        result = check_detector_alert(alert, insight, query)
 
         # Should not error, and should not fire (stable data only)
         assert result.breaches == []
@@ -222,7 +213,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         insight = MagicMock(spec=Insight)
         query = _make_query_without_breakdown()
 
-        result = check_trends_alert_with_detector(alert, insight, query, ZSCORE_DETECTOR_CONFIG)
+        result = check_detector_alert(alert, insight, query)
 
         assert result.breaches is not None and len(result.breaches) > 0
         assert "Anomaly detected" in result.breaches[0]
@@ -247,7 +238,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         insight = MagicMock(spec=Insight)
         query = _make_query_with_breakdown()
 
-        result = check_trends_alert_with_detector(alert, insight, query, ZSCORE_DETECTOR_CONFIG)
+        result = check_detector_alert(alert, insight, query)
 
         assert result.anomaly_scores is not None
         assert result.triggered_points is not None

@@ -23,6 +23,7 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
 from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -172,6 +173,21 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
         triggered_dates=_triggered_dates(s, detection.triggered_indices or []) or None,
         interval=interval_value,
     )
+
+
+class TrendsDetectorExtractor:
+    """Detector-path extractor for trends insights. Conforms to the same ``Extractor`` protocol as
+    the threshold ``TrendsExtractor`` and emits the same ``ComparableSeries`` — it only differs in
+    fetching the detector's wider lookback window (the whole series is scored, not a single anchor).
+    """
+
+    def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
+        detector_config = alert.detector_config
+        if not detector_config:
+            raise ValueError("TrendsDetectorExtractor requires detector_config — dispatcher invariant violated")
+        trends_query = TrendsQuery.model_validate(query)
+        series_index = (alert.config or {}).get("series_index", 0)
+        return extract_detector_series(insight, alert.team, trends_query, detector_config, series_index=series_index)
 
 
 def simulate_detector_on_insight(
