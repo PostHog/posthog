@@ -34,13 +34,7 @@ export function SourceMapsBanner(): JSX.Element | null {
 
 // Inner component so the "shown" event fires exactly when the banner becomes visible —
 // the outer guards (including dismissal) gate the mount, so mounting here means it was seen.
-function SourceMapsBannerContent({
-    percent,
-    lookbackHours,
-}: {
-    percent: number
-    lookbackHours: number
-}): JSX.Element {
+function SourceMapsBannerContent({ percent, lookbackHours }: { percent: number; lookbackHours: number }): JSX.Element {
     const { openModal } = useActions(sourceMapsFixWizardLogic)
 
     useOnMountEffect(() => {
