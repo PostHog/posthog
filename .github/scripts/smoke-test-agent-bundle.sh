@@ -40,6 +40,7 @@ docker run --rm \
     -e AGENT_MEMORY_S3_SECRET_ACCESS_KEY='smoke' \
     -e ENCRYPTION_SALT_KEYS='00beef0000beef0000beef0000beef00' \
     -e INTERNAL_SECRET='smoke-test-internal-secret' \
+    -e AGENT_INTERNAL_SIGNING_KEY='smoke-test-signing-key' \
     -e KAFKA_HOSTS='127.0.0.1:1' \
     -e REDIS_URL='redis://127.0.0.1:1' \
     -e SANDBOX_BACKEND='modal' \
