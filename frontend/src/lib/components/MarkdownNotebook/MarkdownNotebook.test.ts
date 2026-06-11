@@ -2876,6 +2876,40 @@ ${queryMarkdown}`)
         }
     })
 
+    it('keeps syncing while a prompt question is composed instead of pausing as an interaction', () => {
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+        const onInteractionStateChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(' '),
+                onAskAI,
+                onChange,
+                onInteractionStateChange,
+                createAIChatId: () => TEST_AI_CHAT_ID,
+            })
+        )
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
+        fireEvent.mouseEnter(row as HTMLElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+
+        // The slash-style tool menu is a transient interaction…
+        expect(onInteractionStateChange).toHaveBeenLastCalledWith(true)
+
+        const firstInsertItem = container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement
+        expect(firstInsertItem.textContent).toEqual('Ask PostHog AI')
+        fireEvent.click(firstInsertItem)
+
+        // …but composing an AI prompt is content, so syncing must resume while it stays open.
+        expect(onInteractionStateChange).toHaveBeenLastCalledWith(false)
+
+        updateAIPromptInput(getAIPromptInput(container), 'Summarize this')
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="Summarize this" />`
+        )
+        expect(onInteractionStateChange).toHaveBeenLastCalledWith(false)
+    })
+
     it('shows Ask PostHog AI first when AI is enabled and submits from the inline prompt', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()

@@ -1,7 +1,7 @@
 import { parseMarkdownNotebook, serializeMarkdownNotebook, serializeNode } from './markdown'
 import { reconcileNotebookDocuments } from './reconcile'
 import { applyTextChanges, getTextChanges, transformTextChanges, tryApplyTextChanges } from './textChanges'
-import { NotebookBlockNode, NotebookCollaborationConflict, NotebookDocument } from './types'
+import { NotebookBlockNode, NotebookCollaborationConflict, NotebookComponentBlockNode, NotebookDocument } from './types'
 import { cloneNotebookNode, getNodeFingerprint, getNodeSignature } from './utils'
 
 export type { TextChange } from './textChanges'
@@ -64,6 +64,12 @@ export function mergeNotebookMarkdownChanges({
         const remoteChanged = remoteFingerprint !== baseFingerprint
 
         if (localChanged && remoteChanged && localFingerprint !== remoteFingerprint) {
+            const mergedComponentNode = mergeNotebookComponentNodes(baseNode, localNode, remoteNode)
+            if (mergedComponentNode) {
+                pushOutputNode(outputNodes, outputIds, mergedComponentNode)
+                return
+            }
+
             const mergedNode = mergeNotebookBlockNodeText(baseNode, localNode, remoteNode)
             if (mergedNode) {
                 pushOutputNode(outputNodes, outputIds, mergedNode)
@@ -308,6 +314,82 @@ function isInsertedNodeMarkdownPrefix(node: NotebookBlockNode, shorter: string, 
     }
 
     return longer.startsWith(shorter)
+}
+
+/**
+ * Per-prop three-way merge for two edits of the same component node, instead of treating
+ * the whole tag as one atomic value. Props changed by only one side merge cleanly; string
+ * props changed by both sides merge at the text level (so concurrent typing into a prompt
+ * question, or a streaming AI answer racing a save echo, composes instead of conflicting).
+ * Returns null when any prop genuinely conflicts — the caller falls back to its conflict
+ * handling.
+ */
+function mergeNotebookComponentNodes(
+    baseNode: NotebookBlockNode,
+    localNode: NotebookBlockNode,
+    remoteNode: NotebookBlockNode
+): NotebookBlockNode | null {
+    if (
+        baseNode.type !== 'component' ||
+        localNode.type !== 'component' ||
+        remoteNode.type !== 'component' ||
+        baseNode.tagName !== localNode.tagName ||
+        localNode.tagName !== remoteNode.tagName
+    ) {
+        return null
+    }
+
+    const propKeys = new Set([
+        ...Object.keys(baseNode.props),
+        ...Object.keys(localNode.props),
+        ...Object.keys(remoteNode.props),
+    ])
+    const mergedProps: NotebookComponentBlockNode['props'] = {}
+
+    for (const key of propKeys) {
+        const baseValue = baseNode.props[key]
+        const localValue = localNode.props[key]
+        const remoteValue = remoteNode.props[key]
+        const localChanged = !arePropValuesEqual(localValue, baseValue)
+        const remoteChanged = !arePropValuesEqual(remoteValue, baseValue)
+
+        let mergedValue: NotebookComponentBlockNode['props'][string] | undefined
+        if (!localChanged) {
+            mergedValue = remoteValue
+        } else if (!remoteChanged || arePropValuesEqual(localValue, remoteValue)) {
+            mergedValue = localValue
+        } else if (typeof baseValue === 'string' && typeof localValue === 'string' && typeof remoteValue === 'string') {
+            const textMerge = mergeTextChanges(baseValue, localValue, remoteValue)
+            if (textMerge.conflicted) {
+                return null
+            }
+            mergedValue = textMerge.text
+        } else {
+            return null
+        }
+
+        if (mergedValue !== undefined) {
+            mergedProps[key] = mergedValue
+        }
+    }
+
+    return {
+        ...cloneNotebookNode(localNode),
+        props: mergedProps,
+        // The merged props no longer match either side's source tag
+        raw: undefined,
+        errors: undefined,
+    }
+}
+
+function arePropValuesEqual(
+    left: NotebookComponentBlockNode['props'][string] | undefined,
+    right: NotebookComponentBlockNode['props'][string] | undefined
+): boolean {
+    if (left === undefined || right === undefined) {
+        return left === right
+    }
+    return JSON.stringify(left) === JSON.stringify(right)
 }
 
 function mergeNotebookBlockNodeText(

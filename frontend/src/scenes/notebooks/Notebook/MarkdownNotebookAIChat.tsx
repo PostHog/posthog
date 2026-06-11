@@ -439,10 +439,7 @@ export function NotebookAIChatThread({
     const threadMessages = getNotebookAIChatThreadMessages(threadGrouped, threadLoading)
     const visibleMessages =
         loadOlderMessages && threadMessages.length > 0 ? threadMessages : [...baseMessages, ...threadMessages]
-    const displayMessages =
-        visibleMessages.length > 0
-            ? visibleMessages
-            : [{ role: 'thinking' as const, id: 'notebook-ai-chat-loading', content: 'Thinking ...' }]
+    const displayMessages = getNotebookAIChatDisplayMessages(visibleMessages, cachedLastAnswer)
     const conversationTitle = getUnknownStringProp(conversation?.title)
     const latestAnswer = getLatestNotebookAIChatAnswer(visibleMessages)
     const isThinking = threadLoading || displayMessages.at(-1)?.role === 'thinking'
@@ -671,6 +668,24 @@ export function getNotebookAIChatBaseMessages(cachedLastAnswer: string | null): 
         return [{ role: 'assistant', id: 'notebook-ai-chat-cached-answer', content: cachedLastAnswer }]
     }
     return []
+}
+
+/**
+ * What the chat block renders. A collaborator's client has no local thread for a chat
+ * another user is driving, but the answer streams in through the Chat node's `lastAnswer`
+ * prop — render that live instead of a stuck "Thinking ..." placeholder.
+ */
+export function getNotebookAIChatDisplayMessages(
+    visibleMessages: NotebookAIChatMessage[],
+    cachedLastAnswer: string | null
+): NotebookAIChatMessage[] {
+    if (visibleMessages.length > 0) {
+        return visibleMessages
+    }
+    if (cachedLastAnswer) {
+        return getNotebookAIChatBaseMessages(cachedLastAnswer)
+    }
+    return [{ role: 'thinking', id: 'notebook-ai-chat-loading', content: 'Thinking ...' }]
 }
 
 export function getNotebookAIChatThreadMessages(

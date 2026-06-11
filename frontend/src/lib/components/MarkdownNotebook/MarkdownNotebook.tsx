@@ -594,7 +594,10 @@ export function MarkdownNotebook({
         applyRemoteValue(nextRemoteValue)
     }, [remoteValue, deferRemoteValue, applyRemoteValue])
 
-    const isInsertMenuInteractionActive = !!insertMenu
+    // The AI prompt keeps the insert menu open while a question is composed, but the question
+    // lives in a real Prompt node — that's content, not transient UI, so it must keep syncing
+    // to collaborators instead of pausing autosave like the slash menu does.
+    const isInsertMenuInteractionActive = !!insertMenu && insertMenu.mode !== 'ai'
     const isTransientInteractionActive = mode === 'edit' && (isInsertMenuInteractionActive || !!floatingToolbar)
 
     useEffect(() => {

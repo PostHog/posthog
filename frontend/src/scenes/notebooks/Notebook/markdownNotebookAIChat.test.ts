@@ -2,7 +2,12 @@ import { ThreadMessage } from 'scenes/max/maxThreadLogic'
 
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 
-import { getInlineAICompletion, getNotebookAIChatThreadMessages } from './MarkdownNotebookAIChat'
+import {
+    NotebookAIChatMessage,
+    getInlineAICompletion,
+    getNotebookAIChatDisplayMessages,
+    getNotebookAIChatThreadMessages,
+} from './MarkdownNotebookAIChat'
 
 const LONG_THINKING =
     'The user wants to add a pie chart to their notebook. I need to create an insight (pie chart) and then ' +
@@ -71,5 +76,29 @@ describe('markdown notebook AI chat messages', () => {
         ])
 
         expect(completion).toEqual({ status: 'done', message: 'Updated the notebook.' })
+    })
+
+    describe('getNotebookAIChatDisplayMessages', () => {
+        const localAnswer: NotebookAIChatMessage = { role: 'assistant', id: 'a1', content: 'A local answer' }
+
+        it('prefers the local thread when it has messages', () => {
+            expect(getNotebookAIChatDisplayMessages([localAnswer], 'cached')).toEqual([localAnswer])
+        })
+
+        it('renders the synced lastAnswer when the local thread is empty (collaborator view)', () => {
+            expect(getNotebookAIChatDisplayMessages([], 'Streaming in from another client')).toEqual([
+                {
+                    role: 'assistant',
+                    id: 'notebook-ai-chat-cached-answer',
+                    content: 'Streaming in from another client',
+                },
+            ])
+        })
+
+        it('falls back to the thinking placeholder when nothing is available', () => {
+            expect(getNotebookAIChatDisplayMessages([], null)).toEqual([
+                { role: 'thinking', id: 'notebook-ai-chat-loading', content: 'Thinking ...' },
+            ])
+        })
     })
 })

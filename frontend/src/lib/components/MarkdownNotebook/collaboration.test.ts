@@ -136,6 +136,66 @@ describe('mergeNotebookMarkdownChanges', () => {
         expect(result.conflicts).toEqual([])
         expect(result.mergedMarkdown).toEqual('# Title\n\n<Chat id="chat-1" title="Named" />')
     })
+
+    it('merges concurrent edits to different props of the same component', () => {
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: '<Chat id="chat-1" />',
+            localMarkdown: '<Chat id="chat-1" title="Named locally" />',
+            remoteMarkdown: '<Chat id="chat-1" lastAnswer="Streaming answer" />',
+        })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toContain('title="Named locally"')
+        expect(result.mergedMarkdown).toContain('lastAnswer="Streaming answer"')
+    })
+
+    it('merges concurrent non-overlapping edits to the same string prop at the text level', () => {
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: '<Prompt question="Summarize the funnel" />',
+            localMarkdown: '<Prompt question="Summarize the activation funnel" />',
+            remoteMarkdown: '<Prompt question="Summarize the funnel by week" />',
+        })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toEqual('<Prompt question="Summarize the activation funnel by week" />')
+    })
+
+    it('keeps a continued streaming answer when an earlier save echo returns', () => {
+        // The streaming client extends lastAnswer past what its own previous save echoed back.
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: '<Chat id="chat-1" lastAnswer="The funnel" />',
+            localMarkdown: '<Chat id="chat-1" lastAnswer="The funnel improved by 12% this week" />',
+            remoteMarkdown: '<Chat id="chat-1" lastAnswer="The funnel improved" />',
+        })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toEqual('<Chat id="chat-1" lastAnswer="The funnel improved by 12% this week" />')
+    })
+
+    it('keeps the local version and reports a conflict when both sides rewrite the same prop words', () => {
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: '<Prompt question="Summarize the funnel data" />',
+            localMarkdown: '<Prompt question="Summarize the cohort data" />',
+            remoteMarkdown: '<Prompt question="Summarize the retention data" />',
+        })
+
+        expect(result.conflicts).toHaveLength(1)
+        expect(result.mergedMarkdown).toEqual('<Prompt question="Summarize the cohort data" />')
+    })
+
+    it('keeps non-string prop edits atomic per prop', () => {
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: '<Query query={{"kind":"TrendsQuery","interval":"day"}} />',
+            localMarkdown: '<Query query={{"kind":"TrendsQuery","interval":"week"}} title="Weekly" />',
+            remoteMarkdown: '<Query query={{"kind":"TrendsQuery","interval":"day"}} hideFilters={true} />',
+        })
+
+        // The query object changed only locally and the other props only remotely - all merge.
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toContain('"interval":"week"')
+        expect(result.mergedMarkdown).toContain('title="Weekly"')
+        expect(result.mergedMarkdown).toContain('hideFilters')
+    })
 })
 
 describe('collaboration text utilities', () => {

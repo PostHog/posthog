@@ -182,9 +182,13 @@ export function textSimilarity(left: string, right: string): number {
 }
 
 function normalizeForSimilarity(value: string): string {
-    return normalizeWhitespace(value)
+    // Punctuation becomes a separator (not stripped), so JSON-ish content — component props
+    // are serialized as one JSON blob — tokenizes into comparable words instead of one
+    // giant word that any single change makes entirely dissimilar.
+    return value
         .toLowerCase()
-        .replace(/[^\w\s]/g, '')
+        .replace(/[^\w]+/g, ' ')
+        .trim()
 }
 
 export function marksEqual(left: NotebookInlineMark[], right: NotebookInlineMark[]): boolean {
