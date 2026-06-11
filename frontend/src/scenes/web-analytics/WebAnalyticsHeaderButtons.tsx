@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconBolt, IconPerson } from '@posthog/icons'
+import { IconBolt, IconPerson, IconShare } from '@posthog/icons'
 
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,6 +13,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
+import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsMenu } from 'scenes/web-analytics/WebAnalyticsMenu'
 
@@ -21,6 +23,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
     const { setShouldFilterTestAccounts } = useActions(webAnalyticsLogic)
+    const { emphasizeShareButton } = useValues(shareNudgeLogic)
     const [showPopover, setShowPopover] = useState(false)
 
     const hasFeatureFlag = featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
@@ -32,6 +35,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
 
     const handleShare = (): void => {
         void copyToClipboard(window.location.href, 'link')
+        posthog.capture('web analytics share link copied', { source: 'header_button' })
     }
 
     const handleToggleEngine = (checked: boolean): void => {
@@ -55,12 +59,14 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                 <LemonButton
                     type="secondary"
                     size="small"
-                    icon={<IconLink fontSize="16" />}
-                    tooltip="Share"
+                    icon={emphasizeShareButton ? <IconShare fontSize="16" /> : <IconLink fontSize="16" />}
+                    tooltip={emphasizeShareButton ? undefined : 'Share'}
                     tooltipPlacement="top"
                     onClick={handleShare}
                     data-attr="web-analytics-share-button"
-                />
+                >
+                    {emphasizeShareButton ? 'Share' : undefined}
+                </LemonButton>
             )}
             <LemonButton
                 type="secondary"

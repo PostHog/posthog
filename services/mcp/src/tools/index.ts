@@ -13,6 +13,8 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
+// Links (utility — builds canonical app URLs from the frontend's route table)
+import generateAppUrl from './links/generate-app-url'
 // Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookEdit from './notebooks/edit'
 // Organizations
@@ -63,6 +65,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Insights
     'insight-query': queryInsight,
+
+    // Links (utility — canonical app URLs so the model never hand-builds/mis-slugs entity links)
+    'generate-app-url': generateAppUrl,
 
     // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,

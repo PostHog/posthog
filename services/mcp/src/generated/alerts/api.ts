@@ -17,8 +17,19 @@ export const AlertsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
+    created_by: zod
+        .string()
+        .optional()
+        .describe('Optional. Restrict results to alerts created by the user with this UUID.'),
+    insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.'
+        ),
 })
 
 export const AlertsCreateParams = /* @__PURE__ */ zod.object({
@@ -93,7 +104,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         ),
                 })
                 .describe(
-                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).'
+                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.'
                 ),
         })
         .describe('Threshold configuration with bounds and type for evaluating the alert.'),
@@ -1343,7 +1354,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         ),
                 })
                 .describe(
-                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).'
+                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.'
                 ),
         })
         .optional()

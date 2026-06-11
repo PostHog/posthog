@@ -116,7 +116,7 @@ describe('workflowLogic email step "from" validation', () => {
             },
         })
         initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
@@ -133,7 +133,7 @@ describe('workflowLogic email step "from" validation', () => {
             },
         })
         initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
@@ -150,7 +150,7 @@ describe('workflowLogic email step "from" validation', () => {
             },
         })
         initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'loadHogFunctionTemplatesByIdSuccess'])
 
@@ -167,7 +167,7 @@ describe('workflowLogic email step "from" validation', () => {
             },
         })
         initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 

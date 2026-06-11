@@ -28,6 +28,8 @@ import type {
     TaskApi,
     TaskAutomationApi,
     TaskAutomationsListParams,
+    TaskFileRequestApi,
+    TaskFileResponseApi,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
     TaskRunAppendLogRequestApi,
@@ -117,7 +119,7 @@ export const getSandboxListUrl = (projectId: string, params?: SandboxListParams)
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -220,7 +222,7 @@ export const getTaskAutomationsListUrl = (projectId: string, params?: TaskAutoma
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -344,7 +346,7 @@ export const getTasksListUrl = (projectId: string, params?: TasksListParams) => 
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -460,6 +462,28 @@ export const tasksDestroy = async (projectId: string, id: string, options?: Requ
     })
 }
 
+export const getTasksFileCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/file/`
+}
+
+/**
+ * Add this task to the desktop project tree so it can be organized into folders. Optionally pass a destination folder path. Idempotent — re-filing updates the existing entry.
+ * @summary File a task into the project tree
+ */
+export const tasksFileCreate = async (
+    projectId: string,
+    id: string,
+    taskFileRequestApi?: TaskFileRequestApi,
+    options?: RequestInit
+): Promise<TaskFileResponseApi> => {
+    return apiMutator<TaskFileResponseApi>(getTasksFileCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskFileRequestApi),
+    })
+}
+
 export const getTasksPresenceCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/presence/`
 }
@@ -569,12 +593,27 @@ export const tasksStagedArtifactsPrepareUploadCreate = async (
     )
 }
 
+export const getTasksUnfileCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/unfile/`
+}
+
+/**
+ * Remove this task's entry from the desktop project tree. The task itself is not deleted.
+ * @summary Remove a task from the project tree
+ */
+export const tasksUnfileCreate = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTasksUnfileCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTasksRunsListUrl = (projectId: string, taskId: string, params?: TasksRunsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -905,7 +944,7 @@ export const getTasksRunsSessionLogsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1024,7 +1063,7 @@ export const getTasksRepositoryReadinessRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1058,7 +1097,7 @@ export const getTasksSlackThreadContextRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1089,7 +1128,7 @@ export const getTasksSummariesCreateUrl = (projectId: string, params?: TasksSumm
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

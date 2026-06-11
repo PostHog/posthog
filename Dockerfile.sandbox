@@ -4,7 +4,7 @@
 # packages, toolchains) go first so they stay cached. COPY statements that
 # reference repo files go last since they invalidate on every change.
 
-FROM python:3.12.12-slim-bookworm
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
 
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 

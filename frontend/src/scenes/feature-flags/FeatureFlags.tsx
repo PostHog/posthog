@@ -306,8 +306,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                             : (featureFlag.features?.length || 0) > 0
                                               ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                              : (featureFlag.experiment_set?.length || 0) > 0
-                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag.'
+                                              : featureFlag.experiment_set_metadata?.some((exp) => exp.is_running)
+                                                ? 'This feature flag is linked to a running experiment. Stop the experiment to delete this flag.'
                                                 : (featureFlag.surveys?.length || 0) > 0
                                                   ? 'This feature flag is linked to a survey. Delete the survey to delete this flag.'
                                                   : null
@@ -353,9 +353,7 @@ export function OverviewTab({
     const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
         useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
-    const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
-    const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
-    const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
+    const newFeatureFlagUrl = urls.featureFlagTemplates()
     const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const { currentProjectId } = useValues(projectLogic)
@@ -683,8 +681,7 @@ export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
-    const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
-    const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
+    const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
     const showProjectsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACROSS_PROJECTS_INDEX]
 

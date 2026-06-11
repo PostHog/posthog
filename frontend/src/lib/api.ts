@@ -2863,9 +2863,11 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
-                orderBy?: 'latest' | 'earliest'
+                orderBy?: 'timestamp' | 'duration'
+                orderDirection?: 'ASC' | 'DESC'
                 limit?: number
                 after?: string
+                offset?: number
                 prefetchSpans?: number
             },
             signal?: AbortSignal
@@ -4043,7 +4045,10 @@ const api = {
         },
         async update(
             annotationId: RawAnnotationType['id'],
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
+            data: Pick<
+                RawAnnotationType,
+                'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id' | 'emoji'
+            >
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
@@ -4057,7 +4062,10 @@ const api = {
                 .get()
         },
         async create(
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
+            data: Pick<
+                RawAnnotationType,
+                'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id' | 'emoji'
+            >
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },
@@ -5910,14 +5918,18 @@ const api = {
         async list({
             insightId,
             dashboardId,
+            resourceType,
         }: {
             insightId?: number
             dashboardId?: number
+            resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
-            return await new ApiRequest()
-                .subscriptions()
-                .withQueryString(insightId ? `insight=${insightId}` : dashboardId ? `dashboard=${dashboardId}` : '')
-                .get()
+            const params = [
+                insightId ? `insight=${insightId}` : null,
+                dashboardId ? `dashboard=${dashboardId}` : null,
+                resourceType ? `resource_type=${resourceType}` : null,
+            ].filter(Boolean)
+            return await new ApiRequest().subscriptions().withQueryString(params.join('&')).get()
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().subscriptions().assembleEndpointUrl()
@@ -6210,7 +6222,7 @@ const api = {
         },
         async list(
             insightId?: InsightModel['id'],
-            params: { limit?: number; offset?: number } = {}
+            params: { limit?: number; offset?: number; search?: string; created_by?: string } = {}
         ): Promise<CountedPaginatedResponse<AlertType>> {
             const queryParams: Record<string, any> = { ...params }
             if (insightId !== undefined) {

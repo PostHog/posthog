@@ -35,6 +35,7 @@ SDK_LIBRARIES = [
     "posthog-java",
     "posthog-dotnet",
     "posthog-elixir",
+    "posthog-rs",
     "posthog-android",
     "posthog-ios",
     "posthog-react-native",
@@ -230,17 +231,35 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
         capture_exception(error)
 
 
-def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
-    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="find_flags_with_enriched_analytics")
-    result = sync_execute(
-        """
-        SELECT team_id, JSONExtractString(properties, 'feature_flag') as flag_key
+def _enriched_flag_key_expr_sql() -> str:
+    """SQL expression for the `feature_flag` property, using the materialized column when available.
+
+    This query spans all teams so it can't go through the HogQL printer; the
+    materialized-column lookup has to be done by hand, with a JSONExtractString
+    fallback for instances where the property isn't materialized. Nullable
+    columns are coalesced to '' to match JSONExtractString's missing-property
+    behavior.
+    """
+    column = get_materialized_column_for_property("events", "properties", "feature_flag")
+    if column is None:
+        return "JSONExtractString(properties, 'feature_flag')"
+    if column.is_nullable:
+        return f"ifNull(`{column.name}`, '')"
+    return f"`{column.name}`"
+
+
+def _build_enriched_analytics_query() -> str:
+    return f"""
+        SELECT team_id, {_enriched_flag_key_expr_sql()} as flag_key
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s AND event = '$feature_view'
         GROUP BY team_id, flag_key
-    """,
-        {"begin": begin, "end": end},
-    )
+    """
+
+
+def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="find_flags_with_enriched_analytics")
+    result = sync_execute(_build_enriched_analytics_query(), {"begin": begin, "end": end})
 
     for row in result:
         team_id = row[0]
@@ -273,7 +292,10 @@ def _flag_key_filter_sql() -> str:
     """
     column = get_materialized_column_for_property("events", "properties", "$feature_flag")
     if column is not None:
-        return f"{column.name} = %(flag_key)s"
+        # No ifNull for nullable columns: NULL never equals a real flag key,
+        # matching the JSONExtractString('') behavior, and the bare column
+        # keeps any skip index usable.
+        return f"`{column.name}` = %(flag_key)s"
     return "JSONExtractString(properties, '$feature_flag') = %(flag_key)s"
 
 
