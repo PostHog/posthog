@@ -98,6 +98,12 @@ their own `identifier()` pair.
 validation; status types 400), the bespoke `suggested_reviewers` PUT, and the commit `diff`
 action. All gated by `scope_object = "task"` (`task:write`).
 
+Custom agents queue log artefacts during a run via `CustomSignalAgent.register_artefact` (or the
+typed `register_note` / `register_code_reference` / `register_code_diff` / `register_line_reference`
+conveniences — `commit` and `task_run` are excluded, owned by the signed-commit hook and report
+persistence respectively). Queued entries are validated at the call site and persisted in the same
+transaction as the report, attributed to the agent's task.
+
 MCP tools (`products/signals/mcp/tools.yaml`): `inbox-report-artefacts-create` / `-update` /
 `-delete`, `inbox-report-tasks-create`, plus the read tools. Sandbox agents reach the write tools
 via the `signals_report` MCP preset (`posthog/temporal/oauth.py`) — scope-wise identical to

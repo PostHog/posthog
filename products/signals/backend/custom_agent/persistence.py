@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from django.db import transaction
@@ -24,11 +25,13 @@ def create_custom_agent_ready_report(
     repo_selection: RepoSelectionResult,
     task_id: str | None = None,
     agent_identifier: tuple[str, str],
+    log_artefacts: Sequence[tuple[str, str]] = (),
 ) -> PersistedCustomAgentReport:
     """Create a final READY report plus compatible artefacts in one transaction.
 
     `agent_identifier` is the agent's `(product, type)` pair; it labels the `task_run` artefact
-    when this run produced a task.
+    when this run produced a task. `log_artefacts` are `(type, content_json)` work-log entries
+    queued during the run via the agent's `register_artefact` helpers, written in queue order.
     """
     with transaction.atomic():
         report = SignalReport.objects.create(
@@ -77,6 +80,15 @@ def create_custom_agent_ready_report(
                 content=json.dumps([assignee.model_dump(mode="json") for assignee in final_report.assignees]),
                 attribution=attribution,
                 reevaluate_autostart=False,
+            )
+
+        for artefact_type, artefact_content in log_artefacts:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                type=artefact_type,
+                content=artefact_content,
+                attribution=attribution,
             )
 
         if task_id is not None:

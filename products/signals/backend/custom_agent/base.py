@@ -10,12 +10,14 @@ from pydantic import BaseModel, Field, ValidationError
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.artefact_schemas import CodeDiff, CodeReference, LineReference, NoteArtefact
 from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.custom_agent.persistence import (
     PersistedCustomAgentReport,
     create_custom_agent_ready_report,
 )
 from products.signals.backend.custom_agent.schemas import CustomAgentAssignee, CustomAgentFinalReport
+from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -39,6 +41,20 @@ _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 NO_REPO = "__custom_signal_agent_no_repo__"
 """Sentinel passed as ``repository`` to skip selection and run without a subject repo."""
+
+RegisterableArtefactContent = CodeReference | CodeDiff | LineReference | NoteArtefact
+"""Log artefact content models a custom agent may queue via :py:meth:`CustomSignalAgent.register_artefact`.
+
+Deliberately a subset of the log types: ``commit`` artefacts are owned by the signed-commit hook
+and ``task_run`` artefacts are written by report persistence, so neither is registerable here.
+"""
+
+_REGISTERABLE_ARTEFACT_TYPES: dict[type[BaseModel], str] = {
+    CodeReference: SignalReportArtefact.ArtefactType.CODE_REFERENCE,
+    CodeDiff: SignalReportArtefact.ArtefactType.CODE_DIFF,
+    LineReference: SignalReportArtefact.ArtefactType.LINE_REFERENCE,
+    NoteArtefact: SignalReportArtefact.ArtefactType.NOTE,
+}
 
 
 class CustomAgentValidationError(RuntimeError):
@@ -112,6 +128,16 @@ class CustomSignalAgent:
     and reset components. Repository, session, and conversation stay intact.
     Any non-registered report components (other than title and description)
     will be auto-resolved by default resolvers.
+
+    Log artefacts
+    -------------
+    :py:meth:`register_artefact` (or the typed conveniences
+    :py:meth:`register_note` / :py:meth:`register_code_reference` /
+    :py:meth:`register_code_diff` / :py:meth:`register_line_reference`)
+    queues work-log entries for the report being built. They are persisted in
+    the same transaction as the report at the next finalization point,
+    attributed like every other component, and cleared along with the report
+    components by :py:meth:`report_and_continue`.
 
     Return falsy from :py:meth:`run` after the last ``report_and_continue`` to
     prevent a final report from being generated.
@@ -193,6 +219,7 @@ class CustomSignalAgent:
         self._assignees: list[CustomAgentAssignee] | None = None
         self._actionability: ActionabilityAssessment | None = None
         self._priority: PriorityAssessment | None = None
+        self._log_artefacts: list[tuple[str, str]] = []
         self._persisted_reports: list[PersistedCustomAgentReport] = []
 
     # ------------------------------------------------------------------
@@ -281,6 +308,49 @@ class CustomSignalAgent:
 
     def register_assignees(self, assignees: list[CustomAgentAssignee]) -> None:
         self._assignees = list(assignees)
+
+    def register_artefact(self, content: RegisterableArtefactContent) -> None:
+        """Queue a log artefact for the report being built.
+
+        Takes a content model from ``artefact_schemas`` (see
+        :py:data:`RegisterableArtefactContent`), so validation happens here at the call site.
+        Queued artefacts are written in registration order, in the same transaction as the
+        report, at the next finalization point.
+        """
+        artefact_type = next(
+            (type_ for model, type_ in _REGISTERABLE_ARTEFACT_TYPES.items() if isinstance(content, model)),
+            None,
+        )
+        if artefact_type is None:
+            allowed = ", ".join(model.__name__ for model in _REGISTERABLE_ARTEFACT_TYPES)
+            raise TypeError(f"register_artefact accepts {allowed}; got {type(content).__name__}")
+        self._log_artefacts.append((artefact_type, content.model_dump_json()))
+
+    def register_note(self, note: str, *, author: str | None = None) -> None:
+        """Queue a free-form ``note`` log artefact (markdown allowed)."""
+        self.register_artefact(NoteArtefact(note=note, author=author))
+
+    def register_code_reference(
+        self, *, file_path: str, start_line: int, end_line: int, contents: str, relevance_note: str
+    ) -> None:
+        """Queue a ``code_reference`` log artefact: a contiguous span of source lines."""
+        self.register_artefact(
+            CodeReference(
+                file_path=file_path,
+                start_line=start_line,
+                end_line=end_line,
+                contents=contents,
+                relevance_note=relevance_note,
+            )
+        )
+
+    def register_code_diff(self, *, file_path: str, diff: str, relevance_note: str) -> None:
+        """Queue a ``code_diff`` log artefact: a unified diff for a single file."""
+        self.register_artefact(CodeDiff(file_path=file_path, diff=diff, relevance_note=relevance_note))
+
+    def register_line_reference(self, *, file_path: str, line: int, note: str, contents: str | None = None) -> None:
+        """Queue a ``line_reference`` log artefact: a single source line callout."""
+        self.register_artefact(LineReference(file_path=file_path, line=line, note=note, contents=contents))
 
     # ------------------------------------------------------------------
     # 4. Likely to be overridden (prompt customization)
@@ -462,6 +532,7 @@ Rules:
             repo_selection=self._resolved_repository,
             task_id=task_id,
             agent_identifier=type(self).identifier(),
+            log_artefacts=list(self._log_artefacts),
         )
         self._persisted_reports.append(persisted)
         await self._maybe_autostart(persisted)
@@ -489,6 +560,7 @@ Rules:
         self._assignees = None
         self._actionability = None
         self._priority = None
+        self._log_artefacts = []
 
     def _final_report(self) -> CustomAgentFinalReport:
         missing = []
