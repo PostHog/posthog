@@ -420,6 +420,47 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_hogql_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
+        hogql_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+            },
+        }
+        hogql_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=hogql_insight_data).json()
+
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                {
+                    "insight": hogql_insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "HogQLAlertConfig"},
+                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                    "name": "sql alert",
+                },
+            ).json()
+
+        # The insight response must list the alert inline — the UI trusts this list on reload.
+        insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}").json()
+        assert [a["id"] for a in insight_response["alerts"]] == [alert["id"]]
+
+        # Updating the insight while it stays SQL-backed must not cascade-delete the alert.
+        updated = deepcopy(hogql_insight_data)
+        updated["query"]["source"]["query"] = "select count() + 1 from events"
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}", data=updated)
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_200_OK
+
+        # Changing to a kind that cannot carry alerts still cascades.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
+            data={"query": {"kind": "FunnelsQuery", "series": []}},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
         another_insight = self.client.post(
             f"/api/projects/{self.team.id}/insights", data=self.default_insight_data

@@ -418,6 +418,16 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         return self._unwrapped_query_kind() == "TrendsQuery"
 
     @property
+    def can_have_alerts(self) -> bool:
+        """The insight's query kind can carry alerts at all.
+
+        Broader than ``are_alerts_supported`` (trends only, the unflagged path): SQL-backed alerts
+        are gated by a feature flag at creation time, but once created they must keep displaying
+        and must survive insight updates regardless of the flag.
+        """
+        return self._unwrapped_query_kind() in ("TrendsQuery", "HogQLQuery")
+
+    @property
     def is_hogql_backed(self) -> bool:
         """True when the underlying query (unwrapped from any wrapper) is a HogQLQuery."""
         return self._unwrapped_query_kind() == "HogQLQuery"
