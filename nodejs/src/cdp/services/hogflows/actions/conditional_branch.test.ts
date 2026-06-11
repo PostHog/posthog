@@ -233,5 +233,20 @@ describe('action.conditional_branch', () => {
             expect(result.scheduledAt).toBeDefined()
             expect(result.nextAction).toBeUndefined()
         })
+
+        it('does not fire immediately when the condition has no properties (always-true bytecode)', async () => {
+            // An empty property condition compiles to always-true bytecode. It must not match on
+            // entry and advance the wait; the step should park until an event wakes it or it times out.
+            waitAction.config.condition = { filters: HOG_FILTERS_EXAMPLES.no_filters.filters }
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.scheduledAt).toBeDefined()
+            expect(result.nextAction).toBeUndefined()
+        })
     })
 })

@@ -19,6 +19,7 @@ import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'
 import { dashboardFiltersLogic } from './dashboardFiltersLogic'
+import { DashboardEditSaveCancelButtons } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardQuickFiltersButton } from './DashboardQuickFiltersButton'
 import { dashboardQuickFiltersSelectionLogic } from './dashboardQuickFiltersSelectionLogic'
@@ -151,6 +152,20 @@ export function DashboardAdvancedOptions(): JSX.Element | null {
     return <DashboardEditBar showDateFilter={false} className="flex gap-2 items-end flex-wrap border rounded p-2" />
 }
 
+function DashboardFilterEditActions(): JSX.Element | null {
+    const { dashboardMode, layoutEditMode, canEditDashboard } = useValues(dashboardLogic)
+
+    if (dashboardMode !== DashboardMode.Edit || layoutEditMode || !canEditDashboard) {
+        return null
+    }
+
+    return (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <DashboardEditSaveCancelButtons withShortcuts />
+        </div>
+    )
+}
+
 function DashboardApplyFiltersInline(): JSX.Element | null {
     const { showApplyFiltersBanner, loadingPreview, cancellingPreview, hasUrlFilters, dashboardMode } =
         useValues(dashboardLogic)
@@ -210,6 +225,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                         ].includes(placement) &&
                             dashboard &&
                             (dashboardFiltersEnabled ? <DashboardPrimaryFilters /> : <DashboardEditBar />)}
+                        <DashboardFilterEditActions />
                         <DashboardApplyFiltersInline />
                     </div>
                 </div>

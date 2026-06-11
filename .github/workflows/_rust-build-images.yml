@@ -32,6 +32,10 @@ on:
                 description: 'Comma-separated list of images to build (empty = all)'
                 type: string
                 default: ''
+            push:
+                description: 'Whether to push built images to the registry'
+                type: boolean
+                default: true
         outputs:
             digests:
                 description: 'JSON object mapping image name to digest'
@@ -146,7 +150,7 @@ jobs:
                   context: ./rust/
                   file: ${{ matrix.dockerfile }}
                   target: ${{ matrix.target || '' }}
-                  push: true
+                  push: ${{ inputs.push }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64

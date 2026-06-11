@@ -81,6 +81,8 @@ jobs:
             needs.affected.outputs.image-filter != 'none'
         uses: ./.github/workflows/_rust-build-images.yml
         with:
+            # Only the canonical deploy repo pushes prod images on master; PRs still push for validation.
+            push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
             image-filter: ${{ needs.affected.outputs.image-filter || '' }}
             tag-rules: |
                 type=ref,event=pr
@@ -100,7 +102,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build-images
-        if: github.ref == 'refs/heads/master'
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
         strategy:
             # fail-fast false so one missing digest doesn't cancel other deploys
             fail-fast: false

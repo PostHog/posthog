@@ -114,7 +114,24 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = pickResponseFields(result, [
+                'id',
+                'name',
+                'description',
+                'type',
+                'feature_flag_key',
+                'status',
+                'archived',
+                'start_date',
+                'end_date',
+                'created_at',
+                'parameters',
+                'metrics',
+                'metrics_secondary',
+                'conclusion',
+                'conclusion_comment',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -289,7 +306,24 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/launch/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = pickResponseFields(result, [
+                'id',
+                'name',
+                'description',
+                'type',
+                'feature_flag_key',
+                'status',
+                'archived',
+                'start_date',
+                'end_date',
+                'created_at',
+                'parameters',
+                'metrics',
+                'metrics_secondary',
+                'conclusion',
+                'conclusion_comment',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -704,7 +738,24 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = pickResponseFields(result, [
+                'id',
+                'name',
+                'description',
+                'type',
+                'feature_flag_key',
+                'status',
+                'archived',
+                'start_date',
+                'end_date',
+                'created_at',
+                'parameters',
+                'metrics',
+                'metrics_secondary',
+                'conclusion',
+                'conclusion_comment',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
