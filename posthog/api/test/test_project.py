@@ -119,6 +119,151 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response = self.client.post("/api/projects/", {"name": f"Project {i}"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
+        features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
+        if with_member_create_entitlement:
+            # members_can_create_projects is gated behind the invite-settings entitlement for now
+            features.append({"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS, "name": "Org invite settings"})
+        self.organization.available_product_features = features
+        self.organization.save()
+
+    def test_member_cannot_create_project_by_default(self):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"], "You need to be an organization admin or above to create new projects."
+        )
+
+    def test_member_cannot_create_project_without_entitlement_even_when_toggle_on(self):
+        # No invite-settings entitlement: the toggle is ignored and the gate behaves as admin-only.
+        self._set_unlimited_projects(with_member_create_entitlement=False)
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"], "You need to be an organization admin or above to create new projects."
+        )
+
+    def test_member_can_create_project_when_org_allows(self):
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.create_notification"):
+            response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_member_cannot_set_admin_only_fields_when_creating_project(self):
+        # A member allowed to create projects must not be able to set admin-only team fields like
+        # receive_org_level_activity_logs, which would grant org-wide activity log access.
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.create_notification"):
+            response = self.client.post(
+                "/api/projects/", {"name": "Sneaky Project", "receive_org_level_activity_logs": True}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("receive_org_level_activity_logs", response.json()["detail"])
+        self.assertFalse(self.organization.teams.filter(receive_org_level_activity_logs=True).exists())
+
+    def test_admin_can_set_admin_only_fields_when_creating_project(self):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/projects/", {"name": "Admin Project", "receive_org_level_activity_logs": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["receive_org_level_activity_logs"])
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]
+    )
+    def test_admins_and_owners_can_always_create_project_when_members_blocked(self, _name, level):
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = False
+        self.organization.save()
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.create_notification") as mock_create_notification:
+            response = self.client.post("/api/projects/", {"name": f"{_name} Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Admins/owners are the recipients, never the trigger — creating their own project must not notify
+        mock_create_notification.assert_not_called()
+
+    @patch("posthog.api.project.create_notification")
+    def test_member_project_creation_notifies_org_admins(self, mock_create_notification):
+        from posthog.models import User
+
+        from products.notifications.backend.facade.api import NotificationType, TargetType
+
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Add an admin so we can confirm admins/owners are targeted individually by user_id
+        admin_user = User.objects.create_and_join(
+            self.organization, "admin2@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        expected_admin_ids = set(
+            self.organization.memberships.filter(level__gte=OrganizationMembership.Level.ADMIN).values_list(
+                "user_id", flat=True
+            )
+        )
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # One USER-targeted notification per admin/owner, never the member creator
+        self.assertEqual(mock_create_notification.call_count, len(expected_admin_ids))
+        targeted_user_ids = set()
+        for call in mock_create_notification.call_args_list:
+            data = call[0][0]
+            self.assertEqual(data.notification_type, NotificationType.PROJECT_CREATED)
+            self.assertEqual(data.target_type, TargetType.USER)
+            targeted_user_ids.add(int(data.target_id))
+        self.assertEqual(targeted_user_ids, expected_admin_ids)
+        self.assertIn(admin_user.id, targeted_user_ids)
+        self.assertNotIn(self.user.id, targeted_user_ids)
+
+    @patch("posthog.api.project.create_notification")
+    def test_admin_project_creation_does_not_notify(self, mock_create_notification):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Admin Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_create_notification.assert_not_called()
+
     @patch("posthog.models.organization.Organization.teams")
     def test_hard_limit_projects(self, mock_teams):
         # Set unlimited projects
@@ -260,6 +405,42 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         if expected_status == status.HTTP_400_BAD_REQUEST:
             self.assertIn("active subscription", response.json()["detail"])
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())
+
+    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    def test_project_deletion_sets_pending_deletion_flag(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        mock_delete_task.delay.assert_called_once()
+
+    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    def test_project_deletion_returns_pending_deletion_in_api(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.client.delete(f"/api/projects/{self.project.id}")
+
+        response = self.client.get(f"/api/projects/{self.project.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_pending_deletion"])
+
+    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    def test_delete_project_already_pending_deletion_returns_400(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.project.is_pending_deletion = True
+        self.project.save(update_fields=["is_pending_deletion"])
+
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already being deleted", response.json()["detail"])
+        mock_delete_task.delay.assert_not_called()
 
     def test_team_deletion_does_not_cascade_to_persons(self):
         """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
@@ -461,3 +642,75 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Verify changes were made
         self.project.refresh_from_db()
         self.assertEqual(self.project.name, "New Project Name")
+
+    # --- Parity coverage: fields and actions that previously existed only on /api/environments/ ---
+
+    def test_retrieve_project_includes_environment_parity_fields(self):
+        response = self.client.get(f"/api/projects/{self.project.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Fields that used to be exposed only by /api/environments/ must now appear on /api/projects/ too
+        for field in [
+            "project_id",
+            "user_access_level",
+            "managed_viewsets",
+            "base_currency",
+            "capture_dead_clicks",
+            "cookieless_server_hash_mode",
+            "default_data_theme",
+            "revenue_analytics_config",
+            "marketing_analytics_config",
+            "customer_analytics_config",
+            "web_analytics_pre_aggregated_tables_enabled",
+        ]:
+            self.assertIn(field, data, f"/api/projects/ response is missing parity field '{field}'")
+        # project_id on a Project equals its own id (Project ↔ Team is 1:1)
+        self.assertEqual(data["project_id"], self.project.id)
+
+    def test_new_passthrough_field_writes_through_to_team(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"base_currency": "EUR", "capture_dead_clicks": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["base_currency"], "EUR")
+        self.assertEqual(response.json()["capture_dead_clicks"], True)
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.base_currency, "EUR")
+        self.assertEqual(self.team.capture_dead_clicks, True)
+
+    def test_customer_analytics_config_writes_through_to_team(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"customer_analytics_config": {"activity_event": "$pageview"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["customer_analytics_config"]["activity_event"], "$pageview")
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
+
+    def test_settings_as_of_action_available_on_projects(self):
+        # This action previously existed only on /api/environments/ — it must now work on /api/projects/ too.
+        # NOTE: we pass a `scope` filter on purpose. The unscoped snapshot path has a pre-existing bug on the
+        # environments endpoint too — TEAM_CONFIG_FIELDS includes the analytics-config *properties* (model
+        # instances, not JSON-serializable), so an unscoped call 500s on both surfaces. Faithfully replicated
+        # here; fixing it belongs in a separate change since it affects /api/environments/ identically.
+        response = self.client.get(
+            f"/api/projects/{self.project.id}/settings_as_of/?at=2020-01-01T00:00:00Z&scope=timezone"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("timezone", response.json())
+
+    def test_experiments_config_action_available_on_projects(self):
+        response = self.client.get(f"/api/projects/{self.project.id}/experiments_config/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("default_experiment_stats_method", response.json())

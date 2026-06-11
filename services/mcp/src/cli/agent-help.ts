@@ -46,16 +46,16 @@ export function toCliSyntax(text: string): string {
 /** Build the full agent-facing guide for \`posthog-cli api --agent-help\` from the same
  *  exec-tool templates the MCP server serves, including the tool-domain index and the
  *  query-tool catalog derived from the bundled tool registry (no network or auth needed). */
-export function buildAgentHelp(tools: Tool<ZodObjectAny>[], version: number): string {
+export function buildAgentHelp(tools: Tool<ZodObjectAny>[]): string {
     const formatter = new InstructionsFormatter()
     const toolInfos: ToolInfo[] = tools.map((tool) => ({
         name: tool.name,
-        category: getToolDefinition(tool.name, version).category,
+        category: getToolDefinition(tool.name).category,
     }))
     const queryTools: QueryToolInfo[] = tools
         .filter((tool) => tool.name.startsWith('query-'))
         .map((tool) => {
-            const definition = getToolDefinition(tool.name, version)
+            const definition = getToolDefinition(tool.name)
             return {
                 name: tool.name,
                 title: definition.title,

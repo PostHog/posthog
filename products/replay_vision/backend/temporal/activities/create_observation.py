@@ -10,6 +10,7 @@ from posthog.models.organization import OrganizationMembership
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import (
     CreateObservationInputs,
@@ -48,6 +49,17 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
             raise ValueError(
                 f"User {inputs.triggered_by_user_id} is not a member of scanner {inputs.scanner_id}'s organization"
             )
+
+    if compute_quota_snapshot(scanner.team.organization_id).exhausted:
+        activity.logger.info(
+            "Skipping observation: monthly quota exhausted",
+            extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},
+        )
+        return CreateObservationOutput(
+            observation_id=None,
+            was_created=False,
+            scanner_type=scanner.scanner_type,
+        )
 
     try:
         with transaction.atomic():

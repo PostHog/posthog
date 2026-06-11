@@ -15,7 +15,6 @@ from google.genai import (
 
 from posthog.schema import ReplayInactivityPeriod
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.storage import object_storage
 from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import track_uploaded_file
 from posthog.temporal.session_replay.session_summary.types.video import (
@@ -23,6 +22,8 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     UploadVideoToGeminiOutput,
     VideoSummarySingleSessionInputs,
 )
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 from ee.hogai.session_summaries.constants import MOMENT_VIDEO_EXPORT_FORMAT
 from ee.hogai.videos.utils import get_video_duration_s

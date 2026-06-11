@@ -7,13 +7,14 @@
 
 import type { CloudRegion } from '@/tools/types'
 
-import { MCP_DOCS_URL } from './oauth-constants'
 import {
     buildInsufficientScopeChallenge,
     ErrorCode,
     findPostHogPermissionError,
     formatPermissionErrorMessage,
 } from './errors'
+import { isIdJagAccessToken } from './id-jag'
+import { MCP_DOCS_URL } from './oauth-constants'
 import { getPublicUrl } from './routing'
 
 // Map a thrown error to the appropriate auth response, or null if not auth-related.
@@ -78,7 +79,10 @@ export function buildInvalidTokenFormatResponse(): Response {
     )
 }
 
-// Validate the bearer token format (must be present and `phx_`/`pha_` prefixed).
+// Validate the bearer token format. Accepts:
+//   * Personal API keys (`phx_…`) and OAuth access tokens (`pha_…`).
+//   * ID-JAG access tokens — RFC 9068 JWTs with `typ: at+jwt` (issued by the
+//     PostHog ID-JAG endpoint at `/id-jag/token`).
 // Returns the auth-error response if invalid, or null if the token is well-formed.
 export function validateBearerToken(
     token: string | undefined,
@@ -88,8 +92,11 @@ export function validateBearerToken(
     if (!token) {
         return buildMissingTokenResponse(request, effectiveRegion)
     }
-    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
-        return buildInvalidTokenFormatResponse()
+    if (token.startsWith('phx_') || token.startsWith('pha_')) {
+        return null
     }
-    return null
+    if (isIdJagAccessToken(token)) {
+        return null
+    }
+    return buildInvalidTokenFormatResponse()
 }

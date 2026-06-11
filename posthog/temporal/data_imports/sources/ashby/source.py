@@ -2,22 +2,32 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.ashby.ashby import (
+    AUTH_ERROR_HINT,
+    DEFAULT_PROBE_PATH,
+    AshbyResumeConfig,
+    ashby_source,
+    check_access,
+)
+from posthog.temporal.data_imports.sources.ashby.settings import ASHBY_ENDPOINTS, ENDPOINTS
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import AshbySourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
-# TODO(Andrew J. McGehee): implement the source logic for AshbySource
-
 
 @SourceRegistry.register
-class AshbySource(SimpleSource[AshbySourceConfig]):
+class AshbySource(ResumableSource[AshbySourceConfig, AshbyResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ASHBY
@@ -26,21 +36,29 @@ class AshbySource(SimpleSource[AshbySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ASHBY,
-            iconPath="/static/services/ashby.png",
-            label="Ashby",  # only needed if the readable name is complex. delete otherwise
-            caption=None,  # only needed if you want to inline docs
-            docsUrl=None,  # TODO(Andrew J. McGehee): link to the docs in the website, full path including https://
-            fields=cast(list[FieldType], []),  # TODO(Andrew J. McGehee): add source config fields here
-            unreleasedSource=True,
-        )
+            label="Ashby",
+            releaseStatus=ReleaseStatus.ALPHA,
+            caption="""Enter your Ashby API key to pull your Ashby (ATS) data into the PostHog Data warehouse.
 
-    def validate_credentials(
-        self, config: AshbySourceConfig, team_id: int, schema_name: Optional[str] = None
-    ) -> tuple[bool, str | None]:
-        # TODO(Andrew J. McGehee): implement the logic to validate the credentials of your source,
-        # e.g. check the validity of API keys. returns a tuple of whether the credentials are valid,
-        # and if not, returns an error message to return to the user
-        raise NotImplementedError()
+You can create an API key under **Admin → API Keys** in Ashby. Grant read permissions for the data you want to sync, for example:
+- `candidatesRead`, `applicationsRead`, `jobsRead`, `offersRead`, `interviewsRead`, `usersRead`
+""",
+            iconPath="/static/services/ashby.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/ashby",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="api_key",
+                        label="API key",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                ],
+            ),
+        )
 
     def get_schemas(
         self,
@@ -50,7 +68,64 @@ class AshbySource(SimpleSource[AshbySourceConfig]):
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        raise NotImplementedError()
+        # Ashby exposes incremental sync only via an opaque syncToken and an unordered
+        # `createdAfter` filter — neither maps safely onto PostHog's timestamp-watermark
+        # model — so every endpoint is full refresh for now.
+        schemas = [
+            SourceSchema(
+                name=endpoint,
+                supports_incremental=False,
+                supports_append=False,
+                incremental_fields=[],
+            )
+            for endpoint in ENDPOINTS
+        ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
-    def source_for_pipeline(self, config: AshbySourceConfig, inputs: SourceInputs) -> SourceResponse:
-        raise NotImplementedError()
+    def validate_credentials(
+        self, config: AshbySourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
+        if schema_name is not None and schema_name not in ASHBY_ENDPOINTS:
+            return False, f"Unknown Ashby schema '{schema_name}'"
+
+        path = ASHBY_ENDPOINTS[schema_name].path if schema_name is not None else DEFAULT_PROBE_PATH
+        status, message = check_access(config.api_key, path)
+
+        if status == 200:
+            return True, None
+        if status == 401:
+            return False, "Invalid Ashby API key"
+        if status == 403:
+            # Valid key without scope for this endpoint. Accept at source-create (the user may
+            # only intend to sync a subset); reject when validating a specific schema.
+            if schema_name is not None:
+                return False, f"Your Ashby API key does not have permission to read '{schema_name}'"
+            return True, None
+
+        return False, message or "Could not validate Ashby credentials"
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error": "Your Ashby API key is invalid or expired. Please generate a new key and reconnect.",
+            "403 Client Error": "Your Ashby API key does not have the required permissions. Please check the key's scopes and try again.",
+            AUTH_ERROR_HINT: "Your Ashby API key is invalid or lacks the required permissions. Please check the key and try again.",
+        }
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AshbyResumeConfig]:
+        return ResumableSourceManager[AshbyResumeConfig](inputs, AshbyResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: AshbySourceConfig,
+        resumable_source_manager: ResumableSourceManager[AshbyResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return ashby_source(
+            api_key=config.api_key,
+            endpoint=inputs.schema_name,
+            logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
+        )

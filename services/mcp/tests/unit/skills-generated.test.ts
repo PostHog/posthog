@@ -36,7 +36,7 @@ describe('Generated llma-skill-* tools', () => {
 
         expect(requestMock).toHaveBeenCalledWith({
             method: 'POST',
-            path: '/api/environments/17/llm_skills/name/skills-store/archive/',
+            path: '/api/projects/17/llm_skills/name/skills-store/archive/',
         })
         expect(result).toBeUndefined()
     })

@@ -176,7 +176,7 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                         <LemonTag type="warning">Legacy</LemonTag>
                     </div>
                     <div>
-                        You're on our legacy {addon.name} add-on. Compare the new plans below if you'd like to switch.
+                        You're on our legacy {addon.name} package. Compare the new plans below if you'd like to switch.
                     </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 self-center">
@@ -196,7 +196,7 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                                     reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
                                 }}
                             >
-                                Remove add-on
+                                Remove package
                             </LemonButton>
                         }
                     />

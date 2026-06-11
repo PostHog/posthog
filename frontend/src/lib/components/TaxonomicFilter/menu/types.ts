@@ -3,6 +3,8 @@
  *
  * See `../headless/UX_SPEC.md` for the full design.
  */
+import { AnyPropertyFilter } from '~/types'
+
 import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -10,19 +12,23 @@ import {
     TaxonomicFilterValue,
 } from '../types'
 
+/** Stamped on the legacy `taxonomic filter *` telemetry events so the A/B arms
+ *  are distinguishable by an explicit property rather than a feature-flag join.
+ *  Legacy emits `legacy-control` / `legacy-pill`. */
+export const TAXONOMIC_FILTER_SURFACE = 'rebuild-menu'
+
 /** A single selectable entry — what the picker commits when chosen. */
 export interface MenuFilterEntry {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     name: string
     friendlyLabel?: string
+    recentPropertyFilter?: AnyPropertyFilter
+    recentLabel?: string
 }
 
-/** Synthetic categories the combobox panel can be drilled into.
- *  - `'suggested'` mixes Recent ∪ Pinned across groups, mirroring the
- *    legacy popover's "Suggested step" view; the row's category label
- *    still names the original source group. */
-export type DrillCategory = 'all' | 'recent' | 'pinned' | 'suggested' | TaxonomicFilterGroupType
+/** Synthetic categories the combobox panel can be drilled into. */
+export type DrillCategory = 'all' | 'recent' | 'pinned' | TaxonomicFilterGroupType
 
 /** Top-level state machine. One union type, one transition per action. */
 export type MenuFilterState =
@@ -50,6 +56,24 @@ export interface PageHeader {
     onBack: () => void
 }
 
-export type CommitFn = (entry: MenuFilterEntry, extra?: Record<string, unknown>) => void
+/** Row context the combobox forwards on commit so the legacy `taxonomic filter
+ *  item selected` event (emitted from the final-commit funnel, not on row click)
+ *  can still carry the row's position and origin. Absent for commits that don't
+ *  originate from a combobox row (DWH config form, HogQL editor). */
+export interface CommitSelectionContext {
+    /** Active scope chip the row sat under (legacy `activeTab`); undefined on the All/Recent/Pinned meta scopes. */
+    groupType: TaxonomicFilterGroupType | undefined
+    /** Zero-based row position in the rendered list; undefined if the committed
+     *  entry isn't in the rendered list (kept absent rather than a sentinel). */
+    position: number | undefined
+    wasFromRecents: boolean
+    wasFromPinnedList: boolean
+}
+
+export type CommitFn = (
+    entry: MenuFilterEntry,
+    extra?: Record<string, unknown>,
+    selection?: CommitSelectionContext
+) => void
 
 export type { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterValue, TaxonomicDefinitionTypes }

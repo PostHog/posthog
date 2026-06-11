@@ -30,7 +30,7 @@ async fn start_server_with_header_timeout(
 
     let handles = setup::register_components(&mut manager, &config);
     let _monitor = manager.monitor_background();
-    let components = setup::build_components(config, handles).await;
+    let components = setup::build_components(config, std::env::vars().collect(), handles).await;
 
     tokio::spawn(async move { serve(listener, components).await });
 

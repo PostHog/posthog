@@ -133,7 +133,7 @@
       GROUP BY
           person_distinct_id_overrides.distinct_id
       HAVING
-          ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0)
+          equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0)
       SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
       LEFT JOIN (SELECT
           dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
@@ -189,9 +189,16 @@
   SELECT
       events__session.`$session_duration` AS duration
   FROM
-      events
+      (SELECT
+          events.`$session_id_uuid` AS `$session_id_uuid`,
+          toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp
+      FROM
+          events
+      WHERE
+          and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, today()))
+      LIMIT 50000) AS events
       LEFT JOIN (SELECT
-          dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+          dateDiff(%(hogql_val_1)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_2)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_3)s))) AS `$session_duration`,
           raw_sessions.session_id_v7 AS session_id_v7
       FROM
           raw_sessions
@@ -199,8 +206,6 @@
           and(equals(raw_sessions.team_id, <TEAM_ID>), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(today(), toIntervalDay(3))))
       GROUP BY
           raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
-  WHERE
-      and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, today()))
   LIMIT 50000
   '''
 # ---

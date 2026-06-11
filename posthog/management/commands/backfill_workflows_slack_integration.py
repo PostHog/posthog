@@ -6,7 +6,7 @@ from typing import Any
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
 

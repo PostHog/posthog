@@ -66,7 +66,7 @@ function printResult(result: unknown): void {
 
 async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltExec> {
     const context = await buildCliContext(config)
-    const tools = getCliTools(config.version)
+    const tools = getCliTools()
     const execTool = createExecTool(
         tools,
         context,
@@ -83,6 +83,7 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
                 ...(properties.error_message ? { error_message: properties.error_message } : {}),
             })
         },
+        [],
         { requireDestructiveConfirmation: true }
     )
 
@@ -185,8 +186,7 @@ async function main(): Promise<void> {
     }
 
     if (command === 'agent-help' || command === '--agent-help') {
-        const config = resolveCliConfig()
-        process.stdout.write(`${buildAgentHelp(getCliTools(config.version), config.version)}\n`)
+        process.stdout.write(`${buildAgentHelp(getCliTools())}\n`)
         return
     }
 

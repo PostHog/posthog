@@ -163,7 +163,9 @@ function DestinationEmailTemplaterForm({
                                 className={clsx(
                                     activeContentTab === 'visual'
                                         ? 'flex flex-col flex-1'
-                                        : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                                        : // invisible releases the hidden editor's raster backing while
+                                          // visibility (unlike display:none) preserves its layout state
+                                          'absolute inset-0 -z-10 opacity-0 pointer-events-none invisible'
                                 )}
                             >
                                 <EmailEditor
@@ -232,12 +234,7 @@ function NativeEmailIntegrationChoice({
             window.open(urls.workflows('channels'), '_blank')
             return
         }
-        const integration = integrationsOfKind?.find((x) => x.id === integrationId)
-        onChange({
-            integrationId,
-            email: integration?.config?.email_address ?? 'default@example.com', // TODO: Remove this default later
-            // name: integration?.config?.name, // TODO: Add support for the name?
-        })
+        onChange({ integrationId })
     }
 
     if (!integrationsLoading && integrationsOfKind?.length === 0) {
@@ -540,7 +537,9 @@ function NativeEmailTemplaterForm({
                                 className={clsx(
                                     activeContentTab === 'visual'
                                         ? 'flex flex-col flex-1'
-                                        : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                                        : // invisible releases the hidden editor's raster backing while
+                                          // visibility (unlike display:none) preserves its layout state
+                                          'absolute inset-0 -z-10 opacity-0 pointer-events-none invisible'
                                 )}
                             >
                                 <EmailEditor

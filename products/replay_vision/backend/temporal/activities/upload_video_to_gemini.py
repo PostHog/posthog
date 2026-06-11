@@ -15,10 +15,10 @@ from google.genai import (
 )
 from temporalio import activity
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.storage import object_storage
 from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import track_uploaded_file
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs

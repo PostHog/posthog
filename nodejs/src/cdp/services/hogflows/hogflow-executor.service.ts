@@ -633,9 +633,21 @@ export class HogFlowExecutorService {
                 : ''
         }
 
-        const triggeredByEvent = hasAssociatedEvent
+        let triggeredByEvent = hasAssociatedEvent
             ? ` on [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
             : ''
+
+        // Surface the event that woke the job (not the trigger). The logs view builds the link
+        // from uuid + timestamp, so emit the linkable token only when both are present.
+        const wakeEvent = invocation.state.currentAction?.eventMatchedEvent
+        const wakeEventUuid = invocation.state.currentAction?.eventMatchedEventUuid
+        const wakeEventTimestamp = invocation.state.currentAction?.eventMatchedEventTimestamp
+        if (hasCurrentAction && invocation.state.currentAction?.eventMatched && wakeEvent) {
+            triggeredByEvent +=
+                wakeEventUuid && wakeEventTimestamp
+                    ? ` (woken by [Event:${wakeEventUuid}|${wakeEvent.replaceAll('|', '')}|${wakeEventTimestamp}])`
+                    : ` (woken by event: ${wakeEvent.replaceAll('|', '')})`
+        }
 
         return {
             level: 'info',

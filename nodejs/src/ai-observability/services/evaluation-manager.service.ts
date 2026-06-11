@@ -6,19 +6,19 @@ import { PubSub } from '../../utils/pubsub'
 import { Evaluation, EvaluationInfo } from '../types'
 
 const EVALUATION_FIELDS = [
-    'id',
-    'team_id',
-    'name',
-    'enabled',
-    'status',
-    'status_reason',
-    'evaluation_type',
-    'evaluation_config',
-    'output_type',
-    'output_config',
-    'conditions',
-    'created_at',
-    'updated_at',
+    'e.id',
+    'e.team_id',
+    'e.name',
+    'e.enabled',
+    'e.status',
+    'e.status_reason',
+    'e.evaluation_type',
+    'e.evaluation_config',
+    'e.output_type',
+    'e.output_config',
+    'e.conditions',
+    'e.created_at',
+    'e.updated_at',
 ]
 
 export class EvaluationManagerService {
@@ -130,7 +130,10 @@ export class EvaluationManagerService {
 
         const response = await this.postgres.query<Evaluation>(
             PostgresUse.COMMON_READ,
-            `SELECT ${EVALUATION_FIELDS.join(', ')} FROM llm_analytics_evaluation WHERE id = ANY($1)`,
+            `SELECT ${EVALUATION_FIELDS.join(', ')}, mc.provider_key_id::text AS provider_key_id
+             FROM llm_analytics_evaluation e
+             LEFT JOIN llm_analytics_llmmodelconfiguration mc ON e.model_configuration_id = mc.id
+             WHERE e.id = ANY($1)`,
             [ids],
             'fetchEvaluations'
         )

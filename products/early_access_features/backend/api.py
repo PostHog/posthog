@@ -5,12 +5,10 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -32,6 +30,12 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from .models import EarlyAccessFeature
 
 logger = structlog.get_logger(__name__)
+
+
+def _set_enrollment_filters(existing: dict, *, enrolled: bool | None, **overrides: Any) -> dict:
+    filters = {**existing, "feature_enrollment": enrolled, **overrides}
+    filters.pop("super_groups", None)
+    return filters
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
@@ -126,17 +130,13 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
         if instance.stage != stage and stage == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY and rollout_to_all:
-            # When promoting to GA with rollout_to_all, clear super_groups (removing opt-in/opt-out
-            # conditions) and set the flag to 100% rollout so all users see the feature regardless
-            # of their previous enrollment status.
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
-                serialized_data_filters = {
-                    **related_feature_flag.filters,
-                    "super_groups": None,
-                    "feature_enrollment": None,
-                    "groups": [{"properties": [], "rollout_percentage": 100}],
-                }
+                serialized_data_filters = _set_enrollment_filters(
+                    related_feature_flag.filters,
+                    enrolled=None,
+                    groups=[{"properties": [], "rollout_percentage": 100}],
+                )
 
                 serializer = FeatureFlagSerializer(
                     related_feature_flag,
@@ -147,28 +147,9 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
         elif instance.stage not in EarlyAccessFeature.ActiveStage and stage in EarlyAccessFeature.ActiveStage:
-            super_conditions = lambda feature_flag_key: [
-                {
-                    "properties": [
-                        {
-                            "key": f"$feature_enrollment/{feature_flag_key}",
-                            "type": "person",
-                            "operator": "exact",
-                            "value": ["true"],
-                        },
-                    ],
-                    "rollout_percentage": 100,
-                },
-            ]
-
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
-                related_feature_flag_key = related_feature_flag.key
-                serialized_data_filters = {
-                    **related_feature_flag.filters,
-                    "super_groups": super_conditions(related_feature_flag_key),
-                    "feature_enrollment": True,
-                }
+                serialized_data_filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=True)
 
                 serializer = FeatureFlagSerializer(
                     related_feature_flag,
@@ -179,14 +160,9 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
         elif stage is not None and (stage not in EarlyAccessFeature.ActiveStage):
-            # Remove super_groups and feature_enrollment when leaving an active stage (including moving to CONCEPT)
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
-                related_feature_flag.filters = {
-                    **related_feature_flag.filters,
-                    "super_groups": None,
-                    "feature_enrollment": None,
-                }
+                related_feature_flag.filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=None)
                 related_feature_flag.save()
 
         updated_instance = super().update(instance, validated_data)
@@ -289,31 +265,12 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         default_condition = [
             {"properties": [], "rollout_percentage": 0, "variant": None},
         ]
-        super_conditions = lambda feature_flag_key: [
-            {
-                "properties": [
-                    {
-                        "key": f"$feature_enrollment/{feature_flag_key}",
-                        "type": "person",
-                        "operator": "exact",
-                        "value": ["true"],
-                    },
-                ],
-                "rollout_percentage": 100,
-            },
-        ]
 
         if feature_flag_id:
-            # Modifying an existing feature flag
             feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
-            feature_flag_key = feature_flag.key
 
             if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
-                serialized_data_filters = {
-                    **feature_flag.filters,
-                    "super_groups": super_conditions(feature_flag_key),
-                    "feature_enrollment": True,
-                }
+                serialized_data_filters = _set_enrollment_filters(feature_flag.filters, enrolled=True)
 
                 serializer = FeatureFlagSerializer(
                     feature_flag,
@@ -331,7 +288,6 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             }
 
             if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
-                filters["super_groups"] = super_conditions(feature_flag_key)
                 filters["feature_enrollment"] = True
 
             feature_flag_serializer = FeatureFlagSerializer(
@@ -352,7 +308,6 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         return feature
 
 
-@extend_schema(tags=[ProductKey.EARLY_ACCESS_FEATURES])
 class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "early_access_feature"
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
@@ -374,11 +329,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 team_id=instance.team_id,
                 feature_flag_id=related_feature_flag.id,
             )
-            related_feature_flag.filters = {
-                **related_feature_flag.filters,
-                "super_groups": None,
-                "feature_enrollment": None,
-            }
+            related_feature_flag.filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=None)
             related_feature_flag.save()
 
         return super().destroy(request, *args, **kwargs)

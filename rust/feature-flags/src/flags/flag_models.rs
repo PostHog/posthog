@@ -209,6 +209,10 @@ pub struct FlagFilters {
     /// Defines a set of users intentionally excluded from a test or experiment.
     #[serde(default)]
     pub holdout: Option<Holdout>,
+    /// Flag-level toggle: when true, condition evaluation stops at the first
+    /// matching group rather than continuing to evaluate subsequent groups.
+    #[serde(default)]
+    pub early_exit: Option<bool>,
     /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
     /// Without this, legacy filter keys (`holdout_groups`), top-level stray keys,
     /// and field typos (`multivariant` for `multivariate`, `payload` for

@@ -49,7 +49,7 @@ describe('flagMatchesSearch', () => {
             key: 'experiment-flag',
             name: 'Experiment Flag',
             experiment_set: [1],
-            experiment_set_metadata: [{ id: 1, name: 'My Experiment Test' }],
+            experiment_set_metadata: [{ id: 1, name: 'My Experiment Test', is_running: false }],
         } as FeatureFlagType
 
         it.each<[FeatureFlagType, string, boolean]>([
@@ -90,7 +90,7 @@ describe('flagMatchesSearch', () => {
                 key: 'null-test-flag',
                 name: 'Flag with Null Test',
                 experiment_set: [2],
-                experiment_set_metadata: [{ id: 2, name: null as any }],
+                experiment_set_metadata: [{ id: 2, name: null as any, is_running: false }],
             } as FeatureFlagType
 
             // Should not throw error and should still match by flag name

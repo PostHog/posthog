@@ -16,6 +16,7 @@ use std::fmt;
 use std::future::Future;
 use std::io::Write;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
@@ -31,6 +32,8 @@ use tokio::task::spawn_blocking;
 use tonic::Status;
 use tower::{Layer, Service};
 use tracing::warn;
+
+use crate::grpc::GZIP_OVERHEAD_HEADER;
 
 /// gRPC frame header: 1 byte compression flag + 4 byte payload length.
 const GRPC_HEADER_SIZE: usize = 5;
@@ -64,6 +67,23 @@ pub struct AsyncGzipConfig {
     /// than this pass through uncompressed — the gzip header overhead would
     /// make them larger, and the CPU cost isn't worth it.
     pub min_payload_size: usize,
+
+    /// Maximum response payload size (bytes) after compression (or uncompressed
+    /// if gzip is not negotiated). When a response exceeds this limit, behavior
+    /// depends on `max_response_size_enforce`: in enforce mode, the response is
+    /// rejected with an OUT_OF_RANGE gRPC error; in monitor mode, a metric is
+    /// emitted but the response is delivered normally. `None` disables the check.
+    ///
+    /// This replaces tonic's `max_encoding_message_size` as the primary guardrail
+    /// because tonic's check runs before this layer's gzip compression, rejecting
+    /// responses that would compress well below the limit.
+    pub max_response_size: Option<usize>,
+
+    /// When true, responses exceeding `max_response_size` are rejected with a
+    /// gRPC OUT_OF_RANGE error. When false (monitor mode), the metric fires
+    /// but the response is delivered normally — useful for observing violations
+    /// before enabling enforcement.
+    pub max_response_size_enforce: bool,
 }
 
 impl AsyncGzipConfig {
@@ -72,7 +92,15 @@ impl AsyncGzipConfig {
             enabled,
             compression_level: compression_level.clamp(1, 9),
             min_payload_size,
+            max_response_size: None,
+            max_response_size_enforce: false,
         }
+    }
+
+    pub fn with_max_response_size(mut self, max_bytes: Option<usize>, enforce: bool) -> Self {
+        self.max_response_size = max_bytes;
+        self.max_response_size_enforce = enforce;
+        self
     }
 }
 
@@ -82,6 +110,8 @@ impl Default for AsyncGzipConfig {
             enabled: false,
             compression_level: 6,
             min_payload_size: 256,
+            max_response_size: None,
+            max_response_size_enforce: false,
         }
     }
 }
@@ -152,14 +182,31 @@ where
                 .and_then(|v| v.to_str().ok())
                 .is_some_and(|v| v.split(',').any(|e| e.trim() == "gzip"));
 
-        let method = request
-            .uri()
-            .path()
-            .rsplit_once('/')
-            .map(|(_, m)| m)
-            .filter(|m| !m.is_empty())
-            .unwrap_or("unknown")
-            .to_string();
+        let method: Arc<str> = Arc::from(
+            request
+                .uri()
+                .path()
+                .rsplit_once('/')
+                .map(|(_, m)| m)
+                .filter(|m| !m.is_empty())
+                .unwrap_or("unknown"),
+        );
+
+        let client: Arc<str> = Arc::from(
+            request
+                .headers()
+                .get("x-client-name")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("unknown"),
+        );
+
+        let caller_tag: Arc<str> = Arc::from(
+            request
+                .headers()
+                .get("x-caller-tag")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+        );
 
         let config = self.config.clone();
         let mut inner = self.inner.clone();
@@ -168,20 +215,12 @@ where
             let response = inner.call(request).await?;
             let (mut parts, body) = response.into_parts();
 
-            // When compression isn't requested, pass the original body through
-            // without collecting or copying — zero overhead for the common case
-            // where the client doesn't accept gzip or the feature is disabled.
-            if !accepts_gzip {
-                counter!("grpc_gzip_responses_total", "outcome" => "passthrough", "method" => method.clone()).increment(1);
-                let body = body.map_err(|e| Status::internal(e.to_string()));
-                let boxed: ResponseBody = Box::pin(body);
-                return Ok(Response::from_parts(parts, boxed));
-            }
+            let gzip_start = Instant::now();
 
-            // Gather body data chunks and trailers separately. For unary RPCs,
-            // tonic produces one or more data frames (split at ~32KB boundaries)
-            // followed by a trailers frame. We keep chunks as individual Bytes
-            // references to avoid copying them into a contiguous buffer.
+            // Always collect the body so we can enforce size limits on all
+            // response paths. For unary RPCs this is a single frame — the
+            // overhead is one Vec allocation and Bytes reference copies (no
+            // data copying for the common single-chunk case).
             let mut chunks: Vec<Bytes> = Vec::new();
             let mut trailers: Option<HeaderMap> = None;
             let mut total_size: usize = 0;
@@ -226,6 +265,25 @@ where
                 }
             }
 
+            histogram!(
+                "grpc_gzip_body_collect_ms",
+                "method" => method.clone(),
+            )
+            .record(gzip_start.elapsed().as_secs_f64() * 1000.0);
+
+            // Client doesn't accept gzip — return the collected body uncompressed.
+            if !accepts_gzip {
+                counter!("grpc_gzip_responses_total", "outcome" => "passthrough_no_gzip", "method" => method.clone()).increment(1);
+                if let Some(body) =
+                    check_response_size(&config, &method, &client, &caller_tag, total_size)
+                {
+                    return Ok(Response::from_parts(parts, body));
+                }
+                let data = concat_chunks(&chunks);
+                let boxed: ResponseBody = Box::pin(PrecomputedBody::new(data, trailers));
+                return Ok(Response::from_parts(parts, boxed));
+            }
+
             let payload_size = total_size.saturating_sub(GRPC_HEADER_SIZE);
             let already_compressed = chunks.iter().find_map(|c| c.first().copied()) == Some(1);
 
@@ -236,7 +294,14 @@ where
                 || payload_size < config.min_payload_size
                 || already_compressed
             {
-                counter!("grpc_gzip_responses_total", "outcome" => "passthrough", "method" => method.clone()).increment(1);
+                counter!("grpc_gzip_responses_total", "outcome" => "passthrough_small", "method" => method.clone()).increment(1);
+                if let Some(body) =
+                    check_response_size(&config, &method, &client, &caller_tag, total_size)
+                {
+                    return Ok(Response::from_parts(parts, body));
+                }
+                let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
+                set_gzip_overhead_header(&mut parts, method.clone(), gzip_overhead_ms);
                 let data = concat_chunks(&chunks);
                 let boxed: ResponseBody = Box::pin(PrecomputedBody::new(data, trailers));
                 return Ok(Response::from_parts(parts, boxed));
@@ -246,19 +311,32 @@ where
             // We move the chunk references directly — the encoder reads each
             // chunk sequentially without copying them into a contiguous buffer.
             let level = config.compression_level;
-            let start = Instant::now();
+            let compress_start = Instant::now();
             let compressed = spawn_blocking(move || gzip_compress_chunks(&chunks, level)).await;
-            let elapsed = start.elapsed();
+            let compress_elapsed = compress_start.elapsed();
 
             match compressed {
                 Ok(Ok(bytes)) => {
                     histogram!("grpc_gzip_compression_duration_ms", "method" => method.clone())
-                        .record(elapsed.as_secs_f64() * 1000.0);
+                        .record(compress_elapsed.as_secs_f64() * 1000.0);
                     histogram!("grpc_gzip_uncompressed_bytes", "method" => method.clone())
                         .record(payload_size as f64);
                     histogram!("grpc_gzip_compressed_bytes", "method" => method.clone())
                         .record(bytes.len() as f64);
                     counter!("grpc_gzip_responses_total", "outcome" => "compressed", "method" => method.clone()).increment(1);
+
+                    // Size check on the compressed output — this is the actual
+                    // number of bytes that will go over the wire.
+                    let compressed_frame_size = GRPC_HEADER_SIZE + bytes.len();
+                    if let Some(body) = check_response_size(
+                        &config,
+                        &method,
+                        &client,
+                        &caller_tag,
+                        compressed_frame_size,
+                    ) {
+                        return Ok(Response::from_parts(parts, body));
+                    }
 
                     let mut frame = BytesMut::with_capacity(GRPC_HEADER_SIZE + bytes.len());
                     frame.put_u8(1); // compression flag
@@ -269,6 +347,9 @@ where
                         .headers
                         .insert(GRPC_ENCODING, HeaderValue::from_static("gzip"));
 
+                    let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
+                    set_gzip_overhead_header(&mut parts, method.clone(), gzip_overhead_ms);
+
                     let boxed: ResponseBody =
                         Box::pin(PrecomputedBody::new(frame.freeze(), trailers));
                     Ok(Response::from_parts(parts, boxed))
@@ -277,18 +358,79 @@ where
                     warn!(error = %e, "gzip compression failed, returning uncompressed");
                     counter!("grpc_gzip_responses_total", "outcome" => "compress_error", "method" => method.clone())
                         .increment(1);
+                    let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
+                    set_gzip_overhead_header(&mut parts, method.clone(), gzip_overhead_ms);
                     let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
                     Ok(Response::from_parts(parts, boxed))
                 }
                 Err(e) => {
                     warn!(error = %e, "spawn_blocking panicked, returning uncompressed");
                     counter!("grpc_gzip_responses_total", "outcome" => "spawn_error", "method" => method.clone()).increment(1);
+                    let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
+                    set_gzip_overhead_header(&mut parts, method.clone(), gzip_overhead_ms);
                     let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
                     Ok(Response::from_parts(parts, boxed))
                 }
             }
         })
     }
+}
+
+/// Checks the response size against the configured limit. In enforce mode,
+/// returns a rejection body that the caller should wrap with the original
+/// response `parts` (preserving headers like `Content-Type: application/grpc`).
+/// In monitor mode, emits a metric and returns `None` so the caller proceeds
+/// normally.
+fn check_response_size(
+    config: &AsyncGzipConfig,
+    method: &Arc<str>,
+    client: &Arc<str>,
+    caller_tag: &Arc<str>,
+    size: usize,
+) -> Option<ResponseBody> {
+    let limit = config.max_response_size?;
+    if size <= limit {
+        return None;
+    }
+
+    let enforced = config.max_response_size_enforce;
+
+    counter!(
+        "grpc_gzip_response_over_limit_total",
+        "method" => method.clone(),
+        "client" => client.clone(),
+        "enforced" => if enforced { "true" } else { "false" },
+    )
+    .increment(1);
+
+    if !enforced {
+        warn!(
+            response_size_bytes = size,
+            limit_bytes = limit,
+            method = %method,
+            client = %client,
+            caller_tag = %caller_tag,
+            "oversized gRPC response (monitor mode)"
+        );
+        return None;
+    }
+
+    warn!(
+        response_size_bytes = size,
+        limit_bytes = limit,
+        method = %method,
+        client = %client,
+        caller_tag = %caller_tag,
+        "rejecting oversized gRPC response"
+    );
+
+    let mut trailers = HeaderMap::new();
+    trailers.insert("grpc-status", HeaderValue::from_static("11")); // OUT_OF_RANGE
+    let msg = format!("response size {size} bytes exceeds limit of {limit} bytes");
+    if let Ok(hv) = HeaderValue::from_str(&msg) {
+        trailers.insert("grpc-message", hv);
+    }
+    Some(Box::pin(PrecomputedBody::trailers_only(trailers)))
 }
 
 // ============================================================
@@ -348,6 +490,13 @@ impl Body for PrecomputedBody {
 // ============================================================
 // Compression helpers
 // ============================================================
+
+fn set_gzip_overhead_header(parts: &mut http::response::Parts, method: Arc<str>, overhead_ms: f64) {
+    histogram!("grpc_gzip_total_overhead_ms", "method" => method).record(overhead_ms);
+    if let Ok(hv) = HeaderValue::from_str(&format!("{overhead_ms:.3}")) {
+        parts.headers.insert(GZIP_OVERHEAD_HEADER, hv);
+    }
+}
 
 /// Concatenate chunks into a contiguous buffer. Only used for the passthrough
 /// path where we already collected but decided not to compress.
@@ -437,6 +586,8 @@ mod tests {
             enabled: true,
             compression_level: 6,
             min_payload_size: 0,
+            max_response_size: None,
+            max_response_size_enforce: false,
         }
     }
 
@@ -504,7 +655,14 @@ mod tests {
                 data: Some(self.body.clone()),
                 trailers: self.trailers.clone(),
             };
-            Box::pin(async { Ok(Response::new(body)) })
+            Box::pin(async {
+                let mut resp = Response::new(body);
+                resp.headers_mut().insert(
+                    "content-type",
+                    HeaderValue::from_static("application/grpc+proto"),
+                );
+                Ok(resp)
+            })
         }
     }
 
@@ -946,5 +1104,125 @@ mod tests {
 
         let trailers = trailers.expect("trailers should be present");
         assert_eq!(trailers.get("grpc-status").unwrap(), "0");
+    }
+
+    #[rstest::rstest]
+    #[case::compressed(b"payload that will be compressed by the gzip layer".as_slice(), default_test_config(), Some("gzip"), true)]
+    #[case::passthrough_collected(b"tiny".as_slice(), AsyncGzipConfig { min_payload_size: 1000, ..default_test_config() }, Some("gzip"), true)]
+    #[case::not_accepted(b"no gzip requested".as_slice(), default_test_config(), None, false)]
+    #[tokio::test]
+    async fn gzip_overhead_header_presence(
+        #[case] payload: &[u8],
+        #[case] config: AsyncGzipConfig,
+        #[case] accept_encoding: Option<&str>,
+        #[case] expect_present: bool,
+    ) {
+        let service = MockGrpcService::new(payload);
+        let (parts, _data, _trailers) = call_layer(service, config, accept_encoding).await;
+
+        match parts.headers.get(GZIP_OVERHEAD_HEADER) {
+            Some(val) if expect_present => {
+                let overhead: f64 = val.to_str().unwrap().parse().unwrap();
+                assert!(overhead >= 0.0, "overhead should be non-negative");
+            }
+            None if !expect_present => {}
+            Some(_) => panic!("header should be absent"),
+            None => panic!("header should be present"),
+        }
+    }
+
+    // ============================================================
+    // Response size limit tests
+    // ============================================================
+
+    #[tokio::test]
+    async fn enforce_rejects_oversized_compressed_response() {
+        let payload = vec![42u8; 10_000];
+        let service = MockGrpcService::new(&payload);
+        let config = AsyncGzipConfig {
+            max_response_size: Some(10), // tiny limit — compressed output will exceed
+            max_response_size_enforce: true,
+            ..default_test_config()
+        };
+
+        let (parts, data, trailers) = call_layer(service, config, Some("gzip")).await;
+        assert!(data.is_empty(), "rejected response should have no data");
+        let trailers = trailers.expect("should have trailers");
+        assert_eq!(trailers.get("grpc-status").unwrap(), "11"); // OUT_OF_RANGE
+                                                                // Verify the original response headers (e.g. content-type) are preserved
+        assert_eq!(
+            parts.headers.get("content-type").unwrap(),
+            "application/grpc+proto"
+        );
+    }
+
+    #[tokio::test]
+    async fn enforce_rejects_oversized_uncompressed_response() {
+        let payload = vec![42u8; 10_000];
+        let service = MockGrpcService::new(&payload);
+        let config = AsyncGzipConfig {
+            max_response_size: Some(100),
+            max_response_size_enforce: true,
+            ..default_test_config()
+        };
+
+        // No gzip header — uncompressed passthrough, still size-checked
+        let (parts, data, trailers) = call_layer(service, config, None).await;
+        assert!(data.is_empty(), "rejected response should have no data");
+        let trailers = trailers.expect("should have trailers");
+        assert_eq!(trailers.get("grpc-status").unwrap(), "11");
+        assert_eq!(
+            parts.headers.get("content-type").unwrap(),
+            "application/grpc+proto"
+        );
+    }
+
+    #[tokio::test]
+    async fn monitor_mode_delivers_oversized_response() {
+        let payload = vec![42u8; 10_000];
+        let service = MockGrpcService::new(&payload);
+        let config = AsyncGzipConfig {
+            max_response_size: Some(10),      // tiny limit
+            max_response_size_enforce: false, // monitor only
+            ..default_test_config()
+        };
+
+        let (parts, data, _trailers) = call_layer(service, config, Some("gzip")).await;
+        // Response should still be delivered despite exceeding the limit
+        assert_eq!(parts.headers.get(GRPC_ENCODING).unwrap(), "gzip");
+        let (compressed, compressed_payload) = parse_grpc_frame(&data);
+        assert!(compressed);
+        assert_eq!(gzip_decompress(&compressed_payload), payload);
+    }
+
+    #[tokio::test]
+    async fn enforce_allows_response_under_limit() {
+        let payload = b"small payload";
+        let service = MockGrpcService::new(payload);
+        let config = AsyncGzipConfig {
+            max_response_size: Some(1_000_000), // generous limit
+            max_response_size_enforce: true,
+            ..default_test_config()
+        };
+
+        let (parts, data, trailers) = call_layer(service, config, Some("gzip")).await;
+        assert_eq!(parts.headers.get(GRPC_ENCODING).unwrap(), "gzip");
+        let (compressed, compressed_payload) = parse_grpc_frame(&data);
+        assert!(compressed);
+        assert_eq!(gzip_decompress(&compressed_payload), payload);
+        let trailers = trailers.expect("trailers should be present");
+        assert_eq!(trailers.get("grpc-status").unwrap(), "0");
+    }
+
+    #[tokio::test]
+    async fn no_limit_allows_any_size() {
+        let payload = vec![42u8; 100_000];
+        let service = MockGrpcService::new(&payload);
+        let config = default_test_config(); // max_response_size = None
+
+        let (parts, data, _trailers) = call_layer(service, config, Some("gzip")).await;
+        assert_eq!(parts.headers.get(GRPC_ENCODING).unwrap(), "gzip");
+        let (_, compressed_payload) = parse_grpc_frame(&data);
+        assert_eq!(gzip_decompress(&compressed_payload), payload);
     }
 }

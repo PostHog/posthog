@@ -315,7 +315,7 @@ export interface PropertyGroupFilterValueApi {
 
 /**
  * * `user` - user
- * `role` - role
+ * * `role` - role
  */
 export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
 
@@ -326,9 +326,9 @@ export const AssigneeTypeEnumApi = {
 
 export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
     /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
-
-  * `user` - user
-  * `role` - role */
+     *
+     * * `user` - user
+     * * `role` - role */
     type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
@@ -469,9 +469,9 @@ export interface ErrorTrackingGroupingRuleListResponseApi {
 
 export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
     /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
-
-  * `user` - user
-  * `role` - role */
+     *
+     * * `user` - user
+     * * `role` - role */
     type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
@@ -537,10 +537,10 @@ export interface PatchedErrorTrackingGroupingRuleApi {
 
 /**
  * * `archived` - Archived
- * `active` - Active
- * `resolved` - Resolved
- * `pending_release` - Pending release
- * `suppressed` - Suppressed
+ * * `active` - Active
+ * * `resolved` - Resolved
+ * * `pending_release` - Pending release
+ * * `suppressed` - Suppressed
  */
 export type ErrorTrackingIssueFullStatusEnumApi =
     (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
@@ -587,6 +587,58 @@ export interface PaginatedErrorTrackingIssueFullListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingIssueFullApi[]
+}
+
+/**
+ * * `active` - active
+ * * `resolved` - resolved
+ * * `suppressed` - suppressed
+ */
+export type ErrorTrackingIssueWriteStatusEnumApi =
+    (typeof ErrorTrackingIssueWriteStatusEnumApi)[keyof typeof ErrorTrackingIssueWriteStatusEnumApi]
+
+export const ErrorTrackingIssueWriteStatusEnumApi = {
+    Active: 'active',
+    Resolved: 'resolved',
+    Suppressed: 'suppressed',
+} as const
+
+export interface ErrorTrackingIssueWriteApi {
+    /** Issue status to set. Deprecated archived and pending_release values are rejected.
+     *
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed */
+    status?: ErrorTrackingIssueWriteStatusEnumApi
+    /**
+     * Optional issue display name.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Optional issue description.
+     * @nullable
+     */
+    description?: string | null
+}
+
+export interface PatchedErrorTrackingIssueWriteApi {
+    /** Issue status to set. Deprecated archived and pending_release values are rejected.
+     *
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed */
+    status?: ErrorTrackingIssueWriteStatusEnumApi
+    /**
+     * Optional issue display name.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Optional issue description.
+     * @nullable
+     */
+    description?: string | null
 }
 
 /**
@@ -795,22 +847,22 @@ export interface ErrorTrackingIssueDetailApi {
 
 /**
  * * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- * `regex` - regex
- * `not_regex` - not_regex
- * `gt` - gt
- * `lt` - lt
- * `gte` - gte
- * `lte` - lte
- * `is_set` - is_set
- * `is_not_set` - is_not_set
- * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
- * `is_date_before` - is_date_before
- * `in` - in
- * `not_in` - not_in
+ * * `is_not` - is_not
+ * * `icontains` - icontains
+ * * `not_icontains` - not_icontains
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ * * `gt` - gt
+ * * `lt` - lt
+ * * `gte` - gte
+ * * `lte` - lte
+ * * `is_set` - is_set
+ * * `is_not_set` - is_not_set
+ * * `is_date_exact` - is_date_exact
+ * * `is_date_after` - is_date_after
+ * * `is_date_before` - is_date_before
+ * * `in` - in
+ * * `not_in` - not_in
  */
 export type PropertyItemOperatorEnumApi = (typeof PropertyItemOperatorEnumApi)[keyof typeof PropertyItemOperatorEnumApi]
 
@@ -842,32 +894,32 @@ export const BlankEnumApi = {
 
 /**
  * * `event` - event
- * `event_metadata` - event_metadata
- * `feature` - feature
- * `person` - person
- * `cohort` - cohort
- * `element` - element
- * `static-cohort` - static-cohort
- * `dynamic-cohort` - dynamic-cohort
- * `precalculated-cohort` - precalculated-cohort
- * `group` - group
- * `recording` - recording
- * `log_entry` - log_entry
- * `behavioral` - behavioral
- * `session` - session
- * `hogql` - hogql
- * `data_warehouse` - data_warehouse
- * `data_warehouse_person_property` - data_warehouse_person_property
- * `error_tracking_issue` - error_tracking_issue
- * `log` - log
- * `log_attribute` - log_attribute
- * `log_resource_attribute` - log_resource_attribute
- * `span` - span
- * `span_attribute` - span_attribute
- * `span_resource_attribute` - span_resource_attribute
- * `revenue_analytics` - revenue_analytics
- * `flag` - flag
- * `workflow_variable` - workflow_variable
+ * * `event_metadata` - event_metadata
+ * * `feature` - feature
+ * * `person` - person
+ * * `cohort` - cohort
+ * * `element` - element
+ * * `static-cohort` - static-cohort
+ * * `dynamic-cohort` - dynamic-cohort
+ * * `precalculated-cohort` - precalculated-cohort
+ * * `group` - group
+ * * `recording` - recording
+ * * `log_entry` - log_entry
+ * * `behavioral` - behavioral
+ * * `session` - session
+ * * `hogql` - hogql
+ * * `data_warehouse` - data_warehouse
+ * * `data_warehouse_person_property` - data_warehouse_person_property
+ * * `error_tracking_issue` - error_tracking_issue
+ * * `log` - log
+ * * `log_attribute` - log_attribute
+ * * `log_resource_attribute` - log_resource_attribute
+ * * `span` - span
+ * * `span_attribute` - span_attribute
+ * * `span_resource_attribute` - span_resource_attribute
+ * * `revenue_analytics` - revenue_analytics
+ * * `flag` - flag
+ * * `workflow_variable` - workflow_variable
  */
 export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
 
@@ -913,7 +965,7 @@ export interface PropertyItemApi {
 
 /**
  * * `ASC` - ASC
- * `DESC` - DESC
+ * * `DESC` - DESC
  */
 export type OrderDirectionEnumApi = (typeof OrderDirectionEnumApi)[keyof typeof OrderDirectionEnumApi]
 
@@ -924,8 +976,8 @@ export const OrderDirectionEnumApi = {
 
 /**
  * * `summary` - summary
- * `stack` - stack
- * `raw` - raw
+ * * `stack` - stack
+ * * `raw` - raw
  */
 export type VerbosityEnumApi = (typeof VerbosityEnumApi)[keyof typeof VerbosityEnumApi]
 
@@ -950,9 +1002,9 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      */
     searchQuery?: string
     /** Timestamp sort direction. Defaults to DESC.
-
-  * `ASC` - ASC
-  * `DESC` - DESC */
+     *
+     * * `ASC` - ASC
+     * * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
      * Page size.
@@ -966,10 +1018,10 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      */
     offset?: number
     /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
-
-  * `summary` - summary
-  * `stack` - stack
-  * `raw` - raw */
+     *
+     * * `summary` - summary
+     * * `stack` - stack
+     * * `raw` - raw */
     verbosity?: VerbosityEnumApi
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
@@ -1006,16 +1058,16 @@ export interface ErrorTrackingIssueEventsResponseApi {
 
 /**
  * * `archived` - archived
- * `active` - active
- * `resolved` - resolved
- * `pending_release` - pending_release
- * `suppressed` - suppressed
- * `all` - all
+ * * `active` - active
+ * * `resolved` - resolved
+ * * `pending_release` - pending_release
+ * * `suppressed` - suppressed
+ * * `all` - all
  */
-export type ErrorTrackingIssuesListQueryRequestStatusEnumApi =
-    (typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi)[keyof typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi]
+export type ErrorTrackingIssueStatusEnumApi =
+    (typeof ErrorTrackingIssueStatusEnumApi)[keyof typeof ErrorTrackingIssueStatusEnumApi]
 
-export const ErrorTrackingIssuesListQueryRequestStatusEnumApi = {
+export const ErrorTrackingIssueStatusEnumApi = {
     Archived: 'archived',
     Active: 'active',
     Resolved: 'resolved',
@@ -1028,18 +1080,18 @@ export interface ErrorTrackingAssigneeApi {
     /** User ID or role UUID to filter by. */
     id: string | number | null
     /** Assignee target type: user or role.
-
-  * `user` - user
-  * `role` - role */
+     *
+     * * `user` - user
+     * * `role` - role */
     type: AssigneeTypeEnumApi
 }
 
 /**
  * * `last_seen` - last_seen
- * `first_seen` - first_seen
- * `occurrences` - occurrences
- * `users` - users
- * `sessions` - sessions
+ * * `first_seen` - first_seen
+ * * `occurrences` - occurrences
+ * * `users` - users
+ * * `sessions` - sessions
  */
 export type ErrorTrackingIssueOrderByEnumApi =
     (typeof ErrorTrackingIssueOrderByEnumApi)[keyof typeof ErrorTrackingIssueOrderByEnumApi]
@@ -1056,14 +1108,14 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
     /** Date range for issue aggregates. Defaults to the last 7 days. */
     dateRange?: ErrorTrackingDateRangeApi
     /** Filter by issue status. Defaults to active.
-
-  * `archived` - archived
-  * `active` - active
-  * `resolved` - resolved
-  * `pending_release` - pending_release
-  * `suppressed` - suppressed
-  * `all` - all */
-    status?: ErrorTrackingIssuesListQueryRequestStatusEnumApi
+     *
+     * * `archived` - archived
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `pending_release` - pending_release
+     * * `suppressed` - suppressed
+     * * `all` - all */
+    status?: ErrorTrackingIssueStatusEnumApi
     /** Filter by issue assignee. Omit to include all assignees. */
     assignee?: ErrorTrackingAssigneeApi | null
     /** When true, exclude internal/test account data from results. Defaults to true. */
@@ -1076,17 +1128,17 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
     /** Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected. */
     filterGroup?: PropertyItemApi[]
     /** Field used to sort issues. Defaults to occurrences.
-
-  * `last_seen` - last_seen
-  * `first_seen` - first_seen
-  * `occurrences` - occurrences
-  * `users` - users
-  * `sessions` - sessions */
+     *
+     * * `last_seen` - last_seen
+     * * `first_seen` - first_seen
+     * * `occurrences` - occurrences
+     * * `users` - users
+     * * `sessions` - sessions */
     orderBy?: ErrorTrackingIssueOrderByEnumApi
     /** Sort direction. Defaults to DESC.
-
-  * `ASC` - ASC
-  * `DESC` - DESC */
+     *
+     * * `ASC` - ASC
+     * * `DESC` - DESC */
     orderDirection?: OrderDirectionEnumApi
     /**
      * Page size.
@@ -1189,7 +1241,7 @@ export interface ErrorTrackingIssuesListResponseApi {
 
 /**
  * * `ready` - Ready
- * `computing` - Computing
+ * * `computing` - Computing
  */
 export type ErrorTrackingRecommendationStatusEnumApi =
     (typeof ErrorTrackingRecommendationStatusEnumApi)[keyof typeof ErrorTrackingRecommendationStatusEnumApi]
@@ -1214,9 +1266,9 @@ export interface ErrorTrackingRecommendationApi {
     /** Whether the recommendation's recommended action has been satisfied. */
     readonly completed: boolean
     /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
-
-  * `ready` - Ready
-  * `computing` - Computing */
+     *
+     * * `ready` - Ready
+     * * `computing` - Computing */
     readonly status: ErrorTrackingRecommendationStatusEnumApi
     /**
      * Timestamp meta was last successfully computed.
@@ -1241,6 +1293,35 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingRecommendationApi[]
+}
+
+export interface ErrorTrackingReleaseApi {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    metadata?: unknown
+    version: string
+    project: string
+}
+
+export interface PaginatedErrorTrackingReleaseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingReleaseApi[]
+}
+
+export interface PatchedErrorTrackingReleaseApi {
+    readonly id?: string
+    hash_id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    metadata?: unknown
+    version?: string
+    project?: string
 }
 
 export interface ErrorTrackingSettingsApi {
@@ -1358,16 +1439,6 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     results: ErrorTrackingSpikeEventApi[]
 }
 
-export interface ErrorTrackingReleaseApi {
-    readonly id: string
-    hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown
-    version: string
-    project: string
-}
-
 export interface ErrorTrackingStackFrameApi {
     readonly id: string
     /** Raw frame ID in 'hash/part' format */
@@ -1457,25 +1528,6 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     sampling_rate?: number
     readonly created_at?: string
     readonly updated_at?: string
-}
-
-export interface PaginatedErrorTrackingReleaseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingReleaseApi[]
-}
-
-export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
-    hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown
-    version?: string
-    project?: string
 }
 
 /**
@@ -1678,6 +1730,17 @@ export type ErrorTrackingRecommendationsListParams = {
     offset?: number
 }
 
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
@@ -1711,17 +1774,6 @@ export type ErrorTrackingSuppressionRulesListParams = {
     offset?: number
 }
 
-export type ErrorTrackingReleasesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
@@ -1732,16 +1784,16 @@ export type ErrorTrackingSymbolSetsListParams = {
      */
     offset?: number
     /**
- * Sort order for symbol sets. Prefix with `-` for descending order.
-
-* `created_at` - created_at
-* `-created_at` - -created_at
-* `ref` - ref
-* `-ref` - -ref
-* `last_used` - last_used
-* `-last_used` - -last_used
- * @minLength 1
- */
+     * Sort order for symbol sets. Prefix with `-` for descending order.
+     *
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * * `ref` - ref
+     * * `-ref` - -ref
+     * * `last_used` - last_used
+     * * `-last_used` - -last_used
+     * @minLength 1
+     */
     order_by?: string
     /**
      * Exact symbol set reference to filter by.
@@ -1749,13 +1801,18 @@ export type ErrorTrackingSymbolSetsListParams = {
      */
     ref?: string
     /**
- * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
-
-* `all` - all
-* `valid` - valid
-* `invalid` - invalid
- * @minLength 1
- */
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
+     *
+     * * `all` - all
+     * * `valid` - valid
+     * * `invalid` - invalid
+     * @minLength 1
+     */
     status?: ErrorTrackingSymbolSetsListStatus
 }
 

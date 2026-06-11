@@ -1,6 +1,11 @@
 import pytest
 
-from posthog.temporal.data_imports.sources.common.http.url_utils import host_of, scrub_url, url_template
+from posthog.temporal.data_imports.sources.common.http.url_utils import (
+    host_of,
+    redact_literal_values,
+    scrub_url,
+    url_template,
+)
 
 
 @pytest.mark.parametrize(
@@ -108,3 +113,37 @@ def test_url_template_replaces_id_segments(url: str, expected: str) -> None:
 )
 def test_host_of(url: str, expected: str) -> None:
     assert host_of(url) == expected
+
+
+@pytest.mark.parametrize(
+    "text,values,expected",
+    [
+        # Raw value anywhere in the text — including a query param whose name the
+        # denylist can't anticipate.
+        (
+            "https://x.test/?subscription-key=sk_live_abcdef123456",
+            ["sk_live_abcdef123456"],
+            "https://x.test/?subscription-key=REDACTED",
+        ),
+        # Percent-encoded form is matched too (query values are URL-encoded).
+        (
+            "https://x.test/?k=a%20b%2Bc",
+            ["a b+c"],
+            "https://x.test/?k=REDACTED",
+        ),
+        # Value in a header-style string / sample payload.
+        (
+            '{"headers": {"Subscription-Key": "sk_live_abcdef123456"}}',
+            ["sk_live_abcdef123456"],
+            '{"headers": {"Subscription-Key": "REDACTED"}}',
+        ),
+        # Multiple secrets.
+        ("a=tok_one b=tok_two", ["tok_one", "tok_two"], "a=REDACTED b=REDACTED"),
+        # Empty / too-short values are skipped so unrelated text isn't mangled.
+        ("page=2&id=ab", ["", "ab"], "page=2&id=ab"),
+        # No secrets supplied — text is returned untouched.
+        ("https://x.test/?api_key=secret", [], "https://x.test/?api_key=secret"),
+    ],
+)
+def test_redact_literal_values(text: str, values: list[str], expected: str) -> None:
+    assert redact_literal_values(text, values) == expected

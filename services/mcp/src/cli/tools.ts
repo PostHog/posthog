@@ -17,13 +17,12 @@ function materializeTool(
     }
 }
 
-export function getCliTools(version: number): Tool<ZodObjectAny>[] {
+export function getCliTools(): Tool<ZodObjectAny>[] {
     const factories: Record<string, () => ToolBase<ZodObjectAny>> = {
         ...TOOL_MAP,
         ...GENERATED_TOOL_MAP,
     }
     const names = getToolsForFeatures({
-        version,
         aiConsentGiven: true,
     })
 
@@ -34,14 +33,9 @@ export function getCliTools(version: number): Tool<ZodObjectAny>[] {
             continue
         }
 
-        const base = factory()
-        if (base.mcpVersion !== undefined && base.mcpVersion !== version) {
-            continue
-        }
-
         try {
-            const definition = getToolDefinition(name, version)
-            tools.push(materializeTool(name, () => base, definition))
+            const definition = getToolDefinition(name)
+            tools.push(materializeTool(name, () => factory(), definition))
         } catch {
             continue
         }

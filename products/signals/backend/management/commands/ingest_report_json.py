@@ -1,9 +1,9 @@
 """Local dev tool: ingest a saved SignalReport research output as if the agentic flow had just produced it.
 
 Creates a SignalReport row, transitions it through candidate -> in_progress, persists the fixture's
-artefacts via `_persist_agentic_report_artefacts` (which is what triggers `_maybe_autostart_task_for_report`),
-then transitions the report to READY. Useful for testing the autostart path end-to-end without
-running the sandbox research flow.
+artefacts via `_persist_agentic_report_artefacts` (which is what triggers `maybe_autostart_implementation_task`
+in `backend/auto_start.py`), then transitions the report to READY. Useful for testing the autostart path
+end-to-end without running the sandbox research flow.
 
 The fixture shape matches `report_generation/fixtures/analyze_report_funnel_research_output.json`:
 

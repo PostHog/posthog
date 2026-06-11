@@ -11,6 +11,7 @@ from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
+    from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.models import Team, User
@@ -75,6 +76,13 @@ class HogQLContext:
     modifiers: HogQLQueryModifiers = field(default_factory=HogQLQueryModifiers)
     # Enables more verbose output for debugging
     debug: bool = False
+    # Internal optimizer flag. Keep disabled until typed rewrites have broader compatibility coverage.
+    enable_type_aware_cast_simplification: bool = False
+
+    # Optional per-query HogQL type-system observability accumulator.
+    type_observability: Optional["HogQLTypeObservability"] = None
+    # Bounded source/surface label for type-system observability metrics.
+    observability_source: str = "unknown"
 
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)

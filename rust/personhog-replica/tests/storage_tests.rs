@@ -4,6 +4,7 @@ use common::TestContext;
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::GroupKey;
 use rand::Rng;
+use rstest::rstest;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -81,7 +82,7 @@ async fn test_get_persons_by_ids() {
 
     let result = ctx
         .storage
-        .get_persons_by_ids(ctx.team_id, &[person1.id, person2.id, 999999999])
+        .get_persons_by_ids(ctx.team_id, &[person1.id, person2.id, 999999999], true)
         .await
         .expect("Failed to get persons");
 
@@ -160,7 +161,8 @@ async fn test_get_group() {
     let fetched = result.unwrap();
     assert_eq!(fetched.group_key, "company_123");
     assert_eq!(fetched.group_type_index, 0);
-    let fetched_props: serde_json::Value = serde_json::from_str(&fetched.group_properties).unwrap();
+    let fetched_props: serde_json::Value =
+        serde_json::from_str(fetched.group_properties.as_deref().unwrap()).unwrap();
     assert_eq!(fetched_props, properties);
 
     ctx.cleanup().await.ok();
@@ -185,6 +187,90 @@ async fn test_get_group_type_mappings() {
     let group_types: Vec<&str> = result.iter().map(|m| m.group_type.as_str()).collect();
     assert!(group_types.contains(&"project"));
     assert!(group_types.contains(&"organization"));
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::no_mappings(&[], None)]
+#[case::one_mapping(&[("organization", 0)], Some(1))]
+#[case::three_mappings(&[("organization", 0), ("project", 1), ("instance", 2)], Some(3))]
+#[tokio::test]
+async fn test_count_group_type_mappings(
+    #[case] mappings: &[(&str, i32)],
+    #[case] expected_count: Option<i64>,
+) {
+    let ctx = TestContext::new().await;
+
+    for (group_type, index) in mappings {
+        ctx.insert_group_type_mapping(group_type, *index)
+            .await
+            .expect("Failed to insert mapping");
+    }
+
+    let result = ctx
+        .storage
+        .count_group_type_mappings(ConsistencyLevel::Eventual)
+        .await
+        .expect("Failed to count group type mappings");
+
+    let entry = result.iter().find(|(tid, _)| *tid == ctx.team_id);
+    match expected_count {
+        Some(count) => assert_eq!(entry, Some(&(ctx.team_id, count))),
+        None => assert!(entry.is_none()),
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_count_group_type_mappings_multiple_teams() {
+    let ctx1 = TestContext::new().await;
+    let ctx2 = TestContext::new().await;
+
+    ctx1.insert_group_type_mapping("org", 0)
+        .await
+        .expect("Failed to insert mapping");
+    ctx2.insert_group_type_mapping("company", 0)
+        .await
+        .expect("Failed to insert mapping");
+    ctx2.insert_group_type_mapping("project", 1)
+        .await
+        .expect("Failed to insert mapping");
+
+    let result = ctx1
+        .storage
+        .count_group_type_mappings(ConsistencyLevel::Eventual)
+        .await
+        .expect("Failed to count group type mappings");
+
+    let entry1 = result.iter().find(|(tid, _)| *tid == ctx1.team_id);
+    let entry2 = result.iter().find(|(tid, _)| *tid == ctx2.team_id);
+    assert_eq!(entry1, Some(&(ctx1.team_id, 1)));
+    assert_eq!(entry2, Some(&(ctx2.team_id, 2)));
+
+    ctx1.cleanup().await.ok();
+    ctx2.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_count_group_type_mappings_ordered_by_team_id() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_group_type_mapping("org", 0)
+        .await
+        .expect("Failed to insert mapping");
+
+    let result = ctx
+        .storage
+        .count_group_type_mappings(ConsistencyLevel::Eventual)
+        .await
+        .expect("Failed to count group type mappings");
+
+    let team_ids: Vec<i64> = result.iter().map(|(tid, _)| *tid).collect();
+    let mut sorted = team_ids.clone();
+    sorted.sort();
+    assert_eq!(team_ids, sorted);
 
     ctx.cleanup().await.ok();
 }
@@ -223,6 +309,65 @@ async fn test_check_cohort_membership() {
     ctx.cleanup().await.ok();
 }
 
+async fn cohort_row_count(pool: &sqlx::PgPool, cohort_id: i64, person_ids: &[i64]) -> i64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = ANY($2)",
+    )
+    .bind(cohort_id)
+    .bind(person_ids)
+    .fetch_one(pool)
+    .await
+    .expect("count cohort rows")
+}
+
+// Idempotency across the concurrent chunked insert: a re-send of the full list (the retry /
+// partial-failure recovery case) must skip already-present members and never duplicate rows.
+#[rstest]
+#[case::all_new(0, 120)]
+#[case::retry_after_partial(70, 50)]
+#[case::full_retry(120, 0)]
+#[tokio::test]
+async fn test_insert_cohort_members_idempotent(
+    #[case] prior: usize,
+    #[case] expected_inserted: i64,
+) {
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 7700;
+
+    // 120 persons exercises the concurrent chunk path (bulk_chunk_size = 50 → 3 chunks).
+    let mut person_ids = Vec::new();
+    for i in 0..120 {
+        let p = ctx
+            .insert_person(&format!("cohort_insert_{i}@example.com"), None)
+            .await
+            .expect("insert person");
+        person_ids.push(p.id);
+    }
+
+    // Seed `prior` members to simulate a prior partial commit that a retry re-sends in full.
+    for &pid in &person_ids[..prior] {
+        ctx.add_person_to_cohort(pid, cohort_id)
+            .await
+            .expect("seed prior members");
+    }
+
+    let inserted = ctx
+        .storage
+        .insert_cohort_members(cohort_id, &person_ids, Some(1))
+        .await
+        .expect("insert cohort members");
+
+    // Only the not-yet-present members are inserted; NOT EXISTS skips the rest.
+    assert_eq!(inserted, expected_inserted);
+    // Exactly one row per person — no duplicates, regardless of prior state or chunk fan-out.
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &person_ids).await,
+        120
+    );
+
+    ctx.cleanup().await.ok();
+}
+
 #[tokio::test]
 async fn test_person_properties() {
     let ctx = TestContext::new().await;
@@ -246,7 +391,8 @@ async fn test_person_properties() {
 
     assert!(result.is_some());
     let fetched = result.unwrap();
-    let props: serde_json::Value = serde_json::from_str(&fetched.properties).unwrap();
+    let props: serde_json::Value =
+        serde_json::from_str(fetched.properties.as_deref().unwrap()).unwrap();
     assert_eq!(props["email"], "props_test@example.com");
     assert_eq!(props["plan"], "enterprise");
 
@@ -270,7 +416,11 @@ async fn test_get_persons_by_uuids() {
 
     let result = ctx
         .storage
-        .get_persons_by_uuids(ctx.team_id, &[person1.uuid, person2.uuid, nonexistent_uuid])
+        .get_persons_by_uuids(
+            ctx.team_id,
+            &[person1.uuid, person2.uuid, nonexistent_uuid],
+            true,
+        )
         .await
         .expect("Failed to get persons by uuids");
 
@@ -364,7 +514,7 @@ async fn test_get_groups_batch() {
 
     let result = ctx
         .storage
-        .get_groups_batch(&keys, ConsistencyLevel::Eventual)
+        .get_groups_batch(&keys, ConsistencyLevel::Eventual, true)
         .await
         .expect("Failed to get groups batch");
 
@@ -1434,7 +1584,7 @@ async fn test_get_persons_by_ids_chunked() {
 
     let result = ctx
         .storage
-        .get_persons_by_ids(ctx.team_id, &ids)
+        .get_persons_by_ids(ctx.team_id, &ids, true)
         .await
         .expect("Failed to get persons by ids");
 
@@ -1462,7 +1612,7 @@ async fn test_get_persons_by_uuids_chunked() {
 
     let result = ctx
         .storage
-        .get_persons_by_uuids(ctx.team_id, &uuids)
+        .get_persons_by_uuids(ctx.team_id, &uuids, true)
         .await
         .expect("Failed to get persons by uuids");
 
@@ -1488,7 +1638,7 @@ async fn test_get_persons_by_distinct_ids_in_team_chunked() {
 
     let result = ctx
         .storage
-        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids)
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, true)
         .await
         .expect("Failed to get persons by distinct ids");
 
@@ -1525,7 +1675,7 @@ async fn test_get_persons_by_distinct_ids_in_team_chunked_preserves_missing() {
 
     let result = ctx
         .storage
-        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids)
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, true)
         .await
         .expect("Failed to get persons");
 
@@ -1534,6 +1684,46 @@ async fn test_get_persons_by_distinct_ids_in_team_chunked_preserves_missing() {
     let missing: Vec<_> = result.iter().filter(|(_, p)| p.is_none()).collect();
     assert_eq!(found.len(), 60);
     assert_eq!(missing.len(), 20);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_in_team_handles_duplicates() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_person("dup_did_a", None).await.unwrap();
+    ctx.insert_person("dup_did_b", None).await.unwrap();
+
+    // A repeated distinct_id, plus a repeated non-existent one. The query
+    // deduplicates these, while the response mirrors the input list: each id
+    // resolves on its first occurrence and is None on any repeat.
+    let distinct_ids = vec![
+        "dup_did_a".to_string(),
+        "dup_did_a".to_string(),
+        "dup_did_b".to_string(),
+        "missing_dup".to_string(),
+        "missing_dup".to_string(),
+    ];
+
+    let result = ctx
+        .storage
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, true)
+        .await
+        .expect("Failed to get persons");
+
+    assert_eq!(
+        result
+            .iter()
+            .map(|(did, _)| did.clone())
+            .collect::<Vec<_>>(),
+        distinct_ids
+    );
+    assert!(result[0].1.is_some());
+    assert!(result[1].1.is_none());
+    assert!(result[2].1.is_some());
+    assert!(result[3].1.is_none());
+    assert!(result[4].1.is_none());
 
     ctx.cleanup().await.ok();
 }
@@ -1609,6 +1799,218 @@ async fn test_get_distinct_ids_for_persons_chunked_with_limit() {
 
     // Should get exactly 80 rows (1 per person)
     assert_eq!(result.len(), 80);
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// include_properties=false storage tests
+// ============================================================
+
+#[tokio::test]
+async fn test_get_persons_by_ids_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"email": "test@example.com"});
+    let person = ctx
+        .insert_person("props_test_1", Some(props))
+        .await
+        .expect("Failed to insert person");
+
+    let with_props = ctx
+        .storage
+        .get_persons_by_ids(ctx.team_id, &[person.id], true)
+        .await
+        .expect("Failed to get persons with props");
+    assert_eq!(with_props.len(), 1);
+    assert!(with_props[0].properties.is_some());
+
+    let without_props = ctx
+        .storage
+        .get_persons_by_ids(ctx.team_id, &[person.id], false)
+        .await
+        .expect("Failed to get persons without props");
+    assert_eq!(without_props.len(), 1);
+    assert_eq!(without_props[0].id, person.id);
+    assert!(without_props[0].properties.is_none());
+    assert!(without_props[0].properties_last_updated_at.is_none());
+    assert!(without_props[0].properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_uuids_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"email": "test@example.com"});
+    let person = ctx
+        .insert_person("props_test_2", Some(props))
+        .await
+        .expect("Failed to insert person");
+
+    let without_props = ctx
+        .storage
+        .get_persons_by_uuids(ctx.team_id, &[person.uuid], false)
+        .await
+        .expect("Failed to get persons without props");
+    assert_eq!(without_props.len(), 1);
+    assert_eq!(without_props[0].id, person.id);
+    assert!(without_props[0].properties.is_none());
+    assert!(without_props[0].properties_last_updated_at.is_none());
+    assert!(without_props[0].properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_in_team_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"email": "test@example.com"});
+    ctx.insert_person("props_did_test", Some(props))
+        .await
+        .expect("Failed to insert person");
+
+    let results = ctx
+        .storage
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &["props_did_test".to_string()], false)
+        .await
+        .expect("Failed to get persons without props");
+    assert_eq!(results.len(), 1);
+    let person = results[0].1.as_ref().expect("Person should be found");
+    assert!(person.properties.is_none());
+    assert!(person.properties_last_updated_at.is_none());
+    assert!(person.properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_cross_team_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"email": "test@example.com"});
+    ctx.insert_person("props_cross_test", Some(props))
+        .await
+        .expect("Failed to insert person");
+
+    let results = ctx
+        .storage
+        .get_persons_by_distinct_ids_cross_team(
+            &[(ctx.team_id, "props_cross_test".to_string())],
+            false,
+        )
+        .await
+        .expect("Failed to get persons without props");
+    assert_eq!(results.len(), 1);
+    let person = results[0].1.as_ref().expect("Person should be found");
+    assert!(person.properties.is_none());
+    assert!(person.properties_last_updated_at.is_none());
+    assert!(person.properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_groups_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"name": "Acme Corp"});
+    ctx.insert_group(0, "grp_props_test", Some(props))
+        .await
+        .expect("Failed to insert group");
+
+    let with_props = ctx
+        .storage
+        .get_groups(
+            ctx.team_id,
+            &[personhog_replica::storage::GroupIdentifier {
+                group_type_index: 0,
+                group_key: "grp_props_test".to_string(),
+            }],
+            ConsistencyLevel::Eventual,
+            true,
+        )
+        .await
+        .expect("Failed to get groups with props");
+    assert_eq!(with_props.len(), 1);
+    assert!(with_props[0].group_properties.is_some());
+
+    let without_props = ctx
+        .storage
+        .get_groups(
+            ctx.team_id,
+            &[personhog_replica::storage::GroupIdentifier {
+                group_type_index: 0,
+                group_key: "grp_props_test".to_string(),
+            }],
+            ConsistencyLevel::Eventual,
+            false,
+        )
+        .await
+        .expect("Failed to get groups without props");
+    assert_eq!(without_props.len(), 1);
+    assert!(without_props[0].group_properties.is_none());
+    assert!(without_props[0].properties_last_updated_at.is_none());
+    assert!(without_props[0].properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_groups_batch_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"name": "Batch Corp"});
+    ctx.insert_group(0, "grp_batch_props", Some(props))
+        .await
+        .expect("Failed to insert group");
+
+    let without_props = ctx
+        .storage
+        .get_groups_batch(
+            &[GroupKey {
+                team_id: ctx.team_id,
+                group_type_index: 0,
+                group_key: "grp_batch_props".to_string(),
+            }],
+            ConsistencyLevel::Eventual,
+            false,
+        )
+        .await
+        .expect("Failed to get groups batch without props");
+    assert_eq!(without_props.len(), 1);
+    assert!(without_props[0].1.group_properties.is_none());
+    assert!(without_props[0].1.properties_last_updated_at.is_none());
+    assert!(without_props[0].1.properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_list_groups_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"name": "Listed Corp"});
+    ctx.insert_group(0, "grp_list_props", Some(props))
+        .await
+        .expect("Failed to insert group");
+
+    let (groups, _) = ctx
+        .storage
+        .list_groups(
+            ctx.team_id,
+            0,
+            "",
+            "",
+            None,
+            0,
+            100,
+            ConsistencyLevel::Eventual,
+            false,
+        )
+        .await
+        .expect("Failed to list groups without props");
+    assert!(!groups.is_empty());
+    for g in &groups {
+        assert!(g.group_properties.is_none());
+        assert!(g.properties_last_updated_at.is_none());
+        assert!(g.properties_last_operation.is_none());
+    }
 
     ctx.cleanup().await.ok();
 }

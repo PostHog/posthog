@@ -1,8 +1,8 @@
 """Local eval for the Slack repo-selection flow — the canonical "how to test locally" tool.
 
 Replicates the production cascade → Haiku gate → discovery agent path against a real
-team with a real GitHub integration, without needing a `slack-posthog-code` Integration
-row or any actual Slack traffic. Each case declares its expected terminal stage/outcome;
+team with a real GitHub integration, without needing a Slack Integration row or any
+actual Slack traffic. Each case declares its expected terminal stage/outcome;
 the eval prints a pass/fail summary so you can re-run after touching repo selection
 and spot regressions immediately.
 
@@ -168,36 +168,66 @@ CASES: list[Case] = [
     ),
     Case(
         name="marketing_site",
-        description="Haiku LLM filters as ops/perf rather than code change.",
+        description="Perf complaint about a site the team likely owns code for — agent should route to docs/marketing repo.",
         text_template="@PostHog the docs site loads really slowly on mobile",
         thread_messages=[
             {"user": "tester", "text": "@PostHog the docs site loads really slowly on mobile"},
             {"user": "other", "text": "yeah I noticed the same on /docs/getting-started"},
         ],
-        expected_stage="haiku",
-        expected_outcome="no_repo",
-        note=(
-            "Ideally the agent would route this to a docs/marketing repo if connected. "
-            "Haiku LLM treats it as a perf/CDN question instead. Out of this PR's scope; "
-            "candidate for a follow-up Haiku-tuning PR backed by this eval."
-        ),
+        expected_stage="agent",
+        expected_outcome="found",
     ),
     Case(
         name="sdk_specific_trace_trip",
-        description="Haiku heuristic trips on 'trace' in 'stack trace'.",
+        description="App/SDK crash with stack trace — agent should route to the relevant SDK repo (e.g. posthog-ios).",
         text_template="@PostHog the iOS SDK is crashing on app launch after upgrade to 3.19",
         thread_messages=[
             {"user": "tester", "text": "@PostHog the iOS SDK is crashing on app launch after upgrade to 3.19"},
             {"user": "other", "text": "stack trace shows PostHogReplay.start() failing"},
         ],
+        expected_stage="agent",
+        expected_outcome="found",
+    ),
+    Case(
+        name="posthog_product_hang",
+        description="Complaint about a PostHog product page hanging — looks like 'broken page' but it's the SaaS, not the team's code.",
+        text_template="@PostHog the trends page hangs forever when I add 10+ series",
+        thread_messages=[
+            {"user": "tester", "text": "@PostHog the trends page hangs forever when I add 10+ series"},
+            {"user": "other", "text": "tried Firefox and Chrome, just a spinner"},
+        ],
         expected_stage="haiku",
         expected_outcome="no_repo",
-        note=(
-            "Pre-existing heuristic false negative: 'trace' is in product_debug_terms "
-            "(for APM-trace queries) but matches 'stack trace' too. Same scope note as marketing_site."
-        ),
     ),
     # --- Agent path (the new logic this PR introduces) -------------------------
+    Case(
+        name="sdk_instrumentation_on_own_site",
+        description="PostHog SDK behaving oddly on the team's own site — the issue is in their code, not in PostHog.",
+        text_template="@PostHog autocapture isn't picking up clicks on our checkout button, other buttons work",
+        thread_messages=[
+            {
+                "user": "tester",
+                "text": "@PostHog autocapture isn't picking up clicks on our checkout button, other buttons work",
+            },
+            {"user": "other", "text": "we just shipped a redesign yesterday"},
+        ],
+        expected_stage="agent",
+        expected_outcome="found",
+    ),
+    Case(
+        name="wrong_data_tracking_bug",
+        description="'Wrong data in PostHog' — almost always a tracking bug in the team's own code, not PostHog.",
+        text_template="@PostHog we're not seeing any signup_completed events even though we tested signups today",
+        thread_messages=[
+            {
+                "user": "tester",
+                "text": "@PostHog we're not seeing any signup_completed events even though we tested signups today",
+            },
+            {"user": "other", "text": "the funnel shows 0 conversions but our team manually completed 5"},
+        ],
+        expected_stage="agent",
+        expected_outcome="found",
+    ),
     Case(
         name="vague_code_bug",
         description="Vague but code-flavored; agent should disambiguate from cache.",

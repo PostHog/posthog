@@ -10,8 +10,9 @@ use crate::{
     error::ResolveError,
     langs::hermes::HermesRef,
     symbol_store::{
-        apple::{AppleRef, ParsedAppleSymbols},
+        apple::AppleRef,
         hermesmap::ParsedHermesMap,
+        native::ParsedNativeSymbols,
         proguard::{FetchedMapping, ProguardRef},
     },
 };
@@ -22,6 +23,7 @@ pub mod chunk_id;
 pub mod concurrency;
 pub mod dart_minified_names;
 pub mod hermesmap;
+pub mod native;
 pub mod proguard;
 pub mod saving;
 pub mod sourcemap;
@@ -76,7 +78,7 @@ pub struct Catalog {
         Box<dyn Provider<Ref = OrChunkId<ProguardRef>, Set = FetchedMapping, Err = ResolveError>>,
     // Apple dSYM provider
     pub apple:
-        Box<dyn Provider<Ref = OrChunkId<AppleRef>, Set = ParsedAppleSymbols, Err = ResolveError>>,
+        Box<dyn Provider<Ref = OrChunkId<AppleRef>, Set = ParsedNativeSymbols, Err = ResolveError>>,
 }
 
 impl Catalog {
@@ -84,7 +86,7 @@ impl Catalog {
         smp: impl Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = ResolveError>,
         hmp: impl Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = ResolveError>,
         pg: impl Provider<Ref = OrChunkId<ProguardRef>, Set = FetchedMapping, Err = ResolveError>,
-        apple: impl Provider<Ref = OrChunkId<AppleRef>, Set = ParsedAppleSymbols, Err = ResolveError>,
+        apple: impl Provider<Ref = OrChunkId<AppleRef>, Set = ParsedNativeSymbols, Err = ResolveError>,
     ) -> Self {
         Self {
             smp: Box::new(smp),
@@ -137,12 +139,12 @@ impl SymbolCatalog<OrChunkId<ProguardRef>, FetchedMapping> for Catalog {
 }
 
 #[async_trait]
-impl SymbolCatalog<OrChunkId<AppleRef>, ParsedAppleSymbols> for Catalog {
+impl SymbolCatalog<OrChunkId<AppleRef>, ParsedNativeSymbols> for Catalog {
     async fn lookup(
         &self,
         team_id: i32,
         r: OrChunkId<AppleRef>,
-    ) -> Result<Arc<ParsedAppleSymbols>, ResolveError> {
+    ) -> Result<Arc<ParsedNativeSymbols>, ResolveError> {
         self.apple.lookup(team_id, r).await
     }
 }

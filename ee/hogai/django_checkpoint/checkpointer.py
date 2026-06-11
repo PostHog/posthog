@@ -21,7 +21,11 @@ from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from posthog.sync import database_sync_to_async
 
-from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
+from products.posthog_ai.backend.models.assistant import (
+    ConversationCheckpoint,
+    ConversationCheckpointBlob,
+    ConversationCheckpointWrite,
+)
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):

@@ -63,7 +63,6 @@ class MCPSessionPagination(LimitOffsetPagination):
         }
 
 
-@extend_schema(tags=["mcp_analytics"])
 class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPAnalyticsSubmissionSerializer
     # Keep these endpoints staff-only until the MCP tools and auth model are ready for customer traffic.
@@ -138,7 +137,6 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
         return self._list_response(request, enums.SubmissionKind.FEEDBACK)
 
 
-@extend_schema(tags=["mcp_analytics"])
 class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPSessionSerializer
     permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
@@ -227,7 +225,6 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(serializer.data)
 
 
-@extend_schema(tags=["mcp_analytics"])
 class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPIntentClusterSnapshotSerializer
     permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]

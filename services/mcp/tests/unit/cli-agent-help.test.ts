@@ -3,8 +3,6 @@ import { describe, expect, it } from 'vitest'
 import { buildAgentHelp, toCliSyntax } from '@/cli/agent-help'
 import { getCliTools } from '@/cli/tools'
 
-const VERSION = 2
-
 describe('CLI agent help', () => {
     it('rewrites exec invocations to CLI syntax', () => {
         expect(toCliSyntax('posthog:exec({ "command": "search dashboard" })')).toBe('posthog-cli api search dashboard')
@@ -20,7 +18,7 @@ describe('CLI agent help', () => {
     })
 
     it('builds the agent guide from the MCP exec templates', () => {
-        const help = buildAgentHelp(getCliTools(VERSION), VERSION)
+        const help = buildAgentHelp(getCliTools())
 
         expect(help).toContain('posthog-cli api info <tool_name>')
         expect(help).toContain('SCHEMA DRILL-DOWN RULE')
@@ -31,6 +29,6 @@ describe('CLI agent help', () => {
     })
 
     it('does not require credentials to build', () => {
-        expect(() => buildAgentHelp(getCliTools(VERSION), VERSION)).not.toThrow()
+        expect(() => buildAgentHelp(getCliTools())).not.toThrow()
     })
 })

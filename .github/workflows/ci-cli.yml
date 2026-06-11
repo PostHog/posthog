@@ -16,6 +16,7 @@ on:
             - 'pnpm-lock.yaml'
             - '.github/workflows/release.yml'
             - '.github/workflows/ci-cli.yml'
+            - '.github/workflows/release-cli.yml'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

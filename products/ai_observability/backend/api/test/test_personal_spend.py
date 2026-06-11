@@ -14,14 +14,12 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -188,7 +186,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         self,
         *,
         ai_product: str = "posthog_code",
-        model: str = "claude-opus-4-7",
+        model: str = "claude-opus-4-8",
         tool: str | None = "Bash",
         trace_id: str = "trace-1",
         cost: float = 1.5,
@@ -324,7 +322,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             properties={
                 "$ai_total_cost_usd": 999.99,
                 "ai_product": "posthog_code",
-                "$ai_model": "claude-opus-4-7",
+                "$ai_model": "claude-opus-4-8",
                 "$ai_tools_called": "Bash",
                 "$ai_trace_id": "their-trace",
             },
@@ -403,12 +401,6 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert rows["Read"]["share_of_scoped"] == 0.5
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestPersonalSpendNonSessionAuth(APIBaseTest):
     """
     Pins down what scopes the MCP and OAuth-token paths need to reach

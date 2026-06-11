@@ -39,7 +39,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -49,7 +48,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { identifierToHuman, isObject, pluralize } from 'lib/utils'
+import { identifierToHuman, pluralize } from 'lib/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -62,17 +61,18 @@ import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
-import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalResultBadges } from './components/EvalResultBadges'
 import { EvalsTabContent } from './components/EvalsTabContent'
-import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
+import { EventContentConversation } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
+import { JSONValueDisplay } from './components/JSONValueDisplay'
 import { MetricTag } from './components/MetricTag'
 import { SentimentBar } from './components/SentimentTag'
+import { TagsTabContent } from './components/TagsTabContent'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -86,6 +86,7 @@ import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentL
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { normalizeMessages } from './messageNormalization'
 import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
@@ -112,7 +113,6 @@ import {
     getTraceTimestamp,
     hasCostBreakdown,
     isLLMEvent,
-    normalizeMessages,
     removeMilliseconds,
     sanitizeTraceUrlSearchParams,
 } from './utils'
@@ -417,17 +417,17 @@ export const scene: SceneExport = {
     logic: aiObservabilityTraceLogic,
 }
 
-export function AIObservabilityTraceScene({ tabId }: { tabId?: string }): JSX.Element {
-    const traceLogic = aiObservabilityTraceLogic({ tabId })
+export function AIObservabilityTraceScene(): JSX.Element {
+    const traceLogic = aiObservabilityTraceLogic()
     const { traceId, query, searchQuery } = useValues(traceLogic)
-    const logicProps = { traceId, query, cachedResults: null, searchQuery, tabId }
+    const logicProps = { traceId, query, cachedResults: null, searchQuery }
     const traceDataLogic = aiObservabilityTraceDataLogic(logicProps)
 
     useAttachedLogic(traceDataLogic, traceLogic)
 
     return (
         <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
-            <BindLogic logic={aiObservabilityTraceLogic} props={{ tabId }}>
+            <BindLogic logic={aiObservabilityTraceLogic} props={{}}>
                 <BindLogic logic={aiObservabilityTraceDataLogic} props={logicProps}>
                     <TraceSceneWrapper />
                 </BindLogic>
@@ -506,7 +506,6 @@ function TraceSceneWrapper(): JSX.Element {
                             actions={showTraceNavigation ? <TraceNavigation /> : undefined}
                             noBorder
                         />
-                        <AIObservabilityRenameBanner />
                         <div className="flex items-start justify-between">
                             <TraceMetadata
                                 trace={trace}
@@ -1391,8 +1390,8 @@ function EventContentDisplay({
         return <></>
     }
 
-    const inputMessages = normalizeMessages(input, 'user')
-    const outputMessages = normalizeMessages(output, 'assistant')
+    const inputMessages = normalizeMessages(input, 'user').messages
+    const outputMessages = normalizeMessages(output, 'assistant').messages
 
     if (inputMessages.length > 0 || outputMessages.length > 0) {
         return (
@@ -1410,20 +1409,12 @@ function EventContentDisplay({
         <LLMInputOutput
             inputDisplay={
                 <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
-                    {isObject(input) ? (
-                        <HighlightedJSONViewer src={input} collapsed={4} searchQuery={searchQuery} />
-                    ) : (
-                        <span className="font-mono">{JSON.stringify(input ?? null)}</span>
-                    )}
+                    <JSONValueDisplay value={input} collapsed={4} searchQuery={searchQuery} />
                 </div>
             }
             outputDisplay={
                 <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-success-tertiary)]">
-                    {isObject(output) ? (
-                        <HighlightedJSONViewer src={output} collapsed={4} searchQuery={searchQuery} />
-                    ) : (
-                        <span className="font-mono">{JSON.stringify(output ?? null)}</span>
-                    )}
+                    <JSONValueDisplay value={output} collapsed={4} searchQuery={searchQuery} />
                 </div>
             }
         />
@@ -1482,6 +1473,16 @@ const EventContent = React.memo(
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
         const showEvalsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
+        const showTagsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]
+
+        // If the user is viewing the Tags tab but it's no longer available (flag off or
+        // they moved off a generation event), fall back to the default view so the panel
+        // doesn't render blank.
+        useEffect(() => {
+            if (viewMode === TraceViewMode.Tags && !showTagsTab) {
+                setViewMode(TraceViewMode.Conversation)
+            }
+        }, [viewMode, showTagsTab, setViewMode])
 
         const showSummaryTab =
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
@@ -1697,8 +1698,9 @@ const EventContent = React.memo(
                                                 <>
                                                     {isLLMEvent(event) ? (
                                                         event.event === '$ai_generation' ? (
-                                                            <EventContentGeneration
+                                                            <EventContentConversation
                                                                 eventId={event.id}
+                                                                generationEventId={event.id}
                                                                 traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput={
@@ -1714,20 +1716,25 @@ const EventContent = React.memo(
                                                                 highlightMessageIndex={highlightMessageIndex}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
-                                                            <EventContentDisplayAsync
+                                                            <EventContentConversation
                                                                 eventId={event.id}
+                                                                traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput="Embedding vector generated"
+                                                                searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         ) : (
-                                                            <EventContentDisplayAsync
+                                                            <EventContentConversation
                                                                 eventId={event.id}
+                                                                traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input_state}
-                                                                rawOutput={
-                                                                    event.properties.$ai_output_state ??
-                                                                    event.properties.$ai_error
-                                                                }
+                                                                rawOutput={event.properties.$ai_output_state}
+                                                                errorData={event.properties.$ai_error}
+                                                                httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
+                                                                searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         )
                                                     ) : (
@@ -1787,6 +1794,16 @@ const EventContent = React.memo(
                                                       distinctId={trace.distinctId}
                                                   />
                                               ),
+                                          },
+                                      ]
+                                    : []),
+                                ...(showTagsTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Tags,
+                                              label: 'Tags',
+                                              'data-attr': 'llma-trace-tags-tab',
+                                              content: <TagsTabContent generationEventId={event.id} />,
                                           },
                                       ]
                                     : []),

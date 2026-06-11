@@ -1,9 +1,11 @@
 // AUTO-GENERATED from products/tracing/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import {
     TracingSpansAggregateCreateBody,
     TracingSpansAttributesRetrieveQueryParams,
+    TracingSpansCountCreateBody,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
     TracingSpansTraceCreateBody,
@@ -24,7 +26,7 @@ const apmAttributeValuesList = (): ToolBase<typeof ApmAttributeValuesListSchema,
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/values/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/values/`,
             query: {
                 attribute_type: params.attribute_type,
                 key: params.key,
@@ -47,7 +49,7 @@ const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, unknown> 
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/attributes/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/attributes/`,
             query: {
                 attribute_type: params.attribute_type,
                 limit: params.limit,
@@ -69,7 +71,7 @@ const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => (
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/service-names/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/service-names/`,
             query: {
                 dateRange: params.dateRange,
                 search: params.search,
@@ -93,10 +95,31 @@ const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, unknown> 
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/aggregate/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/aggregate/`,
             body,
         })
         const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
+        return filtered
+    },
+})
+
+const ApmSpansCountSchema = TracingSpansCountCreateBody
+
+const apmSpansCount = (): ToolBase<typeof ApmSpansCountSchema, Schemas._TracingCountResponse> => ({
+    name: 'apm-spans-count',
+    schema: ApmSpansCountSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSpansCountSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._TracingCountResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/count/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['count']) as typeof result
         return filtered
     },
 })
@@ -114,7 +137,7 @@ const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/tree/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/tree/`,
             body,
         })
         const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
@@ -136,9 +159,12 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
             if (params.dateRange !== undefined) {
                 body['dateRange'] = params.dateRange
             }
+            if (params.excludeAttributes !== undefined) {
+                body['excludeAttributes'] = params.excludeAttributes
+            }
             const result = await context.api.request<unknown>({
                 method: 'POST',
-                path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
@@ -160,7 +186,7 @@ const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
             }
             const result = await context.api.request<unknown>({
                 method: 'POST',
-                path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/query/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/query/`,
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
@@ -173,6 +199,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-attributes-list': apmAttributesList,
     'apm-services-list': apmServicesList,
     'apm-spans-aggregate': apmSpansAggregate,
+    'apm-spans-count': apmSpansCount,
     'apm-spans-tree': apmSpansTree,
     'apm-trace-get': apmTraceGet,
     'query-apm-spans': queryApmSpans,

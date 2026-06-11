@@ -5,7 +5,7 @@ pub struct Person {
     pub id: i64,
     pub uuid: Uuid,
     pub team_id: i64,
-    pub properties: String,
+    pub properties: Option<String>,
     pub properties_last_updated_at: Option<String>,
     pub properties_last_operation: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
