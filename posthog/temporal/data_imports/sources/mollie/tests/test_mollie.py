@@ -36,7 +36,7 @@ def _error_response(status_code: int) -> mock.MagicMock:
     resp = mock.MagicMock()
     resp.status_code = status_code
     resp.ok = status_code < 400
-    resp.raise_for_status.side_effect = requests.HTTPError(f"status {status_code}")
+    resp.raise_for_status.side_effect = requests.HTTPError(f"status {status_code}", response=resp)
     return resp
 
 
