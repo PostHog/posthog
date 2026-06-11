@@ -43,11 +43,13 @@ pub struct LeafStateMeta {
     pub condition_hash: [u8; 16],
     /// The eviction window — `BehavioralSingle` only; `None` for the bucket and person variants.
     pub window: Option<EvictionWindow>,
-    /// The daily-bucket window length in days (`buckets.len() − 1`) — `Some` only for
-    /// [`StateVariant::BehavioralDailyBuckets`], `None` otherwise.
+    /// The daily-bucket window length in days (`buckets.len() − 1`) — `Some` for
+    /// [`StateVariant::BehavioralDailyBuckets`] and [`StateVariant::BehavioralCompressedHistory`],
+    /// `None` otherwise.
     pub window_days: Option<u32>,
-    /// The count comparator for a daily-bucket window's sum — `Some` only for
-    /// [`StateVariant::BehavioralDailyBuckets`], `None` otherwise.
+    /// The count comparator for a window's sum — `Some` for
+    /// [`StateVariant::BehavioralDailyBuckets`] and [`StateVariant::BehavioralCompressedHistory`],
+    /// `None` otherwise.
     pub predicate_op: Option<PredicateOp>,
 }
 

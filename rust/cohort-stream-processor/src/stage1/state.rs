@@ -157,19 +157,6 @@ impl AppliedOffsets {
             self.record(partition, offset);
         }
     }
-
-    /// `true` when no source partition has been seen yet.
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// `(source_partition, last_applied_offset)` pairs in ascending partition order. The inner map
-    /// stays private; this is the read accessor the merge composition and its tests use.
-    pub fn iter(&self) -> impl Iterator<Item = (i32, i64)> + '_ {
-        self.0
-            .iter()
-            .map(|(&partition, &offset)| (partition, offset))
-    }
 }
 
 /// The persisted `cf_stage1` value: a [`Stage1State`] plus the per-source-partition offsets already

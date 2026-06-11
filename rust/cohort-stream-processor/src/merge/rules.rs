@@ -211,10 +211,12 @@ fn merge_behavioral_pair(
                 ..
             },
         ) => {
-            let window_days = meta.window_days.unwrap_or(0);
             let (entries, window_start_day) =
                 union_by_day(old_entries, *old_start, new_entries, *new_start);
-            let earliest_eviction_at_ms = compressed_eviction_deadline(&entries, window_days, tz);
+            let earliest_eviction_at_ms = match meta.window_days {
+                Some(window_days) => compressed_eviction_deadline(&entries, window_days, tz),
+                None => i64::MAX, // meta desync: fail safe (never evict) — next event-path fold recomputes
+            };
             Some(Stage1State::BehavioralCompressedHistory {
                 entries,
                 window_start_day,
@@ -468,6 +470,40 @@ mod tests {
                 assert_eq!(entries, vec![(100, 2), (150, 3), (200, 5)]);
                 assert_eq!(window_start_day, 60, "the more recent anchor");
             }
+            other => panic!("expected compressed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compressed_window_days_desync_fails_safe_to_never_evict() {
+        // A meta desync where `window_days` is `None` must not collapse the deadline to the start of
+        // the day after the oldest entry (already in the past), which would drop the merged member's
+        // entire history on the next sweep tick. The merge fails safe to `i64::MAX` (never evict); the
+        // next event-path fold recomputes a real deadline.
+        let meta = LeafStateMeta {
+            variant: StateVariant::BehavioralCompressedHistory,
+            window_days: None,
+            predicate_op: Some(PredicateOp::Gte(1)),
+            ..single_meta()
+        };
+        let merged = merge_records(
+            uuid(1),
+            &compressed(vec![(100, 2), (200, 1)], 50),
+            Some(&compressed(vec![(150, 3)], 60)),
+            &meta,
+            TZ,
+        )
+        .record
+        .unwrap();
+        match merged.state {
+            Stage1State::BehavioralCompressedHistory {
+                earliest_eviction_at_ms,
+                ..
+            } => assert_eq!(
+                earliest_eviction_at_ms,
+                i64::MAX,
+                "window_days desync fails safe to never-evict",
+            ),
             other => panic!("expected compressed, got {other:?}"),
         }
     }
