@@ -3139,6 +3139,20 @@
             "readOnlyHint": false
         }
     },
+    "inbox-reports-list": {
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which reports you are already working against). For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List signal reports",
+        "title": "List signal reports",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "inbox-reports-retrieve": {
         "description": "Get a single signal report by ID. Returns the full report including title, summary, status, priority and actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR if one has been opened. The report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; the raw underlying signals require a HogQL query (see the 'signals' skill). Report lifecycle is pipeline-managed — don't try to drive it: act on `ready` reports; `pending_input` means the report is waiting on human input, so surface it to a human rather than acting on it yourself.",
         "category": "Signals",

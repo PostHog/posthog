@@ -73,6 +73,43 @@ tools:
             Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The
             new content is validated against the artefact type's schema. Editing the latest row of a status type changes
             the report's canonical status; to re-assess while keeping history, append a new artefact instead.
+    inbox-reports-list:
+        operation: signals_reports_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List signal reports
+        description: >
+            List signal reports for the current project. A signal report is a cluster of related observations (signals)
+            that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
+            by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search
+            across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog
+            user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which
+            reports you are already working against). For picking up work, filter to `ready` — earlier statuses are
+            still moving through the pipeline, and `pending_input` reports are waiting on a human. Results are
+            paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.
+        response:
+            include:
+                - id
+                - title
+                - summary
+                - status
+                - priority
+                - actionability
+                - already_addressed
+                - signal_count
+                - total_weight
+                - source_products
+                - is_suggested_reviewer
+                - implementation_pr_url
+                - created_at
+                - updated_at
     inbox-reports-retrieve:
         operation: signals_reports_retrieve
         enabled: true

@@ -11,6 +11,7 @@ import {
     SignalsReportArtefactsPartialUpdateBody,
     SignalsReportArtefactsPartialUpdateParams,
     SignalsReportArtefactsRetrieveParams,
+    SignalsReportsListQueryParams,
     SignalsReportsRetrieveParams,
     SignalsReportsStateCreateBody,
     SignalsReportsStateCreateParams,
@@ -107,6 +108,65 @@ const inboxReportArtefactsUpdate = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const InboxReportsListSchema = SignalsReportsListQueryParams
+
+const inboxReportsList = (): ToolBase<
+    typeof InboxReportsListSchema,
+    WithPostHogUrl<Schemas.PaginatedSignalReportList>
+> => ({
+    name: 'inbox-reports-list',
+    schema: InboxReportsListSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSignalReportList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                priority: params.priority,
+                search: params.search,
+                source_product: params.source_product,
+                status: params.status,
+                suggested_reviewers: params.suggested_reviewers,
+                task_id: params.task_id,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'title',
+                    'summary',
+                    'status',
+                    'priority',
+                    'actionability',
+                    'already_addressed',
+                    'signal_count',
+                    'total_weight',
+                    'source_products',
+                    'is_suggested_reviewer',
+                    'implementation_pr_url',
+                    'created_at',
+                    'updated_at',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
+                ),
+            },
+            '/inbox'
+        )
     },
 })
 
@@ -609,6 +669,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,
     'inbox-report-artefacts-delete': inboxReportArtefactsDelete,
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
+    'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-source-configs-create': inboxSourceConfigsCreate,
