@@ -106,16 +106,35 @@ class TestGetRows:
     @mock.patch("posthog.temporal.data_imports.sources.optimizely.optimizely._iterate_pages")
     @mock.patch("posthog.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session")
     def test_fan_out_raises_on_unexpected_errors(self, mock_session, mock_iterate):
+        # 401 and other non-retried 4xx (not in the skip set 400/403/404) are the
+        # cases that actually reach the `raise` branch via requests.HTTPError.
+        # 5xx would arrive as OptimizelyRetryableError (after retries), bypassing
+        # the HTTPError handler entirely.
         def iterate(session, path, params, logger):
             if path == "/projects":
                 yield [{"id": 11}]
                 return
-            raise _http_error(500)
+            raise _http_error(401)
 
         mock_iterate.side_effect = iterate
 
         with pytest.raises(requests.HTTPError):
             list(get_rows("token", "experiments", mock.MagicMock()))
+
+    @mock.patch("posthog.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session")
+    def test_pagination_stops_on_foreign_next_url(self, mock_session):
+        # A next_url on an unexpected host must not be followed — it could
+        # redirect our authenticated Bearer request and leak the token.
+        evil_url = "https://evil.example.com/v2/projects?page=2&per_page=100"
+        mock_session.return_value.get.side_effect = [
+            _response([{"id": 1}], next_url=evil_url),
+            _response([{"id": 2}]),
+        ]
+
+        batches = list(get_rows("token", "projects", mock.MagicMock()))
+
+        assert [item["id"] for batch in batches for item in batch] == [1]
+        assert mock_session.return_value.get.call_count == 1
 
     @mock.patch("posthog.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session")
     def test_empty_response_yields_nothing(self, mock_session):

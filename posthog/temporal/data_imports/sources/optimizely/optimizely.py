@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -10,7 +10,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.optimizely.settings import OPTIMIZELY_ENDPOINTS
 
-OPTIMIZELY_BASE_URL = "https://api.optimizely.com/v2"
+OPTIMIZELY_API_HOST = "api.optimizely.com"
+OPTIMIZELY_BASE_URL = f"https://{OPTIMIZELY_API_HOST}/v2"
 # Optimizely list pages cap at 100 items.
 PAGE_SIZE = 100
 # Safety bound per page chain — experiment config entities never come close.
@@ -21,6 +22,12 @@ MAX_RETRY_ATTEMPTS = 5
 
 class OptimizelyRetryableError(Exception):
     pass
+
+
+def _is_optimizely_url(url: str) -> bool:
+    """Return True only for https URLs on the Optimizely API host."""
+    parsed = urlparse(url)
+    return parsed.scheme == "https" and parsed.netloc == OPTIMIZELY_API_HOST
 
 
 def _get_session(api_token: str) -> requests.Session:
@@ -78,6 +85,12 @@ def _iterate_pages(
 
         next_url = response.links.get("next", {}).get("url")
         if not next_url:
+            return
+        # Only follow pagination URLs that stay on the Optimizely API host, so a
+        # tampered or compromised API response can't redirect our authenticated
+        # Bearer request to an internal address (SSRF) or external host (token theft).
+        if not _is_optimizely_url(next_url):
+            logger.error(f"Optimizely: unexpected next_url host, stopping pagination (url={next_url!r})")
             return
         url = next_url
 
