@@ -97,10 +97,12 @@ function ContextMenuItem({
             data-inset={inset}
             data-variant={variant}
             className={cn(
-                "group/context-menu-item relative flex cursor-default items-center outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "group/context-menu-item relative flex cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 // Same destructive treatment as DropdownMenuItem: red text at rest, red tint on
                 // hover/highlight — never Button's filled `destructive` variant inside a menu.
-                'data-[variant=destructive]:text-destructive data-[variant=destructive]:hover:text-destructive data-[variant=destructive]:[&_svg]:text-destructive data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:data-highlighted:bg-destructive/10 dark:data-[variant=destructive]:hover:bg-destructive/20 dark:data-[variant=destructive]:focus:bg-destructive/20 dark:data-[variant=destructive]:data-highlighted:bg-destructive/20',
+                // Disabled destructive mirrors the disabled destructive Button: 50%-mix red fill
+                // under the item-level opacity-50.
+                'data-[variant=destructive]:text-destructive-foreground data-[variant=destructive]:hover:text-destructive-foreground data-[variant=destructive]:[&_svg]:text-destructive-foreground data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:data-highlighted:bg-destructive/10 dark:data-[variant=destructive]:hover:bg-destructive/20 dark:data-[variant=destructive]:focus:bg-destructive/20 dark:data-[variant=destructive]:data-highlighted:bg-destructive/20 data-[variant=destructive]:data-disabled:bg-destructive/50',
                 inset && 'quill-menu-item--inset',
                 className
             )}
