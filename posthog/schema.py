@@ -9040,6 +9040,12 @@ class SessionRecordingType(BaseModel):
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None
+    matches_filters: bool | None = Field(
+        default=None,
+        description=(
+            "False when the recording was included in list results via a direct link despite not matching the filters."
+        ),
+    )
     matching_events: list[MatchedRecording] | None = Field(default=None, description="List of matching events. *")
     mouse_activity_count: float | None = Field(
         default=None,

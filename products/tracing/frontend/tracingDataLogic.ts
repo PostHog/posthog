@@ -19,6 +19,7 @@ import {
     type VisibleDurationRange,
     visibleDurationRange,
 } from './durationBuckets'
+import { traceLookupDateRange } from './traceLinks'
 import type { tracingDataLogicType } from './tracingDataLogicType'
 import { type TracingFilters, type TracingOrderBy, tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
@@ -271,12 +272,20 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         traceSpans: [
             [] as Span[],
             {
-                loadTraceSpans: async (traceId: string): Promise<Span[]> => {
+                loadTraceSpans: async ({ traceId, ts }: { traceId: string; ts?: string | null }): Promise<Span[]> => {
+                    // A ts hint (from a shared/cold link) bounds the lookup tightly around the trace
+                    // instead of the scene's current date range — the table is time-keyed, so this is
+                    // what keeps an id lookup from scanning the whole window. Guard validity: a
+                    // hand-edited/corrupted ?ts= would otherwise make dayjs throw on toISOString().
+                    const dateRange =
+                        ts && dayjs(ts).isValid()
+                            ? traceLookupDateRange(ts)
+                            : {
+                                  date_from: values.utcDateRange.date_from ?? '-24h',
+                                  date_to: values.utcDateRange.date_to ?? undefined,
+                              }
                     const response = await api.tracing.getTrace(traceId, {
-                        dateRange: {
-                            date_from: values.utcDateRange.date_from ?? '-24h',
-                            date_to: values.utcDateRange.date_to ?? undefined,
-                        },
+                        dateRange,
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                     })
