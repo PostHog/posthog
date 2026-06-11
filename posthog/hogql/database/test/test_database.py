@@ -28,6 +28,7 @@ from posthog.hogql.database.database import (
     get_data_warehouse_table_name,
 )
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
@@ -133,7 +134,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                     from_field=["dashboard_id"],
                     to_field=["id"],
                     join_table="direct_table",
-                    join_function=lambda *_args: None,
+                    resolver=FOREIGN_KEY,
                 )
             },
             postgres_table_name="events",

@@ -43,6 +43,16 @@ def has_task_tool_feature_flag(team: Team, user: User) -> bool:
     )
 
 
+def has_conversation_topic_feature_flag(team: Team, user: User) -> bool:
+    return posthoganalytics.feature_enabled(
+        "posthog-ai-web-analytics-nudge",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
 def has_memory_tool_feature_flag(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
         "phai-memory-tool",

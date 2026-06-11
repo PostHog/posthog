@@ -503,6 +503,17 @@ def override_error_tracking_issue_fingerprint(
     )
 
 
+DEPRECATED_CLICKHOUSE_STATUSES = frozenset(
+    {ErrorTrackingIssue.Status.ARCHIVED, ErrorTrackingIssue.Status.PENDING_RELEASE}
+)
+
+
+def _clickhouse_status(issue_status: str) -> str:
+    if issue_status in DEPRECATED_CLICKHOUSE_STATUSES:
+        return ErrorTrackingIssue.Status.RESOLVED
+    return issue_status
+
+
 def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
     if not issue_ids:
         return
@@ -543,7 +554,7 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
                 "team_id": team_id,
                 "issue_name": issue.name,
                 "issue_description": issue.description,
-                "issue_status": issue.status,
+                "issue_status": _clickhouse_status(issue.status),
                 "assigned_user_id": assigned_user_id,
                 "assigned_role_id": assigned_role_id,
                 "first_seen": first_seen,
@@ -556,6 +567,16 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
 def delete_symbol_set_contents(upload_path: str) -> None:
     if settings.OBJECT_STORAGE_ENABLED:
         object_storage.delete(file_name=upload_path)
+    else:
+        raise ValidationError(
+            code="object_storage_required",
+            detail="Object storage must be available to delete source maps.",
+        )
+
+
+def delete_symbol_set_contents_many(upload_paths: list[str]) -> list[str]:
+    if settings.OBJECT_STORAGE_ENABLED:
+        return object_storage.delete_objects(file_names=upload_paths)
     else:
         raise ValidationError(
             code="object_storage_required",

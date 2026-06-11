@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.storage import object_storage
+from posthog.temporal.ai.slack_app import PostHogCodeSlackMentionWorkflowInputs, classify_untagged_followup_activity
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -156,20 +157,6 @@ def _build_posthog_code_task_description(
     )
 
 
-@dataclass
-class PostHogCodeSlackMentionWorkflowInputs:
-    event: dict[str, Any]
-    integration_id: int
-    slack_team_id: str
-    # Event that dispatched the workflow
-    slack_event_id: str | None = None
-    # Resolved at routing time. ``None`` only on in-flight workflow histories
-    # started before this field existed; those fall back to the in-workflow
-    # resolve activity below. Remove the fallback (and this field's optionality)
-    # once the workflow history retention window has elapsed.
-    user_id: int | None = None
-
-
 def derive_mention_workflow_id(inputs: "PostHogCodeSlackMentionWorkflowInputs") -> str:
     """Construct the dispatch workflow id from webhook inputs."""
     event = inputs.event
@@ -272,6 +259,22 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if blocked:
                 return
 
+            # Untagged thread replies face the Haiku classifier before any
+            # forward. The webhook handler punted on this so its 3-second ack
+            # budget stays unencumbered; here we run it under Temporal's retry
+            # policy. Drop on chitchat or any failure (default-deny).
+            if inputs.untagged_followup:
+                should_forward = await _execute_posthog_code_activity(
+                    classify_untagged_followup_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    event.get("text", ""),
+                )
+                if not should_forward:
+                    return
+
             followup_handled = await _execute_posthog_code_activity(
                 forward_posthog_code_followup_activity,
                 inputs,
@@ -282,6 +285,13 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 event.get("ts"),
             )
             if followup_handled:
+                return
+
+            # Untagged thread replies must not fall through to the new-task path.
+            # The user never @mentioned us — they only typed in a thread that
+            # used to have an active task. If the mapping is gone by the time we
+            # got here, the right behaviour is to do nothing.
+            if inputs.untagged_followup:
                 return
 
             # New starts carry ``user_id`` from routing-time resolution and skip
@@ -445,11 +455,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             )
 
 
-# `api.py` imports the workflow classes above, so keep this module-level import
-# after their definitions to avoid a circular import during module initialization.
-from products.slack_app.backend.api import resolve_slack_user  # noqa: E402
-
-
 async def _gate_on_personal_github(
     inputs: "PostHogCodeSlackMentionWorkflowInputs",
     channel: str,
@@ -499,6 +504,10 @@ def resolve_posthog_code_slack_user_activity(
     thread_ts: str,
     slack_user_id: str,
 ) -> int | None:
+    # Imported lazily to break a circular import: products.slack_app.backend.api
+    # imports the workflow classes defined in this module at its top level.
+    from products.slack_app.backend.api import resolve_slack_user
+
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
         kind="slack",
@@ -1154,7 +1163,7 @@ def forward_posthog_code_followup_activity(
     Returns True if the message was handled (forwarded or rejected), False if
     no mapping exists and the caller should continue with the normal new-task flow.
     """
-    from products.slack_app.backend.api import _parse_rules_command
+    from products.slack_app.backend.api import _parse_rules_command, resolve_slack_user
 
     if _parse_rules_command(event_text):
         return False

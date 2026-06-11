@@ -1,14 +1,14 @@
 name: Agent Skills
 
+# No paths filter on master pushes (matching the other ci-* workflows): the skills build
+# imports product code whose import graph any Python change can affect, so a filtered
+# master trigger lets unrelated commits break the build invisibly until the next
+# skills-path commit takes the blame. PR runs stay filtered via the changes job below.
 on:
     pull_request:
     push:
         branches:
             - master
-        paths:
-            - 'products/*/skills/**'
-            - 'products/posthog_ai/scripts/**'
-            - '.github/workflows/ci-agent-skills.yml'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
