@@ -439,10 +439,13 @@ export function NotebookAIChatThread({
     const threadMessages = getNotebookAIChatThreadMessages(threadGrouped, threadLoading)
     const visibleMessages =
         loadOlderMessages && threadMessages.length > 0 ? threadMessages : [...baseMessages, ...threadMessages]
-    const displayMessages = getNotebookAIChatDisplayMessages(visibleMessages, cachedLastAnswer)
+    const isThreadStreaming = threadLoading || visibleMessages.at(-1)?.role === 'thinking'
+    const displayMessages = getNotebookAIChatDisplayMessages(visibleMessages, cachedLastAnswer, isThreadStreaming)
     const conversationTitle = getUnknownStringProp(conversation?.title)
     const latestAnswer = getLatestNotebookAIChatAnswer(visibleMessages)
     const isThinking = threadLoading || displayMessages.at(-1)?.role === 'thinking'
+    const lastProducedAnswerRef = useRef<string | null>(null)
+    const lastProducedTitleRef = useRef<string | null>(null)
     useApplyNotebookArtifactMessages(threadRaw, chatId)
 
     useEffect(() => {
@@ -457,14 +460,24 @@ export function NotebookAIChatThread({
     useEffect(() => {
         const nextProps: Partial<NotebookComponentProps> = {}
 
-        if (latestAnswer && latestAnswer !== cachedLastAnswer) {
-            nextProps.lastAnswer = latestAnswer
+        // Only push values this client's thread newly produced. The cached props are shared
+        // collaborative state: when another window writes a newer answer, comparing it against
+        // this window's stale thread and "correcting" it would clobber the other side's reply
+        // and the two windows would revert each other forever.
+        if (latestAnswer && latestAnswer !== lastProducedAnswerRef.current) {
+            lastProducedAnswerRef.current = latestAnswer
+            if (latestAnswer !== cachedLastAnswer) {
+                nextProps.lastAnswer = latestAnswer
+            }
+            if (hasLegacyAnswer) {
+                nextProps.answer = undefined
+            }
         }
-        if (hasLegacyAnswer && latestAnswer) {
-            nextProps.answer = undefined
-        }
-        if (conversationTitle && conversationTitle !== cachedTitle) {
-            nextProps.title = conversationTitle
+        if (conversationTitle && conversationTitle !== lastProducedTitleRef.current) {
+            lastProducedTitleRef.current = conversationTitle
+            if (conversationTitle !== cachedTitle) {
+                nextProps.title = conversationTitle
+            }
         }
 
         if (Object.keys(nextProps).length > 0) {
@@ -673,19 +686,30 @@ export function getNotebookAIChatBaseMessages(cachedLastAnswer: string | null): 
 /**
  * What the chat block renders. A collaborator's client has no local thread for a chat
  * another user is driving, but the answer streams in through the Chat node's `lastAnswer`
- * prop — render that live instead of a stuck "Thinking ..." placeholder.
+ * prop — render that live instead of a stuck "Thinking ..." placeholder. The same applies
+ * when this client's thread is idle and a different answer arrives through the props
+ * (someone replied from another window): it shows as the newest message.
  */
 export function getNotebookAIChatDisplayMessages(
     visibleMessages: NotebookAIChatMessage[],
-    cachedLastAnswer: string | null
+    cachedLastAnswer: string | null,
+    isThreadStreaming: boolean = false
 ): NotebookAIChatMessage[] {
-    if (visibleMessages.length > 0) {
-        return visibleMessages
+    if (!visibleMessages.length) {
+        if (cachedLastAnswer) {
+            return getNotebookAIChatBaseMessages(cachedLastAnswer)
+        }
+        return [{ role: 'thinking', id: 'notebook-ai-chat-loading', content: 'Thinking ...' }]
     }
-    if (cachedLastAnswer) {
-        return getNotebookAIChatBaseMessages(cachedLastAnswer)
+
+    if (!isThreadStreaming && cachedLastAnswer && getLatestNotebookAIChatAnswer(visibleMessages) !== cachedLastAnswer) {
+        return [
+            ...visibleMessages,
+            { role: 'assistant', id: 'notebook-ai-chat-remote-answer', content: cachedLastAnswer },
+        ]
     }
-    return [{ role: 'thinking', id: 'notebook-ai-chat-loading', content: 'Thinking ...' }]
+
+    return visibleMessages
 }
 
 export function getNotebookAIChatThreadMessages(

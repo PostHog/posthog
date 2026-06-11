@@ -48,7 +48,9 @@ export function getNotebookAIChatUIContext({
     notebookTitle,
     markdown,
     chatId,
-    chatMarker = getNotebookAIChatMarker(chatId),
+    // The chat tag accumulates props (lastAnswer, title) over time, so the marker the AI is
+    // told about must be the tag as it actually appears in the markdown it receives.
+    chatMarker = findNotebookAIChatTag(markdown, chatId)?.tag ?? getNotebookAIChatMarker(chatId),
 }: {
     notebookShortId: string | null
     notebookTitle: string
@@ -83,17 +85,30 @@ export function preserveNotebookAIChatMarker(
         return nextMarkdown
     }
 
-    const chatMarker = getNotebookAIChatMarker(chatId)
-    const markerIndex = currentMarkdown.indexOf(chatMarker)
-    if (markerIndex === -1 || nextMarkdown.includes(chatMarker)) {
+    const currentTag = findNotebookAIChatTag(currentMarkdown, chatId)
+    if (!currentTag) {
         return nextMarkdown
+    }
+
+    const nextTag = findNotebookAIChatTag(nextMarkdown, chatId)
+    if (nextTag) {
+        // The AI usually echoes the bare marker it was shown; the editor owns the tag's
+        // runtime props (lastAnswer, title), so the current tag replaces whatever came back.
+        if (nextTag.tag === currentTag.tag) {
+            return nextMarkdown
+        }
+        return (
+            nextMarkdown.slice(0, nextTag.index) +
+            currentTag.tag +
+            nextMarkdown.slice(nextTag.index + nextTag.tag.length)
+        )
     }
 
     // The AI dropped the chat marker: re-anchor it at its previous position — right after the block
     // that preceded it — so the chat does not jump to the bottom of the notebook.
-    const beforeMarker = currentMarkdown.slice(0, markerIndex).trimEnd()
+    const beforeMarker = currentMarkdown.slice(0, currentTag.index).trimEnd()
     if (!beforeMarker) {
-        return [chatMarker, nextMarkdown.trimStart()].filter((block) => block.trim()).join('\n\n')
+        return [currentTag.tag, nextMarkdown.trimStart()].filter((block) => block.trim()).join('\n\n')
     }
 
     const lastBlockBreakIndex = beforeMarker.lastIndexOf('\n\n')
@@ -105,10 +120,10 @@ export function preserveNotebookAIChatMarker(
         const insertionIndex = anchorIndex + precedingBlock.length
         const beforeInsertion = nextMarkdown.slice(0, insertionIndex).trimEnd()
         const afterInsertion = nextMarkdown.slice(insertionIndex).trimStart()
-        return [beforeInsertion, chatMarker, afterInsertion].filter((block) => block.trim()).join('\n\n')
+        return [beforeInsertion, currentTag.tag, afterInsertion].filter((block) => block.trim()).join('\n\n')
     }
 
-    return [nextMarkdown.trimEnd(), chatMarker].filter((block) => block.trim()).join('\n\n')
+    return [nextMarkdown.trimEnd(), currentTag.tag].filter((block) => block.trim()).join('\n\n')
 }
 
 export function insertMarkdownAfterNotebookAIChatMarker(
@@ -121,17 +136,12 @@ export function insertMarkdownAfterNotebookAIChatMarker(
         return currentMarkdown
     }
 
-    if (!chatId) {
+    const chatTag = chatId ? findNotebookAIChatTag(currentMarkdown, chatId) : null
+    if (!chatTag) {
         return [currentMarkdown, trimmedBlockMarkdown].filter((block) => block.trim()).join('\n\n')
     }
 
-    const chatMarker = getNotebookAIChatMarker(chatId)
-    const chatMarkerIndex = currentMarkdown.indexOf(chatMarker)
-    if (chatMarkerIndex === -1) {
-        return [currentMarkdown, trimmedBlockMarkdown].filter((block) => block.trim()).join('\n\n')
-    }
-
-    const insertionIndex = chatMarkerIndex + chatMarker.length
+    const insertionIndex = chatTag.index + chatTag.tag.length
     const beforeInsertion = currentMarkdown.slice(0, insertionIndex).trimEnd()
     const afterInsertion = currentMarkdown.slice(insertionIndex).trimStart()
 
@@ -140,6 +150,20 @@ export function insertMarkdownAfterNotebookAIChatMarker(
 
 export function getNotebookAIChatMarker(chatId: string): string {
     return `<Chat id="${chatId}" />`
+}
+
+/**
+ * Locate this chat's tag in the markdown, tolerating the props the editor accumulates on
+ * it over time (`<Chat id="x" lastAnswer="…" />`) — a bare-marker `indexOf` stops matching
+ * after the first streamed answer.
+ */
+export function findNotebookAIChatTag(markdown: string, chatId: string): { index: number; tag: string } | null {
+    const escapedChatId = chatId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = markdown.match(new RegExp(`<Chat\\b[^>]*\\bid="${escapedChatId}"[^>]*/>`))
+    if (!match || match.index === undefined) {
+        return null
+    }
+    return { index: match.index, tag: match[0] }
 }
 
 export function getInlineNotebookAIPanelId(chatId: string, mode: 'inline' | 'full'): string {

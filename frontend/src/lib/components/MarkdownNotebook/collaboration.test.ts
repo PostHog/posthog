@@ -183,6 +183,53 @@ describe('mergeNotebookMarkdownChanges', () => {
         expect(result.mergedMarkdown).toEqual('<Prompt question="Summarize the cohort data" />')
     })
 
+    it('dedupes a freshly inserted component racing its own save echo', () => {
+        // Submitting a prompt replaces it with `<Chat id="c1" />` and saves; the streaming
+        // answer diverges local state from the save response before it lands, so the echo
+        // goes through the merge. The chat must not double.
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: '# Title\n\n<Prompt question="Summarize" />',
+            localMarkdown: '# Title\n\n<Chat id="c1" lastAnswer="The funnel improved" />',
+            remoteMarkdown: '# Title\n\n<Chat id="c1" />',
+        })
+
+        expect((result.mergedMarkdown.match(/<Chat/g) ?? []).length).toEqual(1)
+        expect(result.mergedMarkdown).toEqual('# Title\n\n<Chat id="c1" lastAnswer="The funnel improved" />')
+    })
+
+    it('dedupes a new paragraph with a mid-word typo fix racing its own save echo', () => {
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: '# Title',
+            localMarkdown: '# Title\n\nHello world, this is a paragraph',
+            remoteMarkdown: '# Title\n\nHelo world, this is a paragraph',
+        })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toEqual('# Title\n\nHello world, this is a paragraph')
+    })
+
+    it('keeps genuinely different paragraphs inserted at the same spot by two users', () => {
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: '# Title',
+            localMarkdown: '# Title\n\nNotes from the local user',
+            remoteMarkdown: '# Title\n\nA completely different remote thought',
+        })
+
+        expect(result.mergedMarkdown).toContain('Notes from the local user')
+        expect(result.mergedMarkdown).toContain('A completely different remote thought')
+    })
+
+    it('keeps concurrently inserted components that are genuinely different', () => {
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: '# Title',
+            localMarkdown: '# Title\n\n<Chat id="local-chat" />',
+            remoteMarkdown: '# Title\n\n<Chat id="remote-chat" />',
+        })
+
+        expect(result.mergedMarkdown).toContain('local-chat')
+        expect(result.mergedMarkdown).toContain('remote-chat')
+    })
+
     it('keeps non-string prop edits atomic per prop', () => {
         const result = mergeNotebookMarkdownChanges({
             baseMarkdown: '<Query query={{"kind":"TrendsQuery","interval":"day"}} />',

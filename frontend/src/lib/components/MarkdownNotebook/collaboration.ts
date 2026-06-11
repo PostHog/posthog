@@ -1,5 +1,5 @@
 import { parseMarkdownNotebook, serializeMarkdownNotebook, serializeNode } from './markdown'
-import { reconcileNotebookDocuments } from './reconcile'
+import { getStableComponentKey, reconcileNotebookDocuments } from './reconcile'
 import { applyTextChanges, getTextChanges, transformTextChanges, tryApplyTextChanges } from './textChanges'
 import { NotebookBlockNode, NotebookCollaborationConflict, NotebookComponentBlockNode, NotebookDocument } from './types'
 import { cloneNotebookNode, getNodeFingerprint, getNodeSignature } from './utils'
@@ -274,6 +274,26 @@ function mergeInsertedNotebookBlockNodes(
     localNode: NotebookBlockNode,
     remoteNode: NotebookBlockNode
 ): NotebookBlockNode | null {
+    // The same component inserted on both sides (typically a block racing its own save
+    // echo — e.g. a freshly created AI chat whose streaming answer diverged from the
+    // echo) must collapse to one node, with the local side's prop values winning.
+    if (localNode.type === 'component' && remoteNode.type === 'component') {
+        if (localNode.tagName !== remoteNode.tagName) {
+            return null
+        }
+        const localKey = getStableComponentKey(localNode)
+        if (
+            (localKey !== null && localKey === getStableComponentKey(remoteNode)) ||
+            getNodeFingerprint(localNode) === getNodeFingerprint(remoteNode)
+        ) {
+            return {
+                ...cloneNotebookNode(localNode),
+                props: { ...remoteNode.props, ...localNode.props },
+            }
+        }
+        return null
+    }
+
     if (!isMergeableInsertedTextNode(localNode) || !isMergeableInsertedTextNode(remoteNode)) {
         return null
     }
@@ -293,6 +313,19 @@ function mergeInsertedNotebookBlockNodes(
             ...cloneNotebookNode(remoteNode),
             id: localNode.id,
         }
+    }
+
+    // Nearly identical versions of one new block are the same block racing its own save
+    // (a typo fixed mid-word before the save response landed): keep the local, newer
+    // lineage. The threshold is deliberately tight — genuinely different content written
+    // by two people at the same spot must stay separate.
+    const changes = getTextChanges(remoteMarkdown, localMarkdown)
+    const changedUnits = changes.reduce(
+        (total, change) => total + Math.max(change.end - change.start, change.text.length),
+        0
+    )
+    if (changedUnits * 5 <= Math.max(localMarkdown.length, remoteMarkdown.length)) {
+        return cloneNotebookNode(localNode)
     }
 
     return null

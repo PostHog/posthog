@@ -81,8 +81,8 @@ describe('markdown notebook AI chat messages', () => {
     describe('getNotebookAIChatDisplayMessages', () => {
         const localAnswer: NotebookAIChatMessage = { role: 'assistant', id: 'a1', content: 'A local answer' }
 
-        it('prefers the local thread when it has messages', () => {
-            expect(getNotebookAIChatDisplayMessages([localAnswer], 'cached')).toEqual([localAnswer])
+        it('prefers the local thread when it already shows the cached answer', () => {
+            expect(getNotebookAIChatDisplayMessages([localAnswer], localAnswer.content)).toEqual([localAnswer])
         })
 
         it('renders the synced lastAnswer when the local thread is empty (collaborator view)', () => {
@@ -99,6 +99,24 @@ describe('markdown notebook AI chat messages', () => {
             expect(getNotebookAIChatDisplayMessages([], null)).toEqual([
                 { role: 'thinking', id: 'notebook-ai-chat-loading', content: 'Thinking ...' },
             ])
+        })
+
+        it('appends an answer that arrived via props while the local thread is idle', () => {
+            // Someone replied from another window: their answer synced into lastAnswer.
+            expect(getNotebookAIChatDisplayMessages([localAnswer], 'A newer remote answer', false)).toEqual([
+                localAnswer,
+                { role: 'assistant', id: 'notebook-ai-chat-remote-answer', content: 'A newer remote answer' },
+            ])
+        })
+
+        it('does not append the cached answer while the local thread is streaming', () => {
+            expect(getNotebookAIChatDisplayMessages([localAnswer], 'An older cached answer', true)).toEqual([
+                localAnswer,
+            ])
+        })
+
+        it('does not duplicate the answer this thread already shows', () => {
+            expect(getNotebookAIChatDisplayMessages([localAnswer], localAnswer.content, false)).toEqual([localAnswer])
         })
     })
 })

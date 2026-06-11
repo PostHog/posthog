@@ -129,7 +129,7 @@ function preserveStableComponentIds(previousEntries: PreviousNodeEntry[], nextNo
     })
 }
 
-function getStableComponentKey(node: NotebookBlockNode): string | null {
+export function getStableComponentKey(node: NotebookBlockNode): string | null {
     if (node.type !== 'component') {
         return null
     }
