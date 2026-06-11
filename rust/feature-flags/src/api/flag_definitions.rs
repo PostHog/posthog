@@ -4,10 +4,7 @@ use crate::{
         errors::{ClientFacingError, FlagError},
         instance_setting::{constance_key, fetch_instance_setting_raw_value},
     },
-    flags::{
-        flag_analytics::is_billable_flag_key, flag_request::FlagRequestType,
-        flag_service::FlagService,
-    },
+    flags::{flag_analytics::is_billable_flag_key, flag_request::FlagRequestType},
     handler::types::Library,
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
@@ -352,22 +349,10 @@ pub(crate) fn handle_non_get_method(method: &Method) -> Response {
     }
 }
 
-fn flag_service(state: &AppState) -> FlagService {
-    FlagService::new(
-        state.redis_client.clone(),
-        state.database_pools.non_persons_reader.clone(),
-        state.team_hypercache_reader.clone(),
-        state.flags_hypercache_reader.clone(),
-        state.flag_definitions_cache.clone(),
-        state.team_negative_cache.clone(),
-        *state.config.skip_pg_team_fallback,
-    )
-}
-
 /// Fetches a team by its API token, delegating to FlagService for consistent
 /// negative caching, metrics, and error handling across all endpoints.
 async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
-    flag_service(state).verify_token_and_get_team(token).await
+    state.flag_service().verify_token_and_get_team(token).await
 }
 
 /// Resolves a team from the Authorization header when no `?token=` param is provided.
@@ -393,7 +378,7 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
 
         // Prefer HyperCache via api_token (new cache entries include it).
         // Fall back to PG for old cache entries that predate the field.
-        let svc = flag_service(state);
+        let svc = state.flag_service();
         return match api_token {
             Some(t) => svc.verify_token_and_get_team(&t).await,
             None => svc.get_team_by_id(team_id).await,

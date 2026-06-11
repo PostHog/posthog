@@ -12,7 +12,7 @@
 use crate::{
     api::{auth, errors::FlagError, flag_definitions},
     database::get_connection_with_metrics,
-    flags::{flag_payload_decryptor::REDACTED_PAYLOAD_VALUE, flag_service::FlagService},
+    flags::flag_payload_decryptor::REDACTED_PAYLOAD_VALUE,
     router::State as AppState,
 };
 use axum::{
@@ -145,18 +145,6 @@ fn is_falsy(v: &Value) -> bool {
     }
 }
 
-fn flag_service(state: &AppState) -> FlagService {
-    FlagService::new(
-        state.redis_client.clone(),
-        state.database_pools.non_persons_reader.clone(),
-        state.team_hypercache_reader.clone(),
-        state.flags_hypercache_reader.clone(),
-        state.flag_definitions_cache.clone(),
-        state.team_negative_cache.clone(),
-        *state.config.skip_pg_team_fallback,
-    )
-}
-
 /// Authenticates and resolves the decrypt gate, mirroring Django.
 ///
 /// - `phs_` (team/project secret): the token's team must be `project_id`. On mismatch,
@@ -184,7 +172,7 @@ async fn authenticate(
             // Mismatch resolves like Django: 403 when a real (different) team owns the
             // project, 404 when no such team exists (Django's `view.team` raises). The
             // lookup only runs on this error path, never on the matching hot path.
-            return match flag_service(state).get_team_by_id(project_id).await {
+            return match state.flag_service().get_team_by_id(project_id).await {
                 Ok(_) => Ok(AuthOutcome::Forbidden),
                 Err(FlagError::SecretApiTokenInvalid) | Err(FlagError::RowNotFound) => {
                     Ok(AuthOutcome::ProjectNotFound)
@@ -200,7 +188,7 @@ async fn authenticate(
 
     if let Some(key) = auth::extract_personal_api_key(headers)? {
         // view.team = Team(id=project_id); missing -> 404.
-        let team = match flag_service(state).get_team_by_id(project_id).await {
+        let team = match state.flag_service().get_team_by_id(project_id).await {
             Ok(team) => team,
             Err(FlagError::SecretApiTokenInvalid) | Err(FlagError::RowNotFound) => {
                 return Ok(AuthOutcome::ProjectNotFound)

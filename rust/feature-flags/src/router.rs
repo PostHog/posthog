@@ -47,6 +47,7 @@ use crate::{
         flag_definitions_cache::FlagDefinitionsCache,
         flag_group_type_mapping::GroupTypeCacheManager,
         flag_payload_decryptor::{FlagPayloadDecryptor, FlagPayloadDecryptorError},
+        flag_service::FlagService,
     },
     handler::body_logger::BodyLogger,
     metrics::{
@@ -122,6 +123,22 @@ pub struct State {
     /// configured (e.g. local dev without FLAGS_SECRET_KEYS/SECRET_KEY); in that
     /// case encrypted payloads cannot be served and the handler errors.
     pub flag_payload_decryptor: Option<FlagPayloadDecryptor>,
+}
+
+impl State {
+    /// Builds a `FlagService` from shared state. Centralized so every endpoint gets the
+    /// same caching/fallback config instead of copying the constructor per handler.
+    pub(crate) fn flag_service(&self) -> FlagService {
+        FlagService::new(
+            self.redis_client.clone(),
+            self.database_pools.non_persons_reader.clone(),
+            self.team_hypercache_reader.clone(),
+            self.flags_hypercache_reader.clone(),
+            self.flag_definitions_cache.clone(),
+            self.team_negative_cache.clone(),
+            *self.config.skip_pg_team_fallback,
+        )
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
