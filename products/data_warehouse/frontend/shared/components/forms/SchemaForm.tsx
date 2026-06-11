@@ -612,8 +612,7 @@ export default function SchemaForm(): JSX.Element {
                 title={
                     columnSelectionSchema ? (
                         <>
-                            Columns and row filters for{' '}
-                            <span className="font-mono">{columnSelectionSchema.table}</span>
+                            Columns and row filters for <span className="font-mono">{columnSelectionSchema.table}</span>
                         </>
                     ) : null
                 }
