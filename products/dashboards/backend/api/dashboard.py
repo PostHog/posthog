@@ -1024,7 +1024,7 @@ def _report_dashboard_tile_removed(
     request: Request | None = None,
 ) -> None:
     tile_type, widget_type = _tile_type_and_widget_type(tile)
-    insight_type = _get_insight_type(tile.insight) if tile.insight_id is not None else None
+    insight_type = _get_insight_type(tile.insight) if tile.insight is not None else None
     properties: dict[str, Any] = {
         "tile_type": tile_type,
         "insight_type": insight_type,
