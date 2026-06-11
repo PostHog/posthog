@@ -204,7 +204,7 @@ export interface SessionRow {
 export type NotableRule = 'worst_error_rate' | 'all_fail' | 'most_exploratory' | 'exemplar' | 'high_activity'
 
 // Fill the table out to this many rows: the rule-based picks first, then the busiest remaining sessions.
-export const NOTABLE_SESSION_TARGET = 8
+const NOTABLE_SESSION_TARGET = 8
 
 export interface NotableSession {
     rule: NotableRule

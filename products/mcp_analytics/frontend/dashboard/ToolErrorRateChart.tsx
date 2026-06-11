@@ -12,11 +12,11 @@ import {
 
 import { formatPercentage } from 'lib/utils'
 
-import { NOTABLE_SESSION_TARGET, type ToolRow } from '../mcpDashboardOverviewLogic'
+import { type ToolRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
 import { ChartTooltip } from './ChartTooltip'
 
-const MAX_TOOLS = NOTABLE_SESSION_TARGET
+const MAX_TOOLS = 8
 
 // Upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a clean 10 —
 // so the track ends just past the data (a 30% max gives a 50% track) rather than an empty-looking 100%.
