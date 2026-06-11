@@ -5231,6 +5231,41 @@ export const INTEGRATION_KINDS = [
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 
+// Canonical bot scopes PostHog requests during the Slack OAuth install flow. Single source of
+// truth for both the frontend (app-manifest snippet + IntegrationView scope-mismatch banner)
+// and the backend (`POSTHOG_SLACK_SCOPE` in posthog/models/integration.py, via posthog/schema.py).
+// Widening this list will surface the "Required scopes are missing" banner for any workspace
+// authorized before the change.
+//
+// Declared as an enum (not `as const` + derived type) because ts-json-schema-generator prunes
+// type-alias-only re-exports that aren't referenced as a property type — see ChartDisplayCategory
+// in schema-general.ts for the equivalent value+type re-export pattern that flows cleanly to
+// `class SlackIntegrationScope(StrEnum)` in posthog/schema.py.
+export enum SlackIntegrationScope {
+    APP_MENTIONS_READ = 'app_mentions:read',
+    CHANNELS_HISTORY = 'channels:history',
+    CHANNELS_READ = 'channels:read',
+    CHAT_WRITE = 'chat:write',
+    CHAT_WRITE_CUSTOMIZE = 'chat:write.customize',
+    GROUPS_HISTORY = 'groups:history',
+    GROUPS_READ = 'groups:read',
+    LINKS_READ = 'links:read',
+    LINKS_WRITE = 'links:write',
+    REACTIONS_READ = 'reactions:read',
+    REACTIONS_WRITE = 'reactions:write',
+    TEAM_READ = 'team:read',
+    USERS_READ = 'users:read',
+    USERS_READ_EMAIL = 'users:read.email',
+    // Pending Slack app-directory submission review — uncomment once approved. Until then we cannot
+    // request these in the OAuth install URL without Slack returning `invalid_scope`. Keeping the
+    // entries here so the next person widening the scope set has the full target list in one place.
+    // ASSISTANT_WRITE = 'assistant:write',
+    // IM_HISTORY = 'im:history',
+    // MPIM_READ = 'mpim:read',
+}
+
+export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
+
 export interface IntegrationType {
     id: number
     kind: IntegrationKind
