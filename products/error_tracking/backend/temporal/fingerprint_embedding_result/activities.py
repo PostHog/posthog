@@ -32,6 +32,10 @@ class TargetFingerprintEmbeddingNotFoundError(RuntimeError):
     pass
 
 
+class FingerprintIssueNotFoundError(RuntimeError):
+    pass
+
+
 def _capture_activity_exception(
     error: Exception,
     inputs: FingerprintEmbeddingResultInputs,
@@ -223,13 +227,18 @@ def _merge_fingerprint_into_closest_issue(
         .select_related("issue")
         .first()
     )
+    if source_fingerprint is None:
+        raise FingerprintIssueNotFoundError(f"Source fingerprint {fingerprint} not found for team {team_id}")
+
     target_fingerprint = (
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=closest_fingerprint.fingerprint)
         .select_related("issue")
         .first()
     )
-    if source_fingerprint is None or target_fingerprint is None:
-        return 0
+    if target_fingerprint is None:
+        raise FingerprintIssueNotFoundError(
+            f"Target fingerprint {closest_fingerprint.fingerprint} not found for team {team_id}"
+        )
     if source_fingerprint.issue_id == target_fingerprint.issue_id:
         return 0
 

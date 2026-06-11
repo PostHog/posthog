@@ -12,6 +12,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import (
+    FingerprintIssueNotFoundError,
     TargetFingerprintEmbeddingNotFoundError,
     _merge_fingerprint_into_closest_issue,
     _query_closest_fingerprints,
@@ -219,6 +220,24 @@ class TestFingerprintEmbeddingResultActivity:
         )
 
         assert result == 0
+
+    def test_merge_fingerprint_raises_when_source_fingerprint_is_missing(self) -> None:
+        fingerprint_querysets = [MagicMock()]
+        fingerprint_querysets[0].select_related.return_value.first.return_value = None
+
+        with (
+            override_settings(ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS=[2]),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.filter",
+                side_effect=fingerprint_querysets,
+            ),
+            pytest.raises(FingerprintIssueNotFoundError, match="Source fingerprint test-fingerprint not found"),
+        ):
+            _merge_fingerprint_into_closest_issue(
+                team=MagicMock(id=2),
+                fingerprint="test-fingerprint",
+                closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.018)],
+            )
 
     def test_merge_fingerprint_moves_source_fingerprint_to_closest_issue(self) -> None:
         source_issue_id = uuid.uuid4()
