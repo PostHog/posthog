@@ -286,12 +286,15 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     </div>
                                 </div>
 
-                                {/* Distinct ID used for rollout/variant bucketing */}
-                                {(result.evaluation_distinct_id || formData.distinct_id) && (
+                                {/* Distinct ID used for rollout/variant bucketing. Only shown when the
+                                    backend echoes an explicit value — it returns null when a different ID
+                                    was actually bucketed against, and falling back to the requested ID
+                                    here would mislabel which ID drove the result. */}
+                                {result.evaluation_distinct_id && (
                                     <div className="space-y-2">
                                         <LemonLabel>Bucketed using distinct ID</LemonLabel>
                                         <div className="px-3 py-2 rounded text-sm font-mono bg-bg-light break-all">
-                                            {result.evaluation_distinct_id || formData.distinct_id}
+                                            {result.evaluation_distinct_id}
                                         </div>
                                     </div>
                                 )}
