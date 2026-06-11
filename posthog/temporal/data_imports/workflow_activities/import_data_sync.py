@@ -161,6 +161,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
                 enabled_columns=schema.enabled_columns,
+                schema_metadata=schema.schema_metadata,
+                dwh_storage_key=schema.dwh_storage_key,
             )
 
             new_source = SourceRegistry.get_source(source_type)
