@@ -55,28 +55,26 @@ class TestDashboardDeleteTile(APIBaseTest):
         insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
         assert insight_response.status_code == status.HTTP_200_OK
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_delete_text_tile_fires_tile_removed_event(self, mock_report_user_action) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+    def _create_text_tile_for_removal(self, dashboard_id: int) -> int:
         _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello world")
-        tile_id = dashboard_json["tiles"][0]["id"]
-        mock_report_user_action.reset_mock()
+        return dashboard_json["tiles"][0]["id"]
 
-        self._delete_tile(dashboard_id, tile_id)
-
-        mock_report_user_action.assert_any_call(
-            self.user,
-            "dashboard tile removed",
-            {"tile_type": "text", "insight_type": None, "dashboard_id": dashboard_id},
-            team=ANY,
-            request=ANY,
-        )
-
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_delete_insight_tile_fires_tile_removed_event(self, mock_report_user_action) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+    def _create_insight_tile_for_removal(self, dashboard_id: int) -> int:
         self.dashboard_api.create_insight({"name": "insight", "dashboards": [dashboard_id]})
-        tile_id = self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]["id"]
+        return self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]["id"]
+
+    @parameterized.expand(
+        [
+            ("text", _create_text_tile_for_removal, {"tile_type": "text", "insight_type": None}),
+            ("insight", _create_insight_tile_for_removal, {"tile_type": "insight", "insight_type": "trends"}),
+        ]
+    )
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_delete_tile_fires_tile_removed_event(
+        self, _name, create_tile, expected_properties, mock_report_user_action
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        tile_id = create_tile(self, dashboard_id)
         mock_report_user_action.reset_mock()
 
         self._delete_tile(dashboard_id, tile_id)
@@ -84,7 +82,7 @@ class TestDashboardDeleteTile(APIBaseTest):
         mock_report_user_action.assert_any_call(
             self.user,
             "dashboard tile removed",
-            {"tile_type": "insight", "insight_type": None, "dashboard_id": dashboard_id},
+            {**expected_properties, "dashboard_id": dashboard_id},
             team=ANY,
             request=ANY,
         )
