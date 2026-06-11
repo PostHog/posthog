@@ -65,7 +65,8 @@
     },
     "priority": {
       "explanation": "All three verified signals (1-3) are feature enhancement requests with workarounds available (HogQL breakdown for comparison, adjusting bin count manually, using the existing median_conversion_time from the regular funnel steps view). None represent broken functionality - funnels work correctly, they just lack advanced statistical options. The unverified bug report (signal 4) could not be corroborated by any code regression in git history, and no funnel logic changes were found in the relevant timeframe. The signals carry 0.5 weight each (low confidence) except signal 4 at 0.8 which could not be verified. These are clear improvement opportunities with existing workarounds, fitting P2.",
-      "priority": "P2"
+      "priority": "P2",
+      "dollar_value": 15000.0
     }
   }
 }

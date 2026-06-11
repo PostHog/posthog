@@ -96,9 +96,50 @@ export function DashboardAddTileButton(): JSX.Element | null {
     )
 }
 
-export function EditModeActions(): JSX.Element {
+export function DashboardEditSaveCancelButtons({ withShortcuts = true }: { withShortcuts?: boolean }): JSX.Element {
     const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, cancelEditMode } = useActions(dashboardLogic)
+
+    const cancelButton = (
+        <LemonButton
+            data-attr="dashboard-edit-mode-discard"
+            type="secondary"
+            onClick={() => cancelEditMode()}
+            size="small"
+            tooltip="Discard changes and exit edit mode"
+        >
+            Cancel
+        </LemonButton>
+    )
+
+    const saveButton = (
+        <LemonButton
+            data-attr="dashboard-edit-mode-save"
+            type="primary"
+            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)}
+            size="small"
+            tooltip="Save dashboard"
+            tooltipPlacement="bottom"
+            disabledReason={
+                dashboardLoading
+                    ? 'Wait for dashboard to finish loading'
+                    : canEditDashboard
+                      ? undefined
+                      : 'Not privileged to edit this dashboard'
+            }
+        >
+            Save
+        </LemonButton>
+    )
+
+    if (!withShortcuts) {
+        return (
+            <>
+                {cancelButton}
+                {saveButton}
+            </>
+        )
+    }
 
     return (
         <>
@@ -109,15 +150,7 @@ export function EditModeActions(): JSX.Element {
                 interaction="click"
                 scope={Scene.Dashboard}
             >
-                <LemonButton
-                    data-attr="dashboard-edit-mode-discard"
-                    type="secondary"
-                    onClick={() => cancelEditMode()}
-                    size="small"
-                    tooltip="Discard changes and exit edit mode"
-                >
-                    Cancel
-                </LemonButton>
+                {cancelButton}
             </AppShortcut>
             <AppShortcut
                 name="SaveDashboard"
@@ -127,24 +160,18 @@ export function EditModeActions(): JSX.Element {
                 scope={Scene.Dashboard}
                 disabled={!canEditDashboard}
             >
-                <LemonButton
-                    data-attr="dashboard-edit-mode-save"
-                    type="primary"
-                    onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)}
-                    size="small"
-                    tooltip="Save dashboard"
-                    tooltipPlacement="bottom"
-                    disabledReason={
-                        dashboardLoading
-                            ? 'Wait for dashboard to finish loading'
-                            : canEditDashboard
-                              ? undefined
-                              : 'Not privileged to edit this dashboard'
-                    }
-                >
-                    Save
-                </LemonButton>
+                {saveButton}
             </AppShortcut>
+        </>
+    )
+}
+
+export function EditModeActions(): JSX.Element {
+    const { layoutEditMode } = useValues(dashboardLogic)
+
+    return (
+        <>
+            {layoutEditMode && <DashboardEditSaveCancelButtons />}
             <DashboardAddTileButton />
         </>
     )
