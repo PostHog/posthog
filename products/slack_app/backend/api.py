@@ -65,7 +65,7 @@ from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unf
 
 logger = structlog.get_logger(__name__)
 
-HANDLED_EVENT_TYPES = ["app_mention", "link_shared", "message"]
+HANDLED_EVENT_TYPES = ["app_mention", "link_shared", "message", "member_joined_channel"]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
@@ -74,6 +74,12 @@ SLACK_INTEGRATION_KIND = "slack"
 # Scopes the coding-agent flow exercises end-to-end. Slack stores the granted scope set
 # per install, so tenants who connected the Slack integration before the full scope set
 # was requested in prod (2026-05-04, #57177) must reconnect before mentions can work.
+#
+# ``member_joined_channel`` (used by the channel-onboarding flow) additionally requires
+# ``channels:read`` and ``groups:read``. Those are in the Slack app manifest but **not**
+# in the required set on purpose: workspaces that connected before the scopes were added
+# keep working — they just don't deliver the join event, so they silently skip the
+# welcome message instead of seeing a "missing scopes" warning.
 POSTHOG_CODE_REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
     {
         "app_mentions:read",
@@ -85,6 +91,15 @@ POSTHOG_CODE_REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
         "reactions:write",
     }
 )
+
+# Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
+# a near-simultaneous cross-region race during cutover. A real re-add after
+# this window should re-onboard — most likely the person forgot how it works.
+CHANNEL_ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
+CHANNEL_ONBOARDING_DOCS_URL = "https://posthog.com/docs/slack-app"
+# Slack assigns a stable bot user id per install; a few hours is enough to pick
+# up a reinstall while keeping ``auth.test`` traffic negligible.
+SLACK_BOT_USER_ID_CACHE_TTL_SECONDS = 60 * 60 * 6
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
@@ -1853,6 +1868,18 @@ def route_posthog_code_event_to_relevant_region(
             untagged_followup=untagged_followup_mapping is not None,
         )
 
+    if event_type == "member_joined_channel":
+        return _route_member_joined_channel(
+            request,
+            event,
+            slack_team_id,
+            proxied=proxied,
+            other_domain=other_domain,
+            can_defer_to_other_region=can_defer_to_other_region,
+            incoming_host=incoming_host,
+            is_ext_shared_channel=is_ext_shared_channel,
+        )
+
     # link_shared (unfurl) works with either integration kind.
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
     local_match = link_result.candidates[0] if link_result.candidates else None
@@ -1954,6 +1981,185 @@ def _count_session_thread_messages(integration: Integration, channel: str | None
             exc_info=True,
         )
         return None
+
+
+def _route_member_joined_channel(
+    request: HttpRequest,
+    event: dict[str, Any],
+    slack_team_id: str,
+    *,
+    proxied: bool,
+    other_domain: str,
+    can_defer_to_other_region: bool,
+    incoming_host: str,
+    is_ext_shared_channel: bool,
+) -> str:
+    """Welcome the @PostHog bot to a new channel exactly once.
+
+    Slack fires ``member_joined_channel`` for every user (including bot users)
+    added to a channel. We only act when the joining user is our own bot, and
+    we cache the first post per (workspace, channel) so retries and re-adds
+    don't double-post. Externally-shared channels are dropped before any DB
+    work — anyone outside the home workspace would see the welcome, and the
+    first @PostHog mention there will run the existing approval flow.
+    """
+    joined_user = event.get("user") if isinstance(event.get("user"), str) else None
+    channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
+    if not joined_user or not channel_id:
+        return ROUTE_HANDLED_LOCALLY
+
+    # Drop ext-shared channels before touching the DB. Anyone outside the home
+    # workspace would see the welcome message, and the ``is_ext_shared_channel``
+    # flag lives on the event envelope so this costs nothing.
+    if is_ext_shared_channel:
+        return ROUTE_HANDLED_LOCALLY
+
+    workspace_result = load_integrations(slack_team_id=slack_team_id, kinds=[SLACK_INTEGRATION_KIND])
+    if not workspace_result.candidates:
+        return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+
+    if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
+        return _proxy_event_and_return_route(request, other_domain)
+
+    integration = workspace_result.candidates[0]
+    slack = SlackIntegration(integration)
+
+    bot_user_id = _get_cached_bot_user_id(slack, integration)
+    if bot_user_id is None or joined_user != bot_user_id:
+        # We only care about our own bot joining a channel. Every other join
+        # (humans, third-party bots) is ignored silently — Slack fires this
+        # event for every channel-membership change, so the volume is high.
+        return ROUTE_HANDLED_LOCALLY
+
+    if not _claim_channel_onboarding(slack_team_id, channel_id):
+        logger.info(
+            "slack_app_channel_onboarding_skipped_duplicate",
+            slack_team_id=slack_team_id,
+            channel_id=channel_id,
+        )
+        return ROUTE_HANDLED_LOCALLY
+
+    posted = _post_channel_onboarding_message(slack, integration, channel_id)
+    if not posted:
+        # Release the dedupe slot so the next delivery (retry or future re-add)
+        # gets another shot rather than being silently swallowed.
+        _release_channel_onboarding_claim(slack_team_id, channel_id)
+
+    return ROUTE_HANDLED_LOCALLY
+
+
+def _bot_user_id_cache_key(integration_id: int) -> str:
+    return f"slack_app:bot_user_id:v1:{integration_id}"
+
+
+def _get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) -> str | None:
+    cache_key = _bot_user_id_cache_key(integration.id)
+    cached = cache.get(cache_key)
+    if isinstance(cached, str) and cached:
+        return cached
+    try:
+        response = slack.client.auth_test()
+        bot_user_id = response.get("user_id")
+    except Exception:
+        logger.warning(
+            "slack_app_bot_user_id_lookup_failed",
+            integration_id=integration.id,
+            exc_info=True,
+        )
+        return None
+    if not isinstance(bot_user_id, str) or not bot_user_id:
+        return None
+    cache.set(cache_key, bot_user_id, timeout=SLACK_BOT_USER_ID_CACHE_TTL_SECONDS)
+    return bot_user_id
+
+
+def _channel_onboarding_cache_key(slack_team_id: str, channel_id: str) -> str:
+    return f"slack_app:channel_onboarded:v1:{slack_team_id}:{channel_id}"
+
+
+def _claim_channel_onboarding(slack_team_id: str, channel_id: str) -> bool:
+    """Atomically claim the right to send the onboarding message.
+
+    ``cache.add`` is the Django-blessed idempotency primitive: it returns True
+    only if the key didn't already exist, so concurrent webhook deliveries
+    (Slack retries, two-region race during cutover) can't double-post.
+    """
+    return bool(
+        cache.add(
+            _channel_onboarding_cache_key(slack_team_id, channel_id),
+            True,
+            timeout=CHANNEL_ONBOARDING_DEDUPE_TTL_SECONDS,
+        )
+    )
+
+
+def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> None:
+    cache.delete(_channel_onboarding_cache_key(slack_team_id, channel_id))
+
+
+def _post_channel_onboarding_message(slack: SlackIntegration, integration: Integration, channel_id: str) -> bool:
+    """Post the welcome message. Returns True on success."""
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    ":wave: Thanks for adding the PostHog app to this channel! "
+                    "Mention me with `@PostHog` to get started – I can answer "
+                    "questions about your PostHog data, research your codebase, "
+                    "and kick off coding tasks backed by real usage data. "
+                    "I'll also unfurl PostHog links you share here."
+                ),
+            },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*Try one of these:*\n"
+                    "• `@PostHog what's our weekly active user count this month?`\n"
+                    "• `@PostHog open a PR that adds a unit test for src/utils.py`"
+                ),
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Read the docs"},
+                    "url": CHANNEL_ONBOARDING_DOCS_URL,
+                }
+            ],
+        },
+    ]
+
+    try:
+        slack.client.chat_postMessage(
+            channel=channel_id,
+            text="Thanks for adding the PostHog app – mention me with @PostHog to get started.",
+            blocks=blocks,
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+        logger.info(
+            "slack_app_channel_onboarding_posted",
+            integration_id=integration.id,
+            slack_workspace_id=integration.integration_id,
+            channel_id=channel_id,
+        )
+        return True
+    except Exception:
+        logger.warning(
+            "slack_app_channel_onboarding_post_failed",
+            integration_id=integration.id,
+            slack_workspace_id=integration.integration_id,
+            channel_id=channel_id,
+            exc_info=True,
+        )
+        return False
 
 
 def _channel_is_approved(slack_workspace_id: str, channel_id: str) -> bool:
