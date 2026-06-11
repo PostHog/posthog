@@ -1,5 +1,19 @@
 import { z } from 'zod'
 
+export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
+    name: z
+        .string()
+        .max(255)
+        .describe('Short human label for the source. Shown in the settings list and in agent citations.'),
+    url: z.string().url().max(2048).describe('Public HTTP(S) URL to fetch. Private or internal hosts are rejected.'),
+    source_type: z.literal('url').default('url').describe('Source type. Always "url" for this tool.'),
+    refresh_interval: z
+        .enum(['manual', '1h', '6h', '24h', '7d'])
+        .optional()
+        .default('manual')
+        .describe('How often to auto-refresh this source in the background. Defaults to "manual" (no auto-refresh).'),
+})
+
 export const ExternalDataJobsAfterSchema = z
     .string()
     .describe('ISO timestamp — only return jobs created after this date (e.g. "2025-01-01T00:00:00Z").')
