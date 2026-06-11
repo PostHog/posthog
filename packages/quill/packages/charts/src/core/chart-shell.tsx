@@ -2,19 +2,12 @@ import React, { useCallback, useMemo } from 'react'
 
 import type { ChartTheme, ResolvedSeries, Series } from './types'
 
-const WRAPPER_STYLE_BASE: React.CSSProperties = {
-    position: 'relative',
-    width: '100%',
-    flex: 1,
-    minHeight: 0,
-    overflow: 'hidden',
-}
-const WRAPPER_STYLE_DEFAULT: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'default' }
-const WRAPPER_STYLE_POINTER: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'pointer' }
-
-const STATIC_CANVAS_STYLE: React.CSSProperties = { position: 'absolute', top: 0, left: 0 }
-const OVERLAY_CANVAS_STYLE: React.CSSProperties = { ...STATIC_CANVAS_STYLE, pointerEvents: 'none' }
-const OVERLAY_STYLE: React.CSSProperties = { ...OVERLAY_CANVAS_STYLE, width: '100%', height: '100%' }
+// Literal class strings (no runtime concat) so Tailwind v4's `dist/*.js`
+// source scan can see every utility — see the package's tailwind contract.
+const WRAPPER_CLASS = 'relative w-full flex-1 min-h-0 overflow-hidden'
+const STATIC_CANVAS_CLASS = 'absolute top-0 left-0'
+const OVERLAY_CANVAS_CLASS = 'absolute top-0 left-0 pointer-events-none'
+const OVERLAY_CLASS = 'absolute top-0 left-0 w-full h-full pointer-events-none'
 
 /** Applies the theme's color fallback to series missing an explicit `color`. */
 export function useColoredSeries<Meta = unknown>(series: Series<Meta>[], theme: ChartTheme): ResolvedSeries<Meta>[] {
@@ -66,17 +59,18 @@ export function ChartShell({
     return (
         <div
             ref={wrapperRef}
-            className={className}
+            className={[WRAPPER_CLASS, pointer ? 'cursor-pointer' : 'cursor-default', className]
+                .filter(Boolean)
+                .join(' ')}
             data-attr={dataAttr}
-            style={pointer ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT}
             onMouseMove={handlers.onMouseMove}
             onMouseLeave={handlers.onMouseLeave}
             onClick={handlers.onClick}
         >
-            <canvas ref={canvasRef} role="img" aria-label={ariaLabel} style={STATIC_CANVAS_STYLE} />
-            <canvas ref={overlayCanvasRef} aria-hidden="true" style={OVERLAY_CANVAS_STYLE} />
+            <canvas ref={canvasRef} role="img" aria-label={ariaLabel} className={STATIC_CANVAS_CLASS} />
+            <canvas ref={overlayCanvasRef} aria-hidden="true" className={OVERLAY_CANVAS_CLASS} />
 
-            {showOverlay && <div style={OVERLAY_STYLE}>{children}</div>}
+            {showOverlay && <div className={OVERLAY_CLASS}>{children}</div>}
         </div>
     )
 }
