@@ -28,7 +28,22 @@ Suggested entry format:
 
 ---
 
-## 2026-05-28: Dropping `FROM person FINAL` via `argMax` is worse than the original; materialization is the actual win
+## 2026-06-11: Experiment-query CTE references multiply events scans; window functions beat percentile CTEs; verify with `ReadFromMergeTree` counts
+
+**Context.** Directory-wide optimization pass over `products/experiments/backend/hogql_queries/`. Experiment metric queries are built as named-CTE chains (`exposures`, `metric_events`, `entity_metrics`, …); the printed ClickHouse SQL keeps the `WITH name AS (...)` form.
+
+**Question.** How many times does each CTE actually execute, and what do de-duplicating rewrites buy?
+
+**What we tried.** `EXPLAIN` on a ratio-metric-shaped query (the `exposures` CTE referenced three times: two pre-aggregation joins + final entity join) counted **5 `ReadFromMergeTree` nodes** — ClickHouse inlines and re-executes a CTE at every reference, exactly as the SKILL warns; counting `ReadFromMergeTree` nodes in EXPLAIN output is a fast, reliable way to audit this. The per-metric reference counts for experiment queries were: mean 2 scans, retention 4, ratio 5, winsorized variants ×2 on top (winsorized ratio = 10 events scans), because the `percentiles` CTE + `CROSS JOIN percentiles` shape re-executes the entire upstream `entity_metrics` chain. Each duplicated exposure scan also drags its `person_distinct_id_overrides` join and (with person-property test-account filters) a `person`-table join along with it.
+
+Two rewrites measured on local dev ClickHouse (team 1 demo data, ~600k events, median of 5, `use_uncompressed_cache=0`; results byte-identical across shapes):
+
+- Ratio: combining numerator+denominator into one conditional-aggregation scan and dropping redundant `exposures` references — read_rows 2.30M (3 refs) → 1.44M (2 refs) → 0.97M (1 ref, mean-shaped); memory flat.
+- Winsorization: replacing the `percentiles` CTE + `CROSS JOIN` with `quantileExact(p)(value) OVER ()` window aggregates (breakdowns → `OVER (PARTITION BY breakdown_value_N)`) — read_rows and read_bytes exactly halved (1.75M→0.88M rows, 1.67GiB→856MiB), duration 610→455ms, memory flat (244→229MiB). The window form computes bounds in the same pass that reads the rows, so the doubling disappears.
+
+**Caveats.** Local single-node, small parts, JSON unmaterialized (prod materializes `$feature_flag_response`, so prod exposure scans are cheaper per scan — the multiplication factor is unchanged). Wall-clock locally is noise; rows/bytes are the signal. Not yet timed on the Test Cluster.
+
+**Takeaway.** In HogQL-built query chains, count references to every CTE that scans a fact table — each reference is a full re-execution, and shapes that look like "compute stats, then join them back" (`percentiles` + `CROSS JOIN`) silently double the whole upstream pipeline. Window aggregates (`agg(...) OVER (PARTITION BY ...)`) are the single-pass replacement for full-set/per-group bounds and cost no extra memory. HogQL supports parametric window aggregates (`quantileExact(0.9)(x) OVER ()`) end to end.
 
 **Context.** `posthog/temporal/messaging/backfill_precalculated_person_properties_workflow.py` builds a raw ClickHouse query that does `SELECT id, JSONExtract(properties, '<key>', 'String'), ... FROM person FINAL WHERE team_id = ... AND id BETWEEN ... AND is_deleted = 0 ORDER BY id FORMAT JSONEachRow`. We flagged the `FINAL` as a smell.
 
