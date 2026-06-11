@@ -8,8 +8,9 @@ import { isDefinitionStale } from './definitions'
 
 export const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding']
 
-// AI events are bursty (a single experiment can go quiet for weeks), so we use a longer
-// staleness window than the global default before falling back to the onboarding screen.
+// Use a longer staleness window than the global default so orgs that ingested AI events
+// in the past, paused, and have since resumed still land on the dashboard rather than the
+// onboarding screen.
 const AI_STALE_EVENT_DAYS = 90
 const AI_STALE_EVENT_SECONDS = AI_STALE_EVENT_DAYS * 24 * 60 * 60
 
