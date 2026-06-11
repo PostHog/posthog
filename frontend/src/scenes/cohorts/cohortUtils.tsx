@@ -3,7 +3,8 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 
 import { isEmptyProperty, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { areObjectValuesEmpty, calculateDays } from 'lib/utils'
+import { calculateDays } from 'lib/utils'
+import { areObjectValuesEmpty } from 'lib/utils/objects'
 import { isNumeric } from 'lib/utils/typeChecks'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import {

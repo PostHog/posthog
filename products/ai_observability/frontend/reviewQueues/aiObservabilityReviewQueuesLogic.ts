@@ -5,11 +5,12 @@ import { router, urlToAction } from 'kea-router'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable'
+import { pluralize } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
-import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
 import type {

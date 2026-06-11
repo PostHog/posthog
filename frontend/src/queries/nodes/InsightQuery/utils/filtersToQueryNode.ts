@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { objectCleanWithEmpty } from 'lib/utils'
+import { objectCleanWithEmpty } from 'lib/utils/objects'
 import { isKeyOf } from 'lib/utils/typeChecks'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
