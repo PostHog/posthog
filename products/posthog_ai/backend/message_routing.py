@@ -26,6 +26,7 @@ from products.posthog_ai.backend.context_wrapper import (
     ContextService,
 )
 from products.posthog_ai.backend.helpers import BaseSandboxService
+from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.system_prompt import PromptService
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
@@ -100,16 +101,16 @@ class MessageRoutingService(BaseSandboxService):
 
         # Seed the PostHog AI per-Run state keys. `attached_context` keeps the full,
         # undeduped list. These aren't `create_and_run` arguments, so merge them into the
-        # run state here, before the workflow starts and reads it.
-        run_state: dict[str, Any] = dict(task_run.state or {})
-        run_state.update(
-            {
-                "systemPrompt": system_prompt,
-                "attached_context": attached_context,
-                "initial_permission_mode": "default",
-                "pending_user_message": wrapped,
-            }
+        # run state here, before the workflow starts and reads it. `exclude_unset` keeps the
+        # merge limited to exactly these keys — model defaults must not leak into the bag.
+        ph_state = PostHogAIRunState(
+            system_prompt=system_prompt,
+            attached_context=attached_context,
+            initial_permission_mode="default",
+            pending_user_message=wrapped,
         )
+        run_state: dict[str, Any] = dict(task_run.state or {})
+        run_state.update(ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True))
         # Persist the enriched run state and conversation linkage together: a half-write
         # would orphan the run (enriched state, but conversation.task still NULL) and the
         # next retry would look like a fresh first message.
