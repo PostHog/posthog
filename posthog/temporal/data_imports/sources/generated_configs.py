@@ -1222,9 +1222,9 @@ class SnowflakeSourceConfig(config.Config):
     database: str
     warehouse: str
     auth_type: SnowflakeAuthTypeConfig
-    schema: str
     connection_string: str | None = None
     role: str | None = None
+    schema: str | None = None
 
 
 @config.config
