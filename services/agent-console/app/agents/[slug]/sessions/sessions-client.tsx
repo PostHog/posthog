@@ -7,6 +7,7 @@ import type { LogEntry } from '@posthog/agent-chat/fixtures'
 
 import { useAgent } from '@/components/agent-context'
 import { useSetDockPage } from '@/components/dock-context'
+import { RefreshIndicator } from '@/components/RefreshIndicator'
 import { usePosthogBaseUrl, useSessionTeamId } from '@/components/session-context'
 import { SessionsList } from '@/components/SessionsList'
 import { getSession, listLogsForSession, listSessionsForAgent } from '@/lib/apiClient'
@@ -113,6 +114,7 @@ export function SessionsSegment(): React.ReactElement {
                     hasMore={hasMore}
                     onLoadMore={loadMore}
                     loadingMore={sessions.loading && list.length > 0 && list.length < limit}
+                    refreshSlot={<RefreshIndicator resource={sessions} intervalMs={0} />}
                 />
             </div>
         )
@@ -130,6 +132,7 @@ export function SessionsSegment(): React.ReactElement {
                         hasMore={hasMore}
                         onLoadMore={loadMore}
                         loadingMore={sessions.loading && list.length > 0 && list.length < limit}
+                        refreshSlot={<RefreshIndicator resource={sessions} intervalMs={0} compact />}
                     />
                 </div>
             </aside>
@@ -139,6 +142,7 @@ export function SessionsSegment(): React.ReactElement {
                         session={selectedSession.data}
                         logs={selectedLogs.data ?? []}
                         onClose={() => select(null)}
+                        refreshSlot={<RefreshIndicator resource={selectedSession} intervalMs={0} />}
                         aiObservabilityTraceUrl={
                             posthogBaseUrl && selectedSessionId
                                 ? aiObservabilityTraceUrl(posthogBaseUrl, teamId, selectedSessionId)

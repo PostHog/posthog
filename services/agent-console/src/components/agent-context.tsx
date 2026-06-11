@@ -21,13 +21,15 @@ import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/age
 
 import { useSessionTeamId } from '@/components/session-context'
 import { getAgent, listRevisions } from '@/lib/apiClient'
-import { useResource } from '@/lib/useResource'
+import { type ResourceState, useResource } from '@/lib/useResource'
 
 interface AgentBundle {
     agent: AgentApplicationFixture
     revisions: AgentRevisionFixture[]
     /** Increment to invalidate the agent + revisions fetches in this provider. */
     bumpReload: () => void
+    /** Bundle resource state for a `<RefreshIndicator>` — `reload` re-runs both fetches. */
+    refresh: ResourceState<AgentApplicationFixture>
 }
 
 const AgentCtx = createContext<AgentBundle | null>(null)
@@ -76,6 +78,15 @@ export function AgentProvider({
         agent: agent.data,
         revisions: revisions.data ?? [],
         bumpReload,
+        // Manual refresh refetches the whole bundle; loading reflects either
+        // fetch so the indicator spins until both land.
+        refresh: {
+            data: agent.data,
+            error: agent.error,
+            loading: agent.loading || revisions.loading,
+            reload: bumpReload,
+            lastFetchedAt: agent.lastFetchedAt,
+        },
     }
     return <AgentCtx.Provider value={value}>{children}</AgentCtx.Provider>
 }
@@ -102,4 +113,12 @@ export function useAgentReload(): () => void {
         throw new Error('useAgentReload must be used inside <AgentProvider>')
     }
     return ctx.bumpReload
+}
+
+export function useAgentRefresh(): ResourceState<AgentApplicationFixture> {
+    const ctx = useContext(AgentCtx)
+    if (!ctx) {
+        throw new Error('useAgentRefresh must be used inside <AgentProvider>')
+    }
+    return ctx.refresh
 }

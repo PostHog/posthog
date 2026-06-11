@@ -40,6 +40,8 @@ export interface SessionDetailProps {
      * observability" affordance; omitted when the PostHog app URL isn't resolved.
      */
     aiObservabilityTraceUrl?: string
+    /** Optional refresh control rendered in the stat strip header. */
+    refreshSlot?: React.ReactNode
 }
 
 export function SessionDetail({
@@ -47,6 +49,7 @@ export function SessionDetail({
     logs,
     onClose,
     aiObservabilityTraceUrl,
+    refreshSlot,
 }: SessionDetailProps): React.ReactElement {
     const [activePane, setActivePane] = useState<Pane>('conversation')
 
@@ -56,6 +59,7 @@ export function SessionDetail({
         <div className="flex h-full min-h-0 flex-col">
             <div className="flex shrink-0 items-center gap-1.5 px-4 pt-4">
                 <StatStrip tiles={tiles} size="sm" className="flex-1" />
+                {refreshSlot}
                 {aiObservabilityTraceUrl ? (
                     <Tooltip>
                         <TooltipTrigger

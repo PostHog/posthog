@@ -50,6 +50,8 @@ export interface AgentConfigViewProps {
     /** Refetch agent + revisions after a lifecycle action or secret change. */
     onMutated: () => void
     onTryDraft?: (revisionId: string) => void
+    /** Refresh control rendered in the revision bar. */
+    refreshSlot?: React.ReactNode
 }
 
 interface PendingAction {
@@ -105,6 +107,7 @@ export function AgentConfigView({
     onChangeEditingSecret,
     onMutated,
     onTryDraft,
+    refreshSlot,
 }: AgentConfigViewProps): React.ReactElement {
     // SessionGate (in AppShell) blocks rendering until teamId resolves.
     const teamId = useSessionTeamId()!
@@ -203,6 +206,7 @@ export function AgentConfigView({
                 onSelectRevision={onSelectRevision}
                 onAction={requestAction}
                 onTryDraft={onTryDraft}
+                refreshSlot={refreshSlot}
             />
 
             <div className="min-h-0 flex-1">
