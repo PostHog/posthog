@@ -23,13 +23,16 @@ from posthog.utils import absolute_uri
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
 
+    # Resolved lazily via __getattr__ below; declared here so consumers type-check as int.
+    SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER: int
+
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
 
 # Single source of truth shared with the frontend create gate via generated schema
 # (SubscriptionFreeTierLimit.COUNT). Resolved lazily via PEP 562 so posthog.schema (the
 # pydantic models) stays off django.setup(), where this model loads in every process.
-def __getattr__(name: str) -> object:
+def __getattr__(name: str) -> int:
     if name == "SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER":
         from posthog.schema import SubscriptionFreeTierLimit  # noqa: PLC0415
 
