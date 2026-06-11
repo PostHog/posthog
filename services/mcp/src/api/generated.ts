@@ -2390,6 +2390,8 @@ export namespace Schemas {
       resultCustomizations?: FunnelsFilterResultCustomizations;
       /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
       showAnnotations?: boolean | null;
+      /** Whether to show a legend describing the series. Only applies to historical-trends funnels. */
+      showLegend?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
