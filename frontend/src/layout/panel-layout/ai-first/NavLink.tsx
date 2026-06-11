@@ -71,7 +71,7 @@ export function NavLink({
                 {!isCollapsed && (
                     <span
                         className={cn(
-                            'flex-1 text-left text-secondary group-hover:text-primary',
+                            'flex-1 truncate text-left text-secondary group-hover:text-primary',
                             isActive && 'text-primary'
                         )}
                     >
