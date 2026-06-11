@@ -49,6 +49,22 @@
         padding-inline: 0;
     }
 
+    /* Inside a header the trigger overlays the row's start, so a full-width
+       sibling button can own the entire row's hover surface (give it
+       padding-inline-start to clear the chevron). Centered via auto margins,
+       not translate — the Button :active translate would displace it. */
+    .quill-collapsible__header {
+        position: relative;
+    }
+
+    .quill-collapsible__header > .quill-collapsible__trigger--icon {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: 0;
+        z-index: 1;
+        margin-block: auto;
+    }
+
     /* The row, not the tiny button, communicates open state. */
     .quill-collapsible__trigger--icon[aria-expanded='true'] {
         background-color: transparent;

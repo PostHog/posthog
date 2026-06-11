@@ -521,21 +521,20 @@ Vertical: `<Tabs orientation="vertical">`
 </Collapsible>
 ```
 
-Icon-only trigger — only the chevron toggles, so the label can be a link and the row can carry trailing content; composes with `variant="folder"` for sidebar trees. The chevron mirrors in RTL; use `ms-auto` (not `ml-auto`) for trailing content. Trigger children become the screen-reader label:
+Icon-only trigger — only the chevron toggles, so the label can be its own button/link and the row can carry trailing content; composes with `variant="folder"` for sidebar trees. Inside `CollapsibleHeader` the trigger overlays the row's start, so give the full-width label button `ps-6` to clear it — hovering anywhere then highlights the whole row while the chevron stays its own click target. The chevron mirrors in RTL; use `ms-auto` (not `ml-auto`) for trailing content. Trigger children become the screen-reader label:
 
 ```tsx
 <Collapsible variant="folder">
   <CollapsibleHeader>
     <CollapsibleTrigger iconOnly>Toggle sources</CollapsibleTrigger>
-    {/* Same Button shape as the child rows; flex-1 fills the remaining row width */}
-    <Button variant="default" size="sm" left className="flex-1">
+    <Button variant="default" size="sm" left className="w-full ps-6">
       Sources
       <Text size="xs" variant="muted" render={<span />} className="ms-auto">
         2
       </Text>
     </Button>
   </CollapsibleHeader>
-  <CollapsibleContent>{/* rows */}</CollapsibleContent>
+  <CollapsibleContent className="ps-4">{/* rows */}</CollapsibleContent>
 </Collapsible>
 ```
 

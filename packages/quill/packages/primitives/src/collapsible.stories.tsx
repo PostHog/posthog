@@ -35,15 +35,17 @@ export const IconTrigger: Story = {
         <Collapsible className="max-w-60" variant="folder" defaultOpen>
             <CollapsibleHeader>
                 <CollapsibleTrigger iconOnly>Toggle sources</CollapsibleTrigger>
-                {/* Same Button shape as the child rows; flex-1 takes the remaining row width. */}
-                <Button variant="default" size="sm" left className="flex-1">
+                {/* Full-row surface under the overlaid chevron — ps-6 clears it,
+                    so hovering anywhere highlights the whole row. */}
+                <Button variant="default" size="sm" left className="w-full ps-6">
                     Sources
                     <Text size="xs" variant="muted" render={<span />} className="ms-auto">
                         2
                     </Text>
                 </Button>
             </CollapsibleHeader>
-            <CollapsibleContent>
+            {/* ps-4 lines the child icons up under the header label text. */}
+            <CollapsibleContent className="ps-4">
                 <ul className="flex flex-col gap-px">
                     {[
                         { icon: <GlobeIcon />, label: 'APIs', count: 1 },
