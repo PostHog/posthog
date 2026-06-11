@@ -3,7 +3,7 @@
 # in posthog/schema.py (itself generated from frontend/src/queries/schema/*.ts).
 # RUN hogli build:schema TO REBUILD
 
-from enum import Enum, StrEnum  # noqa: F401
+from enum import Enum, IntEnum, StrEnum  # noqa: F401
 
 
 class AIEventType(StrEnum):
