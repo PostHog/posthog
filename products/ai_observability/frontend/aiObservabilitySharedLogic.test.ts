@@ -3,20 +3,20 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 import { buildApplyUrlStatePayload, stripStaleSearchParams } from './aiObservabilitySharedLogic'
 
 describe('stripStaleSearchParams', () => {
-    it('returns null when every param is preserved', () => {
-        expect(
-            stripStaleSearchParams({
+    it.each([
+        {
+            desc: 'returns null when every param is preserved',
+            input: {
                 date_from: '-7d',
                 filter_test_accounts: 'true',
                 review_search: 'hallucination',
                 human_reviews_tab: 'reviews',
-            })
-        ).toBeNull()
-    })
-
-    it('keeps Reviews-tab params while stripping trace-view stale params', () => {
-        expect(
-            stripStaleSearchParams({
+            },
+            expected: null,
+        },
+        {
+            desc: 'keeps Reviews-tab params while stripping trace-view stale params',
+            input: {
                 review_search: 'hallucination',
                 review_definition_id: 'def-123',
                 review_order_by: 'created_at',
@@ -26,27 +26,29 @@ describe('stripStaleSearchParams', () => {
                 event: 'evt-1',
                 timestamp: '2026-04-01',
                 msg: 'whatever',
-            })
-        ).toEqual({
-            review_search: 'hallucination',
-            review_definition_id: 'def-123',
-            review_order_by: 'created_at',
-            review_page: 2,
-            human_reviews_tab: 'reviews',
-        })
-    })
-
-    it('keeps shared filter params alongside stripping stale ones', () => {
-        expect(
-            stripStaleSearchParams({
+            },
+            expected: {
+                review_search: 'hallucination',
+                review_definition_id: 'def-123',
+                review_order_by: 'created_at',
+                review_page: 2,
+                human_reviews_tab: 'reviews',
+            },
+        },
+        {
+            desc: 'keeps shared filter params alongside stripping stale ones',
+            input: {
                 date_from: '-30d',
                 filters: [{ key: '$ai_model' }],
                 back_to: 'generations',
-            })
-        ).toEqual({
-            date_from: '-30d',
-            filters: [{ key: '$ai_model' }],
-        })
+            },
+            expected: {
+                date_from: '-30d',
+                filters: [{ key: '$ai_model' }],
+            },
+        },
+    ])('$desc', ({ input, expected }) => {
+        expect(stripStaleSearchParams(input)).toEqual(expected)
     })
 })
 
