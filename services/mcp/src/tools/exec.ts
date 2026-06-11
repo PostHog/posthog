@@ -30,8 +30,10 @@ export interface ExecInnerCallProperties {
     error_message?: string
     /** Input rejected by the tool's schema before dispatch — no handler ran. */
     validation_error?: boolean
-    // Estimated input/output tokens for the inner tool call. Carried so single-exec
-    // mode attributes token usage to the real tool rather than the `exec` wrapper.
+    /**
+     * Estimated input/output tokens for the inner tool call. Carried so single-exec
+     * mode attributes token usage to the real tool rather than the `exec` wrapper.
+     */
     input_tokens?: number
     output_tokens?: number
 }

@@ -71,13 +71,11 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
  * Estimate output tokens from the text actually returned to the client — the
  * serialized TOON/JSON/formatted string, not the raw handler object. TOON is
  * materially smaller than JSON for tabular results, so measuring the raw object
- * would over-count. Accepts a serialized string or an assembled payload.
+ * would over-count. `structuredContent` is deliberately excluded: it duplicates
+ * the text for UI tools, so counting it would double-bill those calls.
  */
-export function estimateResponseTokens(response: unknown): number {
-    if (isToolCallPayload(response)) {
-        return estimateTokens(response.content.map((part) => part.text).join(''))
-    }
-    return estimateTokens(response)
+export function estimateResponseTokens(response: ToolResultPayload): number {
+    return estimateTokens(response.content.map((part) => part.text).join(''))
 }
 
 /**

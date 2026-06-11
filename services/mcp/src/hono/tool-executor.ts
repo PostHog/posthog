@@ -1,6 +1,11 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
-import { buildToolResultPayload, estimateResponseTokens, isToolCallPayload } from '@/lib/build-tool-result'
+import {
+    buildToolResultPayload,
+    estimateResponseTokens,
+    isToolCallPayload,
+    type ToolResultPayload,
+} from '@/lib/build-tool-result'
 import {
     handleToolError,
     MissingOrganizationContextError,
@@ -143,7 +148,7 @@ export class ToolExecutor {
 
             const duration = Date.now() - startMs
 
-            let response: unknown
+            let response: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
                 response = handlerResult
             } else {
