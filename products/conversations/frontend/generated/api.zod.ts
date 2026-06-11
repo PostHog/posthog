@@ -68,6 +68,33 @@ export const ConversationsAppendMessageCreateBody = /* @__PURE__ */ zod
 
 export const ConversationsCancelPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
+/**
+ * Forward a sandbox-runtime approval reply to the backing products/tasks run.
+ */
+export const conversationsPermissionCreateBodyRequestIdMax = 200
+
+export const conversationsPermissionCreateBodyOptionIdMax = 100
+
+export const conversationsPermissionCreateBodyCustomInputMax = 10000
+
+export const ConversationsPermissionCreateBody = /* @__PURE__ */ zod
+    .object({
+        requestId: zod
+            .string()
+            .max(conversationsPermissionCreateBodyRequestIdMax)
+            .describe('The ACP permission request id the user is responding to.'),
+        optionId: zod
+            .string()
+            .max(conversationsPermissionCreateBodyOptionIdMax)
+            .describe("The selected option id (e.g. 'allow_once', 'reject', 'reject_with_feedback')."),
+        customInput: zod
+            .string()
+            .max(conversationsPermissionCreateBodyCustomInputMax)
+            .optional()
+            .describe("Optional feedback text sent with a 'reject_with_feedback' decision."),
+    })
+    .describe('Approval reply for a sandbox-runtime `permission_request`.')
+
 export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObject({})

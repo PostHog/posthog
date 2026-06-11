@@ -384,6 +384,35 @@ export interface PatchedConversationApi {
 }
 
 /**
+ * Approval reply for a sandbox-runtime `permission_request`.
+ */
+export interface PermissionResponseApi {
+    /**
+     * The ACP permission request id the user is responding to.
+     * @maxLength 200
+     */
+    requestId: string
+    /**
+     * The selected option id (e.g. 'allow_once', 'reject', 'reject_with_feedback').
+     * @maxLength 100
+     */
+    optionId: string
+    /**
+     * Optional feedback text sent with a 'reject_with_feedback' decision.
+     * @maxLength 10000
+     */
+    customInput?: string
+}
+
+/**
+ * Result of forwarding a permission response to the sandbox agent.
+ */
+export interface PermissionResponseResultApi {
+    /** 'ok' once the response was forwarded to the sandbox. */
+    status: string
+}
+
+/**
  * * `action` - action
  * * `dashboard` - dashboard
  * * `error_tracking_issue` - error_tracking_issue
