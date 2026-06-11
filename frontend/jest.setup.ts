@@ -122,6 +122,18 @@ configure({ testIdAttribute: 'data-attr' })
 // Mock DecompressionWorkerManager globally to avoid import.meta.url issues in tests
 jest.mock('scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager')
 
+// Mock ConcurrencyController to be a pass-through. The module-level singleton in
+// dataNodeLogic persists across test files on the same Jest worker (resetModules is
+// disabled). Under CI load, stale items can block subsequent tests' queries indefinitely.
+// Tests don't need concurrency limiting, so we bypass it entirely.
+jest.mock('lib/utils/concurrencyController', () => {
+    class ConcurrencyController {
+        run = <T>({ fn }: { fn: () => Promise<T> }): Promise<T> => fn()
+        setConcurrencyLimit = (): void => {}
+    }
+    return { ConcurrencyController }
+})
+
 // Mock posthog-js surveys-preview to avoid ESM import issues in tests
 jest.mock('posthog-js/dist/surveys-preview', () => ({
     renderFeedbackWidgetPreview: jest.fn(),
