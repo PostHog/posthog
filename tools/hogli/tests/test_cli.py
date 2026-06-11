@@ -310,6 +310,7 @@ class TestApplyEnvConfig:
             return {"needs_secrets": True} if name in opted_in else {}
 
         m.get_command_config.side_effect = get_command_config
+        m.command_flag.side_effect = lambda name, key: bool(get_command_config(name).get(key, False))
         return m
 
     def test_no_env_config_is_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
