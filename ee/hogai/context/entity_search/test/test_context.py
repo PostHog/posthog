@@ -428,7 +428,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "status" in formatted
         assert "True" in formatted
 
-    async def test_list_entities_feature_flag_stale_filter(self):
+    async def test_list_feature_flags_stale_filter(self):
         # Config-based stale: 30+ days old, no usage data, fully rolled out to 100%
         stale_flag = await FeatureFlag.objects.acreate(
             team=self.team,
@@ -456,9 +456,10 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         entities, total = await self.context.list_entities("feature_flag", limit=2, offset=2)
 
         assert total == 5
-        assert len(entities) == 2
+        # Newest-first: offset=2 of the descending list is flag-2, flag-1
+        assert [e["extra_fields"]["key"] for e in entities] == ["flag-2", "flag-1"]
 
-    async def test_list_entities_feature_flag_disabled_shows_disabled_status(self):
+    async def test_list_feature_flags_disabled_shows_disabled_status(self):
         # The status checker reports ACTIVE for disabled flags; the listing should show "disabled"
         await FeatureFlag.objects.acreate(team=self.team, key="off-flag", active=False, created_by=self.user)
 

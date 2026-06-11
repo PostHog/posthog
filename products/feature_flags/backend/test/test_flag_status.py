@@ -35,6 +35,18 @@ class TestFilterFlagsByActiveParam(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
             created_by=self.user,
         )
+        # Multivariate stale: one variant at 100% plus a fully rolled out release condition
+        self.stale_multivariate = FeatureFlag.objects.create(
+            team=self.team,
+            key="stale-multivariate",
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            filters={
+                "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+            created_by=self.user,
+        )
 
     def _filter(self, value):
         return set(
@@ -44,16 +56,16 @@ class TestFilterFlagsByActiveParam(BaseTest):
         )
 
     def test_filters_enabled(self):
-        assert self._filter("true") == {"enabled", "stale", "stale-by-usage"}
+        assert self._filter("true") == {"enabled", "stale", "stale-by-usage", "stale-multivariate"}
 
     def test_filters_disabled(self):
         assert self._filter("false") == {"disabled"}
 
     def test_filters_stale(self):
-        assert self._filter("STALE") == {"stale", "stale-by-usage"}
+        assert self._filter("STALE") == {"stale", "stale-by-usage", "stale-multivariate"}
 
     def test_accepts_native_booleans(self):
-        assert self._filter(True) == {"enabled", "stale", "stale-by-usage"}
+        assert self._filter(True) == {"enabled", "stale", "stale-by-usage", "stale-multivariate"}
         assert self._filter(False) == {"disabled"}
 
     def test_stale_filter_agrees_with_status_checker(self):
