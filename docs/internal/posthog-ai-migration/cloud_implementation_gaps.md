@@ -83,7 +83,7 @@ Spec § 10.8 lists notification **names** only — payload shapes were never doc
 - `_posthog/resources_used` — missing from § 10.8 entirely; see § 3.2.
 - `_posthog/permission_request` / `_posthog/permission_resolved` — missing from § 10.8 entirely; see § 2.2.
 
-Field-level shapes are deliberately **not** reproduced here: they are captured as typed wire definitions in code (separate TypeScript and Python copies, validated against shared fixtures), where drift fails a test instead of going stale in prose.
+Field-level shapes are deliberately **not** reproduced here: they are captured as typed wire definitions in code (separate TypeScript and Python copies, each exercised by its own test corpus of canonical frames), where drift fails a test instead of going stale in prose.
 
 Dead constants: `_posthog/branch_created` and `_posthog/session/resume` are defined in `acp-extensions.ts` and listed in spec § 10.8, but nothing in the agent package ever emits them.
 `_posthog/mode_change` is likewise never emitted directly — mode changes arrive as `session/update` with `sessionUpdate: "current_mode_update"` (spec § 10.9 has this right).
