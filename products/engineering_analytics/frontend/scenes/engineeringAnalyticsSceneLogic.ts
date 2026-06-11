@@ -9,7 +9,7 @@ import type { engineeringAnalyticsSceneLogicType } from './engineeringAnalyticsS
 export type EngineeringAnalyticsTab = 'pull-requests' | 'workflows'
 
 export const TAB_DESCRIPTIONS: Record<EngineeringAnalyticsTab, string> = {
-    'pull-requests': 'Open PRs are the unit of work — CI health, throughput, and where engineering hours go.',
+    'pull-requests': 'Pull requests and their CI status across connected repos.',
     workflows: 'Run volume, success rate, and duration per workflow over the last 30 days.',
 }
 

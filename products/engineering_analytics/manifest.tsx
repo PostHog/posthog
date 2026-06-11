@@ -18,7 +18,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'CI analytics',
             layout: 'app-container',
-            description: 'Open PRs are the unit of work — track CI health, throughput, and where engineering hours go.',
+            description: 'Pull request and workflow CI health across connected GitHub repos.',
             iconType: 'health',
         },
         EngineeringAnalyticsPullRequest: {
