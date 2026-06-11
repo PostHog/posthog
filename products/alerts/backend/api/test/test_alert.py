@@ -508,7 +508,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         insight_without_alert_support = deepcopy(self.default_insight_data)
-        insight_without_alert_support["query"] = {"kind": "FunnelsQuery", "series": []}
+        insight_without_alert_support["query"] = {"kind": "RetentionQuery", "retentionFilter": {}}
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
             data=insight_without_alert_support,
@@ -553,7 +553,51 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # Changing to a kind that cannot carry alerts still cascades.
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
-            data={"query": {"kind": "FunnelsQuery", "series": []}},
+            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_funnel_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
+        funnel_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "FunnelsQuery",
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": "$autocapture"},
+                ],
+            },
+        }
+        funnel_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=funnel_insight_data).json()
+
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                {
+                    "insight": funnel_insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
+                    "name": "funnel alert",
+                },
+            ).json()
+
+        # The insight response must list the alert inline — the UI trusts this list on reload.
+        insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}").json()
+        assert [a["id"] for a in insight_response["alerts"]] == [alert["id"]]
+
+        # Updating the insight while it stays funnel-backed must not cascade-delete the alert.
+        updated = deepcopy(funnel_insight_data)
+        updated["query"]["series"][1]["event"] = "$pageleave"
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}", data=updated)
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_200_OK
+
+        # Changing to a kind that cannot carry alerts still cascades.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}",
+            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
         )
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
