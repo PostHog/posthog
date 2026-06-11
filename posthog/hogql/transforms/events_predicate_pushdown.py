@@ -15,10 +15,10 @@ pieces move events work into the subquery:
    reference the real events table, so the physical pass optimizes them (materialized columns, skip indexes) in place.
 2. Everything the *outer* query still references is handled by `EventsSubexprHoister`: each events column the outer
    expressions read — a bare column, or the raw blob behind a `JSONFieldAccess` property read — is projected into the
-   subquery under its database column name, and the outer reference is rewritten to read that column. All computation
-   over those columns (JSON extraction, casts, join keys) stays in the outer query. Pushdown itself never inspects
-   physical columns or special-cases particular functions. Because the subquery hides the events table, the physical
-   pass leaves the outer reads as JSON extracts over the projected blob; the predicates pushed into the subquery still
+   subquery under its database column name. All computation over those columns (JSON extraction, casts, join keys)
+   stays in the outer query. Pushdown itself never inspects physical columns or special-cases particular functions.
+   A blob reference is rewritten to read the projected column, which hides the events table from the physical pass:
+   the outer reads stay JSON extracts over the projected blob, while the predicates pushed into the subquery still
    get the full materialized-column treatment.
 
 It is a pure optimization: any unexpected error leaves the query untouched (run flat), and every rewrite is
@@ -31,9 +31,11 @@ Two things are built by hand here, on purpose:
   with `clear_types=True` — so re-resolving a subquery that already holds lowered `JSONFieldAccess` predicates would
   wipe their types and break nullability and printing downstream. Teaching the resolver about lowered nodes would cross
   a layering boundary, so the types are assembled here instead.
-- **Hoisted-column nullability.** The printer reads a hoisted column's nullability from the subquery's projected column
-  type, not as a blanket-nullable subquery column. That is what lets a join key be hoisted like any other column: it
-  wraps in `ifNull(...)` only when the value is genuinely nullable.
+- **Outer reference types.** A rewritten blob reference is re-typed onto the subquery, so the physical pass cannot
+  substitute a materialized / property-group column the subquery does not project. Every other outer events reference
+  keeps its original events-table type and resolves against the subquery alias by name (the subquery projects each
+  column under its database name): the printer then derives its nullability from the real events column, so a
+  non-nullable join key stays unwrapped — an `ifNull(...)`-wrapped equality is not a usable join key for ClickHouse.
 """
 
 from typing import cast
@@ -46,7 +48,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.models import DatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
 from posthog.hogql.functions.mapping import find_hogql_aggregation
@@ -103,8 +105,7 @@ class SelectAliasInliner(CloningVisitor):
 
 
 class EventsSubexprHoister(CloningVisitor):
-    """Rewrites an events query's outer expressions so every reference to the target events table reads a column
-    projected by the pre-filtering subquery.
+    """Collects every reference to the target events table into a column projected by the pre-filtering subquery.
 
     Only source columns are projected — a bare events column, or the raw blob behind a `JSONFieldAccess` property
     read — each under its real database column name, so two projections can never collide. Computation over those
@@ -112,8 +113,9 @@ class EventsSubexprHoister(CloningVisitor):
     projected columns. Pushdown itself never inspects physical columns, mimics the events schema, or special-cases
     particular functions.
 
-    A hoisted reference carries the projected column's real nullability (see the module docstring), so a non-nullable
-    value stays unwrapped and can serve as a join key, while a nullable column still wraps correctly.
+    Only blob references are rewritten onto the subquery; every other reference keeps its original events-table type
+    and resolves against the subquery alias by name, so its real nullability still drives `ifNull(...)` wrapping (see
+    the module docstring).
 
     Sets `blocked` if a referenced events column is unresolvable, so the caller declines."""
 
@@ -135,21 +137,25 @@ class EventsSubexprHoister(CloningVisitor):
         self.blocked = False
 
     def visit(self, node: ast.AST | None) -> ast.AST:
-        # Each reference to a target events column — bare, or the blob inside a property read — becomes a reference
-        # to the same column projected from the subquery; any surrounding computation stays in place. A join key
-        # needs no special handling; its nullability rides the projected column's type.
+        # Each reference to a target events column — bare, or the blob inside a property read — gets the same column
+        # projected from the subquery; any surrounding computation stays in place. Only a blob reference is re-typed
+        # onto the subquery (hiding it from the physical pass); any other reference keeps its original type and
+        # resolves against the subquery alias by name, so its real nullability still applies — a non-nullable join
+        # key must not pick up a blanket-nullable `ifNull(...)` wrap, which ClickHouse rejects as a join key.
         if isinstance(node, ast.Field) and self._is_target_field(node.type):
-            name = self._intern(node)
-            if name is not None:
+            field = self._intern(node)
+            if isinstance(field, StringJSONDatabaseField):
+                name = field.name
                 return ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=self.subquery_ref))
 
         return super().visit(node)
 
     def visit_alias(self, node: ast.Alias) -> ast.Alias:
         # The resolver wraps a bare column reference in an alias whose `FieldAliasType` carries the events column's
-        # `FieldType` again. Rewriting only the inner field would leave that wrapper stale, and downstream consumers
-        # that resolve through it (`resolve_field_type`) would treat the outer reference as still reading the real
-        # events table. Re-point the wrapper at the rewritten expression's type (mirrors lowering's `visit_alias`).
+        # `FieldType` again. When the inner field is rewritten (a blob reference), keeping the old wrapper would leave
+        # it stale, and downstream consumers that resolve through it (`resolve_field_type`) would treat the outer
+        # reference as still reading the real events table. Re-point the wrapper at the rewritten expression's type
+        # (mirrors lowering's `visit_alias`); for an unrewritten reference this rebuilds an identical wrapper.
         new_node = cast(ast.Alias, super().visit_alias(node))
         unwrapped: ast.Type | None = new_node.type
         while isinstance(unwrapped, ast.FieldAliasType):
@@ -170,30 +176,31 @@ class EventsSubexprHoister(CloningVisitor):
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
         return cast(ast.SelectSetQuery, clone_expr(node, clear_types=False))
 
-    def _intern(self, node: ast.Field) -> str | None:
-        """Record a subquery projection for the column `node` reads and return the name to reference it by. The name
-        is always the real database column name, so two different reads can never collide on one projection; repeated
-        reads of a column share it. Returns None (setting `blocked`) for an unresolvable column."""
+    def _intern(self, node: ast.Field) -> DatabaseField | None:
+        """Record a subquery projection for the column `node` reads and return its resolved database field. The
+        projection name is always the real database column name, so two different reads can never collide on one
+        projection; repeated reads of a column share it. Returns None (setting `blocked`) for an unresolvable column."""
         assert isinstance(node.type, ast.FieldType)
-        name = self._database_column_name(node.type)
-        if name is None:
+        field = self._resolve_database_field(node.type)
+        if field is None:
             self.blocked = True
             return None
+        name = field.name
         if name not in self.projections:
             value_type: ast.Type = node.type
             self.projections[name] = clone_expr(node, clear_types=False)
             self.column_types[name] = value_type
             self.subquery_type.columns[name] = value_type
-        return name
+        return field
 
     def _is_target_field(self, node_type: ast.Type | None) -> bool:
         return isinstance(node_type, ast.FieldType) and self._matches_target_table(node_type.table_type)
 
-    def _database_column_name(self, field_type: ast.FieldType) -> str | None:
+    def _resolve_database_field(self, field_type: ast.FieldType) -> DatabaseField | None:
         try:
             resolved = field_type.resolve_database_field(self.context)
             if isinstance(resolved, DatabaseField):
-                return resolved.name
+                return resolved
             return None
         except Exception as err:
             # Fail-safe: an unresolvable column blocks pushdown rather than risking a wrong subquery; debug-logged so
@@ -335,9 +342,10 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if inner_limit is None:
             return "no_short_circuitable_limit"
 
-        # Hoist the events leaves the outer query still references into the pre-filtering subquery, rewriting each
-        # outer reference to read the subquery column. Build the subquery's type/ref first so the rewritten
-        # references can point at it; nothing on `node` is mutated until every check below passes.
+        # Hoist the events leaves the outer query still references into the pre-filtering subquery; blob references
+        # are rewritten to read the subquery column, other references resolve against the subquery alias by name.
+        # Build the subquery's type/ref first so the rewritten references can point at it; nothing on `node` is
+        # mutated until every check below passes.
         new_alias = node.select_from.alias or "events"
         subquery_type = ast.SelectQueryType(columns={}, tables={new_alias: events_table_type})
         subquery_ref = ast.SelectQueryAliasType(alias=new_alias, select_query_type=subquery_type)

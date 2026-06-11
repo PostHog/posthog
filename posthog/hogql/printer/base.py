@@ -1479,15 +1479,6 @@ class BasePrinter(Visitor[str]):
         elif isinstance(node_type, ast.CallType):
             return node_type.return_type.nullable
         elif isinstance(node_type, ast.FieldType):
-            # A field reading from a subquery (alias) has no database field, so `is_nullable` defaults to True and
-            # over-wraps the column in `ifNull(...)`. Its real nullability is the projected column's constant type —
-            # use that, so a non-nullable value selected from a subquery isn't needlessly null-wrapped (which, for a
-            # join key, ClickHouse can't use). Real-table fields keep `is_nullable` (identical result, no risk).
-            if not isinstance(node_type.table_type, ast.BaseTableType):
-                try:
-                    return node_type.resolve_constant_type(self.context).nullable
-                except Exception:
-                    return True
             return node_type.is_nullable(self.context)
         return None
 
