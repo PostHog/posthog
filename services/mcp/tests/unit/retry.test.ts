@@ -28,8 +28,9 @@ describe('decide429Retry', () => {
         { header: null, attempt: 1, min: 2000, max: 4000 },
         { header: null, attempt: 2, min: 4000, max: 8000 },
         { header: 'Wed, 21 Oct 2026 07:28:00 GMT', attempt: 0, min: 1000, max: 2000 },
+        { header: '-5', attempt: 0, min: 1000, max: 2000 },
     ])(
-        'falls back to jittered exponential backoff for missing or non-numeric Retry-After (attempt: $attempt)',
+        'falls back to jittered exponential backoff for missing or invalid Retry-After (header: $header, attempt: $attempt)',
         ({ header, attempt, min, max }) => {
             const decision = decide429Retry(header, attempt)
             expect(decision.retry).toBe(true)

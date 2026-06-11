@@ -130,7 +130,6 @@ export class ApiClient {
     }
 
     private async fetch(url: string, options?: RequestInit): Promise<Response> {
-        // TODO: should we move rate limiting from `fetchJson` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
             'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),

@@ -22,10 +22,10 @@ export function decide429Retry(
         return { retry: false, delayMs: 0, reason: 'exhausted' }
     }
 
-    // Retry-After may also be an HTTP-date, which parseInt rejects — treat
-    // that like a missing header and fall back to backoff.
+    // Retry-After may also be an HTTP-date (which parseInt rejects) or a
+    // bogus negative — treat both like a missing header and fall back to backoff.
     const retryAfterSeconds = retryAfterHeader ? Number.parseInt(retryAfterHeader, 10) : Number.NaN
-    if (!Number.isNaN(retryAfterSeconds)) {
+    if (!Number.isNaN(retryAfterSeconds) && retryAfterSeconds >= 0) {
         const delayMs = retryAfterSeconds * 1000
         if (delayMs > MAX_RETRY_AFTER_MS) {
             return { retry: false, delayMs, reason: 'retry_after_exceeds_cap' }
