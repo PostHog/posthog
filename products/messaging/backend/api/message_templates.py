@@ -141,8 +141,8 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
                     {
                         "content": {
                             "email": {
-                                "design": "Server-side design rendering is not configured on this instance. "
-                                "Include content.email.html rendered from the design."
+                                "design": "Design rendering is not configured on this instance — an administrator "
+                                "must set UNLAYER_API_KEY to enable saving design-authored templates."
                             }
                         }
                     }
