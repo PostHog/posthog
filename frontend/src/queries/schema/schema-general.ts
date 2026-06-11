@@ -3400,6 +3400,7 @@ export type FileSystemIconType =
     | 'insight/lifecycle'
     | 'insight/stickiness'
     | 'insight/hog'
+    | 'insight/sql'
     | 'team_activity'
     | 'home'
     | 'apps'
