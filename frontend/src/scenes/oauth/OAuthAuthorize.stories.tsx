@@ -88,3 +88,28 @@ export const WithScopes: Story = {
         return <App />
     },
 }
+
+export const WithRequiredScopes: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            const appContext = (window as any).POSTHOG_APP_CONTEXT
+            appContext.oauth_application = {
+                ...appContext.oauth_application,
+                // feature_flag:write is required but the client only requested read,
+                // so the row must render locked at the write level. experiment:read
+                // is required and unrequested, so it appears as an extra locked row.
+                required_scopes: ['experiment:read', 'feature_flag:write'],
+            }
+            const params = new URLSearchParams({
+                client_id: 'test-client-id',
+                redirect_uri: 'https://app.example.com/oauth/callback',
+                response_type: 'code',
+                state: 'test-state',
+                scope: 'feature_flag:read query:read dashboard:write',
+            })
+            router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
+        })
+
+        return <App />
+    },
+}
