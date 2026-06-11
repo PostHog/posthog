@@ -278,7 +278,7 @@ class TestFingerprintEmbeddingResultActivity:
         assert result == 1
         assert filter_fingerprints.call_args_list[0].kwargs == {"team_id": 2, "fingerprint": "test-fingerprint"}
         assert filter_fingerprints.call_args_list[1].kwargs == {"team_id": 2, "fingerprint": "fingerprint-1"}
-        target_issue.merge.assert_called_once_with(issue_ids=[source_issue_id])
+        target_issue.merge.assert_called_once_with(issue_ids=[str(source_issue_id)])
         properties = capture.call_args.kwargs["properties"]
         assert properties["merge_source"] == "auto"
         assert properties["source_issue_id"] == str(source_issue_id)
