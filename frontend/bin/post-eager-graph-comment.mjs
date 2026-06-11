@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const reportPath = path.resolve(__dirname, '..', 'eager-graph-report.json')
+const frontendDir = path.resolve(__dirname, '..')
 
 const MARKER = '<!-- posthog-eager-graph-check -->'
 
@@ -12,10 +12,6 @@ const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
 const repo = process.env.GITHUB_REPOSITORY
 const eventPath = process.env.GITHUB_EVENT_PATH
 
-if (!fs.existsSync(reportPath)) {
-    console.info('No eager-graph-report.json found — nothing to post (branch may predate the check).')
-    process.exit(0)
-}
 if (!token || !repo || !eventPath) {
     console.info('Missing GitHub environment (token/repository/event) — skipping comment.')
     process.exit(0)
@@ -25,6 +21,27 @@ const prNumber = event.pull_request?.number
 if (!prNumber) {
     console.info('Not a pull request event — skipping comment.')
     process.exit(0)
+}
+
+// compressed-size-action builds the PR branch and then the base branch in the same
+// workspace, so the plain report filename holds the LAST build's (the base's) numbers.
+// The PR build's report carries its checkout sha in the filename — that's the one to
+// post. The PR build checks out the merge ref, so its sha is GITHUB_SHA; the head sha
+// covers non-merge-ref checkouts.
+const shaCandidates = [process.env.GITHUB_SHA, event.pull_request?.head?.sha].filter(Boolean)
+const shaReportPath = shaCandidates
+    .map((sha) => path.join(frontendDir, `eager-graph-report-${sha}.json`))
+    .find((p) => fs.existsSync(p))
+const reportPath = shaReportPath ?? path.join(frontendDir, 'eager-graph-report.json')
+if (!fs.existsSync(reportPath)) {
+    console.info('No eager graph report found — nothing to post (branch may predate the check).')
+    process.exit(0)
+}
+if (!shaReportPath) {
+    console.warn(
+        `No report found for shas [${shaCandidates.join(', ')}]; falling back to ${reportPath} — ` +
+            `its numbers may be from a different checkout.`
+    )
 }
 
 const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'))
@@ -75,12 +92,18 @@ async function gh(url, options = {}) {
 }
 
 let existing = null
-for (let page = 1; page <= 3 && !existing; page++) {
-    const comments = await gh(`/repos/${repo}/issues/${prNumber}/comments?per_page=100&page=${page}`)
-    existing = comments.find((c) => c.body?.includes(MARKER)) ?? null
-    if (comments.length < 100) {
-        break
+try {
+    for (let page = 1; page <= 50 && !existing; page++) {
+        const comments = await gh(`/repos/${repo}/issues/${prNumber}/comments?per_page=100&page=${page}`)
+        existing = comments.find((c) => c.body?.includes(MARKER)) ?? null
+        if (comments.length < 100) {
+            break
+        }
     }
+} catch (err) {
+    // Fork PRs run with a read-only token — the comment is a nicety, never worth a red job.
+    console.warn(`Could not read PR comments (read-only token on fork PRs?): ${err.message}`)
+    process.exit(0)
 }
 
 const previous = (() => {
@@ -92,7 +115,7 @@ const previous = (() => {
     }
 })()
 
-const anyFailure = report.roots.some((r) => r.overBudget || r.forbiddenHits.length > 0)
+const anyFailure = report.roots.some((r) => r.overBudget || r.forbiddenHits.length > 0) || report.errors?.length > 0
 const lines = [
     MARKER,
     `<!-- posthog-eager-graph-data ${JSON.stringify(Object.fromEntries(report.roots.map((r) => [r.root, r.bytes])))} -->`,
@@ -111,6 +134,10 @@ for (const r of report.roots) {
     )
 }
 lines.push('')
+
+for (const message of report.errors ?? []) {
+    lines.push(`❌ ${message}`, '')
+}
 
 for (const r of report.roots) {
     for (const forbiddenModule of r.forbidden) {
@@ -142,10 +169,15 @@ lines.push(
 )
 
 const body = lines.join('\n')
-if (existing) {
-    await gh(`/repos/${repo}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body }) })
-    console.info(`Updated eager graph comment ${existing.id} on PR #${prNumber}.`)
-} else {
-    await gh(`/repos/${repo}/issues/${prNumber}/comments`, { method: 'POST', body: JSON.stringify({ body }) })
-    console.info(`Posted eager graph comment on PR #${prNumber}.`)
+try {
+    if (existing) {
+        await gh(`/repos/${repo}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body }) })
+        console.info(`Updated eager graph comment ${existing.id} on PR #${prNumber}.`)
+    } else {
+        await gh(`/repos/${repo}/issues/${prNumber}/comments`, { method: 'POST', body: JSON.stringify({ body }) })
+        console.info(`Posted eager graph comment on PR #${prNumber}.`)
+    }
+} catch (err) {
+    // Fork PRs run with a read-only token — the comment is a nicety, never worth a red job.
+    console.warn(`Could not post eager graph comment (read-only token on fork PRs?): ${err.message}`)
 }
