@@ -1977,7 +1977,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
         href: urls.skills(),
         flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
-        tags: ['beta'],
         sceneKey: 'Skills',
         sceneKeys: ['Skills', 'Skill'],
     },

@@ -48,6 +48,11 @@ metadata:
 `metadata` are optional but conventional — `compatibility` documents the scopes/tools the
 scout assumes; `metadata.scope` gives downstream tooling a short label.
 
+The `description` does double duty: beyond skill discovery, it is surfaced verbatim as the
+scout's `description` on the config API (`signals-scout-config-list` / `-create` / `-update`
+responses) — it's how the fleet roster reads to agents and the UI without opening each
+scout's body. Write it to stand alone in that listing.
+
 ## Body structure
 
 The canonical body is a workflow, not a script — it reads like how an experienced analyst

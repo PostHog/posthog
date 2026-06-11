@@ -233,3 +233,123 @@ class TestKnowledgeDocumentWindowScopes(APIBaseTest):
         self._auth_with_pak(["insight:read"])
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+# ---------------------------------------------------------------------------
+# Search endpoint
+# ---------------------------------------------------------------------------
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestKnowledgeDocumentSearchAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/business_knowledge/documents/search/"
+
+    def _ready_safe_source(self, *, name: str = "Docs", text: str | None = None, team=None) -> KnowledgeSource:
+        team = team or self.team
+        if text is None:
+            filler = "lorem ipsum dolor sit amet " * 50
+            text = "\n\n".join(f"Paragraph {i}: {filler}" for i in range(5))
+        source = logic.create_text_source(team_id=team.id, created_by_id=self.user.id, name=name, text=text)
+        KnowledgeDocument.objects.unscoped().filter(source_id=source.id).update(safety_verdict=SafetyVerdict.SAFE)
+        return source
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_returns_ranked_chunks(self, _embed, _ff) -> None:
+        self._ready_safe_source(
+            text="Pricing plans are available on request.\n\n" + "x " * 600 + "\n\nOur refund policy is flexible."
+        )
+        response = self.client.get(self.url, {"query": "pricing"})
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert len(body) >= 1
+        first = body[0]
+        assert set(first.keys()) == {
+            "chunk_id",
+            "document_id",
+            "ordinal",
+            "source_id",
+            "source_name",
+            "source_type",
+            "document_title",
+            "heading_path",
+            "content",
+        }
+        assert first["source_name"] == "Docs"
+        assert "pricing" in first["content"].lower() or "Pricing" in first["content"]
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_requires_query(self, _embed, _ff) -> None:
+        self._ready_safe_source()
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "query"
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_rejects_blank_query(self, _embed, _ff) -> None:
+        self._ready_safe_source()
+        response = self.client.get(self.url, {"query": "   "})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_cross_team_isolation(self, _embed, _ff) -> None:
+        from posthog.models.team import Team
+
+        other_team = Team.objects.create_with_data(
+            organization=self.organization, initiating_user=self.user, name="Other"
+        )
+        self._ready_safe_source(name="Theirs", text="secret pricing data " * 60, team=other_team)
+        response = self.client.get(self.url, {"query": "secret pricing"})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_excludes_unsafe_documents(self, _embed, _ff) -> None:
+        source = self._ready_safe_source(text="Return policy details " * 60)
+        KnowledgeDocument.objects.unscoped().filter(source_id=source.id).update(safety_verdict=SafetyVerdict.UNSAFE)
+        response = self.client.get(self.url, {"query": "return policy"})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_search_feature_flag_gated(self, _ff) -> None:
+        _ff.return_value = False
+        response = self.client.get(self.url, {"query": "anything"})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_embedding_failure_falls_back_to_fts(self, _embed, _ff) -> None:
+        self._ready_safe_source(text="Deployment guide for kubernetes " * 60)
+        response = self.client.get(self.url, {"query": "kubernetes"})
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert len(body) >= 1
+        assert "kubernetes" in body[0]["content"].lower()
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestKnowledgeDocumentSearchScopes(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        filler = "lorem ipsum dolor sit amet " * 50
+        text = "\n\n".join(f"Paragraph {i}: {filler}" for i in range(3))
+        source = logic.create_text_source(team_id=self.team.id, created_by_id=self.user.id, name="Docs", text=text)
+        KnowledgeDocument.objects.unscoped().filter(source_id=source.id).update(safety_verdict=SafetyVerdict.SAFE)
+        self.url = f"/api/projects/{self.team.id}/business_knowledge/documents/search/?query=lorem"
+
+    def _auth_with_pak(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_read_scope_allows_search(self, _embed, _ff) -> None:
+        self._auth_with_pak(["business_knowledge:read"])
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_wrong_scope_is_forbidden(self, _embed, _ff) -> None:
+        self._auth_with_pak(["insight:read"])
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_403_FORBIDDEN

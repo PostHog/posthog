@@ -14,7 +14,8 @@ exact mechanics; and how to test a scout in each.
   scout immediately (instead of waiting for the tick), register the config yourself with
   `posthog:signals-scout-config-create`, setting the schedule / emit posture in the same
   call; until one of those happens, the scout has no config row and won't show in
-  `-config-list`.
+  `-config-list`. Config responses also carry the scout's `description`, read live from the
+  skill's frontmatter — not a config field you set.
 - **Coordinator.** A periodic Temporal workflow ticks (~every 30 min). Each tick it bounds
   candidates to projects enrolled via the `signals-scout` feature-flag allowlist, then
   dispatches every **enabled** scout whose schedule is **due** (`last_run_at is None`, or

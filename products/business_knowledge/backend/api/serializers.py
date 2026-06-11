@@ -366,6 +366,52 @@ class KnowledgeDocumentWindowSerializer(serializers.Serializer):
     )
 
 
+class KnowledgeSearchResultSerializer(serializers.Serializer):
+    """
+    One ranked chunk from a business knowledge search.
+
+    Output-only — the rows come from the ``search_knowledge_for_team`` logic
+    helper (a ``KnowledgeSearchResult`` dataclass), not the ORM.
+    """
+
+    chunk_id = serializers.UUIDField(
+        read_only=True,
+        help_text="Stable identifier of this chunk.",
+    )
+    document_id = serializers.UUIDField(
+        read_only=True,
+        help_text="ID of the parent document. Pass to the document-window endpoint with `around_ordinal` to drill down.",
+    )
+    ordinal = serializers.IntegerField(
+        read_only=True,
+        help_text="Zero-based position of this chunk within its document. Use as `around_ordinal` in the document-window endpoint.",
+    )
+    source_id = serializers.UUIDField(
+        read_only=True,
+        help_text="ID of the knowledge source this chunk belongs to.",
+    )
+    source_name = serializers.CharField(
+        read_only=True,
+        help_text="Human label of the knowledge source this chunk belongs to.",
+    )
+    source_type = serializers.CharField(
+        read_only=True,
+        help_text="Source type (text, url, or file).",
+    )
+    document_title = serializers.CharField(
+        read_only=True,
+        help_text="Title of the document this chunk belongs to.",
+    )
+    heading_path = serializers.CharField(
+        read_only=True,
+        help_text="Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure.",
+    )
+    content = serializers.CharField(
+        read_only=True,
+        help_text="The chunk's text content.",
+    )
+
+
 class CreateFileSourceSerializer(_NameValidationMixin, serializers.Serializer):
     """
     Multipart upload payload for file sources. The file's content type is

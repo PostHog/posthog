@@ -494,6 +494,7 @@ export type AssistantTool =
     | 'manage_memories'
     | 'create_notebook'
     | 'list_data'
+    | 'list_feature_flags'
     | 'upsert_alert'
     | 'finalize_plan'
     | 'call_mcp_server'

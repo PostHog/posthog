@@ -2,6 +2,8 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 
+from posthog.schema import RecordingsQuery
+
 from posthog.models.utils import UUIDModel
 
 
@@ -69,6 +71,17 @@ class ReplayScanner(UUIDModel):
         help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
     )
 
+    estimated_monthly_observations = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Latest projected observations/month for this scanner; enabled scanners are summed org-wide for the quota prognosis.",
+    )
+    estimated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the estimate was last computed. Refreshed on config saves and by the sweep when stale.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
@@ -94,26 +107,47 @@ class ReplayScanner(UUIDModel):
         "model",
         "emits_signals",
     )
+    # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
+    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate"})
 
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]
+            track_enabled = "enabled" in update_fields
         else:
             relevant = list(self._VERSION_TRACKED_FIELDS)
-        if self.pk and relevant:
+            track_enabled = True
+        if self.pk and (relevant or track_enabled):
             # SELECT FOR UPDATE so concurrent saves can't both bump scanner_version from the same baseline.
             with transaction.atomic():
                 old = (
-                    type(self).objects.select_for_update().filter(pk=self.pk).only("scanner_version", *relevant).first()
+                    type(self)
+                    .objects.select_for_update()
+                    .filter(pk=self.pk)
+                    .only("scanner_version", "enabled", *relevant)
+                    .first()
                 )
-                if old is not None and any(getattr(old, f) != getattr(self, f) for f in relevant):
-                    self.scanner_version = old.scanner_version + 1
-                    if update_fields is not None:
-                        kwargs["update_fields"] = [*update_fields, "scanner_version"]
+                if old is not None:
+                    changed = {f for f in relevant if getattr(old, f) != getattr(self, f)}
+                    extra_fields = []
+                    if changed:
+                        self.scanner_version = old.scanner_version + 1
+                        extra_fields.append("scanner_version")
+                    # Re-enabling resurfaces a possibly long-stale estimate in the quota sum, so it invalidates too.
+                    reenabled = track_enabled and self.enabled and not old.enabled
+                    if (changed & self._ESTIMATE_FIELDS) or reenabled:
+                        self.estimated_at = None
+                        extra_fields.append("estimated_at")
+                    if update_fields is not None and extra_fields:
+                        kwargs["update_fields"] = [*update_fields, *extra_fields]
                 super().save(*args, **kwargs)
             return
         super().save(*args, **kwargs)
+
+    def recordings_query(self) -> RecordingsQuery:
+        """The persisted candidate filter; an empty `query` parses as a bare RecordingsQuery."""
+        return RecordingsQuery.model_validate(self.query or {"kind": "RecordingsQuery"})
 
     def __str__(self) -> str:
         return f"{self.name} ({self.scanner_type})"

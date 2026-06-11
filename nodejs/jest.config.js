@@ -10,6 +10,7 @@ module.exports = {
     testEnvironment: 'node',
     clearMocks: true,
     coverageProvider: 'v8',
+    setupFiles: ['./jest.setup-env.ts'],
     setupFilesAfterEnv: ['./jest.setup.ts'],
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
     testTimeout: 60000,

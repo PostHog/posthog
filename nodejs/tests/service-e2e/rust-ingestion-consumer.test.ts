@@ -290,7 +290,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
             expect(worker1RoutedAfterHealthyBatch).toBeGreaterThan(0)
 
             await workers[0].service.stop()
-            await waitForWorkerHealthState(rustConsumer, rustMetricsPort, workers[0].url, 2)
+            await waitForWorkerHealthState(rustConsumer, rustMetricsPort, workers[0].url, 'unhealthy')
             const failoverEvents = buildSingleBatchEvents(
                 team,
                 'rust node e2e failover event',
@@ -333,7 +333,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
             })
 
             workers[0] = await restartNodeIngestionApiWorker(services, workers[0], 'node-worker-1-recovered')
-            await waitForWorkerHealthState(rustConsumer, rustMetricsPort, workers[0].url, 0)
+            await waitForWorkerHealthState(rustConsumer, rustMetricsPort, workers[0].url, 'healthy')
 
             const recoveryEvents = buildSingleBatchEvents(
                 team,
@@ -383,7 +383,9 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
         try {
             await Promise.all(workers.map((worker) => worker.service.stop()))
             await Promise.all(
-                workers.map((worker) => waitForWorkerHealthState(rustConsumer, rustMetricsPort, worker.url, 2))
+                workers.map((worker) =>
+                    waitForWorkerHealthState(rustConsumer, rustMetricsPort, worker.url, 'unhealthy')
+                )
             )
 
             const events = buildSingleBatchEvents(
@@ -1010,16 +1012,16 @@ async function waitForWorkerHealthState(
     rustConsumer: ServiceProcess,
     rustMetricsPort: number,
     worker: string,
-    state: number
+    state: 'healthy' | 'degraded' | 'unhealthy'
 ): Promise<void> {
     await waitForExpect(async () => {
         const metrics = await fetchMetrics(rustConsumer, rustMetricsPort)
         expect(
             getPrometheusSample(metrics, {
                 name: 'ingestion_consumer_worker_health_state',
-                labels: { worker },
+                labels: { worker, state },
             })
-        ).toBe(state)
+        ).toBe(1)
     }, 30_000)
 }
 
