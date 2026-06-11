@@ -53,12 +53,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { toParams } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { objectsEqual } from 'lib/utils/objects'
 import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { isString } from 'lib/utils/typeChecks'
+import { toParams } from 'lib/utils/url'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,

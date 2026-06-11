@@ -4,8 +4,8 @@ import { loaders } from 'kea-loaders'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { toParams } from 'lib/utils/url'
 import { FLAGS_PER_PAGE } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

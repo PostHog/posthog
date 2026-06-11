@@ -17,7 +17,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tryDecodeURIComponent } from 'lib/utils'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
@@ -28,6 +27,7 @@ import {
 import { percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { UnexpectedNeverError } from 'lib/utils/typeChecks'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
