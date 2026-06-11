@@ -19,6 +19,7 @@ import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'
 import { dashboardFiltersLogic } from './dashboardFiltersLogic'
+import { DashboardEditSaveCancelButtons } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardQuickFiltersButton } from './DashboardQuickFiltersButton'
 import { dashboardQuickFiltersSelectionLogic } from './dashboardQuickFiltersSelectionLogic'
@@ -160,15 +161,9 @@ export function DashboardAdvancedOptions(): JSX.Element | null {
  * always safe to skip Apply and go straight to Save.
  */
 function DashboardEditActions(): JSX.Element | null {
-    const {
-        dashboardMode,
-        layoutEditMode,
-        canEditDashboard,
-        dashboardLoading,
-        showApplyFiltersBanner,
-        loadingPreview,
-    } = useValues(dashboardLogic)
-    const { setDashboardMode, cancelEditMode, applyFilters } = useActions(dashboardLogic)
+    const { dashboardMode, layoutEditMode, canEditDashboard, showApplyFiltersBanner, loadingPreview } =
+        useValues(dashboardLogic)
+    const { applyFilters } = useActions(dashboardLogic)
 
     if (dashboardMode !== DashboardMode.Edit || layoutEditMode || !canEditDashboard) {
         return null
@@ -176,63 +171,23 @@ function DashboardEditActions(): JSX.Element | null {
 
     return (
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <AppShortcut
-                name="CancelDashboardEdit"
-                keybind={[keyBinds.escape]}
-                intent="Cancel edit mode"
-                interaction="click"
-                scope={Scene.Dashboard}
-            >
-                <LemonButton
-                    data-attr="dashboard-edit-mode-discard"
-                    type="secondary"
-                    size="small"
-                    onClick={() => cancelEditMode()}
-                    tooltip="Discard changes and exit edit mode"
-                >
-                    Cancel
-                </LemonButton>
-            </AppShortcut>
-
-            {showApplyFiltersBanner && (
-                <LemonButton
-                    data-attr="dashboard-apply-filters"
-                    type="secondary"
-                    size="small"
-                    loading={loadingPreview}
-                    onClick={applyFilters}
-                    tooltip="Preview these filters. Large dashboards don't auto-apply — Save will apply and persist them too."
-                >
-                    Apply filters
-                </LemonButton>
-            )}
-
-            <AppShortcut
-                name="SaveDashboard"
-                keybind={[keyBinds.edit, keyBinds.save]}
-                intent="Save dashboard"
-                interaction="click"
-                scope={Scene.Dashboard}
-                disabled={!canEditDashboard}
-            >
-                <LemonButton
-                    data-attr="dashboard-edit-mode-save"
-                    type="primary"
-                    size="small"
-                    onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)}
-                    tooltip="Save dashboard"
-                    tooltipPlacement="bottom"
-                    disabledReason={
-                        dashboardLoading
-                            ? 'Wait for dashboard to finish loading'
-                            : canEditDashboard
-                              ? undefined
-                              : 'Not privileged to edit this dashboard'
-                    }
-                >
-                    Save
-                </LemonButton>
-            </AppShortcut>
+            <DashboardEditSaveCancelButtons
+                withShortcuts
+                middle={
+                    showApplyFiltersBanner ? (
+                        <LemonButton
+                            data-attr="dashboard-apply-filters"
+                            type="secondary"
+                            size="small"
+                            loading={loadingPreview}
+                            onClick={applyFilters}
+                            tooltip="Preview these filters. Large dashboards don't auto-apply — Save will apply and persist them too."
+                        >
+                            Apply filters
+                        </LemonButton>
+                    ) : null
+                }
+            />
         </div>
     )
 }
