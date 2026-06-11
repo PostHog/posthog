@@ -422,9 +422,12 @@ interface SandboxPermissionInputProps {
 export function SandboxPermissionInput({ conversationId, request }: SandboxPermissionInputProps): JSX.Element {
     const boundLogic = sandboxStreamLogic({ conversationId })
     const { respondToPermission } = useActions(boundLogic)
-    const { respondingToPermission } = useValues(boundLogic)
+    const { respondingToPermission, currentMode } = useValues(boundLogic)
 
-    const mappedOptions = mapPermissionOptions(request.options)
+    // A request whose every option was filtered out (e.g. only `allow_always` without a
+    // rememberable preview) must still be answerable — fall back to showing everything.
+    const defaultOptions = mapPermissionOptions(request.options)
+    const mappedOptions = defaultOptions.length > 0 ? defaultOptions : mapPermissionOptions(request.options, true)
     const feedbackOption = mappedOptions.find((o) => o.requiresFeedback)
     const buttonOptions = mappedOptions.filter((o) => !o.requiresFeedback)
 
@@ -434,7 +437,9 @@ export function SandboxPermissionInput({ conversationId, request }: SandboxPermi
         icon: o.decision === 'approved' ? <IconCheck /> : <IconX />,
     }))
 
-    const isPlan = request.rawToolCall.kind === 'plan' || request.title?.toLowerCase().includes('plan')
+    // Plan approvals are raised while the agent is in plan mode — the mode is the grounded
+    // signal; `toolCall.kind === 'plan'` covers adapters that tag the request directly.
+    const isPlan = currentMode === 'plan' || request.rawToolCall.kind === 'plan'
 
     const handleSelect = (value: string | null): void => {
         if (!value || respondingToPermission) {

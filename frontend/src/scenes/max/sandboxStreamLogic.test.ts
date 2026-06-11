@@ -535,6 +535,32 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
+    describe('isThinking', () => {
+        it('is on only while a started turn is incomplete, surviving non-terminal status updates', () => {
+            expect(logic.values.isThinking).toEqual(false)
+
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            expect(logic.values.isThinking).toEqual(true)
+
+            logic.actions.handleTerminalStatus({ status: 'queued' })
+            expect(logic.values.isThinking).toEqual(true)
+
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            expect(logic.values.isThinking).toEqual(false)
+        })
+
+        it.each([
+            ['a terminal run status', (): void => logic.actions.handleTerminalStatus({ status: 'failed' })],
+            ['a stream error', (): void => logic.actions.handleStreamError({ errorTitle: 'x', retryable: true })],
+        ])('turns off on %s even when turn_complete never arrives', (_case, act) => {
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            expect(logic.values.isThinking).toEqual(true)
+
+            act()
+            expect(logic.values.isThinking).toEqual(false)
+        })
+    })
+
     describe('terminal-status handling', () => {
         it('closes the SSE and stops reconnects on a terminal task_run_state', async () => {
             await expectLogic(logic, () => {

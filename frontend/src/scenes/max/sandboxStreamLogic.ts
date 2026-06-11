@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -322,6 +322,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             customInput?: string
         }) => payload,
         clearPermissionRequest: true,
+        /**
+         * Internal: the reply POST failed. Resets the in-flight flag (so the surviving card's
+         * buttons re-enable for retry) without coupling that reset to unrelated stream errors.
+         */
+        permissionResponseFailed: true,
         handleTerminalStatus: (status: { status: SandboxRunStatus; errorMessage?: string | null }) => status,
         handleStreamError: (envelope: { errorTitle: string; errorMessage?: string; retryable: boolean }) => envelope,
         // Internal state-folding actions emitted by ingestAcpFrame.
@@ -501,7 +506,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             },
         ],
         // In-flight state for the approval reply POST — drives the input card's loading/disabled
-        // props. Cleared on resolution (success) and on stream error (a failure keeps the card
+        // props. Cleared on resolution (success) and on the POST's own failure (the card stays
         // pending, so the buttons must re-enable for retry).
         respondingToPermission: [
             false,
@@ -509,7 +514,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 respondToPermission: () => true,
                 markPermissionRequestResolved: () => false,
                 clearPermissionRequest: () => false,
-                handleStreamError: () => false,
+                permissionResponseFailed: () => false,
                 reset: () => false,
             },
         ],
@@ -542,6 +547,18 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 markRunStarted: () => false,
                 reset: () => false,
             },
+        ],
+    }),
+    selectors({
+        /**
+         * Whether the agent is actively working a turn — drives the thread's thinking indicator.
+         * Off once the turn completes, the run reaches a terminal status (a failed or cancelled
+         * run may never emit `_posthog/turn_complete`), or the stream errors out.
+         */
+        isThinking: [
+            (s) => [s.runStarted, s.turnComplete, s.currentRunStatus, s.sseStatus],
+            (runStarted, turnComplete, currentRunStatus, sseStatus): boolean =>
+                runStarted && !turnComplete && !isTerminalRunStatus(currentRunStatus) && sseStatus !== 'error',
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -746,6 +763,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 actions.markPermissionRequestResolved(requestId)
             } catch (error) {
                 posthog.captureException(error)
+                actions.permissionResponseFailed()
                 actions.handleStreamError({ errorTitle: 'Failed to send approval', retryable: true })
             }
         },

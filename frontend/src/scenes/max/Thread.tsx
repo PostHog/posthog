@@ -150,11 +150,9 @@ function toolInvocationToMessage(
  * `conversation.agent_runtime === 'sandbox'`.
  */
 function SandboxThread(): JSX.Element {
-    const { threadItems, toolInvocations, currentProgress, runStarted, turnComplete } = useValues(sandboxStreamLogic)
-
     // Drive the thinking indicator from real agent progress: show the latest `_posthog/progress`
     // message while the run is active, falling back to the canned rotation.
-    const isThinking = runStarted && !turnComplete
+    const { threadItems, toolInvocations, currentProgress, isThinking } = useValues(sandboxStreamLogic)
 
     return (
         <>
@@ -200,7 +198,9 @@ function SandboxThread(): JSX.Element {
  * `_posthog/progress` message when present, otherwise the canned thinking rotation.
  */
 function SandboxThinkingIndicator({ progress }: { progress: string | null }): JSX.Element {
-    const message = useMemo(() => (progress?.trim() ? progress : getRandomThinkingMessage()), [progress])
+    // One roll per mount — re-rolling on every progress transition would visibly swap the verb.
+    const fallbackMessage = useMemo(() => getRandomThinkingMessage(), [])
+    const message = progress?.trim() ? progress : fallbackMessage
     return (
         <MessageTemplate type="ai">
             <div className="flex items-center gap-2 text-muted">
