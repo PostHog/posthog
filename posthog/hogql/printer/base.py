@@ -42,6 +42,7 @@ from posthog.hogql.visitor import Visitor, clone_expr
 
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.clickhouse.materialized_columns import (
+    DMAT_STRING_COLUMN_NAME_PREFIX,
     MaterializedColumn,
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
@@ -64,6 +65,18 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     while isinstance(expr_type, ast.FieldAliasType):
         expr_type = expr_type.type
     return expr_type
+
+
+def _classify_materialized_property_source(
+    source: PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None,
+) -> str:
+    if source is None:
+        return "json"
+    if isinstance(source, PrintableMaterializedPropertyGroupItem):
+        return "property_group"
+    if source.column.strip("`\"'").startswith(DMAT_STRING_COLUMN_NAME_PREFIX):
+        return "dynamic_materialized_column"
+    return "materialized_column"
 
 
 class BasePrinter(Visitor[str]):
@@ -1360,6 +1373,10 @@ class BasePrinter(Visitor[str]):
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
         materialized_property_source = self._get_materialized_property_source_for_property_type(type)
+        if self.context.type_observability is not None:
+            self.context.type_observability.record_materialized_property_usage(
+                _classify_materialized_property_source(materialized_property_source)
+            )
         if materialized_property_source is not None:
             # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
             if (

@@ -641,6 +641,15 @@ class ClickHousePrinter(BasePrinter):
     }
     _RANGE_CH_NAMES = frozenset(_RANGE_OP_TO_CH_NAME.values())
 
+    def _record_range_rewrite(self, result: str) -> None:
+        if self.context.type_observability is None:
+            return
+        self.context.type_observability.record_materialized_range_rewrite(result)
+        if result.startswith("fired"):
+            # A fired rewrite prints the materialized column directly, bypassing
+            # visit_property_type, so account for the materialized access here.
+            self.context.type_observability.record_materialized_property_usage("materialized_column")
+
     def _get_optimized_materialized_column_range_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite property ranges on materialized columns so minmax can fire.
 
@@ -659,16 +668,19 @@ class ClickHousePrinter(BasePrinter):
         ):
             physical_type = comparison_plan.access.source.physical_type
             if not comparison_plan.source_matches_semantics:
+                self._record_range_rewrite("skipped")
                 return None
             if not comparison_plan.can_compare_physical_source_directly and not isinstance(
                 physical_type, ast.StringType
             ):
+                self._record_range_rewrite("skipped")
                 return None
 
             property_source = self._get_materialized_property_source_for_property_type(
                 comparison_plan.access.property_type
             )
             if not isinstance(property_source, PrintableMaterializedColumn):
+                self._record_range_rewrite("skipped")
                 return None
 
             constant_sql = self._print_property_range_value(node.right, comparison_plan.literal_conversion)
@@ -682,18 +694,22 @@ class ClickHousePrinter(BasePrinter):
 
         right_constant = node.right if isinstance(node.right, ast.Constant) else None
         if right_constant is not None and right_constant.value is None:
+            self._record_range_rewrite("skipped")
             return None
 
         if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            self._record_range_rewrite("skipped")
             return None
 
         op_name = self._RANGE_OP_TO_CH_NAME[node.op]
         materialized_column_sql = str(property_source)
         is_string_source = isinstance(physical_type, ast.StringType)
         if is_string_source and right_constant is None:
+            self._record_range_rewrite("skipped")
             return None
 
         if property_source.is_nullable:
+            self._record_range_rewrite("fired_compare")
             return f"({op_name}({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
 
         if not is_string_source:
@@ -701,9 +717,11 @@ class ClickHousePrinter(BasePrinter):
             # Float64) when the JSON value is missing or invalid, so a bare comparison would match
             # rows where the property does not exist. There is no safe bare rewrite without
             # nullability to distinguish a real default from a missing value, so skip the optimization.
+            self._record_range_rewrite("skipped")
             return None
 
         # Non-nullable strings: exclude the '' / 'null' sentinels inline so the comparison stays bare.
+        self._record_range_rewrite("fired_compare")
         sentinel_exclusions = " AND ".join(
             f"notEquals({materialized_column_sql}, {self._print_escaped_string(s)})" for s in MAT_COL_NULL_SENTINELS
         )
@@ -729,16 +747,20 @@ class ClickHousePrinter(BasePrinter):
 
         property_source, is_string_source = source
         if not property_source.is_nullable:
+            self._record_range_rewrite("skipped")
             return None
 
         right_constant = range_call.args[1] if isinstance(range_call.args[1], ast.Constant) else None
         if right_constant is not None and right_constant.value is None:
+            self._record_range_rewrite("skipped")
             return None
         if is_string_source and right_constant is None:
+            self._record_range_rewrite("skipped")
             return None
 
         materialized_column_sql = str(property_source)
         constant_sql = self.visit(range_call.args[1])
+        self._record_range_rewrite("fired_if_null")
         return (
             f"({range_call.name}({materialized_column_sql}, {constant_sql}) "
             f"AND ({materialized_column_sql} IS NOT NULL))"

@@ -17,6 +17,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -31,6 +32,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.observability import HogQLTypeObservability
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -739,6 +741,33 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         assert "dmat_string_0" in query, f"Expected dmat_string_0 in SQL, got: {query}"
         # No skip indexes are configured on dmat columns today.
         self._assert_indexes(self._filter(PropertyOperator.EXACT, "5"), expected_used=set())
+
+    # ----- observability ------------------------------------------------------
+
+    def test_observability_records_property_usage_and_range_rewrite(self) -> None:
+        self._seed()
+        self._materialize_with(is_nullable=True, create_minmax_index=True)
+
+        stats = HogQLTypeObservability(dialect="clickhouse", source="unknown")
+        with patch("posthog.hogql.printer.utils.create_hogql_type_observability", return_value=stats):
+            self._filter_to_sql(self._filter(PropertyOperator.LT, "5"))
+
+        assert stats.materialized_range_rewrite["fired_compare"] >= 1
+        assert stats.materialized_property_usage["materialized_column"] >= 1
+
+    def test_observability_records_json_property_usage(self) -> None:
+        self._seed()
+
+        stats = HogQLTypeObservability(dialect="clickhouse", source="unknown")
+        with patch("posthog.hogql.printer.utils.create_hogql_type_observability", return_value=stats):
+            self._filter_to_sql(
+                self._filter(PropertyOperator.EXACT, "5"),
+                property_groups_mode=PropertyGroupsMode.DISABLED,
+                materialization_mode=MaterializationMode.DISABLED,
+            )
+
+        assert stats.materialized_property_usage["json"] >= 1
+        assert stats.materialized_property_usage["materialized_column"] == 0
 
 
 # ============================================================================
