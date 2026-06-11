@@ -1,5 +1,6 @@
 import { RestoreSelectionRequest } from './editorTypes'
 import {
+    COMMENT_COMPONENT_TAG,
     DIVIDER_COMPONENT_TAG,
     makeEmptyParagraph,
     makeListItemId,
@@ -100,6 +101,10 @@ export function isPromptComponentNode(node: NotebookBlockNode): node is Notebook
 
 export function isDividerComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
     return node.type === 'component' && node.tagName === DIVIDER_COMPONENT_TAG
+}
+
+export function isCommentComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
+    return node.type === 'component' && node.tagName === COMMENT_COMPONENT_TAG
 }
 
 export function getPromptSource(value: NotebookPropValue | undefined): 'slash' | 'selection' {

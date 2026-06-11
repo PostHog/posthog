@@ -42,6 +42,7 @@ const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
 const IMAGE_BLOCK_REGEX = /^!\[((?:\\.|[^\]\\])*)\]\(((?:\\.|[^)\\])*)\)$/
 const DIVIDER_BLOCK_REGEX = /^(?:-{3,}|\*{3,}|_{3,})$/
 export const DIVIDER_COMPONENT_TAG = 'Divider'
+export const COMMENT_COMPONENT_TAG = 'Comment'
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 const EMPTY_PARAGRAPH_MARKDOWN = ' '
 // Every character the serializer may backslash-escape; the inline parser turns `\X` back into
@@ -197,6 +198,9 @@ export function serializeNode(node: NotebookBlockNode): string {
         // Props that failed to parse exist only in `raw` — re-emitting from `props` would
         // silently drop the malformed source on the next save
         return node.raw
+    }
+    if (node.type === 'component' && node.tagName === COMMENT_COMPONENT_TAG) {
+        return serializeCommentNode(node)
     }
     if (node.type === 'component' && node.tagName === DIVIDER_COMPONENT_TAG) {
         return '---'
@@ -488,6 +492,13 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         }
     }
 
+    if (trimmed.startsWith('<!--')) {
+        const commentEndLineIndex = getCommentBlockEndLine(lines, lineIndex)
+        if (commentEndLineIndex !== null) {
+            return parseCommentBlock(lines, lineIndex, commentEndLineIndex)
+        }
+    }
+
     if (COMPONENT_START_REGEX.test(trimmed)) {
         return parseComponentBlock(lines, lineIndex)
     }
@@ -553,6 +564,7 @@ function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResu
             trimmed.startsWith('```') ||
             IMAGE_BLOCK_REGEX.test(trimmed) ||
             DIVIDER_BLOCK_REGEX.test(trimmed) ||
+            (trimmed.startsWith('<!--') && getCommentBlockEndLine(lines, nextLineIndex) !== null) ||
             COMPONENT_START_REGEX.test(trimmed) ||
             HEADING_REGEX.test(line) ||
             isTableStart(lines, nextLineIndex) ||
@@ -830,6 +842,42 @@ function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {
                   }
                 : undefined,
     }
+}
+
+/**
+ * A comment block is `<!--` … `-->` where the closing marker ends its line; when `-->`
+ * has trailing content (or never appears) the text stays a paragraph so nothing is
+ * ever swallowed. Comments may span lines, including blank ones.
+ */
+function getCommentBlockEndLine(lines: string[], lineIndex: number): number | null {
+    for (let index = lineIndex; index < lines.length; index++) {
+        const trimmed = lines[index].trim()
+        const markerIndex = trimmed.indexOf('-->', index === lineIndex ? 4 : 0)
+        if (markerIndex !== -1) {
+            return markerIndex === trimmed.length - 3 ? index : null
+        }
+    }
+    return null
+}
+
+function parseCommentBlock(lines: string[], lineIndex: number, endLineIndex: number): BlockParseResult {
+    const raw = lines
+        .slice(lineIndex, endLineIndex + 1)
+        .join('\n')
+        .trim()
+    const text = raw.slice(4, raw.length - 3).trim()
+
+    return {
+        node: { id: '', type: 'component', tagName: COMMENT_COMPONENT_TAG, props: { text } },
+        nextLineIndex: endLineIndex + 1,
+    }
+}
+
+function serializeCommentNode(node: NotebookComponentBlockNode): string {
+    const text = typeof node.props.text === 'string' ? node.props.text : ''
+    // `-->` inside the text would close the comment early, so it is broken apart
+    const safeText = text.replace(/-->/g, '-- >').trim()
+    return `<!-- ${safeText} -->`
 }
 
 function parseImageBlock(lines: string[], lineIndex: number): BlockParseResult {
@@ -1376,7 +1424,7 @@ export function escapeMarkdownLineStart(line: string): string {
         return `${leadingWhitespace}${orderedListMatch[1]}\\${content.slice(orderedListMatch[1].length)}`
     }
 
-    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$|<[A-Z])/.test(content)) {
+    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$|<[A-Z]|<!--)/.test(content)) {
         return `${leadingWhitespace}\\${content}`
     }
 

@@ -284,6 +284,74 @@ describe('markdown round trip', () => {
         })
     })
 
+    describe('html comments', () => {
+        it('parses a standalone comment line into a Comment node', () => {
+            const document = parseMarkdownNotebook('# Title\n\n<!-- reviewer note -->\n\nBody')
+
+            expect(document.errors).toEqual([])
+            expect(document.nodes.map((node) => node.type)).toEqual(['heading', 'component', 'paragraph'])
+            const commentNode = document.nodes[1]
+            expect(commentNode.type === 'component' && commentNode.tagName).toEqual('Comment')
+            expect(commentNode.type === 'component' && commentNode.props.text).toEqual('reviewer note')
+        })
+
+        it('round-trips a comment back to plain markdown without ids or markup noise', () => {
+            const markdown = '# Title\n\n<!-- reviewer note -->\n\nBody'
+            expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
+        })
+
+        it('parses multi-line comments, including blank lines', () => {
+            const document = parseMarkdownNotebook('<!-- first line\n\nsecond line -->\n\nBody')
+
+            const commentNode = document.nodes[0]
+            expect(commentNode.type === 'component' && commentNode.props.text).toEqual('first line\n\nsecond line')
+            expect(getNodeText(document.nodes[1])).toEqual('Body')
+            expect(serializeMarkdownNotebook(document)).toEqual('<!-- first line\n\nsecond line -->\n\nBody')
+        })
+
+        it('splits a comment line off a preceding paragraph', () => {
+            const document = parseMarkdownNotebook('Some text\n<!-- aside -->')
+
+            expect(document.nodes.map((node) => node.type)).toEqual(['paragraph', 'component'])
+            expect(getNodeText(document.nodes[0])).toEqual('Some text')
+        })
+
+        it('keeps an unclosed comment as a paragraph instead of swallowing the document', () => {
+            const document = parseMarkdownNotebook('<!-- never closed\n\nThis text must survive')
+
+            expect(document.nodes.map((node) => node.type)).toEqual(['paragraph', 'paragraph'])
+            expect(getNodeText(document.nodes[1])).toEqual('This text must survive')
+        })
+
+        it('keeps a comment with trailing content on the closing line as a paragraph', () => {
+            const document = parseMarkdownNotebook('<!-- aside --> trailing text')
+
+            expect(document.nodes.map((node) => node.type)).toEqual(['paragraph'])
+            expect(getNodeText(document.nodes[0])).toEqual('<!-- aside --> trailing text')
+        })
+
+        it('escapes paragraph lines that would otherwise re-parse as comments', () => {
+            const document = makeDocument([paragraph([text('<!-- not a comment -->')])])
+            const reparsed = roundTrip(document)
+
+            expect(reparsed.nodes.map((node) => node.type)).toEqual(['paragraph'])
+            expect(getNodeText(reparsed.nodes[0])).toEqual('<!-- not a comment -->')
+        })
+
+        it('neutralizes a premature closing marker inside the comment text', () => {
+            const document = parseMarkdownNotebook('<!-- note -->')
+            const commentNode = document.nodes[0]
+            if (commentNode.type !== 'component') {
+                throw new Error('expected a component node')
+            }
+
+            const serialized = serializeNode({ ...commentNode, props: { text: 'evil --> breakout' } })
+            const reparsed = parseMarkdownNotebook(serialized)
+            expect(reparsed.nodes).toHaveLength(1)
+            expect(reparsed.nodes[0].type).toEqual('component')
+        })
+    })
+
     describe('code blocks containing fences', () => {
         it('uses a fence longer than any backtick run in the content', () => {
             const node: NotebookBlockNode = {

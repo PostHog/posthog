@@ -142,6 +142,20 @@ export function visualizationArtifactContentToNotebookArtifactContent(
     }
 }
 
+/**
+ * Whether any node in a rich (v1) notebook carries an inline comment mark. Markdown has no
+ * slot for range-anchored comment marks, so the conversion drops them — callers must warn.
+ */
+export function notebookContentHasCommentMarks(content: JSONContent | null | undefined): boolean {
+    if (!content) {
+        return false
+    }
+    if ((content.marks ?? []).some((mark) => mark.type === 'comment')) {
+        return true
+    }
+    return (content.content ?? []).some((child) => notebookContentHasCommentMarks(child))
+}
+
 export function convertNotebookContentToMarkdown(content: JSONContent | null | undefined): string {
     if (isMarkdownNotebookContent(content)) {
         return getMarkdownNotebookMarkdown(content)

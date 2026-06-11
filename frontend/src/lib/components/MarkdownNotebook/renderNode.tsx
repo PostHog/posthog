@@ -1,8 +1,9 @@
 import { MutableRefObject } from 'react'
 
+import { CommentBlock } from './CommentBlock'
 import { ComponentPanel, ComponentPanelVisibility } from './componentPanels'
 import { DividerBlock } from './DividerBlock'
-import { isDividerComponentNode, isPromptComponentNode } from './documentModel'
+import { isCommentComponentNode, isDividerComponentNode, isPromptComponentNode } from './documentModel'
 import { EditableCodeBlock } from './EditableCodeBlock'
 import { EditableListBlock } from './EditableListBlock'
 import { EditablePromptComponent } from './EditablePromptComponent'
@@ -113,6 +114,22 @@ export function renderNode({
                     mode={mode}
                     isSelected={isSelected}
                     setBlockRef={setBlockRef}
+                    deleteNode={deleteNode}
+                    deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
+                    insertParagraphAfterNode={insertParagraphAfterNode}
+                    moveFocusToAdjacentNode={moveFocusToAdjacentNode}
+                />
+            )
+        }
+
+        if (isCommentComponentNode(node)) {
+            return (
+                <CommentBlock
+                    node={node}
+                    mode={mode}
+                    isSelected={isSelected}
+                    setBlockRef={setBlockRef}
+                    updateNode={updateNode}
                     deleteNode={deleteNode}
                     deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
                     insertParagraphAfterNode={insertParagraphAfterNode}

@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import {
     IconCode,
+    IconComment,
     IconDatabase,
     IconFlag,
     IconFlask,
@@ -84,6 +85,19 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             getTitle: () => null,
             hideModeActions: true,
             ViewComponent: DividerView,
+            insertCommand: {},
+        }),
+        makeDefinition({
+            tagName: 'Comment',
+            label: 'Comment',
+            category: 'Text',
+            description: 'Inline note, stored as a markdown comment',
+            aliases: ['note', 'annotation', 'todo'],
+            icon: <IconComment />,
+            defaultProps: { text: '' },
+            getTitle: (node) => summarizeText(getStringProp(node.props.text)),
+            hideModeActions: true,
+            ViewComponent: CommentView,
             insertCommand: {},
         }),
         makeDefinition({
@@ -288,6 +302,12 @@ function QueryView({ node }: NotebookComponentRenderProps): JSX.Element {
 
 function DividerView(_: NotebookComponentRenderProps): JSX.Element {
     return <hr className="MarkdownNotebook__divider" />
+}
+
+// Comment nodes render through CommentBlock in renderNode; this is the registry fallback.
+function CommentView({ node }: NotebookComponentRenderProps): JSX.Element {
+    const text = typeof node.props.text === 'string' ? node.props.text : ''
+    return <div className="MarkdownNotebook__comment-chip">{text || 'Comment'}</div>
 }
 
 function ImageView({ node }: NotebookComponentRenderProps): JSX.Element {

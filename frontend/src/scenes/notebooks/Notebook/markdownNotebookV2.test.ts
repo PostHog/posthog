@@ -17,6 +17,7 @@ import {
     getMarkdownNotebookTitle,
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
+    notebookContentHasCommentMarks,
     visualizationArtifactContentToNotebookArtifactContent,
 } from './markdownNotebookV2'
 
@@ -354,6 +355,27 @@ Users activated faster.
         expect(notebookArtifactContentToMarkdown(notebookContent)).toEqual(
             '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
         )
+    })
+
+    it('detects inline comment marks anywhere in v1 content', () => {
+        const withComment: JSONContent = {
+            type: 'doc',
+            content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'plain' }] },
+                {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: 'annotated', marks: [{ type: 'comment', attrs: { id: 'c1' } }] }],
+                },
+            ],
+        }
+        const withoutComment: JSONContent = {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'bold', marks: [{ type: 'bold' }] }] }],
+        }
+
+        expect(notebookContentHasCommentMarks(withComment)).toBe(true)
+        expect(notebookContentHasCommentMarks(withoutComment)).toBe(false)
+        expect(notebookContentHasCommentMarks(null)).toBe(false)
     })
 
     it('does not duplicate an artifact markdown title', () => {

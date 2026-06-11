@@ -1,7 +1,11 @@
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import { buildMarkdownNotebookContent, convertNotebookContentToMarkdown } from './markdownNotebookV2'
+import {
+    buildMarkdownNotebookContent,
+    convertNotebookContentToMarkdown,
+    notebookContentHasCommentMarks,
+} from './markdownNotebookV2'
 
 type OpenUpgradeToMarkdownNotebookDialogProps = {
     content: JSONContent | null | undefined
@@ -20,6 +24,12 @@ export function openUpgradeToMarkdownNotebookDialog({
                     This conversion only works one way. Once upgraded, this notebook cannot be converted back to the old
                     editor.
                 </p>
+                {notebookContentHasCommentMarks(content) && (
+                    <p className="mt-2 font-semibold text-warning">
+                        This notebook has inline comments. Their anchors are not carried over — the comments will no
+                        longer point at the text they were left on.
+                    </p>
+                )}
                 <p className="mt-2">Make sure you want to continue before converting it.</p>
             </div>
         ),
