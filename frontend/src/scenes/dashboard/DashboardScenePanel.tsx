@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconCopy, IconGraph, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
+import { IconCode2, IconCopy, IconGraph, IconNotebook, IconPalette, IconStack, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
@@ -91,13 +91,16 @@ export function DashboardScenePanel(): JSX.Element | null {
                         <SceneDuplicate
                             dataAttrKey={RESOURCE_TYPE}
                             onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
+                            label="Make a copy of this dashboard"
+                            icon={<IconStack />}
+                            tooltip="Creates a duplicate of this dashboard in the current project, with the option to copy its tiles too"
                         />
                         {canCopyToProject && (
                             <ButtonPrimitive
                                 menuItem
                                 onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
                                 data-attr="dashboard-copy-to-project"
-                                tooltip="Copy this dashboard to another project"
+                                tooltip="Copies this dashboard into a different project you have access to, leaving the original here untouched"
                             >
                                 <IconCopy />
                                 Copy to another project
