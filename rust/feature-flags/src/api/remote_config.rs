@@ -8,6 +8,11 @@
 //! for the credential check, and the flag is looked up by `team.project_id == project_id`.
 //! Session-cookie auth is intentionally not ported (not an SDK path), same as
 //! `flag_definitions`.
+//!
+//! Not ported, consistent with `flag_definitions`/`local_evaluation` (so "matches Django"
+//! does not extend to these): per-flag access control (advanced RBAC) is not enforced.
+//! Personal-key callers are checked for scope and team/org membership only, not role-based
+//! feature flag access, even though this endpoint can return decrypted payloads.
 
 use crate::{
     api::{auth, errors::FlagError, flag_definitions},
