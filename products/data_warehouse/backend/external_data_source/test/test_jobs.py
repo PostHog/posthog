@@ -175,8 +175,8 @@ class TestUpdateExternalJobStatus:
         with (
             patch("products.data_warehouse.backend.external_data_source.jobs.emit_data_import_app_metrics"),
             patch(
-                "products.data_warehouse.backend.external_data_source.jobs.notify_external_data_sync_failures"
-            ) as mock_notify,
+                "products.data_warehouse.backend.external_data_source.jobs.send_external_data_failure_digest_task"
+            ) as mock_notify_task,
         ):
             update_external_job_status(
                 job_id=str(job.id),
@@ -187,9 +187,11 @@ class TestUpdateExternalJobStatus:
             )
 
         if expect_notify:
-            mock_notify.assert_called_once_with(team.pk)
+            mock_notify_task.apply_async.assert_called_once()
+            assert mock_notify_task.apply_async.call_args.kwargs["args"] == [team.pk]
+            assert mock_notify_task.apply_async.call_args.kwargs["countdown"] > 0
         else:
-            mock_notify.assert_not_called()
+            mock_notify_task.apply_async.assert_not_called()
 
     def test_failure_notification_not_repeated_on_retried_terminal_transition(self):
         team, _source, _schema, job = _create_org_team_source_schema_job()
@@ -197,8 +199,8 @@ class TestUpdateExternalJobStatus:
         with (
             patch("products.data_warehouse.backend.external_data_source.jobs.emit_data_import_app_metrics"),
             patch(
-                "products.data_warehouse.backend.external_data_source.jobs.notify_external_data_sync_failures"
-            ) as mock_notify,
+                "products.data_warehouse.backend.external_data_source.jobs.send_external_data_failure_digest_task"
+            ) as mock_notify_task,
         ):
             for _ in range(2):
                 update_external_job_status(
@@ -209,4 +211,25 @@ class TestUpdateExternalJobStatus:
                     latest_error="boom",
                 )
 
-        mock_notify.assert_called_once()
+        mock_notify_task.apply_async.assert_called_once()
+
+    def test_failed_digest_scheduling_error_does_not_fail_status_update(self):
+        team, _source, _schema, job = _create_org_team_source_schema_job()
+
+        with (
+            patch("products.data_warehouse.backend.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.external_data_source.jobs.send_external_data_failure_digest_task"
+            ) as mock_notify_task,
+        ):
+            mock_notify_task.apply_async.side_effect = Exception("broker down")
+            updated = update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.FAILED,
+                logger=MagicMock(),
+                latest_error="boom",
+            )
+
+        assert updated.status == ExternalDataJob.Status.FAILED
+        assert updated.finished_at is not None

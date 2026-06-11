@@ -2,9 +2,9 @@ import datetime as dt
 
 from structlog.types import FilteringBoundLogger
 
+from posthog.tasks.email import EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS, send_external_data_failure_digest_task
 from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES, emit_data_import_app_metrics
 
-from products.data_warehouse.backend.external_data_source.notifications import notify_external_data_sync_failures
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
@@ -51,6 +51,11 @@ def update_external_job_status(
         emit_data_import_app_metrics(model)
 
         if status == ExternalDataJob.Status.FAILED:
-            notify_external_data_sync_failures(team_id)
+            try:
+                send_external_data_failure_digest_task.apply_async(
+                    args=[team_id], countdown=EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS
+                )
+            except Exception:
+                logger.exception("Failed to schedule external data failure digest")
 
     return model
