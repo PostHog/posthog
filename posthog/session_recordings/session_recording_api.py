@@ -977,8 +977,8 @@ class SessionRecordingViewSet(
     @action(methods=["GET"], detail=True, url_path="capture_diagnostics")
     def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """Latest event properties for the recording's session, for the capture diagnostics panel."""
-        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
-        properties = get_latest_session_event_properties(str(kwargs["pk"]), self.team)
+        recording = self.get_object()
+        properties = get_latest_session_event_properties(str(recording.session_id), self.team)
         return Response({"properties": properties})
 
     # Returns metadata about the recording

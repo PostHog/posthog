@@ -418,39 +418,47 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": session_id, "$recording_status": marker},
         )
 
-    def test_finds_event_within_uuidv7_window(self) -> None:
+    @parameterized.expand(
+        [
+            ("event_within_uuidv7_window", True, relativedelta(minutes=0), "bounded"),
+            ("event_outside_uuidv7_window_via_fallback", True, relativedelta(days=10), "fallback"),
+            ("non_uuid_session_id_via_fallback", False, relativedelta(minutes=0), "custom"),
+        ]
+    )
+    def test_finds_event(self, _name: str, uuidv7_id: bool, event_age_before_start, marker: str) -> None:
         session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
-        session_id = _uuidv7_session_id_for(session_start)
-        self._seed_event(session_id, session_start, "bounded")
+        session_id = _uuidv7_session_id_for(session_start) if uuidv7_id else "my-custom-session-id"
+        self._seed_event(session_id, session_start - event_age_before_start, marker)
 
         properties = get_latest_session_event_properties(session_id, self.team)
 
         assert properties is not None
-        assert properties["$recording_status"] == "bounded"
-
-    def test_finds_event_outside_uuidv7_window_via_fallback(self) -> None:
-        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
-        session_id = _uuidv7_session_id_for(session_start)
-        self._seed_event(session_id, session_start - relativedelta(days=10), "fallback")
-
-        properties = get_latest_session_event_properties(session_id, self.team)
-
-        assert properties is not None
-        assert properties["$recording_status"] == "fallback"
-
-    def test_finds_event_for_non_uuid_session_id(self) -> None:
-        session_id = "my-custom-session-id"
-        self._seed_event(session_id, (now() - relativedelta(minutes=10)).replace(microsecond=0), "custom")
-
-        properties = get_latest_session_event_properties(session_id, self.team)
-
-        assert properties is not None
-        assert properties["$recording_status"] == "custom"
+        assert properties["$recording_status"] == marker
 
     def test_returns_none_when_session_has_no_events(self) -> None:
         session_id = _uuidv7_session_id_for(now() - relativedelta(minutes=10))
 
         assert get_latest_session_event_properties(session_id, self.team) is None
+
+    def test_does_not_leak_another_teams_session(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        _create_event(
+            team=other_team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=session_start,
+            properties={"$session_id": session_id, "$recording_status": "secret"},
+        )
+
+        assert get_latest_session_event_properties(session_id, self.team) is None
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/session_recordings/{session_id}/capture_diagnostics"
+        )
+        assert response.status_code == 200
+        assert response.json()["properties"] is None
 
     def test_capture_diagnostics_endpoint_returns_properties(self) -> None:
         session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)

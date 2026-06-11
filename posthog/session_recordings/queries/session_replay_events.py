@@ -59,8 +59,9 @@ def uuidv7_session_lower_bound(session_id: str, now: datetime | None = None) -> 
 
 
 # Wide window for capture diagnostics when the session id carries no usable
-# timestamp: covers any session whose recording could still be within retention.
-CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK = timedelta(days=90)
+# timestamp (or the bounded window missed): covers the longest replay retention
+# plan plus slack, so any recording that can still be played can be diagnosed.
+CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK = timedelta(days=370)
 
 
 def get_latest_session_event_properties(session_id: str, team: Team) -> Optional[dict]:
@@ -69,7 +70,9 @@ def get_latest_session_event_properties(session_id: str, team: Team) -> Optional
     Bounded by a window derived from the UUIDv7 session id so the events sort key
     can prune the scan; misses (or ids that don't parse) fall back to a
     retention-wide window so a skewed client clock degrades to a slower lookup
-    rather than missing diagnostics.
+    rather than missing diagnostics. Deliberate trade-off: when a session has
+    events both inside and outside the bounded window, the in-window latest wins
+    without consulting the fallback.
     """
     lower_bound = uuidv7_session_lower_bound(session_id)
     if lower_bound is not None:
@@ -88,7 +91,9 @@ def get_latest_session_event_properties(session_id: str, team: Team) -> Optional
 def _latest_session_event_properties_between(
     session_id: str, team: Team, date_from: datetime, date_to: datetime
 ) -> Optional[dict]:
-    from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+    from posthog.hogql_queries.hogql_query_runner import (
+        HogQLQueryRunner,  # noqa: PLC0415 — breaks a circular import, matching this file's other HogQLQueryRunner imports
+    )
 
     query = HogQLQuery(
         query="""
