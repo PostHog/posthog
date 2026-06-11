@@ -45,11 +45,11 @@ If the user requests a write operation, say: "This skill is read-only. I can't r
 
 ## EXPLAIN and EXPLAIN ANALYZE (performance)
 
-| Goal | What to use |
+| Goal                                      | What to use                                                                     |
 | ----------------------------------------- | ------------------------------------------------------------------------------- |
-| Plan shape, estimated costs, no execution | `EXPLAIN (FORMAT TEXT, COSTS)` or add `VERBOSE` |
-| Actual timings, row counts, buffer hits | `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)` on the **`SELECT`** |
-| Buffer + WAL stats | `BUFFERS` requires **`ANALYZE`**; `WAL` requires **`ANALYZE`** (PostgreSQL 13+) |
+| Plan shape, estimated costs, no execution | `EXPLAIN (FORMAT TEXT, COSTS)` or add `VERBOSE`                                 |
+| Actual timings, row counts, buffer hits   | `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)` on the **`SELECT`**                   |
+| Buffer + WAL stats                        | `BUFFERS` requires **`ANALYZE`**; `WAL` requires **`ANALYZE`** (PostgreSQL 13+) |
 
 **Safe pattern:** the analyzed statement must be **only** a `SELECT` (or `WITH … SELECT`), run on the read-only connection (see Usage below). Example:
 
@@ -73,14 +73,14 @@ Optional flags (when useful): `SETTINGS` (show non-default GUCs), `WAL` (with `A
 
 Use this **hardcoded** URL for day-to-day local queries (matches typical Docker Compose + port `5432` on localhost, SSL off):
 
-| Setting | Value |
-| -------- | ------ |
-| Host | `localhost` |
-| Port | `5432` |
-| User | `posthog` |
-| Password | `posthog` |
-| Database | `posthog` |
-| SSL | off |
+| Setting  | Value       |
+| -------- | ----------- |
+| Host     | `localhost` |
+| Port     | `5432`      |
+| User     | `posthog`   |
+| Password | `posthog`   |
+| Database | `posthog`   |
+| SSL      | off         |
 
 ```bash
 # Prefer this unless the user says their local password/db differs
@@ -116,7 +116,7 @@ Point `psql` at the right database by changing the path in `DATABASE_URL` (e.g. 
 
 > **Why `PGOPTIONS`, not `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`?**
 > A `psql -c "..."` string with multiple statements runs as a **single implicit transaction**.
-> `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` only sets the default for *subsequent*
+> `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` only sets the default for _subsequent_
 > transactions — the in-progress one keeps the read-write mode it was given at `BEGIN`, so a write
 > in the same `-c` would **not** be rejected. `PGOPTIONS='-c default_transaction_read_only=on'` sets
 > the GUC at connection startup, so every transaction (including the implicit `-c` one) starts
@@ -149,7 +149,7 @@ npx dotenv -e .env -- bash -c "PGOPTIONS='-c default_transaction_read_only=on' p
 
 ## Schema reference (PostHog)
 
-- **Django models → tables:** `posthog/models/` (and product packages under `products/`). Table names are usually **`posthog_`-prefixed** and snake_case (e.g. `posthog_team`, `posthog_user`). Confirm with `\dt posthog_*` in `psql` or the model's `Meta.db_table` if nonstandard.
+- **Django models → tables:** see `posthog/models/` (and product packages under `products/`). Table names are usually prefixed with `posthog_` and snake-cased (e.g. `posthog_team`, `posthog_user`). Confirm with `\dt posthog_*` in psql, or check the model's `Meta.db_table` if nonstandard.
 - **Migrations:** `posthog/migrations/` (and product migration paths) define the authoritative DDL over time.
 - **Person table name:** configurable via `PERSON_TABLE_NAME` (see `data_stores.py`); default `posthog_person`.
 
