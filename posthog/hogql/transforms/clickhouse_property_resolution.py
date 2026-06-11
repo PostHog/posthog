@@ -908,7 +908,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if isinstance(expr, ast.Alias):
             expr = expr.expr
         if isinstance(expr, ast.JSONFieldAccess):
-            return expr.type if expr.type is not None else ast.StringType(nullable=True)
+            return expr.type if isinstance(expr.type, ast.ConstantType) else ast.StringType(nullable=True)
         expr_type = resolve_field_type(expr)
         if expr_type is None:
             return None
