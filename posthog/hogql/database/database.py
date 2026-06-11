@@ -160,7 +160,6 @@ from posthog.synthetic_user import SyntheticUser
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
-from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -1071,6 +1070,10 @@ class Database(BaseModel):
             if not is_direct_query:
                 try:
                     if not is_managed_viewset_enabled:
+                        from products.revenue_analytics.backend.views.orchestrator import (  # noqa: PLC0415
+                            build_all_revenue_analytics_views,
+                        )
+
                         revenue_views = list(build_all_revenue_analytics_views(team, timings))
                 except Exception as e:
                     capture_exception(e)
