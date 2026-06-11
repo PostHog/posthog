@@ -141,7 +141,9 @@ def batch_evaluate_flag_for_team(
         flag_key: The key of the flag to evaluate
         expected_version: Optimistic-lock pin — the flag `version` read before the run started
         cursor: Exclusive lower bound on person id; 0 for the first page
-        limit: Page size (the service caps this server-side)
+        limit: Page size; the service rejects (400) any value above its configured
+            maximum (BATCH_FLAG_EVAL_MAX_LIMIT, default 10000) rather than clamping it,
+            so keep this at or below that maximum
 
     Returns:
         The page as a dict: {"matched_person_uuids": [...], "next_cursor": int | None, "errors_count": int}

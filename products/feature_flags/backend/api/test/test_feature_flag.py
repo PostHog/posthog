@@ -7604,6 +7604,21 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(cohort.count, None)
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_guard_paths_clear_is_calculating(self, mock_batch_evaluate):
+        # The enqueue site sets is_calculating=True before dispatching, so a guard exit
+        # (here, an inactive flag) must clear it rather than leave the cohort stuck.
+        self._create_flag(active=False)
+        cohort = self._create_static_cohort()
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        mock_batch_evaluate.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_matched_persons_are_added_to_cohort(self, mock_batch_evaluate):
         self._create_flag()
         p1 = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
@@ -7641,6 +7656,23 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 2, response)
+
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_flag_matching_nobody_finalizes_empty_cohort(self, mock_batch_evaluate):
+        self._create_flag()
+        cohort = self._create_static_cohort()
+
+        # The final flush is unconditional precisely so a zero-match run still recomputes
+        # count to 0 and clears is_calculating, instead of leaving the cohort stuck.
+        mock_batch_evaluate.return_value = self._page([])
+
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        mock_batch_evaluate.assert_called_once()
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 0)
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_cursor_loop_advances_and_terminates(self, mock_batch_evaluate):
@@ -7780,6 +7812,29 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(mock_batch_evaluate.call_count, 1)
         mock_sleep.assert_not_called()
+
+    @patch("posthog.api.cohort.time.sleep")
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_server_errors_are_retried(self, mock_batch_evaluate, mock_sleep):
+        self._create_flag()
+        cohort = self._create_static_cohort()
+
+        # A request timeout or overload surfaces as a 5xx HTTPError from raise_for_status,
+        # which must fall through the 4xx permanent band and retry, unlike the 400 above.
+        response = requests.Response()
+        response.status_code = 503
+        mock_batch_evaluate.side_effect = requests.HTTPError(response=response)
+
+        with self.assertRaises(requests.HTTPError):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        self.assertEqual(mock_batch_evaluate.call_count, BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_rerun_after_failure_is_idempotent(self, mock_batch_evaluate):

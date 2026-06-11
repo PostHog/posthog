@@ -1893,15 +1893,20 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     orchestrates paging and inserts the matched person UUIDs into the cohort.
     """
     project_id = Team.objects.only("project_id").get(pk=team_id).project_id
+    cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
+    # The enqueue site set is_calculating=True before dispatching, so every exit has to
+    # clear it. On the guard paths there is nothing to evaluate, so finalize as a clean
+    # no-op run rather than leaving the cohort stuck "calculating" with no record of why.
     try:
         feature_flag = FeatureFlag.objects.get(team__project_id=project_id, key=flag)
     except FeatureFlag.DoesNotExist:
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         return
 
     if not feature_flag.active or feature_flag.aggregation_group_type_index is not None:
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         return
 
-    cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
     # Pin the flag definition for the whole run: every page sends this version and the
     # service refuses to evaluate under any other, so a run can never mix two
     # definitions of the flag. Nullable versions coerce to 0 on both sides.
@@ -1932,7 +1937,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                 cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
                 uuids_to_add_to_cohort = []
 
-            next_cursor = page.get("next_cursor")
+            next_cursor = page["next_cursor"]
             if next_cursor is None:
                 break
             if next_cursor <= cursor:
@@ -1971,6 +1976,12 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome=error_code.value).observe(
             time.monotonic() - start_monotonic
         )
+        # Finalize cohort state before writing the history row. _safe_save_cohort_state
+        # swallows its own failures, so if the history insert ran first and raised, the
+        # cohort would stay is_calculating=True with no Celery retry to recover it
+        # (max_retries=0). Worst case in this order is a finalized cohort missing a
+        # history row, rather than one stuck calculating forever.
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
         # The history `error` field is user-visible via the calculation history API, so
         # store the friendly message; raw exception details (internal URLs, instance
         # config) stay in logs and error tracking only.
@@ -1983,5 +1994,4 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             error=get_friendly_error_message(error_code),
             error_code=error_code,
         )
-        cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
         raise
