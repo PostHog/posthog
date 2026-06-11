@@ -673,7 +673,10 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
     def build_pipeline(self, config: MSSQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
         # Resolve the per-row namespace + table from `schema_metadata` (multi-schema) or the
         # config namespace (legacy single-schema). `response_name` keeps the legacy Delta path.
-        location = resolve_source_location(inputs, config_namespace=config.schema, default="dbo")
+        # No fallback namespace: every real source either has a config schema or carries
+        # per-row metadata, so a missing schema means a genuinely broken row — fail loudly
+        # rather than guess a namespace and sync the wrong table.
+        location = resolve_source_location(inputs, config_namespace=config.schema)
         schema = location.schema
         table_name = location.table_name
         if not table_name:

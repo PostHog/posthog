@@ -272,3 +272,10 @@ class TestBuildPipelineRouting:
         response = MSSQLImplementation().build_pipeline(_make_config(schema="dbo"), inputs)
         assert routing_mocks["metadata"] == ("dbo", "messages")
         assert response.name == "messages"
+
+    def test_raises_when_namespace_indeterminate(self, routing_mocks):
+        # Blank config schema, no metadata, bare name — nothing resolves a namespace, so the
+        # row is broken: fail loudly rather than guess.
+        inputs = _make_inputs(schema_name="messages")
+        with pytest.raises(ValueError, match="Schema is missing"):
+            MSSQLImplementation().build_pipeline(_make_config(schema=""), inputs)
