@@ -2,7 +2,7 @@ import datetime
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -17,6 +17,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import (
     EARLIEST_EVENT_TIMESTAMP,
     _coerce_to_datetime,
+    _get_earliest_timestamp_cache_key,
     format_label_date,
     get_earliest_timestamp_from_series,
 )
@@ -456,3 +457,53 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         self.assertEqual(captured["a"], Product.MARKETING_ANALYTICS)
         self.assertEqual(captured["b"], Product.MARKETING_ANALYTICS)
+
+    def test_cached_raw_value_is_coerced_on_read(self):
+        # Entries cached before the coercion fix shipped hold a raw str/date for up to the
+        # TTL window. A cache hit must still pass through _coerce_to_datetime instead of
+        # returning the raw value, otherwise downstream date math hits AttributeError/TypeError.
+        node = EventsNode(event="$pageview")
+        cache_key = _get_earliest_timestamp_cache_key(self.team, node)
+        # team timezone is UTC in tests; "2021-03-15" is the pre-fix raw Date/String shape.
+        cache.set(cache_key, "2021-03-15", timeout=3600)
+
+        result = get_earliest_timestamp_from_series(self.team, [node])
+
+        self.assertIsInstance(result, datetime.datetime)
+        self.assertEqual(result, datetime.datetime(2021, 3, 15, 0, 0, 0, tzinfo=datetime.UTC))
+
+    @parameterized.expand(
+        [
+            # No caller tags: the earliest-timestamp query must still carry product/feature,
+            # otherwise it raises UntaggedQueryError in dev for uncached series.
+            ("fills_defaults_when_unset", None, None, Product.PRODUCT_ANALYTICS, Feature.INSIGHT),
+            # Caller already attributed the query (e.g. marketing analytics): keep their tags.
+            (
+                "preserves_caller_tags",
+                Product.MARKETING_ANALYTICS,
+                Feature.QUERY,
+                Product.MARKETING_ANALYTICS,
+                Feature.QUERY,
+            ),
+        ]
+    )
+    def test_single_path_query_tags(self, _name, caller_product, caller_feature, expected_product, expected_feature):
+        captured: dict[str, object] = {}
+
+        def capture(query, team):
+            tags = get_query_tags()
+            captured["product"] = tags.product
+            captured["feature"] = tags.feature
+            result = MagicMock()
+            result.results = [[datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)]]
+            return result
+
+        with tags_context(product=caller_product, feature=caller_feature):
+            with patch(
+                "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+                side_effect=capture,
+            ):
+                get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageview")])
+
+        self.assertEqual(captured["product"], expected_product)
+        self.assertEqual(captured["feature"], expected_feature)
