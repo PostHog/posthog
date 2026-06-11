@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -45,6 +45,19 @@ def _base_url(environment: str) -> str:
     return host
 
 
+def _assert_trusted_url(url: str, environment: str) -> str:
+    """Pin a pagination/resume URL to the configured Ramp host before forwarding the bearer token.
+
+    Both the API-derived ``page.next`` value and the Redis-persisted resume URL are
+    attacker-influenceable, so we refuse to send credentials anywhere other than the
+    environment's own scheme + host."""
+    base = urlsplit(_base_url(environment))
+    target = urlsplit(url)
+    if (target.scheme, target.netloc) != (base.scheme, base.netloc):
+        raise ValueError(f"Refusing to send Ramp credentials to untrusted URL host: {target.netloc or url!r}")
+    return url
+
+
 def _mint_token(session: requests.Session, environment: str, client_id: str, client_secret: str) -> str:
     """Exchange client credentials for a bearer token (~10 day lifetime)."""
     response = session.post(
@@ -83,13 +96,25 @@ def _build_initial_url(
     return f"{_base_url(environment)}/developer/v1{config.path}?{urlencode(params)}"
 
 
-def validate_credentials(environment: str, client_id: str, client_secret: str) -> bool:
-    """Confirm the developer app credentials are valid by minting a token."""
+def validate_credentials(environment: str, client_id: str, client_secret: str) -> tuple[bool, str | None]:
+    """Confirm the developer app credentials are valid by minting a token.
+
+    Distinguishes a genuine credential rejection (4xx) from a transient connectivity problem so the
+    user sees an actionable message instead of a blanket "invalid credentials"."""
     try:
         _mint_token(_get_session(client_secret), environment, client_id, client_secret)
-        return True
-    except Exception:
-        return False
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        if status in (401, 403):
+            return (
+                False,
+                "Ramp rejected the credentials. Check the client ID and secret, and that the developer "
+                "app has the required scopes.",
+            )
+        return False, f"Unexpected response from Ramp (status {status})."
+    except requests.RequestException as e:
+        return False, f"Could not reach Ramp ({e}). Please check your network and selected environment, then retry."
+    return True, None
 
 
 def get_rows(
@@ -108,7 +133,7 @@ def get_rows(
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
-        url: str = resume_config.next_url
+        url: str = _assert_trusted_url(resume_config.next_url, environment)
         logger.debug(f"Ramp: resuming {endpoint} from URL: {url}")
     else:
         url = _build_initial_url(environment, config, should_use_incremental_field, db_incremental_field_last_value)
@@ -151,6 +176,7 @@ def get_rows(
         if not next_url or not items:
             break
 
+        next_url = _assert_trusted_url(next_url, environment)
         # Save state AFTER yielding the page so a crash re-yields the last page
         # (merge dedupes on primary key) rather than skipping it.
         resumable_source_manager.save_state(RampResumeConfig(next_url=next_url))

@@ -113,10 +113,7 @@ A Ramp admin can create a developer app under Settings > Developer API. Grant it
     def validate_credentials(
         self, config: RampSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_ramp_credentials(config.environment, config.client_id, config.client_secret):
-            return True, None
-
-        return False, "Invalid Ramp credentials, or the developer app lacks the required scopes"
+        return validate_ramp_credentials(config.environment, config.client_id, config.client_secret)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RampResumeConfig]:
         return ResumableSourceManager[RampResumeConfig](inputs, RampResumeConfig)

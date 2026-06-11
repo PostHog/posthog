@@ -100,8 +100,8 @@ class TestRampSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid",
         [
-            (True, True),
-            (False, False),
+            ((True, None), True),
+            ((False, "Ramp rejected the credentials"), False),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.ramp.source.validate_ramp_credentials")
@@ -111,8 +111,7 @@ class TestRampSource:
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
-        if not expected_valid:
-            assert "scopes" in (error_message or "")
+        assert error_message == mock_return[1]
         mock_validate.assert_called_once_with("production", "cid", "sec")
 
     def test_get_resumable_source_manager_binds_resume_config(self):

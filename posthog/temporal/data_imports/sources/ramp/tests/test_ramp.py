@@ -72,7 +72,7 @@ class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_valid_when_token_mints(self, mock_session):
         mock_session.return_value.post.return_value = _token_response()
-        assert validate_credentials("production", "cid", "sec") is True
+        assert validate_credentials("production", "cid", "sec") == (True, None)
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_mint_requests_documented_scopes(self, mock_session):
@@ -85,11 +85,24 @@ class TestValidateCredentials:
         assert mock_session.return_value.post.call_args.kwargs["auth"] == ("cid", "sec")
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_invalid_when_token_mint_fails(self, mock_session):
+    def test_invalid_when_token_mint_rejected(self, mock_session):
+        error_response = mock.MagicMock()
+        error_response.status_code = 401
         resp = mock.MagicMock()
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=error_response)
         mock_session.return_value.post.return_value = resp
-        assert validate_credentials("production", "cid", "sec") is False
+
+        is_valid, message = validate_credentials("production", "cid", "sec")
+        assert is_valid is False
+        assert "credentials" in (message or "")
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_transient_error_is_not_reported_as_invalid_credentials(self, mock_session):
+        mock_session.return_value.post.side_effect = requests.ConnectionError("connection refused")
+
+        is_valid, message = validate_credentials("production", "cid", "sec")
+        assert is_valid is False
+        assert "Could not reach Ramp" in (message or "")
 
 
 class TestGetRows:
@@ -183,6 +196,27 @@ class TestGetRows:
 
         assert batches == []
         manager.save_state.assert_not_called()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_rejects_off_host_next_url(self, mock_session):
+        mock_session.return_value.post.return_value = _token_response()
+        mock_session.return_value.get.return_value = _page_response(
+            [{"id": "t1"}], next_url="https://evil.example.com/developer/v1/transactions"
+        )
+
+        manager = _make_manager()
+        with pytest.raises(ValueError):
+            list(get_rows("production", "cid", "sec", "transactions", mock.MagicMock(), manager))
+
+        manager.save_state.assert_not_called()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_rejects_off_host_resume_url(self, mock_session):
+        mock_session.return_value.post.return_value = _token_response()
+
+        manager = _make_manager(RampResumeConfig(next_url="https://evil.example.com/developer/v1/transactions"))
+        with pytest.raises(ValueError):
+            list(get_rows("production", "cid", "sec", "transactions", mock.MagicMock(), manager))
 
 
 class TestRampSourceResponse:
