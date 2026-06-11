@@ -4,10 +4,11 @@ from typing import Any, get_args
 
 from django.core.exceptions import ImproperlyConfigured
 
+from drf_spectacular.contrib.pydantic import PydanticExtension
 from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.openapi import AutoSchema
-from drf_spectacular.plumbing import build_basic_type, build_mock_request, build_parameter_type
+from drf_spectacular.plumbing import ResolvedComponent, build_basic_type, build_mock_request, build_parameter_type
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -19,6 +20,7 @@ from drf_spectacular.utils import (
 from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.api.openapi_provenance import tag_components_from_model
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
@@ -181,6 +183,35 @@ class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
 
     def get_security_definition(self, auto_schema):
         return {"type": "http", "scheme": "bearer"}
+
+
+class ProvenanceTaggedPydanticExtension(PydanticExtension):
+    """drf-spectacular's PydanticExtension plus ``x-schema-source`` provenance tags.
+
+    Reimplements ``map_serializer`` (rather than wrapping it) because the
+    parent registers ``$defs`` sub-components into the registry mid-call,
+    before there is any chance to tag them.
+    """
+
+    priority = 1  # shadow the contrib extension
+
+    def map_serializer(self, auto_schema: Any, direction: str) -> dict:
+        from pydantic.json_schema import (
+            model_json_schema,  # noqa: PLC0415 — mirrors the contrib extension's lazy import
+        )
+
+        schema = model_json_schema(self.target, ref_template="#/components/schemas/{model}", mode="serialization")
+        defs = schema.pop("$defs", {})
+        tag_components_from_model({**defs, self.target.__name__: schema}, self.target)
+        for sub_name, sub_schema in defs.items():
+            component = ResolvedComponent(
+                name=sub_name,
+                type=ResolvedComponent.SCHEMA,
+                object=sub_name,
+                schema=sub_schema,
+            )
+            auto_schema.registry.register_on_missing(component)
+        return schema
 
 
 class PropertyItemSerializer(serializers.Serializer):

@@ -8,6 +8,8 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from pydantic import BaseModel
 from rest_framework import serializers
 
+from posthog.api.openapi_provenance import tag_components_from_model
+
 from products.dashboards.backend.widget_specs.common import WidgetFilterEntry
 from products.dashboards.backend.widget_specs.registry import WIDGET_SPECS
 
@@ -50,6 +52,7 @@ def pydantic_model_to_openapi_components(model: type[BaseModel]) -> dict[str, di
     root_schema = deepcopy(raw_schema)
     root_schema.pop("$defs", None)
     components[model.__name__] = _rewrite_pydantic_refs(root_schema, def_names=def_names)
+    tag_components_from_model(components, model)
     return components
 
 
