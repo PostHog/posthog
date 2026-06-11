@@ -11,6 +11,7 @@ import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../.
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { isEvaluableCondition } from '../services/hogflows/hogflow-utils'
 import { HogFlowInvocationContext, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { execHog } from '../utils/hog-exec'
@@ -60,10 +61,10 @@ type WakeRequest = {
     id: string
     stepMatched: boolean
     conversionMatched: boolean
-    // Name and UUID of the event that matched, so the executor's resume log can surface the
-    // name and the logs view can link to the exact event.
+    // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
     eventName?: string
     eventUuid?: string
+    eventTimestamp?: string
 }
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
@@ -178,6 +179,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             let stepMatched = false
             let stepMatchedEventName: string | undefined
             let stepMatchedEventUuid: string | undefined
+            let stepMatchedEventTimestamp: string | undefined
             let conversionMatched = false
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
@@ -186,6 +188,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         stepMatched = true
                         stepMatchedEventName = globals.event.event
                         stepMatchedEventUuid = globals.event.uuid
+                        stepMatchedEventTimestamp = globals.event.timestamp
                     }
                 }
                 if (!conversionMatched) {
@@ -203,6 +206,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     conversionMatched,
                     eventName: stepMatchedEventName,
                     eventUuid: stepMatchedEventUuid,
+                    eventTimestamp: stepMatchedEventTimestamp,
                 })
             }
         }
@@ -236,6 +240,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
+        }
+        // An empty condition compiles to always-true bytecode, which would wake the job on the next
+        // event of any kind. Only evaluate the condition when it has a real compiled filter;
+        // otherwise the wait relies on its `events` / the step timeout.
+        if (!isEvaluableCondition(action.config.condition)) {
+            return false
         }
         return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, context)
     }
@@ -583,6 +593,7 @@ function applyWakeFlags(stateBuffer: Buffer, req: WakeRequest): Buffer | null {
                     eventMatched: true,
                     eventMatchedEvent: req.eventName,
                     eventMatchedEventUuid: req.eventUuid,
+                    eventMatchedEventTimestamp: req.eventTimestamp,
                 }
                 applied = true
             } else {

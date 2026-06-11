@@ -1981,14 +1981,14 @@ class TestPrinter(BaseTest):
                 "tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, "
                 "person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE "
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
-                "HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) "
+                "HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
                 "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
-                "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
-                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) "
+                "HAVING and(equals(argMax(person.is_deleted, person.version), 0), "
+                "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
+                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) "
                 "SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
                 f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
@@ -2007,14 +2007,14 @@ class TestPrinter(BaseTest):
                 "tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, "
                 "person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE "
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
-                "HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) "
+                "HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
                 "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
-                "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
-                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) "
+                "HAVING and(equals(argMax(person.is_deleted, person.version), 0), "
+                "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
+                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) "
                 "SETTINGS optimize_aggregation_in_order=1) AS persons SAMPLE 0.1 ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
                 f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
@@ -2034,8 +2034,8 @@ class TestPrinter(BaseTest):
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
+                f"HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -2053,8 +2053,8 @@ class TestPrinter(BaseTest):
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
+                f"HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -2396,22 +2396,43 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
-    def test_assume_not_null_prevents_ifnull_wrapping_in_comparison(self):
-        # base64Encode has no type signatures → returns UnknownType(nullable=True)
-        # Without assumeNotNull, one side is considered nullable → comparison gets ifNull wrapping
-        sql_without = self._expr("event = base64Encode('test')")
+    def test_typed_string_function_prevents_ifnull_wrapping_in_comparison(self):
+        sql = self._expr("event = base64Encode('test')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("equals("))
+
+    def test_typed_url_function_prevents_ifnull_wrapping_in_comparison(self):
+        sql = self._expr("event = protocol('https://posthog.com')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("equals("))
+
+    def test_assume_not_null_prevents_ifnull_wrapping_for_unknown_function(self):
+        sql_without = self._expr("event = throwIf(0, 'not reached')")
         self.assertIn("ifNull(", sql_without)
 
-        # assumeNotNull forces nullable=False → both sides non-nullable → no wrapping
-        sql_with = self._expr("event = assumeNotNull(base64Encode('test'))")
+        sql_with = self._expr("event = assumeNotNull(throwIf(0, 'not reached'))")
         self.assertNotIn("ifNull(", sql_with)
         self.assertTrue(sql_with.startswith("equals("))
 
-    def test_assume_not_null_prevents_ifnull_wrapping_not_equals(self):
-        sql_without = self._expr("event != base64Encode('test')")
+    def test_typed_string_function_prevents_ifnull_wrapping_not_equals(self):
+        sql = self._expr("event != base64Encode('test')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("notEquals("))
+
+    def test_typed_url_function_prevents_ifnull_wrapping_not_equals(self):
+        sql = self._expr("event != protocol('https://posthog.com')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("notEquals("))
+
+    def test_assume_not_null_prevents_ifnull_wrapping_unknown_function_not_equals(self):
+        sql_without = self._expr("event != throwIf(0, 'not reached')")
         self.assertIn("ifNull(", sql_without)
 
-        sql_with = self._expr("event != assumeNotNull(base64Encode('test'))")
+        sql_with = self._expr("event != assumeNotNull(throwIf(0, 'not reached'))")
         self.assertNotIn("ifNull(", sql_with)
         self.assertTrue(sql_with.startswith("notEquals("))
 
@@ -3978,6 +3999,27 @@ class TestPrinter(BaseTest):
             self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
 
+    @parameterized.expand(
+        [
+            ("int", "accurateCast('1', 'Int64')"),
+            ("nullable", "accurateCastOrNull('1', 'Nullable(Int64)')"),
+            ("array", "accurateCast('[]', 'Array(String)')"),
+            ("datetime", "accurateCast('2024-01-01', 'DateTime64(6, \\'UTC\\')')"),
+        ]
+    )
+    def test_accurate_cast_known_type_names_print(self, _name, expr):
+        assert "accurateCast" in self._expr(expr)
+
+    def test_accurate_cast_unknown_type_name_rejected(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("accurateCast('1', 'TotallyMadeUpType')")
+        self.assertIn("Unsupported type in accurateCast", str(ctx.exception))
+
+    def test_accurate_cast_non_constant_type_name_rejected(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("accurateCast('1', concat('Int', '64'))")
+        self.assertIn("constant string type name", str(ctx.exception))
+
     def test_cte_materialization_hint_not_supported(self):
         with self.assertRaises(ImpossibleASTError) as ctx:
             self._select(
@@ -4328,6 +4370,133 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 f"ifNull(less(%(hogql_val_0)s, events.{mat_col.name}), 0)",
                 {"hogql_val_0": "some_value"},
             )
+
+    def test_materialized_column_range_comparison_not_optimized_for_numeric_property_type(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="numeric_test_prop",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        with materialized("events", "numeric_test_prop", is_nullable=True, create_minmax_index=True) as mat_col:
+            printed = self._expr("properties.numeric_test_prop < 5")
+
+        assert f"less(accurateCastOrNull(events.{mat_col.name}," in printed
+        assert f"less(events.{mat_col.name}," not in printed
+
+    def test_materialized_column_range_comparison_not_optimized_for_datetime_property_type(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="datetime_test_prop",
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        with materialized("events", "datetime_test_prop", is_nullable=True, create_minmax_index=True) as mat_col:
+            printed = self._expr("properties.datetime_test_prop < toDateTime('2024-01-15')")
+
+        assert f"less(parseDateTime64BestEffortOrNull(events.{mat_col.name}," in printed
+        assert f"less(events.{mat_col.name}," not in printed
+
+    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
+    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_uses_typed_numeric_source(
+        self, mock_base_get_mat_col, mock_planner_get_mat_col
+    ) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="numeric_test_prop",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mock_mat_col = MaterializedColumn(
+            name="mat_numeric_test_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="numeric_test_prop", is_disabled=False
+            ),
+            is_nullable=True,
+            column_type="Nullable(Float64)",
+            has_minmax_index=True,
+        )
+        mock_base_get_mat_col.return_value = mock_mat_col
+        mock_planner_get_mat_col.return_value = mock_mat_col
+
+        printed = self._expr("properties.numeric_test_prop < 5")
+
+        assert "less(events." in printed
+        assert "mat_numeric_test_prop" in printed
+        assert "accurateCastOrNull" not in printed
+
+    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
+    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_uses_typed_datetime_source(
+        self, mock_base_get_mat_col, mock_planner_get_mat_col
+    ) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="datetime_test_prop",
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mock_mat_col = MaterializedColumn(
+            name="mat_datetime_test_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="datetime_test_prop", is_disabled=False
+            ),
+            is_nullable=True,
+            column_type="Nullable(DateTime64(6, 'UTC'))",
+            has_minmax_index=True,
+        )
+        mock_base_get_mat_col.return_value = mock_mat_col
+        mock_planner_get_mat_col.return_value = mock_mat_col
+
+        printed = self._expr("properties.datetime_test_prop < '2024-01-15'")
+
+        assert "less(events." in printed
+        assert "mat_datetime_test_prop" in printed
+        assert "toDateTime64(" in printed
+        assert "parseDateTime64BestEffortOrNull" not in printed
+
+    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
+    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_skips_non_nullable_numeric_source(
+        self, mock_base_get_mat_col, mock_planner_get_mat_col
+    ) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="numeric_test_prop",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mock_mat_col = MaterializedColumn(
+            name="mat_numeric_test_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="numeric_test_prop", is_disabled=False
+            ),
+            is_nullable=False,
+            column_type="Float64",
+            has_minmax_index=True,
+        )
+        mock_base_get_mat_col.return_value = mock_mat_col
+        mock_planner_get_mat_col.return_value = mock_mat_col
+
+        printed = self._expr("properties.numeric_test_prop < 5")
+
+        # A non-nullable Float64 column stores 0 for missing JSON, so the bare minmax rewrite would
+        # match rows where the property is absent. The optimization must be skipped (no bare column).
+        assert "less(events.mat_numeric_test_prop, " not in printed
 
     @parameterized.expand(
         [
@@ -5187,6 +5356,26 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             printed = self._expr("JSONExtractString(properties, 'test_prop')")
             assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
+
+    @patch("posthog.hogql.transforms.property_types.get_materialized_column_for_property")
+    def test_jsonextractstring_not_rewritten_for_non_string_mat_column(self, mock_get_mat_col) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        # JSONExtractString has string semantics, so a numeric-typed materialized column must not be
+        # substituted for it — that would emit a bare Float64 column where a string is expected.
+        mock_get_mat_col.return_value = MaterializedColumn(
+            name="mat_numeric_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="numeric_prop", is_disabled=False
+            ),
+            is_nullable=True,
+            column_type="Nullable(Float64)",
+            has_minmax_index=True,
+        )
+        printed = self._expr("JSONExtractString(properties, 'numeric_prop')")
+
+        assert "mat_numeric_prop" not in printed
+        assert "JSONExtractString(events.properties" in printed
 
 
 class TestSessionIdUuidOptimization(ClickhouseTestMixin, APIBaseTest):

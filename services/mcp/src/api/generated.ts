@@ -3832,17 +3832,41 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
+    export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
+
+
+    export const WidgetDateRangeDateFrom = {
+      '1h': '-1h',
+      '3h': '-3h',
+      '24h': '-24h',
+      '7d': '-7d',
+      '14d': '-14d',
+      '30d': '-30d',
+      '90d': '-90d',
+    } as const;
+
+    export interface WidgetDateRange {
+      date_from?: WidgetDateRangeDateFrom;
+    }
+
+    export interface WidgetFilterEntry {
+      /** @minLength 1 */
+      filterId: string;
+      /** @minLength 1 */
+      propertyName: string;
+      /** @minLength 1 */
+      optionId: string;
+      operator: PropertyOperator;
+      value?: string | string[] | null;
+    }
+
     /**
-     * * `last_seen` - last_seen
-     * * `first_seen` - first_seen
-     * * `occurrences` - occurrences
-     * * `users` - users
-     * * `sessions` - sessions
+     * Issue ranking column.
      */
-    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
+    export type ErrorTrackingListWidgetConfigOrderBy = typeof ErrorTrackingListWidgetConfigOrderBy[keyof typeof ErrorTrackingListWidgetConfigOrderBy];
 
 
-    export const ErrorTrackingIssueOrderByEnum = {
+    export const ErrorTrackingListWidgetConfigOrderBy = {
       LastSeen: 'last_seen',
       FirstSeen: 'first_seen',
       Occurrences: 'occurrences',
@@ -3851,29 +3875,23 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `ASC` - ASC
-     * * `DESC` - DESC
+     * Sort direction for orderBy.
      */
-    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
+    export type ErrorTrackingListWidgetConfigOrderDirection = typeof ErrorTrackingListWidgetConfigOrderDirection[keyof typeof ErrorTrackingListWidgetConfigOrderDirection];
 
 
-    export const OrderDirectionEnum = {
+    export const ErrorTrackingListWidgetConfigOrderDirection = {
       Asc: 'ASC',
       Desc: 'DESC',
     } as const;
 
     /**
-     * * `archived` - archived
-     * * `active` - active
-     * * `resolved` - resolved
-     * * `pending_release` - pending_release
-     * * `suppressed` - suppressed
-     * * `all` - all
+     * Issue status filter.
      */
-    export type ErrorTrackingIssueStatusEnum = typeof ErrorTrackingIssueStatusEnum[keyof typeof ErrorTrackingIssueStatusEnum];
+    export type ErrorTrackingListWidgetConfigStatus = typeof ErrorTrackingListWidgetConfigStatus[keyof typeof ErrorTrackingListWidgetConfigStatus];
 
 
-    export const ErrorTrackingIssueStatusEnum = {
+    export const ErrorTrackingListWidgetConfigStatus = {
       Archived: 'archived',
       Active: 'active',
       Resolved: 'resolved',
@@ -3882,118 +3900,39 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
-    /**
-     * * `user` - user
-     * * `role` - role
-     */
-    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
+    export type WidgetAssigneeFilterType = typeof WidgetAssigneeFilterType[keyof typeof WidgetAssigneeFilterType];
 
 
-    export const AssigneeTypeEnum = {
+    export const WidgetAssigneeFilterType = {
       User: 'user',
       Role: 'role',
     } as const;
 
-    export interface ErrorTrackingAssignee {
-      /** User ID or role UUID to filter by. */
-      id: string | number | null;
-      /** Assignee target type: user or role.
-       *
-       * * `user` - user
-       * * `role` - role */
-      type: AssigneeTypeEnum;
+    export interface WidgetAssigneeFilter {
+      id: string | number;
+      type: WidgetAssigneeFilterType;
     }
 
-    export interface WidgetFilterConfigEntry {
-      /** Filter UUID; must match the widgetFilters map key. */
-      filterId: string;
-      /** Event property key (for example $environment). */
-      propertyName: string;
-      /** Selected option id from the filter definition. */
-      optionId: string;
-      /** Property filter operator (for example exact, is_not, icontains). */
-      operator: string;
-      /** Filter value as a string, list of strings, or null. */
-      value?: unknown;
-    }
-
-    /**
-     * * `-14d` - -14d
-     * * `-1h` - -1h
-     * * `-24h` - -24h
-     * * `-30d` - -30d
-     * * `-3h` - -3h
-     * * `-7d` - -7d
-     * * `-90d` - -90d
-     */
-    export type DateFromEnum = typeof DateFromEnum[keyof typeof DateFromEnum];
-
-
-    export const DateFromEnum = {
-      '14d': '-14d',
-      '1h': '-1h',
-      '24h': '-24h',
-      '30d': '-30d',
-      '3h': '-3h',
-      '7d': '-7d',
-      '90d': '-90d',
-    } as const;
-
-    export interface WidgetDateRange {
-      /** Relative lookback window (for example '-7d'). Omit to use the project default range.
-       *
-       * * `-14d` - -14d
-       * * `-1h` - -1h
-       * * `-24h` - -24h
-       * * `-30d` - -30d
-       * * `-3h` - -3h
-       * * `-7d` - -7d
-       * * `-90d` - -90d */
-      date_from?: DateFromEnum | null;
-    }
-
-    /**
-     * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
-     */
-    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
+    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
 
     export interface ErrorTrackingListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
       /**
-         * Maximum number of issues to return (page size).
+         * Maximum number of issues to return.
          * @minimum 1
          * @maximum 25
          */
       limit?: number;
-      /** Issue ranking column.
-       *
-       * * `first_seen` - first_seen
-       * * `last_seen` - last_seen
-       * * `occurrences` - occurrences
-       * * `sessions` - sessions
-       * * `users` - users */
-      orderBy?: ErrorTrackingIssueOrderByEnum;
-      /** Sort direction for orderBy.
-       *
-       * * `ASC` - ASC
-       * * `DESC` - DESC */
-      orderDirection?: OrderDirectionEnum;
-      /** Issue status filter.
-       *
-       * * `archived` - archived
-       * * `active` - active
-       * * `resolved` - resolved
-       * * `pending_release` - pending_release
-       * * `suppressed` - suppressed
-       * * `all` - all */
-      status?: ErrorTrackingIssueStatusEnum;
+      /** Issue ranking column. */
+      orderBy?: ErrorTrackingListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: ErrorTrackingListWidgetConfigOrderDirection;
+      /** Issue status filter. */
+      status?: ErrorTrackingListWidgetConfigStatus;
       /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
-      assignee?: ErrorTrackingAssignee | null;
-      /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
-      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
-      /** Relative date range for issues (date_from only on widgets). */
-      dateRange?: WidgetDateRange | null;
-      /** When omitted, follows the project default for filtering test accounts. */
-      filterTestAccounts?: boolean;
+      assignee?: WidgetAssigneeFilter | null;
     }
 
     export interface ErrorTrackingListWidgetAddRequestOpenApi {
@@ -4010,7 +3949,7 @@ export namespace Schemas {
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: ErrorTrackingListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the error tracking list widget. */
+      /** Configuration for the top issues widget. */
       config: ErrorTrackingListWidgetConfig;
     }
 
@@ -4022,57 +3961,47 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `activity_score` - activity_score
-     * * `click_count` - click_count
-     * * `console_error_count` - console_error_count
-     * * `duration` - duration
-     * * `recording_duration` - recording_duration
-     * * `start_time` - start_time
+     * Recording ranking column.
      */
-    export type SessionReplayListWidgetConfigOrderByEnum = typeof SessionReplayListWidgetConfigOrderByEnum[keyof typeof SessionReplayListWidgetConfigOrderByEnum];
+    export type SessionReplayListWidgetConfigOrderBy = typeof SessionReplayListWidgetConfigOrderBy[keyof typeof SessionReplayListWidgetConfigOrderBy];
 
 
-    export const SessionReplayListWidgetConfigOrderByEnum = {
+    export const SessionReplayListWidgetConfigOrderBy = {
+      StartTime: 'start_time',
       ActivityScore: 'activity_score',
+      RecordingDuration: 'recording_duration',
+      Duration: 'duration',
       ClickCount: 'click_count',
       ConsoleErrorCount: 'console_error_count',
-      Duration: 'duration',
-      RecordingDuration: 'recording_duration',
-      StartTime: 'start_time',
     } as const;
 
     /**
-     * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
+     * Sort direction for orderBy.
      */
-    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
+    export type SessionReplayListWidgetConfigOrderDirection = typeof SessionReplayListWidgetConfigOrderDirection[keyof typeof SessionReplayListWidgetConfigOrderDirection];
+
+
+    export const SessionReplayListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
 
     export interface SessionReplayListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
       /**
          * Maximum number of recordings to return.
          * @minimum 1
          * @maximum 25
          */
       limit?: number;
-      /** Recording ranking column.
-       *
-       * * `activity_score` - activity_score
-       * * `click_count` - click_count
-       * * `console_error_count` - console_error_count
-       * * `duration` - duration
-       * * `recording_duration` - recording_duration
-       * * `start_time` - start_time */
-      orderBy?: SessionReplayListWidgetConfigOrderByEnum;
-      /** Sort direction for orderBy.
-       *
-       * * `ASC` - ASC
-       * * `DESC` - DESC */
-      orderDirection?: OrderDirectionEnum;
-      /** Optional relative date range override. */
-      dateRange?: WidgetDateRange | null;
-      /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
-      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
-      /** When omitted, follows the project default for filtering test accounts. */
-      filterTestAccounts?: boolean;
+      /** Recording ranking column. */
+      orderBy?: SessionReplayListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: SessionReplayListWidgetConfigOrderDirection;
     }
 
     export interface SessionReplayListWidgetAddRequestOpenApi {
@@ -4089,7 +4018,7 @@ export namespace Schemas {
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: SessionReplayListWidgetAddRequestOpenApiWidgetType;
-      /** Configuration for the session replay list widget. */
+      /** Configuration for the recent recordings widget. */
       config: SessionReplayListWidgetConfig;
     }
 
@@ -4100,7 +4029,7 @@ export namespace Schemas {
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -7884,6 +7813,18 @@ export namespace Schemas {
       download_url: string | null;
     }
 
+    /**
+     * * `user` - user
+     * * `role` - role
+     */
+    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
+
+
+    export const AssigneeTypeEnum = {
+      User: 'user',
+      Role: 'role',
+    } as const;
+
     export interface AsyncDeletionStatus {
       /** The UUID of the person whose events are queued for deletion. */
       person_uuid: string;
@@ -11576,6 +11517,32 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other
+     */
+    export type TopicEnum = typeof TopicEnum[keyof typeof TopicEnum];
+
+
+    export const TopicEnum = {
+      WebAnalytics: 'web_analytics',
+      ProductAnalytics: 'product_analytics',
+      SessionReplay: 'session_replay',
+      Surveys: 'surveys',
+      FeatureFlags: 'feature_flags',
+      Experiments: 'experiments',
+      ErrorTracking: 'error_tracking',
+      DataWarehouse: 'data_warehouse',
+      Other: 'other',
+    } as const;
+
+    /**
      * * `assistant` - Assistant
      * * `tool_call` - Tool call
      * * `deep_research` - Deep research
@@ -11599,6 +11566,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly title: string | null;
+      /** Product domain the conversation is about, classified from the first question.
+       *
+       * * `web_analytics` - Web analytics
+       * * `product_analytics` - Product analytics
+       * * `session_replay` - Session replay
+       * * `surveys` - Surveys
+       * * `feature_flags` - Feature flags
+       * * `experiments` - Experiments
+       * * `error_tracking` - Error tracking
+       * * `data_warehouse` - Data warehouse
+       * * `other` - Other */
+      readonly topic: TopicEnum | null;
       readonly user: UserBasic;
       /** @nullable */
       readonly created_at: string | null;
@@ -11640,6 +11619,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly title: string | null;
+      /** Product domain the conversation is about, classified from the first question.
+       *
+       * * `web_analytics` - Web analytics
+       * * `product_analytics` - Product analytics
+       * * `session_replay` - Session replay
+       * * `surveys` - Surveys
+       * * `feature_flags` - Feature flags
+       * * `experiments` - Experiments
+       * * `error_tracking` - Error tracking
+       * * `data_warehouse` - Data warehouse
+       * * `other` - Other */
+      readonly topic: TopicEnum | null;
       readonly user: UserBasic;
       /** @nullable */
       readonly created_at: string | null;
@@ -12524,6 +12515,8 @@ export namespace Schemas {
       /** @nullable */
       readonly last_refresh: string | null;
       readonly team_id: number;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface DashboardCollaborator {
@@ -12542,6 +12535,45 @@ export namespace Schemas {
       date_to?: string | null;
       explicitDate?: boolean | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+    }
+
+    /**
+     * * `error_tracking_list` - error_tracking_list
+     * * `session_replay_list` - session_replay_list
+     */
+    export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
+
+
+    export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
+      ErrorTrackingList: 'error_tracking_list',
+      SessionReplayList: 'session_replay_list',
+    } as const;
+
+    export interface DashboardPatchWidgetOpenApi {
+      /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
+      id?: string;
+      /** Widget type identifier (cannot be changed on update).
+       *
+       * * `error_tracking_list` - error_tracking_list
+       * * `session_replay_list` - session_replay_list */
+      widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
+      /** Widget-specific configuration. Shape depends on the tile's widget_type. */
+      config?: DashboardWidgetConfig;
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+    }
+
+    export interface DashboardPatchTileOpenApi {
+      /** Dashboard tile ID to update. */
+      id?: number;
+      /** Nested widget row updates. */
+      widget?: DashboardPatchWidgetOpenApi;
     }
 
     /**
@@ -14691,6 +14723,12 @@ export namespace Schemas {
       severity?: AutonomyPriorityEnum | null;
       /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
       dedupe_keys?: string[];
+      /**
+         * Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row.
+         * @maxItems 10
+         * @items.maxLength 50
+         */
+      tags?: string[];
       /** Optional time window the finding refers to. */
       time_range?: TimeRange | null;
       /**
@@ -14971,6 +15009,8 @@ export namespace Schemas {
     export interface EndpointRunResponse {
       /** URL-safe endpoint name that was executed. */
       name: string;
+      /** Unique identifier for this execution. Use it to find the matching entry in the endpoint's logs. */
+      execution_id?: string;
       /** Query result rows. Each row is a list of values matching the columns order. */
       results?: unknown[];
       /** Column names from the query SELECT clause. */
@@ -15336,6 +15376,16 @@ export namespace Schemas {
       volume_buckets?: ErrorTrackingVolumeBucket[];
     }
 
+    export interface ErrorTrackingAssignee {
+      /** User ID or role UUID to filter by. */
+      id: string | number | null;
+      /** Assignee target type: user or role.
+       *
+       * * `user` - user
+       * * `role` - role */
+      type: AssigneeTypeEnum;
+    }
+
     export interface ErrorTrackingAssigneeResponse {
       /** Assignee user ID or role UUID. */
       id?: string | number | null;
@@ -15699,6 +15749,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `ASC` - ASC
+     * * `DESC` - DESC
+     */
+    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
+
+
+    export const OrderDirectionEnum = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
      * * `summary` - summary
      * * `stack` - stack
      * * `raw` - raw
@@ -15856,6 +15918,24 @@ export namespace Schemas {
       success: boolean;
     }
 
+    /**
+     * * `last_seen` - last_seen
+     * * `first_seen` - first_seen
+     * * `occurrences` - occurrences
+     * * `users` - users
+     * * `sessions` - sessions
+     */
+    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
+
+
+    export const ErrorTrackingIssueOrderByEnum = {
+      LastSeen: 'last_seen',
+      FirstSeen: 'first_seen',
+      Occurrences: 'occurrences',
+      Users: 'users',
+      Sessions: 'sessions',
+    } as const;
+
     export interface ErrorTrackingIssueQueryRequest {
       /** Error tracking issue ID. */
       issueId: string;
@@ -15892,6 +15972,59 @@ export namespace Schemas {
       success: boolean;
       /** IDs of the new issues created by the split. */
       new_issue_ids: string[];
+    }
+
+    /**
+     * * `archived` - archived
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `pending_release` - pending_release
+     * * `suppressed` - suppressed
+     * * `all` - all
+     */
+    export type ErrorTrackingIssueStatusEnum = typeof ErrorTrackingIssueStatusEnum[keyof typeof ErrorTrackingIssueStatusEnum];
+
+
+    export const ErrorTrackingIssueStatusEnum = {
+      Archived: 'archived',
+      Active: 'active',
+      Resolved: 'resolved',
+      PendingRelease: 'pending_release',
+      Suppressed: 'suppressed',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed
+     */
+    export type ErrorTrackingIssueWriteStatusEnum = typeof ErrorTrackingIssueWriteStatusEnum[keyof typeof ErrorTrackingIssueWriteStatusEnum];
+
+
+    export const ErrorTrackingIssueWriteStatusEnum = {
+      Active: 'active',
+      Resolved: 'resolved',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface ErrorTrackingIssueWrite {
+      /** Issue status to set. Deprecated archived and pending_release values are rejected.
+       *
+       * * `active` - active
+       * * `resolved` - resolved
+       * * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueWriteStatusEnum;
+      /**
+         * Optional issue display name.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Optional issue description.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export interface ErrorTrackingIssuesListQueryRequest {
@@ -15988,13 +16121,32 @@ export namespace Schemas {
       nextOffset?: number;
     }
 
+    export type ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType = typeof ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType = {
+      ErrorTrackingList: 'error_tracking_list',
+    } as const;
+
+    export interface ErrorTrackingListWidgetCatalogEntryOpenApi {
+      widget_type: ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ErrorTrackingListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
     /**
      * * `error_tracking_list` - error_tracking_list
      */
-    export type ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum];
+    export type ErrorTrackingListWidgetTypeEnum = typeof ErrorTrackingListWidgetTypeEnum[keyof typeof ErrorTrackingListWidgetTypeEnum];
 
 
-    export const ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum = {
+    export const ErrorTrackingListWidgetTypeEnum = {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
@@ -19611,18 +19763,18 @@ export namespace Schemas {
 
     export interface HogFlowMasking {
       /**
-         * Hash TTL in seconds (60 to ~94M / 3y).
+         * Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.
          * @minimum 60
          * @maximum 94608000
          * @nullable
          */
       ttl?: number | null;
       /**
-         * Min matching events before triggering (k-anonymity).
+         * Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.
          * @nullable
          */
       threshold?: number | null;
-      /** HogQL template, e.g. '{person.properties.email}'. */
+      /** HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl. */
       hash: string;
       /** Auto-compiled from hash. Do not set. */
       bytecode?: unknown;
@@ -19801,7 +19953,7 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       readonly trigger: unknown;
-      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
@@ -20279,6 +20431,8 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** @nullable */
       readonly batch_export_id: string | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     /**
@@ -20330,6 +20484,8 @@ export namespace Schemas {
       readonly status: HogFunctionStatus | null;
       /** @nullable */
       readonly execution_order: number | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface HogInvocationResult {
@@ -20803,6 +20959,14 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type TraceOrderColumn = typeof TraceOrderColumn[keyof typeof TraceOrderColumn];
+
+
+    export const TraceOrderColumn = {
+      Timestamp: 'timestamp',
+      Duration: 'duration',
+    } as const;
+
     export interface TraceSpansQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -20840,7 +21004,10 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      orderBy?: LogsOrderBy | null;
+      /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
+      orderBy?: TraceOrderColumn | null;
+      /** Order direction. Defaults to DESC. */
+      orderDirection?: OrderDirection2 | null;
       /** Prefetch up to this many spans per trace and include them in results */
       prefetchSpans?: number | null;
       response?: TraceSpansQueryResponse | null;
@@ -21045,6 +21212,8 @@ export namespace Schemas {
       id: string;
       inactive_seconds?: number | null;
       keypress_count?: number | null;
+      /** False when the recording was included in list results via a direct link despite not matching the filters. */
+      matches_filters?: boolean | null;
       /** List of matching events. * */
       matching_events?: MatchedRecording[] | null;
       /** count of all mouse activity in the recording, not just clicks */
@@ -21717,6 +21886,33 @@ export namespace Schemas {
     }
 
     /**
+     * One ranked chunk from a business knowledge search.
+     *
+     * Output-only — the rows come from the ``search_knowledge_for_team`` logic
+     * helper (a ``KnowledgeSearchResult`` dataclass), not the ORM.
+     */
+    export interface KnowledgeSearchResult {
+      /** Stable identifier of this chunk. */
+      readonly chunk_id: string;
+      /** ID of the parent document. Pass to the document-window endpoint with `around_ordinal` to drill down. */
+      readonly document_id: string;
+      /** Zero-based position of this chunk within its document. Use as `around_ordinal` in the document-window endpoint. */
+      readonly ordinal: number;
+      /** ID of the knowledge source this chunk belongs to. */
+      readonly source_id: string;
+      /** Human label of the knowledge source this chunk belongs to. */
+      readonly source_name: string;
+      /** Source type (text, url, or file). */
+      readonly source_type: string;
+      /** Title of the document this chunk belongs to. */
+      readonly document_title: string;
+      /** Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure. */
+      readonly heading_path: string;
+      /** The chunk's text content. */
+      readonly content: string;
+    }
+
+    /**
      * * `text` - Text
      * * `url` - URL
      * * `file` - File
@@ -22383,6 +22579,7 @@ export namespace Schemas {
     /**
      * * `slack` - slack
      * * `webhook` - webhook
+     * * `teams` - teams
      */
     export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
 
@@ -22390,6 +22587,7 @@ export namespace Schemas {
     export const NotificationDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
+      Teams: 'teams',
     } as const;
 
     export interface LogsAlertConfiguration {
@@ -22491,10 +22689,11 @@ export namespace Schemas {
     }
 
     export interface LogsAlertCreateDestination {
-      /** Destination type — slack or webhook.
+      /** Destination type — slack, webhook, or teams.
        *
        * * `slack` - slack
-       * * `webhook` - webhook */
+       * * `webhook` - webhook
+       * * `teams` - teams */
       type: NotificationDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -22502,7 +22701,7 @@ export namespace Schemas {
       slack_channel_id?: string;
       /** Human-readable channel name for display. */
       slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook. */
+      /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
       webhook_url?: string;
     }
 
@@ -24182,6 +24381,8 @@ export namespace Schemas {
       readonly is_2fa_enabled: boolean;
       readonly has_social_auth: boolean;
       readonly last_login: string;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     /**
@@ -25587,6 +25788,8 @@ export namespace Schemas {
       readonly id: number;
       readonly uuid: string;
       readonly organization: string;
+      /** ID of the project this environment belongs to. */
+      readonly project_id: number;
       readonly api_token: string;
       readonly name: string;
       readonly completed_snippet_onboarding: boolean;
@@ -25619,6 +25822,7 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** @nullable */
       readonly last_rolled_at: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes: string[];
     }
 
@@ -25875,6 +26079,11 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
+      /**
+         * Latest projected observations/month for this scanner. Null until first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_observations: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -26314,6 +26523,8 @@ export namespace Schemas {
       readonly summary_outcome: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters: boolean;
     }
 
     export interface PaginatedSessionRecordingList {
@@ -27837,6 +28048,34 @@ export namespace Schemas {
     }
 
     /**
+     * A single message in a ticket thread (output-only).
+     */
+    export interface TicketMessage {
+      /** Message (comment) UUID. */
+      readonly id: string;
+      /** Plain-text message body. */
+      readonly content: string;
+      /** TipTap rich content JSON, if any. */
+      readonly rich_content: unknown;
+      /** One of: customer, support, AI. */
+      readonly author_type: string;
+      /** Display name of the author. */
+      readonly author_name: string;
+      /** True for internal notes not visible to the customer. */
+      readonly is_private: boolean;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedTicketMessageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TicketMessage[];
+    }
+
+    /**
      * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
      */
     export type TicketViewFilters = { [key: string]: unknown };
@@ -28266,7 +28505,7 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
-      /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review: boolean;
     }
 
@@ -28945,6 +29184,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly title?: string | null;
+      /** Product domain the conversation is about, classified from the first question.
+       *
+       * * `web_analytics` - Web analytics
+       * * `product_analytics` - Product analytics
+       * * `session_replay` - Session replay
+       * * `surveys` - Surveys
+       * * `feature_flags` - Feature flags
+       * * `experiments` - Experiments
+       * * `error_tracking` - Error tracking
+       * * `data_warehouse` - Data warehouse
+       * * `other` - Other */
+      readonly topic?: TopicEnum | null;
       readonly user?: UserBasic;
       /** @nullable */
       readonly created_at?: string | null;
@@ -29046,92 +29297,6 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
-    }
-
-    export type PatchedDashboardFilters = { [key: string]: unknown };
-
-    /**
-     * @nullable
-     */
-    export type PatchedDashboardVariables = { [key: string]: unknown } | null;
-
-    /**
-     * @nullable
-     */
-    export type PatchedDashboardPersistedFilters = { [key: string]: unknown } | null;
-
-    /**
-     * @nullable
-     */
-    export type PatchedDashboardPersistedVariables = { [key: string]: unknown } | null;
-
-    export type PatchedDashboardTilesItem = { [key: string]: unknown };
-
-    /**
-     * Serializer mixin that handles tags for objects.
-     */
-    export interface PatchedDashboard {
-      readonly id?: number;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      description?: string;
-      pinned?: boolean;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      /** @nullable */
-      last_accessed_at?: string | null;
-      /** @nullable */
-      readonly last_viewed_at?: string | null;
-      readonly is_shared?: boolean;
-      deleted?: boolean;
-      readonly creation_mode?: CreationModeEnum;
-      readonly filters?: PatchedDashboardFilters;
-      /** @nullable */
-      readonly variables?: PatchedDashboardVariables;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
-      /**
-         * ID of the color theme used for chart visualizations.
-         * @nullable
-         */
-      data_color_theme_id?: number | null;
-      tags?: unknown[];
-      restriction_level?: RestrictionLevelEnum;
-      readonly effective_restriction_level?: EffectivePrivilegeLevelEnum;
-      readonly effective_privilege_level?: EffectivePrivilegeLevelEnum;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-      readonly access_control_version?: string;
-      /** @nullable */
-      last_refresh?: string | null;
-      /** @nullable */
-      readonly persisted_filters?: PatchedDashboardPersistedFilters;
-      /** @nullable */
-      readonly persisted_variables?: PatchedDashboardPersistedVariables;
-      readonly team_id?: number;
-      /**
-         * List of quick filter IDs associated with this dashboard
-         * @nullable
-         */
-      quick_filter_ids?: string[] | null;
-      /** @nullable */
-      readonly tiles?: readonly PatchedDashboardTilesItem[] | null;
-      /** Template key to create the dashboard from a predefined template. */
-      use_template?: string;
-      /**
-         * ID of an existing dashboard to duplicate.
-         * @nullable
-         */
-      use_dashboard?: number | null;
-      /** When deleting, also delete insights that are only on this dashboard. */
-      delete_insights?: boolean;
-      _create_in_folder?: string;
     }
 
     export interface PatchedDashboardTemplate {
@@ -29744,6 +29909,25 @@ export namespace Schemas {
       external_issues?: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
       readonly cohort?: PatchedErrorTrackingIssueFullCohort;
+    }
+
+    export interface PatchedErrorTrackingIssueWrite {
+      /** Issue status to set. Deprecated archived and pending_release values are rejected.
+       *
+       * * `active` - active
+       * * `resolved` - resolved
+       * * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueWriteStatusEnum;
+      /**
+         * Optional issue display name.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Optional issue description.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export interface PatchedErrorTrackingRelease {
@@ -30472,7 +30656,7 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
       readonly trigger?: unknown;
-      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
@@ -30641,6 +30825,8 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** @nullable */
       readonly batch_export_id?: string | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     /**
@@ -31438,6 +31624,8 @@ export namespace Schemas {
       readonly is_2fa_enabled?: boolean;
       readonly has_social_auth?: boolean;
       readonly last_login?: string;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedParserRecipe {
@@ -31454,6 +31642,47 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * OpenAPI-only PATCH body for dashboards (agents/MCP).
+     *
+     * Must be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``
+     * replaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.
+     */
+    export interface PatchedPatchedDashboardOpenApi {
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      description?: string;
+      pinned?: boolean;
+      /** Custom color mapping for breakdown values. */
+      breakdown_colors?: unknown;
+      /**
+         * ID of the color theme used for chart visualizations.
+         * @nullable
+         */
+      data_color_theme_id?: number | null;
+      tags?: string[];
+      restriction_level?: EffectivePrivilegeLevelEnum;
+      /**
+         * List of quick filter IDs associated with this dashboard.
+         * @nullable
+         */
+      quick_filter_ids?: string[] | null;
+      /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
+      tiles?: DashboardPatchTileOpenApi[];
+      /** Template key to create the dashboard from a predefined template. */
+      use_template?: string;
+      /**
+         * ID of an existing dashboard to duplicate.
+         * @nullable
+         */
+      use_dashboard?: number | null;
+      /** When deleting, also delete insights that are only on this dashboard. */
+      delete_insights?: boolean;
     }
 
     export interface PatchedPersistedFolder {
@@ -31589,6 +31818,8 @@ export namespace Schemas {
       updated_at?: string;
     };
 
+    export type PatchedProjectBackwardCompatManagedViewsets = {[key: string]: boolean};
+
     /**
      * * `30d` - 30 Days
      * * `90d` - 90 Days
@@ -31616,6 +31847,50 @@ export namespace Schemas {
       Number0: 0,
       Number1: 1,
     } as const;
+
+    export interface TeamRevenueAnalyticsConfig {
+      base_currency?: BaseCurrencyEnum;
+      events?: unknown;
+      goals?: unknown;
+      filter_test_accounts?: boolean;
+    }
+
+    export interface TeamMarketingAnalyticsConfig {
+      sources_map?: unknown;
+      conversion_goals?: unknown;
+      /**
+         * @minimum 1
+         * @maximum 90
+         */
+      attribution_window_days?: number;
+      attribution_mode?: AttributionModeEnum;
+      campaign_name_mappings?: unknown;
+      custom_source_mappings?: unknown;
+      campaign_field_preferences?: unknown;
+    }
+
+    export interface TeamCustomerAnalyticsConfig {
+      /** Event used as the activity signal (DAU/WAU/MAU). */
+      activity_event?: unknown;
+      /** Event used to count signup pageviews on dashboards. */
+      signup_pageview_event?: unknown;
+      /** Event used to count signups on dashboards. */
+      signup_event?: unknown;
+      /** Event used to count subscriptions on dashboards. */
+      subscription_event?: unknown;
+      /** Event used to count payments on dashboards. */
+      payment_event?: unknown;
+      /**
+         * Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.
+         * @nullable
+         */
+      account_group_type_index?: number | null;
+    }
+
+    export interface TeamWorkflowsConfig {
+      /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
+      capture_workflows_engagement_events?: boolean;
+    }
 
     /**
      * Mixin for serializers to add user access control fields
@@ -32405,6 +32680,50 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_pending_deletion?: boolean | null;
+      /** ID of the project this environment belongs to. */
+      readonly project_id?: number;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
+      readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
+      revenue_analytics_config?: TeamRevenueAnalyticsConfig;
+      marketing_analytics_config?: TeamMarketingAnalyticsConfig;
+      customer_analytics_config?: TeamCustomerAnalyticsConfig;
+      workflows_config?: TeamWorkflowsConfig;
+      base_currency?: BaseCurrencyEnum;
+      /**
+         * Enables capturing clicks that had no effect (rage-click detection).
+         * @nullable
+         */
+      capture_dead_clicks?: boolean | null;
+      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
+      /** @nullable */
+      human_friendly_comparison_periods?: boolean | null;
+      /** @nullable */
+      feature_flag_confirmation_enabled?: boolean | null;
+      /** @nullable */
+      feature_flag_confirmation_message?: string | null;
+      /**
+         * Whether to automatically apply default evaluation contexts to new feature flags
+         * @nullable
+         */
+      default_evaluation_contexts_enabled?: boolean | null;
+      /**
+         * Whether to require at least one evaluation context tag when creating new feature flags
+         * @nullable
+         */
+      require_evaluation_contexts?: boolean | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      default_data_theme?: number | null;
+      onboarding_tasks?: unknown;
+      /** @nullable */
+      web_analytics_pre_aggregated_tables_enabled?: boolean | null;
     }
 
     export interface PatchedProjectSecretAPIKey {
@@ -32420,6 +32739,7 @@ export namespace Schemas {
       readonly last_used_at?: string | null;
       /** @nullable */
       readonly last_rolled_at?: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes?: string[];
     }
 
@@ -32493,6 +32813,11 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;
+      /**
+         * Latest projected observations/month for this scanner. Null until first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_observations?: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -32741,6 +33066,8 @@ export namespace Schemas {
       readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters?: boolean;
     }
 
     /**
@@ -32830,6 +33157,8 @@ export namespace Schemas {
       readonly id?: string;
       /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
       readonly skill_name?: string;
+      /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+      readonly description?: string;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -33866,50 +34195,6 @@ export namespace Schemas {
 
     export type PatchedTeamManagedViewsets = {[key: string]: boolean};
 
-    export interface TeamRevenueAnalyticsConfig {
-      base_currency?: BaseCurrencyEnum;
-      events?: unknown;
-      goals?: unknown;
-      filter_test_accounts?: boolean;
-    }
-
-    export interface TeamMarketingAnalyticsConfig {
-      sources_map?: unknown;
-      conversion_goals?: unknown;
-      /**
-         * @minimum 1
-         * @maximum 90
-         */
-      attribution_window_days?: number;
-      attribution_mode?: AttributionModeEnum;
-      campaign_name_mappings?: unknown;
-      custom_source_mappings?: unknown;
-      campaign_field_preferences?: unknown;
-    }
-
-    export interface TeamCustomerAnalyticsConfig {
-      /** Event used as the activity signal (DAU/WAU/MAU). */
-      activity_event?: unknown;
-      /** Event used to count signup pageviews on dashboards. */
-      signup_pageview_event?: unknown;
-      /** Event used to count signups on dashboards. */
-      signup_event?: unknown;
-      /** Event used to count subscriptions on dashboards. */
-      subscription_event?: unknown;
-      /** Event used to count payments on dashboards. */
-      payment_event?: unknown;
-      /**
-         * Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.
-         * @nullable
-         */
-      account_group_type_index?: number | null;
-    }
-
-    export interface TeamWorkflowsConfig {
-      /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
-      capture_workflows_engagement_events?: boolean;
-    }
-
     export interface PatchedTeam {
       readonly id?: number;
       readonly uuid?: string;
@@ -34347,7 +34632,7 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
-      /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review?: boolean;
     }
 
@@ -34826,6 +35111,8 @@ export namespace Schemas {
       onboarding_completed_at?: string | null;
       updated_at?: string;
     };
+
+    export type ProjectBackwardCompatManagedViewsets = {[key: string]: boolean};
 
     /**
      * Mixin for serializers to add user access control fields
@@ -35615,6 +35902,50 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_pending_deletion: boolean | null;
+      /** ID of the project this environment belongs to. */
+      readonly project_id: number;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
+      revenue_analytics_config?: TeamRevenueAnalyticsConfig;
+      marketing_analytics_config?: TeamMarketingAnalyticsConfig;
+      customer_analytics_config?: TeamCustomerAnalyticsConfig;
+      workflows_config?: TeamWorkflowsConfig;
+      base_currency?: BaseCurrencyEnum;
+      /**
+         * Enables capturing clicks that had no effect (rage-click detection).
+         * @nullable
+         */
+      capture_dead_clicks?: boolean | null;
+      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
+      /** @nullable */
+      human_friendly_comparison_periods?: boolean | null;
+      /** @nullable */
+      feature_flag_confirmation_enabled?: boolean | null;
+      /** @nullable */
+      feature_flag_confirmation_message?: string | null;
+      /**
+         * Whether to automatically apply default evaluation contexts to new feature flags
+         * @nullable
+         */
+      default_evaluation_contexts_enabled?: boolean | null;
+      /**
+         * Whether to require at least one evaluation context tag when creating new feature flags
+         * @nullable
+         */
+      require_evaluation_contexts?: boolean | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      default_data_theme?: number | null;
+      onboarding_tasks?: unknown;
+      /** @nullable */
+      web_analytics_pre_aggregated_tables_enabled?: boolean | null;
     }
 
     /**
@@ -39028,7 +39359,7 @@ export namespace Schemas {
     export interface ScratchpadEntry {
       /** Agent-chosen semantic key, unique per team. */
       key: string;
-      /** Prose content for prompt injection. */
+      /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
       content: string;
       /**
          * ISO-8601 creation timestamp.
@@ -39251,13 +39582,32 @@ export namespace Schemas {
       readonly team: number;
     }
 
+    export type SessionReplayListWidgetCatalogEntryOpenApiWidgetType = typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType[keyof typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const SessionReplayListWidgetCatalogEntryOpenApiWidgetType = {
+      SessionReplayList: 'session_replay_list',
+    } as const;
+
+    export interface SessionReplayListWidgetCatalogEntryOpenApi {
+      widget_type: SessionReplayListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: SessionReplayListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
     /**
      * * `session_replay_list` - session_replay_list
      */
-    export type SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum = typeof SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum[keyof typeof SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum];
+    export type SessionReplayListWidgetTypeEnum = typeof SessionReplayListWidgetTypeEnum[keyof typeof SessionReplayListWidgetTypeEnum];
 
 
-    export const SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum = {
+    export const SessionReplayListWidgetTypeEnum = {
       SessionReplayList: 'session_replay_list',
     } as const;
 
@@ -39395,6 +39745,8 @@ export namespace Schemas {
       readonly id: string;
       /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
       readonly skill_name: string;
+      /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+      readonly description: string;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -39411,6 +39763,30 @@ export namespace Schemas {
          */
       readonly last_run_at: string | null;
       readonly created_at: string;
+    }
+
+    /**
+     * Request body for registering a scout config without waiting for the coordinator tick.
+     *
+     * Upsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already
+     * registered the row, the provided tunables are applied to it instead.
+     */
+    export interface SignalScoutConfigCreate {
+      /**
+         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+         * @maxLength 200
+         */
+      skill_name: string;
+      /** Whether this scout runs on its schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). Defaults to 60 (hourly).
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
     }
 
     /**
@@ -39447,6 +39823,8 @@ export namespace Schemas {
        * * `P3` - P3
        * * `P4` - P4 */
       severity: AutonomyPriorityEnum | null;
+      /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). Empty list when the run set none. */
+      tags: string[];
       /** Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store. */
       source_id: string;
       /** ISO-8601 timestamp the finding was emitted. */
@@ -39491,6 +39869,16 @@ export namespace Schemas {
       task_url?: string | null;
       /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
       summary: string;
+      /**
+         * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
+         * @nullable
+         */
+      error?: string | null;
+      /**
+         * Concise derived reason the run didn't complete cleanly — the first line of `error` (bounded), or a status-derived fallback. Null unless the run terminated failed/cancelled. Read this to see at a glance *why* a run emitted nothing without pulling full stack traces.
+         * @nullable
+         */
+      failure_reason?: string | null;
       /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
       emitted_count: number;
       /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
@@ -39535,6 +39923,16 @@ export namespace Schemas {
       task_url?: string | null;
       /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
       summary: string;
+      /**
+         * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
+         * @nullable
+         */
+      error?: string | null;
+      /**
+         * Concise derived reason the run didn't complete cleanly — the first line of `error` (bounded), or a status-derived fallback. Null unless the run terminated failed/cancelled. Read this to see at a glance *why* a run emitted nothing without pulling full stack traces.
+         * @nullable
+         */
+      failure_reason?: string | null;
       /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
       emitted_count: number;
       /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
@@ -40562,24 +40960,6 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
-    export interface TaskFileRequest {
-      /** Destination folder path in the project tree (e.g. 'Tasks/Bugs'). Defaults to 'Tasks'. */
-      folder?: string;
-    }
-
-    export interface TaskFileResponse {
-      /** Identifier of the project-tree entry for this task. */
-      id: string;
-      /** Full slash-separated path of the filed task in the project tree. */
-      path: string;
-      /** File system entry type. Always 'task'. */
-      type: string;
-      /** Identifier of the task this entry points to. */
-      ref: string;
-      /** In-app link to the task. */
-      href: string;
-    }
-
     /**
      * Request body for the presence beacon and beacon-leave endpoints.
      *
@@ -41517,6 +41897,21 @@ export namespace Schemas {
       metadata: TextReprMetadata;
     }
 
+    /**
+     * Payload for posting a reply or internal note to a ticket.
+     */
+    export interface TicketReplyRequest {
+      /**
+         * Reply content in markdown.
+         * @maxLength 5000
+         */
+      message: string;
+      /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
+      is_private?: boolean;
+      /** Optional TipTap rich content JSON for formatted messages. */
+      rich_content?: unknown;
+    }
+
     export interface TopPage {
       /** Host for the page, if recorded. */
       host: string;
@@ -41868,6 +42263,8 @@ export namespace Schemas {
       readonly period_start: string;
       /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
       readonly period_end: string;
+      /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+      readonly projected_monthly_observations: number;
     }
 
     /**
@@ -41972,25 +42369,7 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export interface WidgetCatalogEntry {
-      /** Stable widget type identifier used in API requests. */
-      widget_type: string;
-      /** Product area key for grouping related widget variants. */
-      group_id: string;
-      /** Human-readable product area label. */
-      group_label: string;
-      /** Widget variant label within the product area. */
-      label: string;
-      /** Short description of what the widget shows. */
-      description: string;
-      /** JSON schema hints for config fields (types, choices, bounds). Not a strict validator. */
-      config_schema_hints: unknown;
-      /**
-         * Product access resource required to view or run this widget, if any.
-         * @nullable
-         */
-      required_product_access?: string | null;
-    }
+    export type WidgetCatalogEntry = ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -42615,6 +42994,18 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * * `timestamp` - timestamp
+     * * `duration` - duration
+     */
+    export type _TracingQueryBodyOrderByEnum = typeof _TracingQueryBodyOrderByEnum[keyof typeof _TracingQueryBodyOrderByEnum];
+
+
+    export const _TracingQueryBodyOrderByEnum = {
+      Timestamp: 'timestamp',
+      Duration: 'duration',
+    } as const;
+
     export interface _TracingQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -42622,19 +43013,29 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Filter by HTTP status codes. */
       statusCodes?: number[];
-      /** Order results by timestamp. Defaults to latest.
+      /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
        *
-       * * `latest` - latest
-       * * `earliest` - earliest */
-      orderBy?: OrderByEnum;
+       * * `timestamp` - timestamp
+       * * `duration` - duration */
+      orderBy?: _TracingQueryBodyOrderByEnum;
+      /** Order direction. Defaults to DESC (e.g. timestamp+DESC = newest first, duration+DESC = slowest first).
+       *
+       * * `ASC` - ASC
+       * * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
       /** Property filters for the query. */
       filterGroup?: _SpanPropertyFilter[];
       /** Filter to a specific trace ID (hex string). */
       traceId?: string;
       /** Max results (1-1000). Defaults to 100. */
       limit?: number;
-      /** Pagination cursor from previous response. */
+      /** Keyset pagination cursor from a previous timestamp-ordered response. */
       after?: string;
+      /**
+         * Pagination offset, used when ordering by a column (e.g. duration). Defaults to 0.
+         * @minimum 0
+         */
+      offset?: number;
       /** Filter to root spans only. Defaults to true. */
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
@@ -42960,7 +43361,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     * Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string;
     };
@@ -43418,6 +43819,38 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsEndpointsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type EnvironmentsEndpointsOpenapiSpecRetrieveParams = {
@@ -47197,7 +47630,7 @@ export namespace Schemas {
      */
     order?: string;
     /**
-     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     * Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string;
     };
@@ -47996,6 +48429,17 @@ export namespace Schemas {
     radius?: number;
     };
 
+    export type BusinessKnowledgeDocumentsSearchListParams = {
+    /**
+     * Maximum number of ranked chunks to return. Defaults to 10, capped at 20.
+     */
+    limit?: number;
+    /**
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
+     */
+    query: string;
+    };
+
     export type BusinessKnowledgeSourcesListParams = {
     /**
      * Number of results to return per page.
@@ -48244,6 +48688,17 @@ export namespace Schemas {
       OnTrack: 'on-track',
     } as const;
 
+    export type ConversationsTicketsMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ConversationsViewsListParams = {
     /**
      * Number of results to return per page.
@@ -48331,7 +48786,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     * Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string;
     };
@@ -48852,6 +49307,38 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EndpointsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type EndpointsOpenapiSpecRetrieveParams = {
@@ -52554,6 +53041,16 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Exact-match filter on the scout skill (e.g. `signals-scout-errors`). Narrows the run dump to a single scout — the primary scoping path when a specialist dedupes against its own past runs. Omit to span every scout on the team.
+     * @minLength 1
+     */
+    skill_name?: string;
+    /**
+     * Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.
+     * @minimum 1
+     */
+    skill_version?: number;
+    /**
      * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
      * @minLength 1
      */
@@ -52561,6 +53058,15 @@ export namespace Schemas {
     };
 
     export type SignalsScoutScratchpadSearchParams = {
+    /**
+     * Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`.
+     * @minimum 0
+     */
+    content_max_chars?: number;
+    /**
+     * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
+     */
+    keys_only?: boolean;
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
@@ -53559,6 +54065,17 @@ export namespace Schemas {
      * Filter to a single workflow (e.g. 'onboarding').
      */
     workflow_id?: string;
+    };
+
+    export type WizardSessionsLatestRetrieveParams = {
+    /**
+     * Filter to a single skill within the workflow (e.g. 'nextjs').
+     */
+    skill_id?: string;
+    /**
+     * Filter to a single workflow (e.g. 'posthog-integration').
+     */
+    workflow_id: string;
     };
 
     export type WizardSessionsStreamRetrieveParams = {

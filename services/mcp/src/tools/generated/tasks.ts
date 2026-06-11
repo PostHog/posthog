@@ -3,8 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    TasksFileCreateBody,
-    TasksFileCreateParams,
     TasksListQueryParams,
     TasksRetrieveParams,
     TasksRunsListParams,
@@ -12,30 +10,9 @@ import {
     TasksRunsRetrieveParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
-    TasksUnfileCreateParams,
 } from '@/generated/tasks/api'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const TasksFileCreateSchema = TasksFileCreateParams.omit({ project_id: true }).extend(TasksFileCreateBody.shape)
-
-const tasksFileCreate = (): ToolBase<typeof TasksFileCreateSchema, Schemas.TaskFileResponse> => ({
-    name: 'tasks-file-create',
-    schema: TasksFileCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof TasksFileCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.folder !== undefined) {
-            body['folder'] = params.folder
-        }
-        const result = await context.api.request<Schemas.TaskFileResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.id))}/file/`,
-            body,
-        })
-        return result
-    },
-})
 
 const TasksListSchema = TasksListQueryParams
 
@@ -196,27 +173,10 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
     },
 })
 
-const TasksUnfileCreateSchema = TasksUnfileCreateParams.omit({ project_id: true })
-
-const tasksUnfileCreate = (): ToolBase<typeof TasksUnfileCreateSchema, unknown> => ({
-    name: 'tasks-unfile-create',
-    schema: TasksUnfileCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof TasksUnfileCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.id))}/unfile/`,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'tasks-file-create': tasksFileCreate,
     'tasks-list': tasksList,
     'tasks-retrieve': tasksRetrieve,
     'tasks-runs-list': tasksRunsList,
     'tasks-runs-retrieve': tasksRunsRetrieve,
     'tasks-runs-session-logs-retrieve': tasksRunsSessionLogsRetrieve,
-    'tasks-unfile-create': tasksUnfileCreate,
 }

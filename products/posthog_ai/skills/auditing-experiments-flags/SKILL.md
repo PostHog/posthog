@@ -6,7 +6,7 @@ description: 'Audit PostHog experiments and feature flags for configuration issu
 # Auditing experiments and feature flags
 
 This skill teaches you how to run configuration audits on experiments and feature flags.
-All checks use `read_data` and `list_data` — no SQL queries are needed for Phase 1 checks.
+All checks use the experiment and feature flag read tools (`experiment-get`, `experiment-list`, `feature-flag-get-definition`, `feature-flag-get-all`) — no SQL queries are needed for Phase 1 checks.
 
 ## Usage modes
 
@@ -14,7 +14,7 @@ All checks use `read_data` and `list_data` — no SQL queries are needed for Pha
 
 When the user asks about a specific experiment or flag:
 
-1. Fetch the entity via `read_data` (e.g., `read_data("experiments", id)` or `read_data("feature_flags", id)`).
+1. Fetch the entity via `experiment-get` (experiment ID) or `feature-flag-get-definition` (numeric flag ID).
 2. Apply the relevant checks from [experiment checks](./references/experiment-checks.md) or [flag checks](./references/flag-checks.md).
 3. Report findings inline as markdown, grouped by severity (CRITICAL first, then WARNING, then INFO).
 4. Include entity links as `[Experiment: name](/experiments/id)` or `[Flag: key](/feature_flags/id)`.
@@ -23,7 +23,7 @@ When the user asks about a specific experiment or flag:
 
 When the user asks to audit all experiments or all flags:
 
-1. Bulk-fetch via `list_data` (e.g., `list_data("experiments")` or `list_data("feature_flags")`).
+1. Bulk-fetch via `experiment-list` or `feature-flag-get-all`.
 2. Run all checks for that domain against each entity.
 3. Group findings by severity, then by entity.
 4. Report as inline markdown.
@@ -32,10 +32,10 @@ When the user asks to audit all experiments or all flags:
 
 When the user asks for a comprehensive audit of both experiments and flags:
 
-1. Fetch all experiments via `list_data("experiments")` and all flags via `list_data("feature_flags")`.
+1. Fetch all experiments via `experiment-list` and all flags via `feature-flag-get-all`.
 2. Run all experiment checks and all flag checks.
 3. Apply [recurring patterns](./references/synthesis-patterns.md) to identify patterns across multiple findings.
-4. If there are more than 5 entities with findings, output as a notebook artifact via `create_notebook` for easier navigation. Otherwise report inline.
+4. If there are more than 5 entities with findings, output as a notebook artifact via `notebooks-create` for easier navigation. Otherwise report inline.
 
 ## Output format
 
@@ -55,7 +55,7 @@ Example:
 
 ## Handling unavailable data
 
-Some checks require activity logs, which may not be available via `read_data`.
+Some checks require activity logs (`feature-flags-activity-retrieve` for flags), which may not be available in every session.
 If activity log data is unavailable:
 
 - Skip `checkActivityHistory` (experiment check) entirely.
@@ -65,7 +65,7 @@ If activity log data is unavailable:
 
 ## Partial failures
 
-If a `read_data` or `list_data` call fails for some entities:
+If a fetch call fails for some entities:
 
 - Continue with the entities you could fetch.
 - Report which entities could not be assessed and why.

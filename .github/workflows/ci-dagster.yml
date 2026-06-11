@@ -123,6 +123,7 @@ jobs:
                         - 'posthog/cloud_utils.py'
                         - 'posthog/ducklake/**'
                         # Test infrastructure used by dagster tests
+                        - conftest.py
                         - 'posthog/conftest.py'
                         - 'posthog/test/**'
                         # --- ee modules that DAGs import ---
