@@ -6,17 +6,15 @@ import pytest
 from asgiref.sync import sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
-from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
-    _persist_ai_report,
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _persist_ai_report
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportResult,
+    QueryStepDiagnostic,
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
-)
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
-    AiReportResult,
-    QueryStepDiagnostic,
 )
 from products.product_analytics.backend.models.insight import Insight
 
