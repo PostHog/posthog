@@ -408,7 +408,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                 <LemonCheckbox
                                                     key={row.key}
                                                     checked={row.granted}
-                                                    onChange={() => toggleDeniedScope(row.key)}
+                                                    onChange={() => row.toggleKey && toggleDeniedScope(row.toggleKey)}
                                                     label={row.description}
                                                     disabledReason={
                                                         row.required

@@ -1401,7 +1401,7 @@ def _extract_label_prefix(request: Request) -> str | None:
 
 
 def _maybe_create_provisioned_pat(
-    user: User, team: Team, app: OAuthApplication | None, label_prefix: str | None = None
+    user: User, team: Team, app: OAuthApplication | None, granted_scope: str | None, label_prefix: str | None = None
 ) -> str | None:
     """Create a Personal API Key for a provisioned user and return the raw key value.
 
@@ -1410,11 +1410,13 @@ def _maybe_create_provisioned_pat(
     Returns ``None`` when the gate is off, and the caller omits ``personal_api_key``
     from the response entirely.
 
-    When enabled (the grandfathered legacy Stripe app), the key is scoped to the
-    app's ``scopes`` ceiling rather than ``["*"]`` so a provisioned PAT can never
-    exceed what the issuing app is itself allowed. A flag-on app with an unseeded
-    ceiling mints nothing: an empty-scope PAT fails every scope check, and widening
-    to a wildcard would bypass the ceiling.
+    When enabled (the grandfathered legacy Stripe app), the key carries the granted
+    OAuth token's scopes (``granted_scope``) narrowed to the app's current ceiling,
+    so a provisioned PAT can exceed neither what the user granted nor what the app
+    may hold. Minting from the ceiling alone would hand out optional scopes the
+    grant never included. A flag-on app with an unseeded ceiling mints nothing: an
+    empty-scope PAT fails every scope check, and widening to a wildcard would
+    bypass the ceiling.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
@@ -1429,6 +1431,15 @@ def _maybe_create_provisioned_pat(
     if not app.ceiling_scopes:
         _capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)
         return None
+    granted = (granted_scope or "").split()
+    if "*" in granted:
+        # A legacy wildcard token covers everything, so the ceiling is the cap.
+        pat_scopes = app.ceiling_scopes
+    else:
+        pat_scopes = narrow_scopes_to_ceiling([s for s in granted if ":" in s], app.ceiling_scopes) or []
+    if not pat_scopes:
+        _capture_provisioning_event("pat_mint", "skipped_no_granted_scopes", partner=app, team_id=team.id)
+        return None
     try:
         api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
@@ -1441,7 +1452,7 @@ def _maybe_create_provisioned_pat(
             label=label,
             secure_value=hash_key_value(api_key_value),
             mask_value=mask_key_value(api_key_value),
-            scopes=app.ceiling_scopes,
+            scopes=pat_scopes,
             scoped_teams=[team.id],
             scoped_organizations=[str(team.organization_id)],
         )
@@ -1720,7 +1731,7 @@ def provisioning_resources_create(request: Request) -> Response:
         "host": host,
     }
     if personal_api_key := _maybe_create_provisioned_pat(
-        user, team, access_token.application, label_prefix=label_prefix
+        user, team, access_token.application, access_token.scope, label_prefix=label_prefix
     ):
         access_configuration["personal_api_key"] = personal_api_key
 
@@ -1811,7 +1822,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         "host": host,
     }
     if personal_api_key := _maybe_create_provisioned_pat(
-        user, team, access_token.application, label_prefix=label_prefix
+        user, team, access_token.application, access_token.scope, label_prefix=label_prefix
     ):
         access_configuration["personal_api_key"] = personal_api_key
 

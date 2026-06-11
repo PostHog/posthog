@@ -493,29 +493,67 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 deniedScopeObjects: string[],
                 readOnlyMode: boolean,
                 requiredScopeLevels: Map<string, RequiredLevel>
-            ): { key: string; description: string; granted: boolean; required: boolean }[] => {
+            ): {
+                key: string
+                toggleKey: string | null
+                description: string
+                granted: boolean
+                required: boolean
+            }[] => {
                 const denied = new Set(deniedScopeObjects)
-                return consentResourceScopes.map((scope) => {
+                return consentResourceScopes.flatMap((scope) => {
                     const key = scopeObjectKey(scope)
                     const requiredLevel = requiredScopeLevels.get(key)
-                    const required = requiredLevel !== undefined
-                    // Read-only never downgrades below a required write level.
-                    const downgrade = readOnlyMode && requiredLevel !== 'write'
-                    if (scope === '*') {
-                        return {
-                            key: '*',
-                            description: downgrade ? WILDCARD_READ_DESCRIPTION : (getScopeDescription('*') ?? '*'),
-                            granted: required || !denied.has('*'),
-                            required,
+                    if (requiredLevel === undefined) {
+                        const downgrade = readOnlyMode
+                        if (scope === '*') {
+                            return [
+                                {
+                                    key: '*',
+                                    toggleKey: '*',
+                                    description: downgrade
+                                        ? WILDCARD_READ_DESCRIPTION
+                                        : (getScopeDescription('*') ?? '*'),
+                                    granted: !denied.has('*'),
+                                    required: false,
+                                },
+                            ]
                         }
+                        const effective = downgrade ? toReadOnlyScope(scope) : scope
+                        return [
+                            {
+                                key,
+                                toggleKey: key,
+                                description: getScopeDescription(effective) ?? effective,
+                                granted: !denied.has(key),
+                                required: false,
+                            },
+                        ]
                     }
-                    const effective = downgrade ? toReadOnlyScope(scope) : scope
-                    return {
-                        key,
-                        description: getScopeDescription(effective) ?? effective,
-                        granted: required || !denied.has(key),
-                        required,
+                    // The required floor renders locked. An optional write above a required
+                    // read gets its own deniable row, so declining the upgrade doesn't take
+                    // the required level with it. Read-only mode suppresses the upgrade row
+                    // since the toggle already pins everything to read.
+                    const floorScope = scope === '*' ? '*' : `${key}:${requiredLevel}`
+                    const rows = [
+                        {
+                            key,
+                            toggleKey: null,
+                            description: getScopeDescription(floorScope) ?? floorScope,
+                            granted: true,
+                            required: true,
+                        },
+                    ]
+                    if (requiredLevel === 'read' && scope.endsWith(':write') && !readOnlyMode) {
+                        rows.push({
+                            key: `${key}:optional-write`,
+                            toggleKey: key,
+                            description: getScopeDescription(scope) ?? scope,
+                            granted: !denied.has(key),
+                            required: false,
+                        })
                     }
+                    return rows
                 })
             },
         ],
@@ -541,14 +579,23 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 const resources = consentResourceScopes.flatMap((scope) => {
                     const key = scopeObjectKey(scope)
                     const requiredLevel = requiredScopeLevels.get(key)
-                    if (requiredLevel === undefined && denied.has(key)) {
-                        return []
+                    if (requiredLevel === undefined) {
+                        if (denied.has(key)) {
+                            return []
+                        }
+                        if (scope === '*') {
+                            return readOnlyMode ? wildcardReadScopes(oauthApplication) : ['*']
+                        }
+                        return [readOnlyMode ? toReadOnlyScope(scope) : scope]
                     }
-                    const downgrade = readOnlyMode && requiredLevel !== 'write'
                     if (scope === '*') {
-                        return downgrade ? wildcardReadScopes(oauthApplication) : ['*']
+                        return ['*']
                     }
-                    return [downgrade ? toReadOnlyScope(scope) : scope]
+                    // Denying the optional upgrade (or read-only mode) drops the grant to the
+                    // required floor, never below it.
+                    const upgradeActive =
+                        requiredLevel === 'read' && scope.endsWith(':write') && !readOnlyMode && !denied.has(key)
+                    return [upgradeActive ? scope : `${key}:${requiredLevel}`]
                 })
                 // Also grant the required strings verbatim: collapsing read+write pairs above
                 // could otherwise drop a literal entry the server's set-difference check expects.

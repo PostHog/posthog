@@ -143,6 +143,25 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toHaveLength(3)
     })
 
+    it('lets the user decline an optional write above a required read floor', () => {
+        logic.actions.setScopes(['openid', 'feature_flag:write'])
+        withRequiredScopes(['feature_flag:read'])
+        const floor = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
+        const upgrade = logic.values.scopeRows.find((r) => r.key === 'feature_flag:optional-write')
+        expect(floor).toMatchObject({ required: true, granted: true, toggleKey: null })
+        expect(upgrade).toMatchObject({ required: false, granted: true, toggleKey: 'feature_flag' })
+        expect(logic.values.effectiveScopes).toContain('feature_flag:write')
+
+        logic.actions.toggleDeniedScope('feature_flag')
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:read'])
+        expect(logic.values.scopeRows.find((r) => r.key === 'feature_flag:optional-write')).toMatchObject({
+            granted: false,
+        })
+
+        logic.actions.toggleDeniedScope('feature_flag')
+        expect(logic.values.effectiveScopes).toContain('feature_flag:write')
+    })
+
     it('renders the write level when a required write upgrades a requested read', () => {
         logic.actions.setScopes(['openid', 'feature_flag:read'])
         withRequiredScopes(['feature_flag:write'])
