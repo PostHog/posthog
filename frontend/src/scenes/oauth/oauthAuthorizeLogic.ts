@@ -535,7 +535,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     // the required level with it. Read-only mode suppresses the upgrade row
                     // since the toggle already pins everything to read.
                     const floorScope = scope === '*' ? '*' : `${key}:${requiredLevel}`
-                    const rows = [
+                    const rows: {
+                        key: string
+                        toggleKey: string | null
+                        description: string
+                        granted: boolean
+                        required: boolean
+                    }[] = [
                         {
                             key,
                             toggleKey: null,
