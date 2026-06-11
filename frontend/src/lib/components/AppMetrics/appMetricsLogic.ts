@@ -4,7 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 

@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { getDefaultInterval } from 'lib/utils'
+import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'

@@ -3,7 +3,7 @@ import { actionToUrl } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils'
+import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils/dateFilters'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

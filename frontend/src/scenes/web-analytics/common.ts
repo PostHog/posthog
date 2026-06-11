@@ -3,7 +3,7 @@ import { BreakPointFunction } from 'kea'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-import { getDefaultInterval } from 'lib/utils'
+import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { UnexpectedNeverError } from 'lib/utils/typeChecks'
 
 import { hogqlQuery } from '~/queries/query'

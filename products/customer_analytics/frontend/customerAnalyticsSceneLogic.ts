@@ -3,7 +3,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { FunnelLayout } from 'lib/constants'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { getDefaultInterval } from 'lib/utils'
+import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'

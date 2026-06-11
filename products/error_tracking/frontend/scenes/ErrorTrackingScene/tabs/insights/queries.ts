@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'

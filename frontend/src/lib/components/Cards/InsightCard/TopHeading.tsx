@@ -1,5 +1,5 @@
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
-import { dateFilterToText } from 'lib/utils'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
