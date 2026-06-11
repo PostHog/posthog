@@ -226,6 +226,33 @@ export type ConversationApiMessagesItem = { [key: string]: unknown }
 
 export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
 
+/**
+ * * `langgraph` - LangGraph
+ * `sandbox` - Sandbox
+ */
+export type AgentRuntimeEnumApi = (typeof AgentRuntimeEnumApi)[keyof typeof AgentRuntimeEnumApi]
+
+export const AgentRuntimeEnumApi = {
+    Langgraph: 'langgraph',
+    Sandbox: 'sandbox',
+} as const
+
+/**
+ * The products/tasks Task backing a sandbox conversation.
+
+Carries the IDs the frontend's `sandboxStreamLogic.bootstrapRun` opens SSE / replays
+the `logs/` history against. Null for LangGraph conversations.
+ */
+export interface ConversationSandboxTaskApi {
+    /** The backing products/tasks Task id. */
+    id: string
+    /**
+     * Current (latest) TaskRun id the frontend bootstraps against; null when the Task has no runs yet.
+     * @nullable
+     */
+    current_run_id: string | null
+}
+
 export interface ConversationApi {
     readonly id: string
     readonly status: ConversationStatusApi
@@ -271,12 +298,18 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
+    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; 'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint instead.
+
+  * `langgraph` - LangGraph
+  * `sandbox` - Sandbox */
+    readonly agent_runtime: AgentRuntimeEnumApi
     readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
      *
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
+    readonly task: ConversationSandboxTaskApi | null
 }
 
 /**
@@ -336,12 +369,18 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
+    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; 'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint instead.
+
+  * `langgraph` - LangGraph
+  * `sandbox` - Sandbox */
+    readonly agent_runtime?: AgentRuntimeEnumApi
     readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
      *
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
+    readonly task?: ConversationSandboxTaskApi | null
 }
 
 /**
