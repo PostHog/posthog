@@ -77,7 +77,27 @@ pub enum Commands {
         cmd: SymbolSetsSubcommand,
     },
 
-    #[command(about = "Agent-first PostHog API tools", trailing_var_arg = true)]
+    #[command(
+        about = "Agent-first PostHog API tools",
+        long_about = "Agent-first PostHog API tools.\n\n\
+            Exposes PostHog's MCP tool catalog through a shell-friendly interface so coding \
+            agents (and the humans driving them) can discover, inspect, and call PostHog API \
+            tools without loading every schema into context upfront.",
+        after_help = "Commands:\n  \
+            tools                                              List every available tool\n  \
+            search <regex>                                     Find tools by name, title, or description\n  \
+            info [--json] <tool>                               Show a tool's description and input schema\n  \
+            schema <tool> [field.path]                         Drill into a nested schema field\n  \
+            call [--json] [--dry-run] [--confirm] <tool> '<json>'  Execute a tool with JSON input\n  \
+            skill list [--json]                                List installable PostHog agent skills\n  \
+            skill install [--force] <skill-id>                 Install a skill into .agents/skills/\n  \
+            agents-md install [--path AGENTS.md]               Install the PostHog steering snippet\n\n\
+            Run `posthog-cli api --agent-help` for the full agent-facing usage guide.\n\n\
+            This command group is experimental: pass `--experimental` after `api`, or set \
+            POSTHOG_CLI_EXPERIMENTAL_API=1.\n\
+            Destructive tools require --confirm. Use --dry-run before mutations.",
+        trailing_var_arg = true
+    )]
     Api {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
