@@ -363,6 +363,9 @@ class ModalSandbox(SandboxBase):
             if config.vm_runtime or config.template == SandboxTemplate.VM_BASE:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
 
+            if config.outbound_domain_allowlist:
+                create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
+
             if secrets:
                 create_kwargs["secrets"] = secrets
 
@@ -805,7 +808,8 @@ class ModalSandbox(SandboxBase):
         try:
             # Modal can report the sandbox as running before filesystem snapshotting is ready.
             self._sandbox.exec("true", timeout=30).wait()
-            image = self._sandbox.snapshot_filesystem()
+            # ttl=None keeps indefinite retention; modal 1.5.0 otherwise defaults snapshots to a 30-day TTL.
+            image = self._sandbox.snapshot_filesystem(ttl=None)
 
             snapshot_id = image.object_id
 

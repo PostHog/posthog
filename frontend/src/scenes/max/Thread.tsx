@@ -708,9 +708,13 @@ function Message({
                     }
                     return null // We currently skip other types of messages
                 })()}
-                {isFinal && isLastInGroup && message.status === 'completed' && (
-                    <MaxWebAnalyticsNudge message={message} />
-                )}
+                {isFinal &&
+                    isLastInGroup &&
+                    message.status === 'completed' &&
+                    message.id &&
+                    !message.id.startsWith('temp-') && (
+                        <MaxWebAnalyticsNudge message={message} messageId={message.id} />
+                    )}
                 {isLastInGroup && message.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
