@@ -1,0 +1,80 @@
+# MCP tool definition — curated subset file (kept out of tools.yaml so
+# scaffold-yaml --sync-all doesn't prune these cross-product operations:
+# the endpoints live in products/messaging but surface as workflows tools).
+category: Workflows
+feature: workflows
+url_prefix: /workflows/library/templates
+ui_apps:
+    email-template:
+        type: detail
+        view_prop: template
+tools:
+    workflows-create-email-template:
+        operation: messaging_templates_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create email template
+        description: >
+            Save an email template you authored to the workflows library. Provide name and content.email with subject,
+            a plain-text fallback, and content.email.design (Unlayer design JSON — full schema in the
+            designing-email-templates skill) — the server renders the sent HTML from the design and the template stays
+            editable in PostHog's visual editor. Liquid supported throughout. Alternatively author content.email.html
+            directly (full document, inline CSS + table layout; sent verbatim) when you need pixel control the block
+            editor can't express. Use the template in a workflow's function_email action.
+        ui_app: email-template
+    workflows-get-email-template:
+        operation: messaging_templates_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get email template
+        description: >
+            Get an email template by ID, including content.email (subject, html, text, and the editor's design when
+            present). Fetch before updating — content is replaced as a whole, so build your update payload from this
+            response.
+        ui_app: email-template
+    workflows-list-email-templates:
+        operation: messaging_templates_list
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        enrich_url: '{id}'
+        title: List email templates
+        description: >
+            List email templates in the workflows library — metadata only; fetch a template's content with
+            workflows-get-email-template. Templates are referenced from a workflow's function_email action.
+        response:
+            exclude: [content, created_by]
+    workflows-update-email-template:
+        operation: messaging_templates_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update email template
+        description: >
+            Update an email template by ID. content is replaced as a whole, never merged — call
+            workflows-get-email-template first and send back the complete content.email. Edit the design and omit html:
+            the server re-renders the sent HTML from the design. Sending html without design makes that HTML canonical
+            and detaches the template from the visual editor.
+        ui_app: email-template
