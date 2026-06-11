@@ -15,6 +15,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import sync_execute
+from posthog.permissions import IsStaffUser
 
 from products.growth.backend.constants import (
     IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE,
@@ -114,6 +115,8 @@ class IdentityMatchingRunsResponseSerializer(serializers.Serializer):
 
 class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    # Staff-only while identity matching is under development.
+    permission_classes = [IsStaffUser]
 
     def _links_table_exists(self) -> bool:
         [[exists]] = sync_execute(f"EXISTS TABLE {IDENTITY_MATCHING_LINKS_TABLE}")

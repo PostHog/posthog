@@ -2,10 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type { IdentityMatchingLinkApi } from './generated/api.schemas'
 import { identityMatchingLogic } from './identityMatchingLogic'
@@ -39,8 +41,13 @@ function EvidenceCell({ link }: { link: IdentityMatchingLinkApi }): JSX.Element 
 }
 
 export function IdentityMatchingScene(): JSX.Element {
+    const { user } = useValues(userLogic)
     const { filters, links, linksCount, linksResponseLoading, runs, modelVersions } = useValues(identityMatchingLogic)
     const { setFilters } = useActions(identityMatchingLogic)
+
+    if (!user?.is_staff) {
+        return <AccessDenied object="page" reason="Identity matching is limited to staff users while in development." />
+    }
 
     const columns: LemonTableColumns<IdentityMatchingLinkApi> = [
         {

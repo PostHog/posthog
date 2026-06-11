@@ -26,6 +26,8 @@ RUN_B_COMPUTED_AT = datetime.now(UTC).replace(microsecond=0) - timedelta(days=2)
 class TestIdentityMatchingLinksAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.user.is_staff = True
+        self.user.save()
         sync_execute(LINKS.create_sql)
         sync_execute(CANDIDATE_PAIRS.create_sql)
 
@@ -151,6 +153,14 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
     def test_invalid_filter_is_rejected(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/", {"tier": "huge"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_non_staff_user_is_denied(self) -> None:
+        self.user.is_staff = False
+        self.user.save()
+        response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        runs_response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/runs/")
+        assert runs_response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_empty_when_no_runs_exist(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/")
