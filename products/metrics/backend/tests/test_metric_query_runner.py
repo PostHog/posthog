@@ -17,7 +17,7 @@ from posthog.clickhouse.client.connection import Workload
 
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
-from products.metrics.backend.facade.enums import FilterOp, MetricAggregation
+from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
 from products.metrics.backend.metric_query_runner import MetricQueryRunner, _pick_interval, attribute_field
 from products.metrics.backend.tests._seeder import seed_metric
 
@@ -347,19 +347,6 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
             ("formula", {"formula": "a / b"}),
             ("interval", {"interval": "minute"}),
             (
-                "filters",
-                {
-                    "clauses": (
-                        MetricQueryClause(
-                            name="a",
-                            metric_name="m1",
-                            aggregation=MetricAggregation.SUM,
-                            filters=(MetricFilter(key="env", op=FilterOp.EQ, value="prod"),),
-                        ),
-                    )
-                },
-            ),
-            (
                 "group_by",
                 {
                     "clauses": (
@@ -381,3 +368,120 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
     def test_not_yet_supported_features_raise_value_error(self, _name, overrides):
         with self.assertRaises(ValueError):
             run_metric_query(team=self.team, request=self._request(**overrides))
+
+
+class TestMetricFilters(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        self.anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 1.0)],
+            labels={"env": "prod", "path": "/api"},
+            resource_labels={"k8s.pod.name": "web-1"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 10.0)],
+            labels={"env": "dev", "path": "/web"},
+            resource_labels={"k8s.pod.name": "web-2"},
+        )
+
+    def _total(self, filters: tuple[MetricFilter, ...]) -> float:
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="req",
+            aggregation="sum",
+            date_from=self.anchor - dt.timedelta(hours=1),
+            date_to=self.anchor,
+            filters=filters,
+        )
+        return sum(row["value"] for row in runner.run())
+
+    @parameterized.expand(
+        [
+            ("eq_attribute", MetricFilter(key="env", op=FilterOp.EQ, value="prod"), 1.0),
+            ("neq_attribute", MetricFilter(key="env", op=FilterOp.NEQ, value="prod"), 10.0),
+            ("regex", MetricFilter(key="path", op=FilterOp.REGEX, value="^/a"), 1.0),
+            ("not_regex", MetricFilter(key="path", op=FilterOp.NOT_REGEX, value="^/a"), 10.0),
+            (
+                "eq_resource_scope",
+                MetricFilter(key="k8s.pod.name", op=FilterOp.EQ, value="web-2", scope=AttributeScope.RESOURCE),
+                10.0,
+            ),
+            (
+                "auto_scope_falls_back_to_attribute",
+                MetricFilter(key="env", op=FilterOp.EQ, value="dev", scope=AttributeScope.AUTO),
+                10.0,
+            ),
+            ("eq_no_match", MetricFilter(key="env", op=FilterOp.EQ, value="staging"), 0.0),
+            (
+                "neq_matches_rows_lacking_key",
+                MetricFilter(key="nonexistent", op=FilterOp.NEQ, value="x"),
+                11.0,
+            ),
+        ]
+    )
+    def test_single_filter(self, _name, filter, expected_total):
+        self.assertEqual(self._total((filter,)), expected_total)
+
+    def test_filters_are_anded(self):
+        self.assertEqual(
+            self._total(
+                (
+                    MetricFilter(key="env", op=FilterOp.EQ, value="prod"),
+                    MetricFilter(key="path", op=FilterOp.EQ, value="/api"),
+                )
+            ),
+            1.0,
+        )
+        self.assertEqual(
+            self._total(
+                (
+                    MetricFilter(key="env", op=FilterOp.EQ, value="prod"),
+                    MetricFilter(key="path", op=FilterOp.EQ, value="/web"),
+                )
+            ),
+            0.0,
+        )
+
+    def test_filters_via_api(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "req",
+                    "aggregation": "sum",
+                    "filters": [{"key": "env", "op": "eq", "value": "prod"}],
+                    "dateFrom": (self.anchor - dt.timedelta(hours=1)).isoformat(),
+                    "dateTo": self.anchor.isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        series = response.json()["results"][0]
+        self.assertEqual(sum(p["value"] for p in series["points"]), 1.0)
+
+    def test_filters_via_facade(self):
+        series = run_metric_query(
+            team=self.team,
+            request=MetricQueryRequest(
+                clauses=(
+                    MetricQueryClause(
+                        name="a",
+                        metric_name="req",
+                        aggregation=MetricAggregation.SUM,
+                        filters=(MetricFilter(key="env", op=FilterOp.EQ, value="dev"),),
+                    ),
+                ),
+                date_from=self.anchor - dt.timedelta(hours=1),
+                date_to=self.anchor,
+            ),
+        )
+        self.assertEqual(sum(p.value for p in series[0].points), 10.0)
