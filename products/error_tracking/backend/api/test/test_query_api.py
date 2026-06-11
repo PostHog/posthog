@@ -11,7 +11,7 @@ from dateutil.relativedelta import relativedelta
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
 from products.error_tracking.backend.api.query_utils import (
-    build_event_where,
+    build_fingerprint_event_where,
     build_issue_filters,
     build_search_query,
     build_sparkline,
@@ -34,7 +34,7 @@ class FakeQueryResponse:
 
 
 def test_issue_event_search_escapes_like_wildcards_and_quotes() -> None:
-    where = build_event_where("issue-id", r"a%_'\\")[1]
+    where = build_fingerprint_event_where(["fingerprint"], r"a%_'\\")[1]
 
     assert r"\%" in where
     assert r"\_" in where

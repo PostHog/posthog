@@ -170,39 +170,40 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(payload)
         issue = cast(dict[str, object], raw_results[0])
         event_properties: dict[str, object] = {}
-        try:
-            context_event_query = EventsQuery(
-                kind="EventsQuery",
-                event="$exception",
-                select=CONTEXT_EVENT_SELECTS,
-                where=build_fingerprint_where(fingerprints),
-                filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
-                after=date_range.get("date_from"),
-                before=date_range.get("date_to"),
-                orderBy=["timestamp DESC"],
-                limit=1,
-                tags={"productKey": "error_tracking"},
-            )
-            with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-                event_data = (
-                    EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
+        if fingerprints:
+            try:
+                context_event_query = EventsQuery(
+                    kind="EventsQuery",
+                    event="$exception",
+                    select=CONTEXT_EVENT_SELECTS,
+                    where=build_fingerprint_where(fingerprints),
+                    filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
+                    after=date_range.get("date_from"),
+                    before=date_range.get("date_to"),
+                    orderBy=["timestamp DESC"],
+                    limit=1,
+                    tags={"productKey": "error_tracking"},
                 )
-            if event_data.get("error"):
+                with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+                    event_data = (
+                        EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
+                    )
+                if event_data.get("error"):
+                    logger.warning(
+                        "error_tracking_issue_context_query_failed",
+                        issue_id=issue_id,
+                        team_id=self.team.pk,
+                        error=event_data.get("error"),
+                    )
+                else:
+                    event_properties = map_context_event_properties(event_data)
+            except Exception:
                 logger.warning(
                     "error_tracking_issue_context_query_failed",
                     issue_id=issue_id,
                     team_id=self.team.pk,
-                    error=event_data.get("error"),
+                    exc_info=True,
                 )
-            else:
-                event_properties = map_context_event_properties(event_data)
-        except Exception:
-            logger.warning(
-                "error_tracking_issue_context_query_failed",
-                issue_id=issue_id,
-                team_id=self.team.pk,
-                exc_info=True,
-            )
         payload = compact_dict(
             {
                 **pick_fields(issue, ISSUE_FIELDS),
