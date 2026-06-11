@@ -44,6 +44,12 @@ MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 10
 MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 3600
 
 
+# Hard ceiling on a single scanner's concurrently-running apply-scanner workflows. Bounds one bad config
+# (broad filter on a high-volume team) from monopolising the shared rasterizer queue + provider concurrency.
+MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 50
+COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
+
+
 def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
     """Deterministic Temporal workflow id for one (scanner, session) application."""
     return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"

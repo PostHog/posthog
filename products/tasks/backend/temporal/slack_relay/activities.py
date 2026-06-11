@@ -301,7 +301,8 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     handler = SlackThreadHandler(context)
 
-    mention_prefix = f"<@{mapping.mentioning_slack_user_id}> " if mapping.mentioning_slack_user_id else ""
+    target = mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id
+    mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()
     for index, chunk in enumerate(chunks):

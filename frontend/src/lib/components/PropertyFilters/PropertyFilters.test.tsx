@@ -236,4 +236,51 @@ describe('PropertyFilters', () => {
         expect(logic.values._filtersState).toBe(stateBefore)
         expect(screen.getByTestId('property-filter-0')).toBeInTheDocument()
     })
+
+    it('keeps an in-progress filter when re-rendered with a new same-content array', async () => {
+        // Regression: a parent that re-renders frequently (e.g. a live-streaming
+        // dashboard) passes a freshly `.filter()`-ed array each render. A property
+        // picked but not yet given a value is never committed via onChange, so it is
+        // absent from that array — it must not be wiped when the array reference churns.
+        const onChange = jest.fn()
+        const { rerender } = render(
+            <Provider>
+                <PropertyFilters
+                    pageKey="in-progress"
+                    onChange={onChange}
+                    propertyFilters={[]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                />
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByTestId('new-prop-filter-in-progress'))
+        await waitFor(() => {
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+        })
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$browser')
+        await waitFor(() => {
+            expect(screen.getByTestId('prop-filter-event_properties-0').textContent).toMatch(/Browser/)
+        })
+        await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
+
+        // Property chosen, value not set yet → uncommitted, so the parent isn't notified.
+        expect(onChange).not.toHaveBeenCalled()
+        expect(screen.getByTestId('taxonomic-value-select')).toBeInTheDocument()
+
+        // Parent re-renders with a new array reference holding the same (empty) content.
+        rerender(
+            <Provider>
+                <PropertyFilters
+                    pageKey="in-progress"
+                    onChange={onChange}
+                    propertyFilters={[]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                />
+            </Provider>
+        )
+
+        // The in-progress filter (and its value selector) survive.
+        expect(screen.getByTestId('taxonomic-value-select')).toBeInTheDocument()
+    })
 })

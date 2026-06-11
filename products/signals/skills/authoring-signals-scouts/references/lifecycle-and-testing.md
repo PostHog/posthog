@@ -89,19 +89,27 @@ the standalone skills repo) automatically.
 
 ## Testing
 
-You can't trigger a synchronous run as a user — scouts fire on their schedule. The loop is
-**dry-run + inspect**:
+You can't trigger a synchronous run as a user — scouts fire on their schedule. The standard
+loop is **emit + inspect**: ship the scout live (`emit=true` is the default), let it emit,
+and calibrate against what actually lands.
 
-1. Ship with `emit=false` and a short `run_interval_minutes` (e.g. 10) so it fires soon.
+1. Ship with the default `emit=true` and a short `run_interval_minutes` (e.g. 10) so it
+   fires soon.
 2. After a tick, inspect:
-   - `posthog:signals-scout-runs-list` — run summaries (in dry-run, what it _would_ have
-     emitted and why).
+   - `posthog:inbox-reports-list` — the findings it actually emitted.
+   - `posthog:signals-scout-runs-list` — run summaries.
    - `posthog:signals-scout-runs-retrieve` — the full reasoning for one run.
    - `posthog:signals-scout-scratchpad-search` — the durable memory it wrote.
 3. Refine the body for whatever it false-positived or missed — tighten the discriminator,
    add disqualifiers, fix emit calibration. Re-edit via `llma-skill-update`.
-4. When dry-run output looks right, `config-update` to `emit=true` and restore a sustainable
-   interval (hourly or slower).
+4. Once it's landing the right findings, `config-update` to restore a sustainable interval
+   (hourly or slower).
+
+**Extra-careful variant — dry-run first.** For a scout you expect to be chatty, expensive,
+or high-stakes, set `emit=false` so it runs and logs what it _would_ have emitted (visible in
+`-runs-list` / `-runs-retrieve`) without writing to the inbox. Inspect, refine, then
+`config-update` to `emit=true`. For most scouts, emitting straight away and watching the
+inbox is the faster calibration.
 
 Repo contributors additionally get `hogli sync:skill` to run the scout against the local
 harness for a tighter loop before merging.
