@@ -1,29 +1,12 @@
 /**
- * Wire + thread shapes for the sandbox agent runtime (`agent_runtime === 'sandbox'`).
+ * Thread shapes for the sandbox agent runtime (`agent_runtime === 'sandbox'`).
  *
  * The sandbox path consumes the products/tasks SSE endpoint directly (the same endpoint
- * PostHog Code uses). `sandboxStreamLogic` parses the raw ACP frames carried inside
- * `StoredLogEntry` envelopes into the `ToolInvocation` / `ThreadItem` state the renderer
- * consumes.
+ * PostHog Code uses). `sandboxStreamLogic` parses the raw wire frames (typed in
+ * `./sandboxWireTypes`) into the `ToolInvocation` / `ThreadItem` state the renderer consumes.
  */
 
-/** ACP notification body — the JSON-RPC payload carried inside a `StoredLogEntry`. */
-export interface AcpNotification {
-    method?: string
-    params?: Record<string, unknown>
-    result?: unknown
-    error?: { message?: string; code?: number } | null
-}
-
-/**
- * Wire envelope around a single ACP notification. The products/tasks stream emits these as
- * the bulk of `data.type === 'notification'` traffic.
- */
-export interface StoredLogEntry {
-    type: 'notification'
-    timestamp?: string
-    notification: AcpNotification
-}
+import type { PermissionOption } from './sandboxWireTypes'
 
 export type ToolInvocationStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
 
@@ -82,12 +65,6 @@ export interface ThreadItem {
     toolCallId?: string
     /** For `error` items. */
     errorMessage?: string
-}
-
-export interface PermissionOption {
-    optionId: string
-    name: string
-    kind: 'allow_once' | 'allow_always' | 'reject' | 'reject_with_feedback'
 }
 
 /**

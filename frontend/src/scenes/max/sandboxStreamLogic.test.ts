@@ -13,7 +13,7 @@ import {
     sandboxStreamLogic,
     SSE_RECONNECT_MAX_DELAY_MS,
 } from './sandboxStreamLogic'
-import type { StoredLogEntry } from './types/sandboxStreamTypes'
+import type { StoredLogEntry } from './types/sandboxWireTypes'
 
 function notification(method: string, params: Record<string, unknown>): StoredLogEntry {
     return { type: 'notification', notification: { method, params } }
@@ -668,6 +668,113 @@ describe('sandboxStreamLogic', () => {
 
             expect(logic.values.currentRunStatus).toEqual('completed')
             expect(MockEventSource.instances.length).toEqual(0)
+        })
+    })
+
+    describe('wire frame parsing through onmessage', () => {
+        it('reads the snake_case error_message off task_run_state frames', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            const source = MockEventSource.latest()
+            source.emitOpen()
+
+            await expectLogic(logic, () => {
+                source.onmessage?.({
+                    data: JSON.stringify({
+                        type: 'task_run_state',
+                        run_id: 'run-1',
+                        task_id: 'task-1',
+                        status: 'failed',
+                        error_message: 'sandbox exploded',
+                    }),
+                } as MessageEvent<string>)
+            }).toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.handleTerminalStatus &&
+                    action.payload.status === 'failed' &&
+                    action.payload.errorMessage === 'sandbox exploded',
+            ])
+
+            expect(logic.values.currentRunStatus).toEqual('failed')
+            expect(source.closed).toEqual(true)
+        })
+
+        it('keeps the stream open for non-terminal task_run_state frames', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            const source = MockEventSource.latest()
+            source.emitOpen()
+
+            await expectLogic(logic, () => {
+                source.onmessage?.({
+                    data: JSON.stringify({ type: 'task_run_state', status: 'in_progress', error_message: null }),
+                } as MessageEvent<string>)
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentRunStatus).toEqual('in_progress')
+            expect(source.closed).toEqual(false)
+        })
+
+        it('ignores unrecognized frame types', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            const source = MockEventSource.latest()
+            source.emitOpen()
+
+            source.onmessage?.({
+                data: JSON.stringify({ type: 'telemetry_v2', payload: { value: 1 } }),
+            } as MessageEvent<string>)
+
+            expect(logic.values.threadItems).toEqual([])
+            expect(logic.values.ingestedEntryHashes.size).toEqual(0)
+        })
+    })
+
+    describe('_posthog/progress handling', () => {
+        it('renders the emitter label as current progress', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'clone_repository',
+                        status: 'in_progress',
+                        label: 'Cloning repository',
+                        group: 'setup',
+                    })
+                )
+            }).toMatchValues({ currentProgress: 'Cloning repository' })
+        })
+
+        it('falls back to detail when label is absent', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', { sessionId: 's', detail: 'PostHog/posthog @ master' })
+                )
+            }).toMatchValues({ currentProgress: 'PostHog/posthog @ master' })
+        })
+    })
+
+    describe('mixed notification replay', () => {
+        it('ingests known, unknown, and degenerate notifications without throwing, hashing each once', async () => {
+            const corpus: StoredLogEntry[] = [
+                notification('_posthog/run_started', { runId: 'run-1' }),
+                notification('_posthog/usage_update', { used: { inputTokens: 1 }, cost: null }),
+                notification('_posthog/hologram_sync', { shards: 3 }),
+                { type: 'notification', notification: { method: '_posthog/turn_complete' } },
+                { type: 'notification', notification: { method: '_posthog/console', params: 'not-an-object' as any } },
+                sessionUpdate({ sessionUpdate: 'plan_delta', entries: [] }),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', text: 'hi' }),
+            ]
+
+            await expectLogic(logic, () => {
+                corpus.forEach((entry) => logic.actions.ingestAcpFrame(entry))
+            }).toFinishAllListeners()
+
+            // Dedup hashing operates on the raw entries — every distinct frame hashes exactly once.
+            expect(logic.values.ingestedEntryHashes.size).toEqual(corpus.length)
         })
     })
 })
