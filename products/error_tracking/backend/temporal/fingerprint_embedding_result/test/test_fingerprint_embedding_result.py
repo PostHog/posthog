@@ -1,12 +1,12 @@
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from django.test import override_settings
-
 from posthog.test.base import BaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.test import override_settings
 
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
@@ -227,14 +227,14 @@ class TestFingerprintEmbeddingResultActivity:
         assert result == 0
 
     def test_merge_fingerprint_raises_when_source_fingerprint_is_missing(self) -> None:
-        fingerprint_querysets = [MagicMock()]
-        fingerprint_querysets[0].select_related.return_value.first.return_value = None
+        fingerprint_query = MagicMock()
+        fingerprint_query.filter.return_value.select_related.return_value.order_by.return_value = []
 
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS=[2]),
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.filter",
-                side_effect=fingerprint_querysets,
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.select_for_update",
+                return_value=fingerprint_query,
             ),
             pytest.raises(FingerprintIssueNotFoundError, match="Source fingerprint test-fingerprint not found"),
         ):
@@ -247,13 +247,15 @@ class TestFingerprintEmbeddingResultActivity:
     def test_merge_fingerprint_moves_source_fingerprint_to_closest_issue(self) -> None:
         source_issue_id = uuid.uuid4()
         target_issue_id = uuid.uuid4()
-        source_fingerprint = MagicMock(issue_id=source_issue_id)
+        source_fingerprint = MagicMock(issue_id=source_issue_id, fingerprint="test-fingerprint")
         target_issue = MagicMock()
-        target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue)
+        target_fingerprint = MagicMock(issue_id=target_issue_id, issue=target_issue, fingerprint="fingerprint-1")
         team = MagicMock(id=2, uuid=uuid.uuid4())
-        fingerprint_querysets = [MagicMock(), MagicMock()]
-        fingerprint_querysets[0].select_related.return_value.first.return_value = source_fingerprint
-        fingerprint_querysets[1].select_related.return_value.first.return_value = target_fingerprint
+        fingerprint_query = MagicMock()
+        fingerprint_query.filter.return_value.select_related.return_value.order_by.return_value = [
+            target_fingerprint,
+            source_fingerprint,
+        ]
         capture = MagicMock()
         capture_context = MagicMock()
         capture_context.__enter__.return_value = capture
@@ -261,9 +263,9 @@ class TestFingerprintEmbeddingResultActivity:
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS=[2]),
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.filter",
-                side_effect=fingerprint_querysets,
-            ) as filter_fingerprints,
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.select_for_update",
+                return_value=fingerprint_query,
+            ),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
                 return_value=capture_context,
@@ -280,8 +282,10 @@ class TestFingerprintEmbeddingResultActivity:
             )
 
         assert result == 1
-        assert filter_fingerprints.call_args_list[0].kwargs == {"team_id": 2, "fingerprint": "test-fingerprint"}
-        assert filter_fingerprints.call_args_list[1].kwargs == {"team_id": 2, "fingerprint": "fingerprint-1"}
+        assert fingerprint_query.filter.call_args.kwargs == {
+            "team_id": 2,
+            "fingerprint__in": ["test-fingerprint", "fingerprint-1"],
+        }
         target_issue.merge.assert_called_once_with(issue_ids=[str(source_issue_id)])
         properties = capture.call_args.kwargs["properties"]
         assert properties["merge_source"] == "auto"
