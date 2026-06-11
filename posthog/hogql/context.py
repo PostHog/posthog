@@ -81,7 +81,7 @@ class HogQLContext:
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)
     # Modifications requested by the HogQL client
-    modifiers: "HogQLQueryModifiers" = field(default_factory=lambda: _default_modifiers())
+    modifiers: "HogQLQueryModifiers" = field(default_factory=_default_modifiers)
     # Enables more verbose output for debugging
     debug: bool = False
 

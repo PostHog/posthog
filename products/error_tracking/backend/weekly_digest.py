@@ -127,12 +127,12 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
 
 
 def get_crash_free_sessions(team: Team) -> dict:
+    """Calculate crash free sessions rate for the last 7 days with previous week comparison."""
     # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
     # this module loads at django.setup(), so keep the task graph off the module level.
-    from posthog.tasks.email_utils import compute_week_over_week_change  # noqa: PLC0415
-
-    """Calculate crash free sessions rate for the last 7 days with previous week comparison."""
     from posthog.hogql.query import execute_hogql_query
+
+    from posthog.tasks.email_utils import compute_week_over_week_change  # noqa: PLC0415
 
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:crash_free_sessions")
 
