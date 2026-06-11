@@ -15,7 +15,11 @@ from rest_framework import serializers
 from posthog.schema import Severity
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
-from products.signals.backend.scout_harness.tools.emit import MAX_FINDING_ID_LENGTH
+from products.signals.backend.scout_harness.tools.emit import (
+    MAX_FINDING_ID_LENGTH,
+    MAX_TAG_LENGTH,
+    MAX_TAGS_PER_FINDING,
+)
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -133,6 +137,10 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.",
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). Empty list when the run set none.",
+    )
     source_id = serializers.CharField(
         help_text="Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store.",
     )
@@ -148,6 +156,7 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
             "weight",
             "confidence",
             "severity",
+            "tags",
             "source_id",
             "emitted_at",
         ]
@@ -345,6 +354,17 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_TAG_LENGTH),
+        required=False,
+        max_length=MAX_TAGS_PER_FINDING,
+        help_text=(
+            "Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), "
+            f"max {MAX_TAGS_PER_FINDING}. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry "
+            "when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are "
+            "normalized to slugs; persisted in the signal's `extra.tags` and on the emission row."
+        ),
     )
     time_range = TimeRangeSerializer(
         required=False,

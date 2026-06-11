@@ -359,6 +359,9 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
         if (params.dedupe_keys !== undefined) {
             body['dedupe_keys'] = params.dedupe_keys
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.time_range !== undefined) {
             body['time_range'] = params.time_range
         }
