@@ -21,8 +21,10 @@ export interface PageContext {
 }
 
 function capturePageContext(): PageContext {
+    // Drop the query string and fragment — they can carry one-time tokens (reset, OAuth, session)
+    // that would otherwise be persisted and surfaced to anyone with annotation read access.
     return {
-        url: window.location.href,
+        url: `${window.location.origin}${window.location.pathname}`,
         host: window.location.host,
         pathname: window.location.pathname,
         viewport: { width: window.innerWidth, height: window.innerHeight },
