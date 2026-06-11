@@ -105,6 +105,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -229,7 +230,8 @@
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
-         "posthog_project"."product_description"
+         "posthog_project"."product_description",
+         "posthog_project"."is_pending_deletion"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -604,6 +606,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -740,6 +743,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -864,7 +868,8 @@
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
-         "posthog_project"."product_description"
+         "posthog_project"."product_description",
+         "posthog_project"."is_pending_deletion"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -1140,7 +1145,8 @@
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
-         "posthog_project"."product_description"
+         "posthog_project"."product_description",
+         "posthog_project"."is_pending_deletion"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21

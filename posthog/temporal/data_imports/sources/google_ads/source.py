@@ -189,19 +189,26 @@ class GoogleAdsSource(
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         is_valid, errors = super().validate_config(job_inputs)
 
-        customer_id = job_inputs.get("customer_id", "")
-        if customer_id and not re.match(r"^\d{3}-\d{3}-\d{4}$", customer_id):
+        # Normalize before validating: `clean_customer_id` strips dashes, spaces and
+        # whitespace, so `123-456-7890`, `1234567890`, or a copy-pasted value all pass.
+        # The same normalization is applied wherever the id is sent to the API. We guard
+        # on the raw value so a non-numeric entry (which normalizes to empty) is still
+        # rejected rather than silently slipping through.
+        raw_customer_id = job_inputs.get("customer_id", "")
+        if raw_customer_id and not re.fullmatch(r"\d{10}", clean_customer_id(raw_customer_id) or ""):
             errors.append(
-                "Please enter a valid Google Ads customer ID. This should be 10-digits and in XXX-XXX-XXXX format."
+                "Please enter a valid Google Ads customer ID — the 10-digit number from your "
+                "Google Ads account (dashes optional)."
             )
             is_valid = False
 
         is_mcc_account = job_inputs.get("is_mcc_account", {})
         if is_mcc_account.get("enabled"):
-            mcc_client_id = is_mcc_account.get("mcc_client_id", "")
-            if mcc_client_id and not re.match(r"^\d{3}-\d{3}-\d{4}$", mcc_client_id):
+            raw_mcc_client_id = is_mcc_account.get("mcc_client_id", "")
+            if raw_mcc_client_id and not re.fullmatch(r"\d{10}", clean_customer_id(raw_mcc_client_id) or ""):
                 errors.append(
-                    "Please enter a valid Google Ads manager customer ID. This should be 10-digits and in XXX-XXX-XXXX format."
+                    "Please enter a valid Google Ads manager customer ID — the 10-digit number from "
+                    "your manager account (dashes optional)."
                 )
                 is_valid = False
 

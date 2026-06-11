@@ -14,7 +14,7 @@ from llm_gateway.auth.service import AuthService, extract_token
 
 
 @pytest.fixture(autouse=True)
-def reset_cache() -> Generator[None, None, None]:
+def reset_cache() -> Generator[None]:
     reset_auth_cache()
     yield
     reset_auth_cache()

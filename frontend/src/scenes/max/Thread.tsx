@@ -70,6 +70,7 @@ import { PendingApproval, Region } from '~/types'
 import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
 
 import { FeedbackDisplay } from './components/FeedbackDisplay'
+import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
@@ -707,6 +708,9 @@ function Message({
                     }
                     return null // We currently skip other types of messages
                 })()}
+                {isFinal && isLastInGroup && message.status === 'completed' && (
+                    <MaxWebAnalyticsNudge message={message} />
+                )}
                 {isLastInGroup && message.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">

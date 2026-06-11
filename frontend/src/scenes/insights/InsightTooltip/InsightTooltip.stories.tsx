@@ -70,7 +70,6 @@ const meta: Meta<InsightTooltipProps> = {
         renderSeries: (value) => value,
         groupTypeLabel: 'people',
     },
-    tags: ['test-skip'], // FIXME: The InWrapper story fails at locator.screenshot() for some reason
     render: (props) => {
         useMountedLogic(cohortsModel)
 
@@ -219,6 +218,109 @@ export const Columns: Story = {
     },
 }
 
+const longBreakdownValue =
+    'https://www.example.com/some/really/long/breakdown/value/that/keeps/going/and/going?utm_source=newsletter'
+const anotherLongBreakdownValue =
+    'https://www.example.com/another/extremely/long/path/segment/that/should/be/clipped/with/an/ellipsis'
+
+// Demonstrates that long breakdown values (first column) and long series/event
+// names (column headers) clip with an ellipsis instead of forcing the tooltip
+// wide enough to need horizontal scrolling.
+export const LongNames: Story = {
+    args: {
+        seriesData: [
+            {
+                id: 0,
+                dataIndex: 3,
+                datasetIndex: 0,
+                order: 0,
+                dotted: false,
+                breakdown_value: longBreakdownValue,
+                action: {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    custom_name: 'Pageview of people with extremely long custom names that go on and on and on',
+                    math: 'total',
+                    math_property: null,
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: '$pageview - long',
+                color: '#1d4aff',
+                count: 1234,
+            },
+            {
+                id: 1,
+                dataIndex: 3,
+                datasetIndex: 1,
+                order: 1,
+                dotted: false,
+                breakdown_value: longBreakdownValue,
+                action: {
+                    id: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
+                    type: 'events',
+                    order: 1,
+                    name: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
+                    custom_name: null,
+                    math: 'total',
+                    math_property: null,
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
+                color: '#621da6',
+                count: 56,
+            },
+            {
+                id: 2,
+                dataIndex: 3,
+                datasetIndex: 0,
+                order: 0,
+                dotted: false,
+                breakdown_value: anotherLongBreakdownValue,
+                action: {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    custom_name: 'Pageview of people with extremely long custom names that go on and on and on',
+                    math: 'total',
+                    math_property: null,
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: '$pageview - long',
+                color: '#1d4aff',
+                count: 789,
+            },
+            {
+                id: 3,
+                dataIndex: 3,
+                datasetIndex: 1,
+                order: 1,
+                dotted: false,
+                breakdown_value: anotherLongBreakdownValue,
+                action: {
+                    id: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
+                    type: 'events',
+                    order: 1,
+                    name: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
+                    custom_name: null,
+                    math: 'total',
+                    math_property: null,
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
+                color: '#621da6',
+                count: 4,
+            },
+        ] as any,
+    },
+}
+
 export function InWrapper(): JSX.Element {
     useMountedLogic(cohortsModel)
 
@@ -250,3 +352,5 @@ export function InWrapper(): JSX.Element {
         </div>
     )
 }
+// FIXME: InWrapper fails at locator.screenshot(), so it's skipped from visual regression
+InWrapper.tags = ['test-skip']

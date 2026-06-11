@@ -2,7 +2,7 @@ import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
 import { barColorAt, mixColors } from './color-utils'
 import { yTickCountForHeight } from './scales'
-import type { BarFillStyle, ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
+import type { BarFillStyle, BoxRect, ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -299,6 +299,32 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
         ctx.arc(x, y, radius, 0, Math.PI * 2)
         ctx.fill()
     }
+}
+
+export interface DrawAxesOptions {
+    axisColor?: string
+}
+
+/** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
+ *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
+export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): void {
+    const { ctx, dimensions } = drawCtx
+    ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    // +0.5 / -0.5 pixel snapping keeps the 1px strokes crisp and inside the plot rect (see drawGrid).
+    const axisX = Math.round(dimensions.plotLeft) + 0.5
+    const axisY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
+    // Route both strokes through the shared, snapped corner (axisX, axisY) so the L meets cleanly
+    // even when plotLeft/plotHeight are fractional.
+    ctx.beginPath()
+    ctx.moveTo(axisX, dimensions.plotTop)
+    ctx.lineTo(axisX, axisY)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(axisX, axisY)
+    ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
+    ctx.stroke()
 }
 
 export interface DrawGridOptions {
@@ -680,20 +706,6 @@ export interface DrawBoxOptions {
     lineWidth?: number
     /** Width of the whisker caps (as a fraction of the box width). Defaults to 0.6. */
     whiskerCapRatio?: number
-}
-
-/** A laid-out box-and-whisker for a single (series, x) slot. Same shape contract as
- *  {@link BarRect} — pre-computed pixel coordinates so the draw primitives don't touch scales. */
-export interface BoxRect {
-    x: number
-    width: number
-    top: number
-    bottom: number
-    medianY: number
-    mean: { x: number; y: number }
-    whiskerTop: number
-    whiskerBottom: number
-    dataIndex: number
 }
 
 /** Paint a whole series of box-and-whiskers, batching path operations so the number of

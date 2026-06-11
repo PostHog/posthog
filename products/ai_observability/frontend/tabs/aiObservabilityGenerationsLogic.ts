@@ -12,9 +12,7 @@ import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObser
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
 import type { aiObservabilityGenerationsLogicType } from './aiObservabilityGenerationsLogicType'
 
-export interface AIObservabilityGenerationsLogicProps {
-    tabId?: string
-}
+export type AIObservabilityGenerationsLogicProps = Record<string, never>
 
 export function getDefaultGenerationsColumns(showSentiment: boolean = false, showTools: boolean = false): string[] {
     return [
@@ -34,13 +32,12 @@ export function getDefaultGenerationsColumns(showSentiment: boolean = false, sho
 
 export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityGenerationsLogic']),
-    // Intentionally not keyed by tabId: the in-app multi-tab feature was removed, so tabId is now a
-    // fresh random id per page load. Keying by it would make the persisted column selection's
-    // localStorage key change on every refresh, losing the user's choice.
+    // Singleton (unkeyed): the persisted column selection lives in a single localStorage key
+    // for the scene, so a stable key keeps the user's choice across refreshes.
     props({} as AIObservabilityGenerationsLogicProps),
-    connect((props: AIObservabilityGenerationsLogicProps) => ({
+    connect(() => ({
         values: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
@@ -48,7 +45,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
             ['featureFlags'],
         ],
         actions: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
         ],
     })),

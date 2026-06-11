@@ -72,7 +72,7 @@ export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -220,7 +220,7 @@ export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -289,7 +289,7 @@ export const getLogsAttributesRetrieveUrl = (projectId: string, params?: LogsAtt
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -351,8 +351,8 @@ export const getLogsExplainLogWithAICreateUrl = (projectId: string) => {
 
 /**
  * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
+ *
+ * POST /api/environments/:id/logs/explainLogWithAI/
  */
 export const logsExplainLogWithAICreate = async (
     projectId: string,
@@ -414,7 +414,7 @@ export const getLogsSamplingRulesListUrl = (projectId: string, params?: LogsSamp
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -541,7 +541,7 @@ export const getLogsSamplingRulesReorderCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -608,7 +608,7 @@ export const getLogsValuesRetrieveUrl = (projectId: string, params: LogsValuesRe
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -635,7 +635,7 @@ export const getLogsViewsListUrl = (projectId: string, params?: LogsViewsListPar
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

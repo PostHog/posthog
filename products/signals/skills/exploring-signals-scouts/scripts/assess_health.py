@@ -155,23 +155,38 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
     adherence = pct(n, expected) if expected else "-"
 
     emit_like = sum(1 for r in runs if quiet_or_emit(r.get("summary")) == "maybe")
-    # staleness uses the config's authoritative last_run_at when available — the runs
-    # window can be truncated by the 100-row cap and miss the newest runs.
-    last_start = parse_ts(config_last_run) or (starts[-1] if starts else None)
-    stale_min = (now - last_start).total_seconds() / 60.0 if now and last_start else None
+    # Two different stalenesses — keep them apart. `last_run_at` is the coordinator's DISPATCH
+    # stamp (advanced the moment a child is enqueued, before any worker runs it); the newest
+    # observed run row's `started_at` is when a run actually EXECUTED. A fresh `last_run_at`
+    # with a much older newest run = "dispatching but not running" (workers backed up / down,
+    # or runs stranded), which a single staleness number that trusts `last_run_at` would hide.
+    dispatch_at = parse_ts(config_last_run)
+    last_start = starts[-1] if starts else None
+    dispatch_stale_min = (now - dispatch_at).total_seconds() / 60.0 if now and dispatch_at else None
+    run_stale_min = (now - last_start).total_seconds() / 60.0 if now and last_start else None
+    # How far the dispatch stamp has marched ahead of the newest run that materialized. Robust to
+    # the 100-row cap: `last_run_at` is authoritative, and runs-list is newest-first so a scout's
+    # true newest run is in the window whenever it ran recently.
+    dispatch_run_gap_min = (
+        (dispatch_at - last_start).total_seconds() / 60.0 if dispatch_at and last_start else None
+    )
+    # Back-compat single value (dispatch-preferred, as before) for any caller reading stale_min.
+    stale_min = dispatch_stale_min if dispatch_stale_min is not None else run_stale_min
 
     return {
         "name": name, "runs": n, "completed": completed, "failed": failed, "timeouts": timeouts,
         "success_pct": pct(completed, n), "median_dur": median_dur, "median_gap": median_gap,
         "interval": interval, "adherence": adherence, "stalls": stalls,
-        "emit_like": emit_like, "emit_pct": pct(emit_like, n), "mem_count": mem_count, "stale_min": stale_min,
+        "emit_like": emit_like, "emit_pct": pct(emit_like, n), "mem_count": mem_count,
+        "stale_min": stale_min, "dispatch_stale_min": dispatch_stale_min,
+        "run_stale_min": run_stale_min, "dispatch_run_gap_min": dispatch_run_gap_min,
     }
 
 
 def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = True) -> str:
     banner: list[str] = []
     if art:
-        banner = [HEDGEHOG.strip("\n"), "", " judge a scout over a window of runs, not on any single tick", ""]
+        banner = [HEDGEHOG.strip("\n"), ""]
 
     if not scouts:
         return "\n".join([*banner, "SCOUT HEALTH", "",
@@ -202,7 +217,14 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
             flags.append(f" * {s['name']}: {s['stalls']} cadence stall(s) (gap >{int(STALL_FACTOR)}x interval) — coordinator skipped it (paused / drained / capped).")
         if has_mem and s["runs"] >= 5 and s["mem_count"] == 0:
             flags.append(f" * {s['name']}: {s['runs']} runs but an EMPTY scratchpad — not learning.")
-        if s["stale_min"] is not None and s["interval"] and s["stale_min"] > STALL_FACTOR * s["interval"]:
+        # Dispatching but not running: the coordinator's last_run_at has marched a full interval+
+        # past the newest run that actually materialized — children are queuing without executing
+        # (workers backed up / down, or runs stranded). Distinct from a cadence stall (gap between
+        # observed runs) because the runs simply aren't there to leave a gap.
+        if s["dispatch_run_gap_min"] is not None and s["interval"] and s["dispatch_run_gap_min"] > s["interval"]:
+            disp = fmt_age(s["dispatch_stale_min"]) if s["dispatch_stale_min"] is not None else "recently"
+            flags.append(f" * {s['name']}: dispatched {disp} ago but newest run row {fmt_age(s['run_stale_min'])} ago — DISPATCHING BUT NOT RUNNING (workers backed up / down, or runs stranded); last_run_at hides this.")
+        elif s["stale_min"] is not None and s["interval"] and s["stale_min"] > STALL_FACTOR * s["interval"]:
             flags.append(f" * {s['name']}: last run {fmt_age(s['stale_min'])} ago vs a {int(s['interval'])}m cadence — may be drained from the flag.")
 
     L += ["-" * 78, " worth a look", "-" * 78]

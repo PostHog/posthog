@@ -1,7 +1,7 @@
 import { createBarScales } from '../../../core/scales'
 import type { ChartDimensions } from '../../../core/types'
 import { makeSeries } from '../../../testing'
-import type { BoxPlotDatum, BoxPlotSeries } from '../computeBoxLayout'
+import type { BoxPlotDatum, BoxPlotSeries } from '../types'
 import { cursorInsideBoxBand, seriesKeysAtCursor } from './boxes-under-cursor'
 
 const DIMS: ChartDimensions = {
