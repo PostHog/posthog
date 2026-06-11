@@ -38815,6 +38815,10 @@
                 "keypress_count": {
                     "type": "number"
                 },
+                "matches_filters": {
+                    "description": "False when the recording was included in list results via a direct link despite not matching the filters.",
+                    "type": "boolean"
+                },
                 "matching_events": {
                     "description": "List of matching events. *",
                     "items": {
