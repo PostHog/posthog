@@ -1,10 +1,7 @@
 import { getUserAgent } from '@/lib/constants'
-import { PostHogApiError } from '@/lib/errors'
+import { parseRetryAfterSeconds, PostHogApiError, PostHogRateLimitError } from '@/lib/errors'
 
 import type { ApiConfig } from './client'
-import { decide429Retry, MAX_RETRIES, MAX_RETRY_AFTER_MS } from './retry'
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 export interface Fetcher {
     fetch: (input: {
@@ -20,93 +17,80 @@ export interface Fetcher {
 export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
     return {
         fetch: async (input) => {
-            const maxRetries = MAX_RETRIES
-
-            for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                const headers = new Headers()
-                headers.set('Authorization', `Bearer ${config.apiToken}`)
-                headers.set('User-Agent', getUserAgent({ clientUserAgent: config.clientUserAgent }))
-                if (config.clientUserAgent) {
-                    // Forward the originating client's User-Agent so the PostHog API can
-                    // attach it to analytics events for MCP source attribution.
-                    headers.set('x-posthog-mcp-user-agent', config.clientUserAgent)
-                }
-                if (config.mcpConsumer) {
-                    headers.set('x-posthog-mcp-consumer', config.mcpConsumer)
-                }
-                if (config.oauthClientName) {
-                    headers.set('x-posthog-mcp-oauth-client-name', config.oauthClientName)
-                }
-
-                // Handle query parameters
-                if (input.urlSearchParams) {
-                    input.url.search = input.urlSearchParams.toString()
-                }
-
-                // Handle request body for mutation methods
-                const body = ['post', 'put', 'patch', 'delete'].includes(input.method.toLowerCase())
-                    ? JSON.stringify(input.parameters?.body)
-                    : undefined
-
-                if (body) {
-                    headers.set('Content-Type', 'application/json')
-                }
-
-                // Add custom headers
-                if (input.parameters?.header) {
-                    for (const [key, value] of Object.entries(input.parameters.header)) {
-                        if (value != null) {
-                            headers.set(key, String(value))
-                        }
-                    }
-                }
-
-                const response = await fetch(input.url, {
-                    method: input.method.toUpperCase(),
-                    ...(body && { body }),
-                    headers,
-                    ...input.overrides,
-                })
-
-                // Handle rate limiting by honoring the server's Retry-After signal
-                if (response.status === 429) {
-                    const decision = decide429Retry(response.headers.get('Retry-After'), attempt, maxRetries)
-                    if (decision.retry) {
-                        console.warn(
-                            `Rate limited (429). Retrying in ${Math.round(decision.delayMs)}ms (attempt ${attempt + 1}/${maxRetries})`
-                        )
-                        await sleep(decision.delayMs)
-                        continue
-                    }
-                    const errorResponse = await response.json().catch(() => ({}))
-                    if (decision.reason === 'retry_after_exceeds_cap') {
-                        throw new Error(
-                            `Rate limited: server requested a ${Math.round(decision.delayMs / 1000)}s wait, above the ${MAX_RETRY_AFTER_MS / 1000}s cap: [${response.status}] ${JSON.stringify(errorResponse)}`
-                        )
-                    }
-                    throw new Error(
-                        `Rate limit exceeded after ${maxRetries} retries: [${response.status}] ${JSON.stringify(errorResponse)}`
-                    )
-                }
-
-                if (!response.ok) {
-                    const errorResponse = await response.json()
-                    const errorBody = JSON.stringify(errorResponse)
-                    throw new PostHogApiError({
-                        status: response.status,
-                        statusText: response.statusText,
-                        body: errorBody,
-                        url: input.url.toString(),
-                        method: input.method.toUpperCase(),
-                        message: `Failed request: [${response.status}] ${errorBody}`,
-                    })
-                }
-
-                return response
+            const headers = new Headers()
+            headers.set('Authorization', `Bearer ${config.apiToken}`)
+            headers.set('User-Agent', getUserAgent({ clientUserAgent: config.clientUserAgent }))
+            if (config.clientUserAgent) {
+                // Forward the originating client's User-Agent so the PostHog API can
+                // attach it to analytics events for MCP source attribution.
+                headers.set('x-posthog-mcp-user-agent', config.clientUserAgent)
+            }
+            if (config.mcpConsumer) {
+                headers.set('x-posthog-mcp-consumer', config.mcpConsumer)
+            }
+            if (config.oauthClientName) {
+                headers.set('x-posthog-mcp-oauth-client-name', config.oauthClientName)
             }
 
-            // This should never be reached, but TypeScript needs it
-            throw new Error('Unexpected error in retry logic')
+            // Handle query parameters
+            if (input.urlSearchParams) {
+                input.url.search = input.urlSearchParams.toString()
+            }
+
+            // Handle request body for mutation methods
+            const body = ['post', 'put', 'patch', 'delete'].includes(input.method.toLowerCase())
+                ? JSON.stringify(input.parameters?.body)
+                : undefined
+
+            if (body) {
+                headers.set('Content-Type', 'application/json')
+            }
+
+            // Add custom headers
+            if (input.parameters?.header) {
+                for (const [key, value] of Object.entries(input.parameters.header)) {
+                    if (value != null) {
+                        headers.set(key, String(value))
+                    }
+                }
+            }
+
+            const response = await fetch(input.url, {
+                method: input.method.toUpperCase(),
+                ...(body && { body }),
+                headers,
+                ...input.overrides,
+            })
+
+            // No server-side retries on 429 — surface the rate limit and its
+            // Retry-After hint to the caller so pending requests don't pile up
+            // behind sleeps.
+            if (response.status === 429) {
+                const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
+                const errorBody = await response.text()
+                console.warn(`Rate limited (429) on ${input.method.toUpperCase()} ${input.url}`)
+                throw new PostHogRateLimitError({
+                    body: errorBody,
+                    url: input.url.toString(),
+                    method: input.method.toUpperCase(),
+                    retryAfterSeconds,
+                })
+            }
+
+            if (!response.ok) {
+                const errorResponse = await response.json()
+                const errorBody = JSON.stringify(errorResponse)
+                throw new PostHogApiError({
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: errorBody,
+                    url: input.url.toString(),
+                    method: input.method.toUpperCase(),
+                    message: `Failed request: [${response.status}] ${errorBody}`,
+                })
+            }
+
+            return response
         },
     }
 }

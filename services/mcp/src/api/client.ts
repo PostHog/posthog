@@ -2,7 +2,14 @@ import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode, PostHogApiError, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
+import {
+    ErrorCode,
+    parseRetryAfterSeconds,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogRateLimitError,
+    PostHogValidationError,
+} from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -21,7 +28,6 @@ import { buildMetricEntries, ExperimentExposureQuerySchema } from '@/schema/expe
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
-import { decide429Retry, MAX_RETRIES, MAX_RETRY_AFTER_MS } from './retry.js'
 
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
@@ -173,7 +179,7 @@ export class ApiClient {
     }
 
     /**
-     * Generic HTTP request with auth, rate limiting, and retries.
+     * Generic HTTP request with auth.
      * Used by generated tool handlers to avoid duplicating endpoint-specific methods.
      */
     async request<T = unknown>(opts: {
@@ -322,135 +328,111 @@ export class ApiClient {
     }
 
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
-        const maxRetries = MAX_RETRIES
         const method = options?.method ?? 'GET'
 
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            try {
-                const response = await this.fetch(url, options)
+        try {
+            const response = await this.fetch(url, options)
 
-                // Handle rate limiting by honoring the server's Retry-After signal
-                if (response.status === 429) {
-                    const decision = decide429Retry(response.headers.get('Retry-After'), attempt, maxRetries)
-                    if (decision.retry) {
-                        console.warn(
-                            `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(decision.delayMs)}ms (attempt ${attempt + 1}/${maxRetries})`
-                        )
-                        await new Promise((resolve) => setTimeout(resolve, decision.delayMs))
-                        continue
-                    }
-                    const errorText = await response.text()
-                    if (decision.reason === 'retry_after_exceeds_cap') {
-                        console.error(
-                            `[API] Rate limited on ${method} ${url}: server requested a ${Math.round(decision.delayMs / 1000)}s wait, above the ${MAX_RETRY_AFTER_MS / 1000}s cap`
-                        )
-                        return {
-                            success: false,
-                            error: new Error(
-                                `Rate limited: server requested a ${Math.round(decision.delayMs / 1000)}s wait, above the ${MAX_RETRY_AFTER_MS / 1000}s cap:\nURL: ${method} ${url}\nStatus Code: ${response.status}\nError Message: ${errorText}`
-                            ),
-                        }
-                    }
-                    console.error(`[API] Rate limit exceeded after ${maxRetries} retries on ${method} ${url}`)
-                    return {
-                        success: false,
-                        error: new Error(
-                            `Rate limit exceeded after ${maxRetries} retries:\nURL: ${method} ${url}\nStatus Code: ${response.status}\nError Message: ${errorText}`
-                        ),
-                    }
+            // No server-side retries on 429 — surface the rate limit and its
+            // Retry-After hint to the caller so pending requests don't pile
+            // up behind sleeps.
+            if (response.status === 429) {
+                const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
+                const errorText = await response.text()
+                console.warn(
+                    `[API] Rate limited (429) on ${method} ${url}.${retryAfterSeconds !== null ? ` Retry after ${retryAfterSeconds}s.` : ''}`
+                )
+                return {
+                    success: false,
+                    error: new PostHogRateLimitError({
+                        body: errorText,
+                        url,
+                        method,
+                        retryAfterSeconds,
+                    }),
+                }
+            }
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    throw new Error(ErrorCode.INVALID_API_KEY)
                 }
 
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        throw new Error(ErrorCode.INVALID_API_KEY)
-                    }
+                const errorText = await response.text()
 
-                    const errorText = await response.text()
+                let errorData: any
+                try {
+                    errorData = JSON.parse(errorText)
+                } catch {
+                    errorData = { detail: errorText }
+                }
 
-                    let errorData: any
-                    try {
-                        errorData = JSON.parse(errorText)
-                    } catch {
-                        errorData = { detail: errorText }
-                    }
-
-                    if (response.status === 403 && errorData?.code === 'permission_denied') {
-                        const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
-                        const missingScope = scopeMatch?.[1]
-                        // Warn, not error: PostHogPermissionError is thrown and handled by callers,
-                        // and a missing scope is a user-config issue rather than a service bug.
-                        console.warn(
-                            `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
-                        )
-                        throw new PostHogPermissionError({
-                            detail: errorData.detail || 'permission denied',
-                            missingScope,
-                            url,
-                            method,
-                        })
-                    }
-
-                    if (errorData.type === 'validation_error') {
-                        const detail = errorData.detail || errorData.code || 'unknown'
-                        const attrLog = errorData.attr ? ` (field: ${errorData.attr})` : ''
-                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attrLog}`)
-                        throw new PostHogValidationError({
-                            detail,
-                            attr: errorData.attr ?? undefined,
-                            code: errorData.code ?? undefined,
-                            extra: (errorData.extra ?? undefined) as Record<string, unknown> | undefined,
-                            url,
-                            method,
-                        })
-                    }
-
-                    if (response.status === 404) {
-                        const experimentMatch = /\/experiments\/(\d+)/.exec(url)
-                        if (experimentMatch) {
-                            const experimentId = experimentMatch[1]
-                            console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
-                            throw new Error(
-                                `Experiment ${experimentId} not found in this project. ` +
-                                    `If the id is correct, the experiment may belong to a different project — ` +
-                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
-                            )
-                        }
-                    }
-
-                    console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
-                    throw new PostHogApiError({
-                        status: response.status,
-                        statusText: response.statusText,
-                        body: errorText,
+                if (response.status === 403 && errorData?.code === 'permission_denied') {
+                    const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
+                    const missingScope = scopeMatch?.[1]
+                    // Warn, not error: PostHogPermissionError is thrown and handled by callers,
+                    // and a missing scope is a user-config issue rather than a service bug.
+                    console.warn(
+                        `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
+                    )
+                    throw new PostHogPermissionError({
+                        detail: errorData.detail || 'permission denied',
+                        missingScope,
                         url,
                         method,
                     })
                 }
 
-                const rawText = await response.text()
-                if (!rawText) {
-                    return { success: true, data: {} as T }
+                if (errorData.type === 'validation_error') {
+                    const detail = errorData.detail || errorData.code || 'unknown'
+                    const attrLog = errorData.attr ? ` (field: ${errorData.attr})` : ''
+                    console.error(`[API] Validation error on ${method} ${url}: ${detail}${attrLog}`)
+                    throw new PostHogValidationError({
+                        detail,
+                        attr: errorData.attr ?? undefined,
+                        code: errorData.code ?? undefined,
+                        extra: (errorData.extra ?? undefined) as Record<string, unknown> | undefined,
+                        url,
+                        method,
+                    })
                 }
 
-                try {
-                    const rawData = JSON.parse(rawText)
-                    return { success: true, data: rawData as T }
-                } catch {
-                    return { success: true, data: rawText as T }
+                if (response.status === 404) {
+                    const experimentMatch = /\/experiments\/(\d+)/.exec(url)
+                    if (experimentMatch) {
+                        const experimentId = experimentMatch[1]
+                        console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
+                        throw new Error(
+                            `Experiment ${experimentId} not found in this project. ` +
+                                `If the id is correct, the experiment may belong to a different project — ` +
+                                `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
+                        )
+                    }
                 }
-            } catch (error) {
-                // Only retry on rate limit errors, not other errors
-                if (error instanceof Error && error.message.includes('Rate limit')) {
-                    continue
-                }
-                return { success: false, error: error as Error }
+
+                console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
+                throw new PostHogApiError({
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: errorText,
+                    url,
+                    method,
+                })
             }
-        }
 
-        // This should never be reached, but TypeScript needs it
-        return {
-            success: false,
-            error: new Error('Unexpected error in retry logic'),
+            const rawText = await response.text()
+            if (!rawText) {
+                return { success: true, data: {} as T }
+            }
+
+            try {
+                const rawData = JSON.parse(rawText)
+                return { success: true, data: rawData as T }
+            } catch {
+                return { success: true, data: rawText as T }
+            }
+        } catch (error) {
+            return { success: false, error: error as Error }
         }
     }
 

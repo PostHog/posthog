@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildApiFetcher, type Fetcher } from '@/api/fetcher'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogRateLimitError } from '@/lib/errors'
 
 type FetchInput = Parameters<Fetcher['fetch']>[0]
 
@@ -113,122 +113,61 @@ describe('buildApiFetcher', () => {
         })
     })
 
-    describe('exponential backoff on 429 rate limit', () => {
-        it('should retry with exponential backoff on 429 response', async () => {
-            const mock429Response = new Response('{}', { status: 429 })
-            const mockSuccessResponse = new Response('{}', { status: 200 })
-
-            vi.mocked(global.fetch).mockResolvedValueOnce(mock429Response).mockResolvedValueOnce(mockSuccessResponse)
-
-            const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch(baseFetchInput)
-
-            // Advance time for first retry (jittered, at most 2000ms * 2^0)
-            await vi.advanceTimersByTimeAsync(2000)
-            await promise
-
-            expect(global.fetch).toHaveBeenCalledTimes(2)
-        })
-
-        it('should use jittered exponential backoff delays capped at 2s, 4s, 8s', async () => {
-            const mock429Response = new Response('{}', { status: 429 })
-            const mockSuccessResponse = new Response('{}', { status: 200 })
-
-            vi.mocked(global.fetch)
-                .mockResolvedValueOnce(mock429Response) // Attempt 0: retry within 2s
-                .mockResolvedValueOnce(mock429Response) // Attempt 1: retry within 4s
-                .mockResolvedValueOnce(mock429Response) // Attempt 2: retry within 8s
-                .mockResolvedValueOnce(mockSuccessResponse) // Attempt 3: success
-
-            const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch(baseFetchInput)
-
-            // Each retry's jittered delay falls in [backoff/2, backoff], so
-            // advancing by the full backoff always releases it.
-            await vi.advanceTimersByTimeAsync(2000)
-            await vi.advanceTimersByTimeAsync(4000)
-            await vi.advanceTimersByTimeAsync(8000)
-
-            await promise
-
-            expect(global.fetch).toHaveBeenCalledTimes(4)
-        })
-
-        it('should respect Retry-After header when present', async () => {
-            const mock429Response = new Response('{}', {
-                status: 429,
-                headers: { 'Retry-After': '5' }, // 5 seconds
-            })
-            const mockSuccessResponse = new Response('{}', { status: 200 })
-
-            vi.mocked(global.fetch).mockResolvedValueOnce(mock429Response).mockResolvedValueOnce(mockSuccessResponse)
-
-            const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch(baseFetchInput)
-
-            // Should wait 5000ms (from Retry-After header) instead of 2000ms
-            await vi.advanceTimersByTimeAsync(5000)
-            await promise
-
-            expect(global.fetch).toHaveBeenCalledTimes(2)
-        })
-
-        it('should throw error after max retries exceeded', async () => {
-            const mock429Response = new Response(JSON.stringify({ error: 'Rate limited' }), {
-                status: 429,
-            })
-
-            vi.mocked(global.fetch).mockResolvedValue(mock429Response)
-
-            const fetcher = buildApiFetcher(mockConfig)
-
-            // Start the fetch and immediately wrap in expect to catch rejection
-            const fetchPromise = expect(fetcher.fetch(baseFetchInput)).rejects.toThrow(
-                'Rate limit exceeded after 3 retries'
-            )
-
-            // Run all timers to completion
-            await vi.runAllTimersAsync()
-
-            // Wait for the assertion
-            await fetchPromise
-
-            expect(global.fetch).toHaveBeenCalledTimes(4) // Initial + 3 retries
-        })
-
-        it('should log warnings during retries', async () => {
+    describe('429 handling', () => {
+        it('should fail immediately with PostHogRateLimitError without retrying', async () => {
             const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-            const mock429Response = new Response('{}', { status: 429 })
-            const mockSuccessResponse = new Response('{}', { status: 200 })
-
-            vi.mocked(global.fetch).mockResolvedValueOnce(mock429Response).mockResolvedValueOnce(mockSuccessResponse)
+            vi.mocked(global.fetch).mockResolvedValue(
+                new Response(JSON.stringify({ error: 'Rate limited' }), { status: 429 })
+            )
 
             const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch(baseFetchInput)
+            const thrown = await fetcher.fetch(baseFetchInput).catch((err) => err)
 
-            await vi.advanceTimersByTimeAsync(2000)
-            await promise
-
-            expect(consoleWarnSpy).toHaveBeenCalledWith(
-                expect.stringMatching(/Rate limited \(429\)\. Retrying in \d+ms \(attempt 1\/3\)/)
-            )
+            expect(thrown).toBeInstanceOf(PostHogRateLimitError)
+            expect(thrown.status).toBe(429)
+            expect(thrown.retryAfterSeconds).toBeNull()
+            expect(global.fetch).toHaveBeenCalledTimes(1)
 
             consoleWarnSpy.mockRestore()
         })
 
-        it('should fail fast without retrying when Retry-After exceeds the wait cap', async () => {
-            const mock429Response = new Response(JSON.stringify({ error: 'Rate limited' }), {
-                status: 429,
-                headers: { 'Retry-After': '3600' },
-            })
-            vi.mocked(global.fetch).mockResolvedValue(mock429Response)
+        it.each([
+            { header: '5', retryAfterSeconds: 5 },
+            { header: '3600', retryAfterSeconds: 3600 },
+        ])('should surface Retry-After ($header) in the error', async ({ header, retryAfterSeconds }) => {
+            const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+            vi.mocked(global.fetch).mockResolvedValue(
+                new Response('{}', { status: 429, headers: { 'Retry-After': header } })
+            )
 
             const fetcher = buildApiFetcher(mockConfig)
+            const thrown = await fetcher.fetch(baseFetchInput).catch((err) => err)
 
-            await expect(fetcher.fetch(baseFetchInput)).rejects.toThrow('above the 30s cap')
-
+            expect(thrown).toBeInstanceOf(PostHogRateLimitError)
+            expect(thrown.retryAfterSeconds).toBe(retryAfterSeconds)
+            expect(thrown.message).toContain(`Retry after ${retryAfterSeconds} seconds`)
             expect(global.fetch).toHaveBeenCalledTimes(1)
+
+            consoleWarnSpy.mockRestore()
         })
+
+        it.each([{ header: '-5' }, { header: 'Wed, 21 Oct 2026 07:28:00 GMT' }])(
+            'should treat invalid Retry-After ($header) as missing',
+            async ({ header }) => {
+                const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+                vi.mocked(global.fetch).mockResolvedValue(
+                    new Response('{}', { status: 429, headers: { 'Retry-After': header } })
+                )
+
+                const fetcher = buildApiFetcher(mockConfig)
+                const thrown = await fetcher.fetch(baseFetchInput).catch((err) => err)
+
+                expect(thrown).toBeInstanceOf(PostHogRateLimitError)
+                expect(thrown.retryAfterSeconds).toBeNull()
+
+                consoleWarnSpy.mockRestore()
+            }
+        )
     })
 
     describe('error handling', () => {
