@@ -87,6 +87,48 @@ const inboxReportArtefactsDelete = (): ToolBase<typeof InboxReportArtefactsDelet
     },
 })
 
+const InboxReportArtefactsListSchema = SignalsReportArtefactsListParams.omit({ project_id: true }).extend(
+    SignalsReportArtefactsListQueryParams.shape
+)
+
+const inboxReportArtefactsList = (): ToolBase<
+    typeof InboxReportArtefactsListSchema,
+    WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>
+> => ({
+    name: 'inbox-report-artefacts-list',
+    schema: InboxReportArtefactsListSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSignalReportArtefactList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
+const InboxReportArtefactsRetrieveSchema = SignalsReportArtefactsRetrieveParams.omit({ project_id: true })
+
+const inboxReportArtefactsRetrieve = (): ToolBase<
+    typeof InboxReportArtefactsRetrieveSchema,
+    WithPostHogUrl<Schemas.SignalReportArtefact>
+> => ({
+    name: 'inbox-report-artefacts-retrieve',
+    schema: InboxReportArtefactsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReportArtefact>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.report_id}`)
+    },
+})
+
 const InboxReportArtefactsUpdateSchema = SignalsReportArtefactsPartialUpdateParams.omit({ project_id: true }).extend(
     SignalsReportArtefactsPartialUpdateBody.shape
 )
@@ -368,48 +410,6 @@ const inboxSourceConfigsUpdate = (): ToolBase<typeof InboxSourceConfigsUpdateSch
             body,
         })
         return result
-    },
-})
-
-const InboxReportArtefactsListSchema = SignalsReportArtefactsListParams.omit({ project_id: true }).extend(
-    SignalsReportArtefactsListQueryParams.shape
-)
-
-const inboxReportArtefactsList = (): ToolBase<
-    typeof InboxReportArtefactsListSchema,
-    WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>
-> => ({
-    name: 'inbox-report-artefacts-list',
-    schema: InboxReportArtefactsListSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSignalReportArtefactList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return await withPostHogUrl(context, result, '/inbox')
-    },
-})
-
-const InboxReportArtefactsRetrieveSchema = SignalsReportArtefactsRetrieveParams.omit({ project_id: true })
-
-const inboxReportArtefactsRetrieve = (): ToolBase<
-    typeof InboxReportArtefactsRetrieveSchema,
-    WithPostHogUrl<Schemas.SignalReportArtefact>
-> => ({
-    name: 'inbox-report-artefacts-retrieve',
-    schema: InboxReportArtefactsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SignalReportArtefact>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/inbox/${params.report_id}`)
     },
 })
 
@@ -701,6 +701,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,
     'inbox-report-artefacts-delete': inboxReportArtefactsDelete,
+    'inbox-report-artefacts-list': inboxReportArtefactsList,
+    'inbox-report-artefacts-retrieve': inboxReportArtefactsRetrieve,
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
@@ -710,8 +712,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
-    'inbox-report-artefacts-list': inboxReportArtefactsList,
-    'inbox-report-artefacts-retrieve': inboxReportArtefactsRetrieve,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-update': signalsScoutConfigUpdate,
