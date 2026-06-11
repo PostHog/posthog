@@ -2,6 +2,7 @@ from typing import Any
 
 import pydantic
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import extend_schema_field
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
@@ -43,6 +44,20 @@ CONVERSATION_TYPE_MAP: dict[
 }
 
 
+class ConversationSandboxTaskSerializer(serializers.Serializer):
+    """The products/tasks Task backing a sandbox conversation.
+
+    Carries the IDs the frontend's `sandboxStreamLogic.bootstrapRun` opens SSE / replays
+    the `logs/` history against. Null for LangGraph conversations.
+    """
+
+    id = serializers.UUIDField(help_text="The backing products/tasks Task id.")
+    current_run_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Current (latest) TaskRun id the frontend bootstraps against; null when the Task has no runs yet.",
+    )
+
+
 class ConversationMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
@@ -60,18 +75,35 @@ class ConversationSerializer(ConversationMinimalSerializer):
             "messages",
             "has_unsupported_content",
             "agent_mode",
+            "agent_runtime",
             "is_sandbox",
             "pending_approvals",
+            "task",
         ]
         read_only_fields = fields
 
+    agent_runtime = serializers.ChoiceField(
+        choices=Conversation.AgentRuntime.choices,
+        read_only=True,
+        help_text=(
+            "Runtime that owns this conversation. 'langgraph' conversations return their messages "
+            "in the `messages` field; 'sandbox' conversations return an empty `messages` array and "
+            "load history from the products/tasks logs endpoint instead."
+        ),
+    )
     messages = serializers.SerializerMethodField()
     has_unsupported_content = serializers.SerializerMethodField()
     agent_mode = serializers.SerializerMethodField()
     is_sandbox = serializers.SerializerMethodField()
     pending_approvals = serializers.SerializerMethodField()
+    task = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
+        # Sandbox conversations don't persist messages Django-side — history lives in S3
+        # ACP logs, fetched via the products/tasks `logs/` endpoint.
+        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+            return []
+
         if conversation.messages_json is not None:
             return conversation.messages_json
 
@@ -103,7 +135,20 @@ class ConversationSerializer(ConversationMinimalSerializer):
         return None
 
     def get_is_sandbox(self, conversation: Conversation) -> bool:
-        return conversation.sandbox_task_id is not None
+        return conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
+
+    @extend_schema_field(ConversationSandboxTaskSerializer(allow_null=True))
+    def get_task(self, conversation: Conversation) -> dict[str, Any] | None:
+        # The backing Task + current Run let the frontend bootstrap the sandbox stream on
+        # open. `current_run` is derived (latest Run on the Task), so this costs one extra
+        # query — acceptable on single retrieve, never hit on `list`.
+        if conversation.task_id is None:
+            return None
+        current_run = conversation.current_run
+        return {
+            "id": str(conversation.task_id),
+            "current_run_id": str(current_run.id) if current_run else None,
+        }
 
     def get_pending_approvals(self, conversation: Conversation) -> list[dict[str, Any]]:
         """
@@ -163,6 +208,10 @@ class ConversationSerializer(ConversationMinimalSerializer):
             Tuple of (state, has_unsupported_content, interrupt_payloads).
             interrupt_payloads is a dict mapping proposal_id to the interrupt value (including payload).
         """
+        # Sandbox conversations have no LangGraph checkpoint — their state lives in S3 ACP logs.
+        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+            return None, False, {}
+
         try:
             team = self.context["team"]
             user = self.context["user"]
