@@ -37,52 +37,6 @@ const businessKnowledgeDocumentWindowRetrieve = (): ToolBase<
     },
 })
 
-const BusinessKnowledgeSourcesTextCreateSchema = BusinessKnowledgeSourcesCreateBody
-
-const businessKnowledgeSourcesTextCreate = (): ToolBase<
-    typeof BusinessKnowledgeSourcesTextCreateSchema,
-    Schemas.KnowledgeSource
-> => ({
-    name: 'business-knowledge-sources-text-create',
-    schema: BusinessKnowledgeSourcesTextCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeSourcesTextCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.text !== undefined) {
-            body['text'] = params.text
-        }
-        const result = await context.api.request<Schemas.KnowledgeSource>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,
-            body,
-        })
-        return result
-    },
-})
-
-const BusinessKnowledgeSourcesUrlCreateSchema = BusinessKnowledgeUrlSourceCreateSchema
-
-const businessKnowledgeSourcesUrlCreate = (): ToolBase<
-    typeof BusinessKnowledgeSourcesUrlCreateSchema,
-    Schemas.KnowledgeSource
-> => ({
-    name: 'business-knowledge-sources-url-create',
-    schema: BusinessKnowledgeSourcesUrlCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeSourcesUrlCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const parsedParams = BusinessKnowledgeSourcesUrlCreateSchema.parse(params)
-        const result = await context.api.request<Schemas.KnowledgeSource>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,
-            body: parsedParams,
-        })
-        return result
-    },
-})
-
 const BusinessKnowledgeSourcesListSchema = BusinessKnowledgeSourcesListQueryParams
 
 const businessKnowledgeSourcesList = (): ToolBase<
@@ -143,10 +97,56 @@ const businessKnowledgeSourcesRetrieve = (): ToolBase<
     },
 })
 
+const BusinessKnowledgeSourcesTextCreateSchema = BusinessKnowledgeSourcesCreateBody
+
+const businessKnowledgeSourcesTextCreate = (): ToolBase<
+    typeof BusinessKnowledgeSourcesTextCreateSchema,
+    Schemas.KnowledgeSource
+> => ({
+    name: 'business-knowledge-sources-text-create',
+    schema: BusinessKnowledgeSourcesTextCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeSourcesTextCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        const result = await context.api.request<Schemas.KnowledgeSource>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,
+            body,
+        })
+        return result
+    },
+})
+
+const BusinessKnowledgeSourcesUrlCreateSchema = BusinessKnowledgeUrlSourceCreateSchema
+
+const businessKnowledgeSourcesUrlCreate = (): ToolBase<
+    typeof BusinessKnowledgeSourcesUrlCreateSchema,
+    Schemas.KnowledgeSource
+> => ({
+    name: 'business-knowledge-sources-url-create',
+    schema: BusinessKnowledgeSourcesUrlCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeSourcesUrlCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = BusinessKnowledgeSourcesUrlCreateSchema.parse(params)
+        const result = await context.api.request<Schemas.KnowledgeSource>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,
+            body: parsedParams,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'business-knowledge-document-window-retrieve': businessKnowledgeDocumentWindowRetrieve,
-    'business-knowledge-sources-text-create': businessKnowledgeSourcesTextCreate,
-    'business-knowledge-sources-url-create': businessKnowledgeSourcesUrlCreate,
     'business-knowledge-sources-list': businessKnowledgeSourcesList,
     'business-knowledge-sources-retrieve': businessKnowledgeSourcesRetrieve,
+    'business-knowledge-sources-text-create': businessKnowledgeSourcesTextCreate,
+    'business-knowledge-sources-url-create': businessKnowledgeSourcesUrlCreate,
 }
