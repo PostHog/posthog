@@ -7,7 +7,7 @@ import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
 import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
-import { wizardProgressTrackerLogic } from './wizardProgressTrackerLogic'
+import { resetWizardSyncTelemetryForTests, wizardProgressTrackerLogic } from './wizardProgressTrackerLogic'
 
 // The detector polls a REST endpoint from afterMount and the stream logic builds an SSE
 // URL on connect; stub both so mounting the tracker (which connects them) never hits the
@@ -62,6 +62,7 @@ describe('wizardProgressTrackerLogic', () => {
     beforeEach(() => {
         initKeaTests()
         ;(posthog.capture as jest.Mock).mockClear()
+        resetWizardSyncTelemetryForTests()
         streamLogic = wizardSessionStreamLogic({ workflowId: WORKFLOW_ID })
         detector = wizardActiveSessionDetectorLogic()
         logic = wizardProgressTrackerLogic()
@@ -129,6 +130,22 @@ describe('wizardProgressTrackerLogic', () => {
         expect(capturedEvents('setup wizard sync session detected')).toHaveLength(1)
     })
 
+    it('does not re-fire "session detected" after a full unmount/remount of the same session', async () => {
+        const session = makeSession({ session_id: 'sess-remount', run_phase: 'running' })
+        streamLogic.actions.sessionUpdated(session)
+        await expectLogic(logic).toMatchValues({ sessionIsCurrent: true })
+        expect(capturedEvents('setup wizard sync session detected')).toHaveLength(1)
+
+        // A remount wipes the kea cache; the module-level guard must still suppress the
+        // re-delivered (still in-flight) session so reach isn't double-counted.
+        logic.unmount()
+        logic = wizardProgressTrackerLogic()
+        logic.mount()
+        streamLogic.actions.sessionUpdated(makeSession({ session_id: 'sess-remount', run_phase: 'running' }))
+
+        expect(capturedEvents('setup wizard sync session detected')).toHaveLength(1)
+    })
+
     it('does not capture "session detected" for a stale session', async () => {
         const stale = makeSession({
             run_phase: 'completed',
@@ -186,5 +203,15 @@ describe('wizardProgressTrackerLogic', () => {
             outcome: 'completed',
             elapsed_seconds: expect.any(Number),
         })
+    })
+
+    it('captures "session dismissed" only once when dismiss fires twice', async () => {
+        streamLogic.actions.sessionUpdated(makeSession({ run_phase: 'completed' }))
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.dismiss()
+        logic.actions.dismiss()
+
+        expect(capturedEvents('setup wizard sync dismissed')).toHaveLength(1)
     })
 })

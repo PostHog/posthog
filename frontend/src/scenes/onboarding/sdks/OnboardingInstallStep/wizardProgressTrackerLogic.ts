@@ -35,6 +35,24 @@ const SESSION_CURRENT_THRESHOLD_MS = 10 * 60 * 1000
 
 const WORKFLOW_ID = 'posthog-integration'
 
+// Per-session telemetry guards, deliberately module-scoped rather than on the kea
+// `cache`. The tracker logic unmounts whenever the FAB's `shouldStream` flips false
+// and the install step isn't mounted, and a remount wipes `cache` — so a cache-based
+// guard would let the SSE redeliver a still-in-flight session and re-fire these
+// events. Keying by session_id at module scope makes "once per session" hold across
+// remounts for the whole page load. (A hard reload starts a fresh page session; the
+// reach funnel is read on unique users, so that boundary is acceptable.)
+const reportedDetectedSessions = new Set<string>()
+const reportedFinishedSessions = new Set<string>()
+const reportedDismissedSessions = new Set<string>()
+
+// Test-only: clear the module-level guards so each case starts from a clean slate.
+export function resetWizardSyncTelemetryForTests(): void {
+    reportedDetectedSessions.clear()
+    reportedFinishedSessions.clear()
+    reportedDismissedSessions.clear()
+}
+
 function runPhaseMessage(phase: string): string {
     if (phase === 'completed') {
         return 'wizard finished'
@@ -180,7 +198,7 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             (latestSession, now): number => (latestSession ? elapsedSecondsFrom(latestSession.started_at, now) : 0),
         ],
     }),
-    subscriptions(({ actions, cache }) => ({
+    subscriptions(({ actions }) => ({
         connectionStatus: (status, prev) => {
             if (status === prev) {
                 return
@@ -209,8 +227,8 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 // Reach metric: count each live wizard session the sync surfaces, once per
                 // session_id. Gated on freshness so stale terminal rows sitting in the DB —
                 // which never reach the user — don't inflate the funnel.
-                if (cache.reportedDetectedId !== session.session_id) {
-                    cache.reportedDetectedId = session.session_id
+                if (!reportedDetectedSessions.has(session.session_id)) {
+                    reportedDetectedSessions.add(session.session_id)
                     posthog.capture('setup wizard sync session detected', {
                         workflow_id: WORKFLOW_ID,
                         skill_id: session.skill_id,
@@ -251,8 +269,8 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 // Outcome metric: fire once when a run the user watched live reaches a
                 // terminal phase. Terminal phases are sticky, so this transition is observed
                 // at most once per session — the id guard covers any SSE redelivery.
-                if (isTerminal && cache.reportedFinishedId !== session.session_id) {
-                    cache.reportedFinishedId = session.session_id
+                if (isTerminal && !reportedFinishedSessions.has(session.session_id)) {
+                    reportedFinishedSessions.add(session.session_id)
                     posthog.capture('setup wizard sync session finished', {
                         workflow_id: WORKFLOW_ID,
                         skill_id: session.skill_id,
@@ -277,6 +295,15 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
     })),
     listeners(({ values }) => ({
         dismiss: () => {
+            // Guard against a double-click landing two `dismiss` dispatches before the
+            // FAB re-renders itself away: capture at most once per session.
+            const sessionId = values.latestSession?.session_id
+            if (sessionId) {
+                if (reportedDismissedSessions.has(sessionId)) {
+                    return
+                }
+                reportedDismissedSessions.add(sessionId)
+            }
             posthog.capture('setup wizard sync dismissed', {
                 workflow_id: WORKFLOW_ID,
                 outcome: values.displayState,
