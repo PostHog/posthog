@@ -28,6 +28,19 @@ import {
 export const PUBLISHED_HARNESS_IMAGE = 'ghcr.io/posthog/posthog-sandbox-base:master'
 const HARNESS_PORT = 3001
 
+/**
+ * A `localhost` URL is unreachable from inside the container (it resolves to
+ * the container, not the host). Rewrite to `host.docker.internal` (mapped via
+ * `--add-host`) so the harness can reach host-run services (the local
+ * ai-gateway, the local PostHog API) in dev. No-op for non-loopback hosts.
+ */
+function dockerizeHostUrl(url: string | undefined): string | undefined {
+    if (!url) {
+        return url
+    }
+    return url.replace(/\/\/(localhost|127\.0\.0\.1)(:|\/|$)/, '//host.docker.internal$2')
+}
+
 interface DockerState {
     sessionId: string
     containerId: string
@@ -198,14 +211,15 @@ export class DockerCodingSandboxPool implements CodingSandboxPool {
 
         const env: Record<string, string> = {
             JWT_PUBLIC_KEY: auth.publicKeyPem,
-            POSTHOG_API_URL: launch.apiUrl ?? 'http://host.docker.internal:8010',
+            POSTHOG_API_URL: dockerizeHostUrl(launch.apiUrl) ?? 'http://host.docker.internal:8010',
             POSTHOG_PERSONAL_API_KEY: launch.apiKey ?? 'phx_local',
             POSTHOG_PROJECT_ID: String(launch.projectId ?? 1),
             POSTHOG_CODE_RUNTIME_ADAPTER: 'claude',
             POSTHOG_CODE_MODEL: launch.model,
         }
-        if (launch.modelBaseUrl) {
-            env.LLM_GATEWAY_URL = launch.modelBaseUrl
+        const gatewayUrl = dockerizeHostUrl(launch.modelBaseUrl)
+        if (gatewayUrl) {
+            env.LLM_GATEWAY_URL = gatewayUrl
         }
         if (launch.reasoningEffort) {
             env.POSTHOG_CODE_REASONING_EFFORT = launch.reasoningEffort
