@@ -1892,6 +1892,9 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     /flags evaluation) via its internal cursor-paged batch endpoint; this task only
     orchestrates paging and inserts the matched person UUIDs into the cohort.
     """
+    # Flag and cohort lookups are deliberately project-scoped (team__project_id), matching
+    # how flags resolve everywhere else. Multi-team projects ("environments") are
+    # deprecated, so a project has exactly one team and this cannot cross team boundaries.
     project_id = Team.objects.only("project_id").get(pk=team_id).project_id
     cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
     # The enqueue site set is_calculating=True before dispatching, so every exit has to
