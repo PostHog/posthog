@@ -50,8 +50,11 @@ the replay covers the long tail (custom hosts, custom filters, etc.).
 """
 
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
+from django.db import connections
 
 import dagster
 import structlog
@@ -74,10 +77,27 @@ from products.web_analytics.dags.web_preaggregated_utils import check_for_concur
 logger = structlog.get_logger(__name__)
 
 
-# Single warming window: the trailing 28 days. The lazy precompute path
-# stores per-day buckets, so a 28-day warm naturally serves any user
-# request for a sub-window (today, last 7d, etc.) via the lazy CH cache.
-BASELINE_WINDOW_DAYS = 28
+# Single warming window: the trailing 31 days. The lazy precompute path stores
+# per-day buckets, so this warm serves any user request for a sub-window (today,
+# last 7d, last 30d, month-to-date, …) from the lazy CH cache. 31 rather than 28
+# so the common `-30d` preset (~6% of web-analytics traffic) and full
+# month-to-date land inside the window. Longer ranges (90d+, all, year-to-date)
+# stay lazy-on-read — pre-warming them across the audience isn't worth the cost.
+BASELINE_WINDOW_DAYS = 31
+
+
+# How many teams to warm concurrently. Each team's tiles still run sequentially
+# inside `_warm_baseline_for_team`, so this is the number of simultaneous warm
+# queries hitting ClickHouse — keep it small so warming never competes with
+# user-facing traffic for the per-user query cap.
+WARM_TEAM_CONCURRENCY = 5
+
+
+# `context.log` (Dagster's DagsterLogManager) is shared across the warm pool's
+# threads, and its event-storage writes are not guaranteed thread-safe, so the
+# in-thread op-log calls are serialized through this lock. structlog (`logger`)
+# is already thread-safe and is left unguarded.
+_OP_LOG_LOCK = threading.Lock()
 
 
 # The set of `WebStatsBreakdown` values rendered as tiles in the Web
@@ -223,7 +243,8 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
         # Per-tile start line so the run is followable live in the Dagster UI —
         # each tile can take up to the query timeout, so seeing which one is in
         # flight (and how far through the matrix) matters when a run drags.
-        context.log.info(f"eager_baseline_warming_tile_start [{idx}/{total}] team={team.pk} query={label}")
+        with _OP_LOG_LOCK:
+            context.log.info(f"eager_baseline_warming_tile_start [{idx}/{total}] team={team.pk} query={label}")
         logger.info("eager_baseline_warming_tile_start", team_id=team.pk, query=label, tile=idx, total=total)
         tile_started = time.monotonic()
         try:
@@ -254,9 +275,10 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             # stale/missing precompute or a non-precomputable breakdown can't hide.
             if getattr(response, "usedLazyPrecompute", None) is not True:
                 EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED.labels(query_kind=label).inc()
-                context.log.warning(
-                    f"eager_baseline_warming_tile_not_precomputed [{idx}/{total}] team={team.pk} query={label}"
-                )
+                with _OP_LOG_LOCK:
+                    context.log.warning(
+                        f"eager_baseline_warming_tile_not_precomputed [{idx}/{total}] team={team.pk} query={label}"
+                    )
                 logger.warning(
                     "eager_baseline_warming_tile_not_precomputed",
                     team_id=team.pk,
@@ -265,10 +287,11 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
                     total=total,
                 )
             tile_ms = round((time.monotonic() - tile_started) * 1000)
-            context.log.info(
-                f"eager_baseline_warming_tile_done [{idx}/{total}] team={team.pk} query={label} "
-                f"status=warmed duration_ms={tile_ms}"
-            )
+            with _OP_LOG_LOCK:
+                context.log.info(
+                    f"eager_baseline_warming_tile_done [{idx}/{total}] team={team.pk} query={label} "
+                    f"status=warmed duration_ms={tile_ms}"
+                )
             logger.info(
                 "eager_baseline_warming_tile_done",
                 team_id=team.pk,
@@ -281,10 +304,11 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
         except Exception as exc:
             tile_ms = round((time.monotonic() - tile_started) * 1000)
             EAGER_PRECOMPUTE_BASELINE_FAILED.labels(query_kind=label, error_type=type(exc).__name__).inc()
-            context.log.exception(
-                f"eager_baseline_warming_query_failed [{idx}/{total}] team={team.pk} query={label} "
-                f"duration_ms={tile_ms}"
-            )
+            with _OP_LOG_LOCK:
+                context.log.exception(
+                    f"eager_baseline_warming_query_failed [{idx}/{total}] team={team.pk} query={label} "
+                    f"duration_ms={tile_ms}"
+                )
             logger.exception(
                 "eager_baseline_warming_query_failed",
                 team_id=team.pk,
@@ -320,6 +344,13 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
     warmed = 0
     failed = 0
     skipped = 0
+
+    # Resolve the eligible teams up front (cheap Postgres/flag checks), then warm
+    # them with a small thread pool. Each team's tile matrix still runs
+    # sequentially inside `_warm_baseline_for_team`, so we never fire concurrent
+    # INSERTs into one team's buckets — the pool just runs several *different*
+    # teams at once to spread the ClickHouse load and cut total wall-clock.
+    eligible: list[Team] = []
     for team_id in team_ids:
         team = teams_by_id.get(team_id)
         if team is None:
@@ -342,17 +373,36 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
             skipped += 1
             continue
 
+        eligible.append(team)
+
+    def _warm(team: Team) -> tuple[int, int]:
         team_started = time.monotonic()
-        team_warmed, team_failed = _warm_baseline_for_team(context, team)
+        team_warmed = team_failed = 0
+        try:
+            team_warmed, team_failed = _warm_baseline_for_team(context, team)
+        except Exception:
+            # `_warm_baseline_for_team` guards each tile, but a failure *outside*
+            # that loop (e.g. building the tile matrix) would otherwise propagate
+            # out of `pool.map`, abort the teams not yet iterated, and discard the
+            # counts of teams that already warmed. Contain it so the pool drains.
+            logger.exception("eager_baseline_warming_team_errored", team_id=team.pk)
+        finally:
+            # Each pool thread holds its own Django DB connections; close them on
+            # the way out so the run doesn't leak one connection per team.
+            connections.close_all()
         logger.info(
             "eager_baseline_warming_team",
-            team_id=team_id,
+            team_id=team.pk,
             warmed=team_warmed,
             failed=team_failed,
             duration_ms=round((time.monotonic() - team_started) * 1000),
         )
-        warmed += team_warmed
-        failed += team_failed
+        return team_warmed, team_failed
+
+    with ThreadPoolExecutor(max_workers=WARM_TEAM_CONCURRENCY) as pool:
+        for team_warmed, team_failed in pool.map(_warm, eligible):
+            warmed += team_warmed
+            failed += team_failed
 
     duration_ms = round((time.monotonic() - started) * 1000)
     context.log.info(
@@ -382,9 +432,13 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
     ),
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
-        # Dagster terminates the run if it exceeds this; the next scheduled
-        # tick (5 min later) starts fresh.
-        "dagster/max_runtime": str(45 * 60),
+        # Dagster terminates the run if it exceeds this. The long pole is the
+        # initial cold warm of the whole team list (28-day buckets for every
+        # tile); 90 min leaves headroom for it even as the audience grows.
+        # Steady-state ticks (only today's 1-day bucket is stale) finish in
+        # minutes, and the schedule's concurrent-run guard skips any hourly tick
+        # that fires while a long run is still going, so runs never overlap.
+        "dagster/max_runtime": str(90 * 60),
     },
 )
 def web_analytics_eager_baseline_warming_job():
