@@ -1,5 +1,6 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import posthog from 'posthog-js'
+
+import { LemonButton } from '@posthog/lemon-ui'
 
 import type { WidgetAvailabilityConfig } from '../../widget_types/widgetAvailability'
 import { WIDGET_AVAILABILITY_PRESENTATION } from '../../widget_types/widgetAvailability'
