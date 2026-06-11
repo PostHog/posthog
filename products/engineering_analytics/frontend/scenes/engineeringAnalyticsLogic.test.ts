@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiConfig } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
 import { initKeaTests } from '~/test/init'
 
@@ -127,33 +128,57 @@ describe('engineeringAnalyticsLogic', () => {
             makePr({ number: 2, state: 'merged', authorHandle: 'bob', repoName: 'posthog-js' }),
             makePr({ number: 3, state: 'open', authorHandle: 'bob', title: 'chore: bump' }),
         ]
-        expect(
-            filterPullRequests(rows, { state: 'open', author: null, repo: null, ciStatus: 'all', search: '' })
-        ).toHaveLength(2)
-        expect(
-            filterPullRequests(rows, { state: 'merged', author: null, repo: null, ciStatus: 'all', search: '' })
-        ).toHaveLength(1)
-        expect(
-            filterPullRequests(rows, { state: 'all', author: 'bob', repo: null, ciStatus: 'all', search: '' })
-        ).toHaveLength(2)
-        expect(
-            filterPullRequests(rows, {
-                state: 'all',
-                author: null,
-                repo: 'posthog/posthog-js',
-                ciStatus: 'all',
-                search: '',
-            })
-        ).toHaveLength(1)
-        expect(
-            filterPullRequests(rows, { state: 'all', author: null, repo: null, ciStatus: 'failing', search: '' })
-        ).toHaveLength(1)
-        expect(
-            filterPullRequests(rows, { state: 'all', author: null, repo: null, ciStatus: 'all', search: 'bump' })
-        ).toHaveLength(1)
-        expect(
-            filterPullRequests(rows, { state: 'all', author: null, repo: null, ciStatus: 'all', search: '#2' })
-        ).toHaveLength(1)
+        expect(filterPullRequests(rows, DEFAULT_FILTERS)).toHaveLength(2)
+        expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'merged' })).toHaveLength(1)
+        expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'all', author: 'bob' })).toHaveLength(2)
+        expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'all', repo: 'posthog/posthog-js' })).toHaveLength(
+            1
+        )
+        expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'all', ciStatus: 'failing' })).toHaveLength(1)
+        expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'all', search: 'bump' })).toHaveLength(1)
+        expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'all', search: '#2' })).toHaveLength(1)
+    })
+
+    it('stuckOnly keeps open, non-draft, non-bot PRs older than 7 days', () => {
+        const now = dayjs('2026-06-11T00:00:00Z')
+        const rows = [
+            makePr({ number: 1, createdAt: '2026-06-01T00:00:00Z' }),
+            makePr({ number: 2, createdAt: '2026-06-09T00:00:00Z' }),
+            makePr({ number: 3, createdAt: '2026-06-01T00:00:00Z', isDraft: true }),
+            makePr({ number: 4, createdAt: '2026-06-01T00:00:00Z', isBot: true }),
+            makePr({ number: 5, createdAt: '2026-05-01T00:00:00Z', state: 'merged', mergedAt: '2026-06-10T00:00:00Z' }),
+        ]
+        const stuck = filterPullRequests(rows, { ...DEFAULT_FILTERS, stuckOnly: true }, now)
+        expect(stuck.map((row) => row.number)).toEqual([1])
+    })
+
+    it('card filters toggle the matching view and back', async () => {
+        mockCiCards.mockResolvedValue(CARDS)
+        mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
+        mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
+
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        expect(logic.values.activeCard).toBe('open')
+
+        logic.actions.applyCardFilter('failing')
+        expect(logic.values.activeCard).toBe('failing')
+        expect(logic.values.ciStatusFilter).toBe('failing')
+
+        logic.actions.applyCardFilter('stuck')
+        expect(logic.values.activeCard).toBe('stuck')
+        expect(logic.values.stuckOnly).toBe(true)
+        expect(logic.values.ciStatusFilter).toBe('all')
+
+        // Clicking the active card returns to the plain open view.
+        logic.actions.applyCardFilter('stuck')
+        expect(logic.values.activeCard).toBe('open')
+        expect(logic.values.stuckOnly).toBe(false)
+
+        // Leaving the open backlog deactivates every card.
+        logic.actions.applyCardFilter('failing')
+        logic.actions.setStateFilter('merged')
+        expect(logic.values.activeCard).toBeNull()
     })
 
     it('maps the three endpoints into typed rows and defaults to the open filter', async () => {

@@ -40,8 +40,9 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         authorOptions,
         repoOptions,
         hasActiveFilters,
+        activeCard,
     } = useValues(engineeringAnalyticsLogic)
-    const { setStateFilter, setAuthor, setRepo, setCiStatusFilter, setSearch, resetFilters } =
+    const { setStateFilter, setAuthor, setRepo, setCiStatusFilter, setSearch, resetFilters, applyCardFilter } =
         useActions(engineeringAnalyticsLogic)
 
     if (loadFailed) {
@@ -128,18 +129,23 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     value={cards ? humanFriendlyNumber(cards.openPrs) : '—'}
                     caption={cards ? `across ${pluralize(cards.repos, 'repo')}` : ' '}
                     loading={cardsLoading}
+                    onClick={() => applyCardFilter('open')}
                 />
                 <StatCard
                     label="Failing CI"
                     value={cards ? humanFriendlyNumber(cards.failingCi) : '—'}
                     caption={`${failingPct} · workflow-level`}
                     loading={cardsLoading}
+                    onClick={() => applyCardFilter('failing')}
+                    active={activeCard === 'failing'}
                 />
                 <StatCard
                     label="Stuck > 7d"
                     value={cards ? humanFriendlyNumber(cards.stuck) : '—'}
                     caption="open > 7d, not draft, not bot"
                     loading={cardsLoading}
+                    onClick={() => applyCardFilter('stuck')}
+                    active={activeCard === 'stuck'}
                 />
             </div>
 

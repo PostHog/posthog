@@ -2,6 +2,7 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
 import {
     engineeringAnalyticsCiCards,
@@ -21,6 +22,11 @@ const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 export type PRState = 'open' | 'closed' | 'merged'
 export type PRStateFilter = 'open' | 'merged' | 'all'
 export type CIStatusFilter = CIStatus | 'all'
+/** The stat cards double as quick views over the open backlog. */
+export type CardFilter = 'open' | 'failing' | 'stuck'
+
+/** Mirrors the ci_cards "stuck" rule: open, non-draft, non-bot, older than 7 days. */
+export const STUCK_AFTER_DAYS = 7
 
 export interface PullRequestRow {
     number: number
@@ -66,6 +72,7 @@ export interface PullRequestFilters {
     repo: string | null
     ciStatus: CIStatusFilter
     search: string
+    stuckOnly: boolean
 }
 
 export const DEFAULT_FILTERS: PullRequestFilters = {
@@ -74,15 +81,32 @@ export const DEFAULT_FILTERS: PullRequestFilters = {
     repo: null,
     ciStatus: 'all',
     search: '',
+    stuckOnly: false,
 }
 
-export function filterPullRequests(rows: PullRequestRow[], filters: PullRequestFilters): PullRequestRow[] {
+export function isStuck(row: PullRequestRow, now: dayjs.Dayjs): boolean {
+    return (
+        row.state === 'open' &&
+        !row.isDraft &&
+        !row.isBot &&
+        dayjs(row.createdAt).isBefore(now.subtract(STUCK_AFTER_DAYS, 'day'))
+    )
+}
+
+export function filterPullRequests(
+    rows: PullRequestRow[],
+    filters: PullRequestFilters,
+    now: dayjs.Dayjs = dayjs()
+): PullRequestRow[] {
     const search = filters.search.trim().toLowerCase()
     return rows.filter((row) => {
         if (filters.state === 'open' && row.state !== 'open') {
             return false
         }
         if (filters.state === 'merged' && row.state !== 'merged') {
+            return false
+        }
+        if (filters.stuckOnly && !isStuck(row, now)) {
             return false
         }
         if (filters.author && row.authorHandle !== filters.author) {
@@ -114,6 +138,8 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
         setRepo: (repo: string | null) => ({ repo }),
         setCiStatusFilter: (ciStatus: CIStatusFilter) => ({ ciStatus }),
         setSearch: (search: string) => ({ search }),
+        setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
+        applyCardFilter: (card: CardFilter) => ({ card }),
         resetFilters: true,
         refresh: true,
     }),
@@ -200,6 +226,15 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
             DEFAULT_FILTERS.search,
             { setSearch: (_, { search }) => search, resetFilters: () => DEFAULT_FILTERS.search },
         ],
+        // Leaving the open backlog (e.g. switching to Merged) exits the stuck lens — stuck implies open.
+        stuckOnly: [
+            DEFAULT_FILTERS.stuckOnly,
+            {
+                setStuckOnly: (_, { stuckOnly }) => stuckOnly,
+                setStateFilter: () => false,
+                resetFilters: () => DEFAULT_FILTERS.stuckOnly,
+            },
+        ],
         // The endpoints 400 when the team has no GitHub warehouse source connected.
         // A failed cards load is the canary for "no source connected".
         loadFailed: [
@@ -214,14 +249,30 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
 
     selectors({
         filters: [
-            (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search],
-            (stateFilter, author, repo, ciStatus, search): PullRequestFilters => ({
+            (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],
+            (stateFilter, author, repo, ciStatus, search, stuckOnly): PullRequestFilters => ({
                 state: stateFilter,
                 author,
                 repo,
                 ciStatus,
                 search,
+                stuckOnly,
             }),
+        ],
+        activeCard: [
+            (s) => [s.stateFilter, s.ciStatusFilter, s.stuckOnly],
+            (stateFilter, ciStatus, stuckOnly): CardFilter | null => {
+                if (stateFilter !== 'open') {
+                    return null
+                }
+                if (stuckOnly) {
+                    return 'stuck'
+                }
+                if (ciStatus === 'failing') {
+                    return 'failing'
+                }
+                return ciStatus === 'all' ? 'open' : null
+            },
         ],
         filteredPullRequests: [
             (s) => [s.pullRequests, s.filters],
@@ -254,11 +305,18 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
         tableTruncated: [(s) => [s.pullRequests], (pullRequests): boolean => pullRequests.length >= PR_TABLE_LIMIT],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         refresh: () => {
             actions.loadCards()
             actions.loadPullRequests()
             actions.loadWorkflowHealth()
+        },
+        applyCardFilter: ({ card }) => {
+            // Clicking the already-active card toggles back to the plain open view.
+            const target: CardFilter = values.activeCard === card ? 'open' : card
+            actions.setStateFilter('open')
+            actions.setCiStatusFilter(target === 'failing' ? 'failing' : 'all')
+            actions.setStuckOnly(target === 'stuck')
         },
     })),
 
