@@ -15,6 +15,8 @@ export type ChartDisplayType =
     | 'ActionsLineGraph'
     | 'ActionsLineGraphCumulative'
     | 'ActionsBar'
+    | 'ActionsStackedBar'
+    | 'ActionsUnstackedBar'
     | 'ActionsBarValue'
     | 'ActionsAreaGraph'
     | 'BoldNumber'
@@ -23,11 +25,31 @@ export type ChartDisplayType =
     | 'WorldMap'
     | 'SlopeGraph'
 
+// Structural subset of the schema `TrendsFilter` (declared rather than imported — the MCP bundle
+// resolves no `~/` schema paths). The display-option fields mirror what saved insights carry via
+// the insight-query tool; ad-hoc tool queries only populate `display`/`showLegend`.
 export interface TrendsFilter {
     display?: ChartDisplayType
     showLegend?: boolean
     showValuesOnSeries?: boolean
-    aggregationAxisFormat?: 'numeric' | 'duration' | 'duration_ms' | 'percentage'
+    showTrendLines?: boolean
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
+    showConfidenceIntervals?: boolean
+    confidenceLevel?: number
+    showPercentStackView?: boolean
+    aggregationAxisFormat?:
+        | 'numeric'
+        | 'short'
+        | 'percentage'
+        | 'percentage_scaled'
+        | 'duration'
+        | 'duration_ms'
+        | 'currency'
+    aggregationAxisPrefix?: string
+    aggregationAxisPostfix?: string
+    decimalPlaces?: number
+    minDecimalPlaces?: number
 }
 
 export interface TrendsQuery {

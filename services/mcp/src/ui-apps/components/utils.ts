@@ -4,10 +4,6 @@ export function getDisplayType(query: TrendsQuery | undefined): ChartDisplayType
     return query?.trendsFilter?.display || 'ActionsLineGraph'
 }
 
-export function isBarChart(displayType: ChartDisplayType): boolean {
-    return displayType === 'ActionsBar' || displayType === 'ActionsBarValue'
-}
-
 export function formatNumber(value: number): string {
     if (value >= 1_000_000) {
         return `${(value / 1_000_000).toFixed(1)}M`
