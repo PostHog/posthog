@@ -120,6 +120,8 @@ tools:
                 - end_date
                 - created_at
                 - parameters
+                - metrics
+                - metrics_secondary
                 - conclusion
                 - conclusion_comment
     experiment-delete:
@@ -292,6 +294,8 @@ tools:
                 - end_date
                 - created_at
                 - parameters
+                - metrics
+                - metrics_secondary
                 - conclusion
                 - conclusion_comment
     experiment-list:

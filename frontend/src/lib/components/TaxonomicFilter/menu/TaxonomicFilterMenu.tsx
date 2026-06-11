@@ -351,6 +351,9 @@ export function TaxonomicFilterMenu({
                 position: selection?.position,
                 query: searchQuery || undefined,
                 wasStale: eventSelectionWasStale(entry.group.type, entry.item),
+                // True when the row is the synthetic "URL contains <query>" shortcut
+                // rather than a real picked item — lets us measure its adoption.
+                wasUrlContainsShortcut: (entry.item as { isContainsShortcut?: boolean }).isContainsShortcut === true,
             })
             selectItem(entry.group, itemValue, mergedItem)
             onCommit?.({ ...entry, item: mergedItem }, extra)
