@@ -224,7 +224,9 @@ class SnowflakeImplementation(
             account=config.account_id,
             warehouse=config.warehouse,
             database=config.database,
-            schema=config.schema,
+            # A blank schema (multi-schema import) must reach the connector as None, not "" —
+            # `schema=""` would try `USE SCHEMA ""`, an invalid identifier, and fail at connect time.
+            schema=normalize_namespace(config.schema),
             role=config.role,
             **auth_connect_args,
         ) as connection:

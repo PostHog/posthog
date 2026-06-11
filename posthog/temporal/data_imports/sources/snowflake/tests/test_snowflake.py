@@ -252,6 +252,22 @@ class TestConnect:
             # Sanity-check it's a DER-encoded PKCS8 blob the connector can parse.
             serialization.load_der_private_key(kwargs["private_key"], password=None, backend=default_backend())
 
+    @pytest.mark.parametrize("blank", ["", "   ", None])
+    def test_blank_schema_reaches_connector_as_none(self, impl, blank):
+        # `schema=""` would make the connector try `USE SCHEMA ""` (invalid) — normalize to None.
+        with patch("snowflake.connector.connect") as mock_connect:
+            mock_connect.return_value.__enter__.return_value = MagicMock()
+            with impl.connect(_make_config(schema=blank)):
+                pass
+            assert mock_connect.call_args.kwargs["schema"] is None
+
+    def test_set_schema_reaches_connector(self, impl):
+        with patch("snowflake.connector.connect") as mock_connect:
+            mock_connect.return_value.__enter__.return_value = MagicMock()
+            with impl.connect(_make_config(schema="SALES")):
+                pass
+            assert mock_connect.call_args.kwargs["schema"] == "SALES"
+
 
 # ---------------------------------------------------------------------------
 # Listing methods — they take a pre-opened connection
