@@ -3881,9 +3881,9 @@ snapshots:
     mcp-apps-trends--area-chart--light:
         hash: v1.k794b7964.6cf42e74cc7686abba8123717fd06198df9cec15b137857ebeff6a41d882f588.bIEusW4n6ate8V8Ujn33aEEEuqxdLQFibt6BcBUnK1g
     mcp-apps-trends--bar-value-few-series--light:
-        hash: v1.k794b7964.3a5ba60751ffd22f1e998cda41e63c30a1948b925de7c7f8861074e3ec572bea.llE1NKWEs58Fm4n5d10r7Tlm72vCzt-ZHubLiOkaIYU
+        hash: v1.k794b7964.0306912db87cc31480193197f8836a77bdb605eddff02f4f3a49513ea0607ffa.7eggN7eGBfu9J82WduiVyY_KMUPBFlus190tJfCKdnc
     mcp-apps-trends--bar-value-many-breakdowns--light:
-        hash: v1.k794b7964.1249026814f2d92f133f9a71e712fc17c7236211a3d1671092a3f8901f8adb22.QE5QFCKypNIrwCkKMrs_UyxYjU_vv-x4fVc5S2dVKg8
+        hash: v1.k794b7964.55d92ceb29c5fedf37ed82999dcb4d0a1122cead487ed73a8e8891cc4ce89ea2.zCQNhUwqzZqBkFs-rbqKBENtndciu2imsafQHGtsrsA
     mcp-apps-trends--multi-series--light:
         hash: v1.k794b7964.2622c6a6026ee9a0afdee272a93207428b6b162319c26f749f720301e95295b3.ud_GEZpQP8zR9kgPkMECKr09f544GEqMjVQzKPe-Zec
     mcp-apps-trends--single-series--light:
