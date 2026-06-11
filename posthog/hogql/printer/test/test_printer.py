@@ -2354,18 +2354,18 @@ class TestPrinter(BaseTest):
         assert generated_sql_statements1 == generated_sql_statements2
         assert generated_sql_statements1 == (
             f"SELECT "
+            # The view projects min(...)/sum(...), which resolve non-nullable, and the printer reads a subquery
+            # column's nullability from its resolved type — so every comparison below prints bare, no ifNull wrapping.
             # start_time = toStartOfMonth(now())
-            # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"ifNull(equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNull(session_replay_events.start_time) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))) AS a, "
+            f"equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))) AS a, "
             # 1 = 1
             f"1 AS b, "
             # click_count = 1
-            f"ifNull(equals(session_replay_events.click_count, 1), 0) AS c, "
+            f"equals(session_replay_events.click_count, 1) AS c, "
             # 1 = click_count
-            f"ifNull(equals(1, session_replay_events.click_count), 0) AS d, "
+            f"equals(1, session_replay_events.click_count) AS d, "
             # click_count = keypress_count
-            f"ifNull(equals(session_replay_events.click_count, session_replay_events.keypress_count), isNull(session_replay_events.click_count) and isNull(session_replay_events.keypress_count)) AS e, "
+            f"equals(session_replay_events.click_count, session_replay_events.keypress_count) AS e, "
             # click_count = null
             f"isNull(session_replay_events.click_count) AS f, "
             # null = click_count
@@ -2388,21 +2388,20 @@ class TestPrinter(BaseTest):
         assert generated_sql1 == generated_sql2
         assert generated_sql1 == (
             f"SELECT "
-            # start_time = toStartOfMonth(now())
-            # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"ifNull(notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNotNull(session_replay_events.start_time) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))) AS a, "
-            # 1 = 1
+            # Same as test_field_nullable_equals: non-nullable view columns print bare comparisons.
+            # start_time != toStartOfMonth(now())
+            f"notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))) AS a, "
+            # 1 != 1
             f"0 AS b, "
-            # click_count = 1
-            f"ifNull(notEquals(session_replay_events.click_count, 1), 1) AS c, "
-            # 1 = click_count
-            f"ifNull(notEquals(1, session_replay_events.click_count), 1) AS d, "
-            # click_count = keypress_count
-            f"ifNull(notEquals(session_replay_events.click_count, session_replay_events.keypress_count), isNotNull(session_replay_events.click_count) or isNotNull(session_replay_events.keypress_count)) AS e, "
-            # click_count = null
+            # click_count != 1
+            f"notEquals(session_replay_events.click_count, 1) AS c, "
+            # 1 != click_count
+            f"notEquals(1, session_replay_events.click_count) AS d, "
+            # click_count != keypress_count
+            f"notEquals(session_replay_events.click_count, session_replay_events.keypress_count) AS e, "
+            # click_count != null
             f"isNotNull(session_replay_events.click_count) AS f, "
-            # null = click_count
+            # null != click_count
             f"isNotNull(session_replay_events.click_count) AS g "
             # ...
             f"FROM (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
