@@ -213,11 +213,12 @@ class TestFingerprintEmbeddingResultActivity:
         assert result == 0
 
     def test_merge_fingerprint_skips_distances_above_threshold(self) -> None:
-        result = _merge_fingerprint_into_closest_issue(
-            team=MagicMock(id=2),
-            fingerprint="test-fingerprint",
-            closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.019)],
-        )
+        with override_settings(ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS=[2]):
+            result = _merge_fingerprint_into_closest_issue(
+                team=MagicMock(id=2),
+                fingerprint="test-fingerprint",
+                closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.019)],
+            )
 
         assert result == 0
 
