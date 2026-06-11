@@ -133,6 +133,8 @@ def _create_extract_read_secret(conn: psycopg.Connection[Any]) -> None:
         if creds is None:
             raise RuntimeError("No AWS credentials available to read the extract bucket from duckgres")
         frozen = creds.get_frozen_credentials()
+        if not frozen.access_key or not frozen.secret_key:
+            raise RuntimeError("AWS credential chain resolved without an access key pair")
         parts = [
             "TYPE S3",
             f"KEY_ID {_sql_str(frozen.access_key)}",
