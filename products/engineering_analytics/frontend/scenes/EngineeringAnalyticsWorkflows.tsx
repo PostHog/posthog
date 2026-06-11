@@ -2,13 +2,14 @@ import { useValues } from 'kea'
 
 import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { githubWorkflowUrl } from '../lib/github'
-import { WorkflowHealthRow, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
+import { WorkflowHealthRow, engineeringAnalyticsLogic, workflowTrendSeries } from './engineeringAnalyticsLogic'
 
 function formatSeconds(seconds: number | null): string {
     return seconds == null ? '—' : humanFriendlyDuration(seconds)
@@ -70,6 +71,29 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     {formatRate(row.successRate)}
                 </span>
             ),
+        },
+        {
+            title: 'Trend',
+            key: 'trend',
+            // Pinned so the layout doesn't shift when sorting reorders rows with and without history.
+            width: 272,
+            render: function RenderTrend(_, row) {
+                if (row.daily.length === 0) {
+                    return <span className="text-xs text-secondary">—</span>
+                }
+                const { values, labels } = workflowTrendSeries(row.daily)
+                return (
+                    <Sparkline
+                        className="h-8"
+                        type="bar"
+                        name="Non-passing"
+                        data={values}
+                        labels={labels}
+                        maximumIndicator={false}
+                        renderTooltipValue={(value) => `${humanFriendlyNumber(value * 100)}%`}
+                    />
+                )
+            },
         },
         {
             title: 'p50',

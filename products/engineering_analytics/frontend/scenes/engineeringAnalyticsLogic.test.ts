@@ -18,6 +18,7 @@ import {
     PullRequestRow,
     engineeringAnalyticsLogic,
     filterPullRequests,
+    workflowTrendSeries,
 } from './engineeringAnalyticsLogic'
 import { sortRunsForTriage } from './pullRequestDetailLogic'
 
@@ -204,6 +205,9 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.pullRequests[1].openToMergeSeconds).toBe(86400)
         expect(logic.values.workflowHealth).toHaveLength(1)
         expect(logic.values.workflowHealth[0].successRate).toBe(0.95)
+        expect(logic.values.workflowHealth[0].daily).toEqual([
+            { day: '2026-05-30', runCount: 100, completed: 95, successes: 90 },
+        ])
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
         expect(logic.values.loadFailed).toBe(false)
@@ -224,6 +228,15 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.resetFilters()
         expect(logic.values.filters).toEqual(DEFAULT_FILTERS)
         expect(logic.values.hasActiveFilters).toBe(false)
+    })
+
+    it.each([
+        ['a bad day spikes', { completed: 25, successes: 22 }, 0.12, 'Jun 5 · 3 of 25 non-passing'],
+        ['an all-green day stays flat', { completed: 25, successes: 25 }, 0, 'Jun 5 · 0 of 25 non-passing'],
+        ['a day with nothing completed stays flat', { completed: 0, successes: 0 }, 0, 'Jun 5 · no completed runs'],
+    ])('workflowTrendSeries: %s', (_label, counts, value, label) => {
+        const series = workflowTrendSeries([{ day: '2026-06-05', runCount: 30, ...counts }])
+        expect(series).toEqual({ values: [value], labels: [label] })
     })
 
     it('summarizeLifecycle rolls events up into milestones and verdicts', () => {

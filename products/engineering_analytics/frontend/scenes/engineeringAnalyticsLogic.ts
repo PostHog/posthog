@@ -57,6 +57,14 @@ export interface CardsData {
     failingCi: number
 }
 
+export interface WorkflowHealthDay {
+    /** UTC calendar day. */
+    day: string
+    runCount: number
+    completed: number
+    successes: number
+}
+
 export interface WorkflowHealthRow {
     repoOwner: string
     repoName: string
@@ -67,6 +75,23 @@ export interface WorkflowHealthRow {
     p50Seconds: number | null
     p95Seconds: number | null
     lastFailureAt: string | null
+    /** Zero-filled across the whole window, oldest first. */
+    daily: WorkflowHealthDay[]
+}
+
+/**
+ * Daily series for the trend sparkline. Bar height is the non-pass rate over runs
+ * that completed that day, so healthy rows stay flat and bad days spike.
+ */
+export function workflowTrendSeries(daily: WorkflowHealthDay[]): { values: number[]; labels: string[] } {
+    const values = daily.map((d) => (d.completed > 0 ? (d.completed - d.successes) / d.completed : 0))
+    const labels = daily.map((d) => {
+        const date = dayjs(d.day).format('MMM D')
+        return d.completed > 0
+            ? `${date} · ${d.completed - d.successes} of ${d.completed} non-passing`
+            : `${date} · no completed runs`
+    })
+    return { values, labels }
 }
 
 export function prKeyOf(row: Pick<PullRequestRow, 'repoOwner' | 'repoName' | 'number'>): string {
@@ -208,6 +233,12 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
                             p50Seconds: it.p50_seconds,
                             p95Seconds: it.p95_seconds,
                             lastFailureAt: it.last_failure_at,
+                            daily: it.daily.map((d) => ({
+                                day: d.day,
+                                runCount: d.run_count,
+                                completed: d.completed,
+                                successes: d.successes,
+                            })),
                         })
                     )
                 },
