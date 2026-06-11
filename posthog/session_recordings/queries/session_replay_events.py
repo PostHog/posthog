@@ -138,9 +138,7 @@ class SessionReplayEvents:
     @staticmethod
     def _check_exists_from(session_id: str, team: Team, date_from: Optional[datetime]) -> bool:
         optional_lower_bound_clause = "AND min_first_timestamp >= %(date_from)s" if date_from else ""
-        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
-        result = sync_execute(
-            f"""
+        query = f"""
             SELECT
                 count(),
                 min(min_first_timestamp) as start_time,
@@ -158,7 +156,10 @@ class SessionReplayEvents:
             HAVING
                 expiry_time >= %(python_now)s
                 AND max(is_deleted) = 0
-            """,
+            """
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
+        result = sync_execute(
+            query,
             {
                 "team_id": team.pk,
                 "session_id": session_id,
@@ -166,7 +167,7 @@ class SessionReplayEvents:
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
-        return result and result[0][0] > 0
+        return bool(result and result[0][0] > 0)
 
     def sessions_found_with_timestamps(
         self, session_ids: list[str], team: Team
@@ -211,7 +212,8 @@ class SessionReplayEvents:
         # Only bound the scan when every id parses — a single unparseable id must
         # still be findable anywhere in the retained range.
         lower_bounds = [uuidv7_session_lower_bound(session_id, now) for session_id in session_ids]
-        date_from = min(lower_bounds, default=None) if all(bound is not None for bound in lower_bounds) else None
+        parsed_bounds = [bound for bound in lower_bounds if bound is not None]
+        date_from = min(parsed_bounds) if parsed_bounds and len(parsed_bounds) == len(lower_bounds) else None
 
         sessions_found = SessionReplayEvents._find_with_timestamps_from(session_ids, team, now, date_from)
         if date_from is not None:
