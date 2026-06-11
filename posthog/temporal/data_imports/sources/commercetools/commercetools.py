@@ -175,7 +175,7 @@ def get_rows(
 
     while True:
         data = fetch_page(_build_url(base_url, config, anchor, offset))
-        items = data.get("results", []) or []
+        items = data["results"] or []
 
         if items:
             yield items

@@ -99,7 +99,7 @@ class TestValidateCredentials:
     @mock.patch("posthog.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session")
     def test_invalid_when_token_mint_fails(self, mock_session):
         resp = mock.MagicMock()
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=mock.MagicMock())
         mock_session.return_value.post.return_value = resp
         assert validate_credentials("us-central1.gcp", "my-project", "id", "secret") is False
 
