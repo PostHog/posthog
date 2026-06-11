@@ -9,10 +9,10 @@
  */
 /**
  * One chunk in a drill-down window over a single knowledge document.
-
-Output-only — the rows come from the `get_document_window` logic helper
-(a `KnowledgeSearchResult` dataclass), not the ORM, so this is a plain
-read serializer rather than a `ModelSerializer`.
+ *
+ * Output-only — the rows come from the `get_document_window` logic helper
+ * (a `KnowledgeSearchResult` dataclass), not the ORM, so this is a plain
+ * read serializer rather than a `ModelSerializer`.
  */
 export interface KnowledgeDocumentWindowApi {
     /** Stable identifier of this chunk. Same value used in search results. */
@@ -31,8 +31,8 @@ export interface KnowledgeDocumentWindowApi {
 
 /**
  * * `text` - Text
- * `url` - URL
- * `file` - File
+ * * `url` - URL
+ * * `file` - File
  */
 export type KnowledgeSourceSourceTypeEnumApi =
     (typeof KnowledgeSourceSourceTypeEnumApi)[keyof typeof KnowledgeSourceSourceTypeEnumApi]
@@ -45,9 +45,9 @@ export const KnowledgeSourceSourceTypeEnumApi = {
 
 /**
  * * `pending` - Pending
- * `processing` - Processing
- * `ready` - Ready
- * `error` - Error
+ * * `processing` - Processing
+ * * `ready` - Ready
+ * * `error` - Error
  */
 export type KnowledgeSourceStatusEnumApi =
     (typeof KnowledgeSourceStatusEnumApi)[keyof typeof KnowledgeSourceStatusEnumApi]
@@ -61,8 +61,8 @@ export const KnowledgeSourceStatusEnumApi = {
 
 /**
  * * `success` - Success
- * `not_modified` - Not modified
- * `error` - Error
+ * * `not_modified` - Not modified
+ * * `error` - Error
  */
 export type LastRefreshStatusEnumApi = (typeof LastRefreshStatusEnumApi)[keyof typeof LastRefreshStatusEnumApi]
 
@@ -74,10 +74,10 @@ export const LastRefreshStatusEnumApi = {
 
 /**
  * * `manual` - Manual only
- * `1h` - Every hour
- * `6h` - Every 6 hours
- * `24h` - Every day
- * `7d` - Every week
+ * * `1h` - Every hour
+ * * `6h` - Every 6 hours
+ * * `24h` - Every day
+ * * `7d` - Every week
  */
 export type RefreshIntervalEnumApi = (typeof RefreshIntervalEnumApi)[keyof typeof RefreshIntervalEnumApi]
 
@@ -91,9 +91,9 @@ export const RefreshIntervalEnumApi = {
 
 /**
  * * `single` - Single page
- * `sitemap` - Sitemap
- * `same_origin` - Same origin crawl
- * `github_repo` - GitHub repository
+ * * `sitemap` - Sitemap
+ * * `same_origin` - Same origin crawl
+ * * `github_repo` - GitHub repository
  */
 export type CrawlModeEnumApi = (typeof CrawlModeEnumApi)[keyof typeof CrawlModeEnumApi]
 
@@ -160,7 +160,7 @@ export interface CreateTextSourceApi {
 
 /**
  * PATCH payload for text sources. Both fields optional, at least one
-required. `text` triggers a re-chunk; `name` alone does not.
+ * required. `text` triggers a re-chunk; `name` alone does not.
  */
 export interface PatchedUpdateTextSourceApi {
     /**

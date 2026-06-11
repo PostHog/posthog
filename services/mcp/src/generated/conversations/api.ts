@@ -177,10 +177,10 @@ export const ConversationsTicketsMessagesListQueryParams = /* @__PURE__ */ zod.o
 
 /**
  * Post a reply or internal note to a ticket.
-
-With is_private=false, the reply is delivered to the customer via the
-ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
-the message is stored as an internal note only visible to team members.
+ *
+ * With is_private=false, the reply is delivered to the customer via the
+ * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
+ * the message is stored as an internal note only visible to team members.
  */
 export const ConversationsTicketsReplyCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe("The ticket's UUID or its numeric ticket number."),

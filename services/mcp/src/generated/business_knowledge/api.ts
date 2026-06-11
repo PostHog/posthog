@@ -10,8 +10,8 @@ import * as zod from 'zod'
 
 /**
  * Read-only access to parsed knowledge documents. Currently exposes only the
-`window` drill-down so an agent (PHAI or MCP) can pull a wider context span
-around a chunk it found via search.
+ * `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
+ * around a chunk it found via search.
  */
 export const BusinessKnowledgeDocumentsWindowListParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this knowledge document.'),

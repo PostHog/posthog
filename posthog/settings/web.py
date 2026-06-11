@@ -454,7 +454,7 @@ SPECTACULAR_SETTINGS = {
         #    both the no-x-spec-enum-id type-hint path and the inline-choices ChoiceField
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
-        "CodePrSnapshotStateEnum": "products.tasks.backend.models.CodePrSnapshot.State",
+        "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
@@ -521,7 +521,6 @@ SPECTACULAR_SETTINGS = {
         ],
         "AssigneeTypeEnum": ["user", "role"],
         "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "cancelled", "failed"],
-        "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
@@ -908,12 +907,3 @@ AGENT_INGRESS_PUBLIC_URL = get_from_env("AGENT_INGRESS_PUBLIC_URL", "")
 # tokens signed by a baked-in dev string that ends up dispatched to a real
 # upstream service.
 AGENT_INTERNAL_SIGNING_KEY = get_from_env("AGENT_INTERNAL_SIGNING_KEY", "")
-
-# ai-gateway billing read plane — Django proxies wallet + ledger reads to this URL.
-# Defaults to the well-known dev secret baked into ai-gateway/bin/start so
-# `/billing` works out of the box. Prod MUST override both via env. Mismatched
-# secret → billing returns 401 → Django surfaces 502 to the caller.
-AI_GATEWAY_BILLING_URL = get_from_env("AI_GATEWAY_BILLING_URL", "http://localhost:8089")
-AI_GATEWAY_BILLING_INTERNAL_SECRET = get_from_env(
-    "AI_GATEWAY_BILLING_INTERNAL_SECRET", "dev-local-only-secret-change-me"
-)

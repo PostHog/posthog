@@ -45,7 +45,7 @@ export const getBusinessKnowledgeDocumentsWindowListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -58,8 +58,8 @@ export const getBusinessKnowledgeDocumentsWindowListUrl = (
 
 /**
  * Read-only access to parsed knowledge documents. Currently exposes only the
-`window` drill-down so an agent (PHAI or MCP) can pull a wider context span
-around a chunk it found via search.
+ * `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
+ * around a chunk it found via search.
  */
 export const businessKnowledgeDocumentsWindowList = async (
     projectId: string,
@@ -78,7 +78,7 @@ export const getBusinessKnowledgeSourcesListUrl = (projectId: string, params?: B
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

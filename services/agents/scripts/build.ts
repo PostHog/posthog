@@ -45,9 +45,19 @@ await build({
     loader: { '.json': 'json', '.sql': 'text' },
     define: { 'process.env.NODE_ENV': '"production"' },
     // CJS deps (pg, node-pg-migrate, jose) call through to a global
-    // `require`. ESM has no `require`; banner injects one. Same pattern
-    // as services/mcp/scripts/hono-esbuild-config.ts.
-    banner: { js: `import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);` },
+    // `require`. ESM has no `require`; banner injects one. `typescript`
+    // (bundled via the janitor's compile-custom-tools) also reaches for
+    // `__filename` / `__dirname`, which ESM doesn't define — shim both from
+    // `import.meta.url`. Same pattern as services/mcp/scripts/hono-esbuild-config.ts.
+    banner: {
+        js:
+            `import { createRequire as __cr } from 'module';` +
+            `import { fileURLToPath as __furl } from 'url';` +
+            `import { dirname as __dn } from 'path';` +
+            `const require = __cr(import.meta.url);` +
+            `const __filename = __furl(import.meta.url);` +
+            `const __dirname = __dn(__filename);`,
+    },
     logLevel: 'info',
 })
 

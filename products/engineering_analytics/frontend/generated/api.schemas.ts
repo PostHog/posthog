@@ -40,12 +40,13 @@ export interface RepoRefApi {
 
 /**
  * * `open` - OPEN
- * `closed` - CLOSED
- * `merged` - MERGED
+ * * `closed` - CLOSED
+ * * `merged` - MERGED
  */
-export type State387EnumApi = (typeof State387EnumApi)[keyof typeof State387EnumApi]
+export type EngineeringAnalyticsPRStateEnumApi =
+    (typeof EngineeringAnalyticsPRStateEnumApi)[keyof typeof EngineeringAnalyticsPRStateEnumApi]
 
-export const State387EnumApi = {
+export const EngineeringAnalyticsPRStateEnumApi = {
     Open: 'open',
     Closed: 'closed',
     Merged: 'merged',
@@ -63,11 +64,11 @@ export interface PullRequestApi {
     /** Pull request title. */
     title: string
     /** Derived state: 'open', 'closed', or 'merged'.
-
-  * `open` - OPEN
-  * `closed` - CLOSED
-  * `merged` - MERGED */
-    state: State387EnumApi
+     *
+     * * `open` - OPEN
+     * * `closed` - CLOSED
+     * * `merged` - MERGED */
+    state: EngineeringAnalyticsPRStateEnumApi
     /** True if the pull request is a draft. */
     is_draft: boolean
     /** When the pull request was opened. */
@@ -86,10 +87,10 @@ export interface PullRequestApi {
 
 /**
  * * `opened` - OPENED
- * `ci_started` - CI_STARTED
- * `ci_finished` - CI_FINISHED
- * `merged` - MERGED
- * `closed` - CLOSED
+ * * `ci_started` - CI_STARTED
+ * * `ci_finished` - CI_FINISHED
+ * * `merged` - MERGED
+ * * `closed` - CLOSED
  */
 export type PRLifecycleEventKindEnumApi = (typeof PRLifecycleEventKindEnumApi)[keyof typeof PRLifecycleEventKindEnumApi]
 
@@ -103,12 +104,12 @@ export const PRLifecycleEventKindEnumApi = {
 
 export interface PRLifecycleEventApi {
     /** Event kind: opened, ci_started, ci_finished, merged, or closed.
-
-  * `opened` - OPENED
-  * `ci_started` - CI_STARTED
-  * `ci_finished` - CI_FINISHED
-  * `merged` - MERGED
-  * `closed` - CLOSED */
+     *
+     * * `opened` - OPENED
+     * * `ci_started` - CI_STARTED
+     * * `ci_finished` - CI_FINISHED
+     * * `merged` - MERGED
+     * * `closed` - CLOSED */
     kind: PRLifecycleEventKindEnumApi
     /** When the event occurred. */
     at: string
@@ -121,8 +122,8 @@ export interface PRLifecycleEventApi {
 
 /**
  * * `precise` - PRECISE
- * `coarse` - COARSE
- * `partial` - PARTIAL
+ * * `coarse` - COARSE
+ * * `partial` - PARTIAL
  */
 export type MetricQualityEnumApi = (typeof MetricQualityEnumApi)[keyof typeof MetricQualityEnumApi]
 
@@ -138,10 +139,10 @@ export interface PRLifecycleApi {
     /** Lifecycle events ordered by time. */
     events: PRLifecycleEventApi[]
     /** Always 'partial' — CI events only; reviews and comments are not yet available.
-
-  * `precise` - PRECISE
-  * `coarse` - COARSE
-  * `partial` - PARTIAL */
+     *
+     * * `precise` - PRECISE
+     * * `coarse` - COARSE
+     * * `partial` - PARTIAL */
     metric_quality?: MetricQualityEnumApi
 }
 
@@ -168,11 +169,11 @@ export interface PullRequestListItemApi {
     /** Pull request title. */
     title: string
     /** Derived state: 'open', 'closed', or 'merged'.
-
-  * `open` - OPEN
-  * `closed` - CLOSED
-  * `merged` - MERGED */
-    state: State387EnumApi
+     *
+     * * `open` - OPEN
+     * * `closed` - CLOSED
+     * * `merged` - MERGED */
+    state: EngineeringAnalyticsPRStateEnumApi
     /** True if the pull request is a draft. */
     is_draft: boolean
     /** When the pull request was opened. */
