@@ -46,6 +46,31 @@ if (!shaReportPath) {
 
 const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'))
 
+// The base build runs last (see the write-side comment in check-eager-graph.mjs),
+// so the plain report filename holds the base branch's measurement — the comparison
+// baseline, like the compressed-size check's. The embedded sha guards against the
+// plain file being this PR's own report (the base build didn't run the check, e.g.
+// a base branch that predates it).
+const baseReport = (() => {
+    const candidate = path.join(frontendDir, 'eager-graph-report.json')
+    if (!fs.existsSync(candidate)) {
+        return null
+    }
+    try {
+        const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'))
+        if (parsed.sha && report.sha && parsed.sha !== report.sha) {
+            return parsed
+        }
+    } catch {
+        return null
+    }
+    return null
+})()
+const baseBytes = Object.fromEntries((baseReport?.roots ?? []).map((r) => [r.root, r.bytes]))
+if (!baseReport) {
+    console.warn('No base-branch report found — the comment will not show a vs-base delta.')
+}
+
 function formatBytes(bytes) {
     const abs = Math.abs(bytes)
     if (abs >= 1024 * 1024) {
@@ -57,15 +82,21 @@ function formatBytes(bytes) {
     return `${bytes} B`
 }
 
-function formatDelta(bytes, previousBytes) {
-    if (previousBytes === undefined) {
-        return '_(first run)_'
+function formatDelta(bytes, baselineBytes) {
+    if (baselineBytes === undefined) {
+        return '_(no base measurement)_'
     }
-    const delta = bytes - previousBytes
+    const delta = bytes - baselineBytes
     if (delta === 0) {
         return 'no change'
     }
-    return `${delta > 0 ? '+' : '-'}${formatBytes(Math.abs(delta))}`
+    const sign = delta > 0 ? '+' : '-'
+    const magnitude = `${delta > 0 ? '🔺' : '🟢'} ${sign}${formatBytes(Math.abs(delta))}`
+    if (baselineBytes === 0) {
+        return `${magnitude} (new)`
+    }
+    const percent = ((Math.abs(delta) / baselineBytes) * 100).toFixed(1)
+    return `${magnitude} (${sign}${percent}%)`
 }
 
 function budgetBar(bytes, budgetBytes) {
@@ -106,31 +137,21 @@ try {
     process.exit(0)
 }
 
-const previous = (() => {
-    const match = existing?.body?.match(/<!-- posthog-eager-graph-data (.*?) -->/s)
-    try {
-        return match ? JSON.parse(match[1]) : {}
-    } catch {
-        return {}
-    }
-})()
-
 const anyFailure = report.roots.some((r) => r.overBudget || r.forbiddenHits.length > 0) || report.errors?.length > 0
 const lines = [
     MARKER,
-    `<!-- posthog-eager-graph-data ${JSON.stringify(Object.fromEntries(report.roots.map((r) => [r.root, r.bytes])))} -->`,
     `## ${anyFailure ? '❌' : '🕸️'} Eager graph`,
     '',
     "How much code each root forces the browser to download and decode through *static* imports — the regression class total bundle size can't see.",
     '',
-    '| Root | Eager closure | Δ this PR run | Budget |',
+    '| Root | Eager closure | Δ vs base | Budget |',
     '| --- | --- | --- | --- |',
 ]
 
 for (const r of report.roots) {
     const status = r.overBudget ? '❌ ' : ''
     lines.push(
-        `| ${status}**${r.label}**<br/>\`${r.root}\` | ${formatBytes(r.bytes)} · ${r.files.toLocaleString()} files | ${formatDelta(r.bytes, previous[r.root])} | ${budgetBar(r.bytes, r.budgetBytes)} |`
+        `| ${status}**${r.label}**<br/>\`${r.root}\` | ${formatBytes(r.bytes)} · ${r.files.toLocaleString()} files | ${formatDelta(r.bytes, baseBytes[r.root])} | ${budgetBar(r.bytes, r.budgetBytes)} |`
     )
 }
 lines.push('')
