@@ -50,6 +50,7 @@ the replay covers the long tail (custom hosts, custom filters, etc.).
 """
 
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
@@ -90,6 +91,13 @@ BASELINE_WINDOW_DAYS = 31
 # queries hitting ClickHouse — keep it small so warming never competes with
 # user-facing traffic for the per-user query cap.
 WARM_TEAM_CONCURRENCY = 5
+
+
+# `context.log` (Dagster's DagsterLogManager) is shared across the warm pool's
+# threads, and its event-storage writes are not guaranteed thread-safe, so the
+# in-thread op-log calls are serialized through this lock. structlog (`logger`)
+# is already thread-safe and is left unguarded.
+_OP_LOG_LOCK = threading.Lock()
 
 
 # The set of `WebStatsBreakdown` values rendered as tiles in the Web
@@ -235,7 +243,8 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
         # Per-tile start line so the run is followable live in the Dagster UI —
         # each tile can take up to the query timeout, so seeing which one is in
         # flight (and how far through the matrix) matters when a run drags.
-        context.log.info(f"eager_baseline_warming_tile_start [{idx}/{total}] team={team.pk} query={label}")
+        with _OP_LOG_LOCK:
+            context.log.info(f"eager_baseline_warming_tile_start [{idx}/{total}] team={team.pk} query={label}")
         logger.info("eager_baseline_warming_tile_start", team_id=team.pk, query=label, tile=idx, total=total)
         tile_started = time.monotonic()
         try:
@@ -266,9 +275,10 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             # stale/missing precompute or a non-precomputable breakdown can't hide.
             if getattr(response, "usedLazyPrecompute", None) is not True:
                 EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED.labels(query_kind=label).inc()
-                context.log.warning(
-                    f"eager_baseline_warming_tile_not_precomputed [{idx}/{total}] team={team.pk} query={label}"
-                )
+                with _OP_LOG_LOCK:
+                    context.log.warning(
+                        f"eager_baseline_warming_tile_not_precomputed [{idx}/{total}] team={team.pk} query={label}"
+                    )
                 logger.warning(
                     "eager_baseline_warming_tile_not_precomputed",
                     team_id=team.pk,
@@ -277,10 +287,11 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
                     total=total,
                 )
             tile_ms = round((time.monotonic() - tile_started) * 1000)
-            context.log.info(
-                f"eager_baseline_warming_tile_done [{idx}/{total}] team={team.pk} query={label} "
-                f"status=warmed duration_ms={tile_ms}"
-            )
+            with _OP_LOG_LOCK:
+                context.log.info(
+                    f"eager_baseline_warming_tile_done [{idx}/{total}] team={team.pk} query={label} "
+                    f"status=warmed duration_ms={tile_ms}"
+                )
             logger.info(
                 "eager_baseline_warming_tile_done",
                 team_id=team.pk,
@@ -293,10 +304,11 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
         except Exception as exc:
             tile_ms = round((time.monotonic() - tile_started) * 1000)
             EAGER_PRECOMPUTE_BASELINE_FAILED.labels(query_kind=label, error_type=type(exc).__name__).inc()
-            context.log.exception(
-                f"eager_baseline_warming_query_failed [{idx}/{total}] team={team.pk} query={label} "
-                f"duration_ms={tile_ms}"
-            )
+            with _OP_LOG_LOCK:
+                context.log.exception(
+                    f"eager_baseline_warming_query_failed [{idx}/{total}] team={team.pk} query={label} "
+                    f"duration_ms={tile_ms}"
+                )
             logger.exception(
                 "eager_baseline_warming_query_failed",
                 team_id=team.pk,
@@ -365,8 +377,15 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
 
     def _warm(team: Team) -> tuple[int, int]:
         team_started = time.monotonic()
+        team_warmed = team_failed = 0
         try:
             team_warmed, team_failed = _warm_baseline_for_team(context, team)
+        except Exception:
+            # `_warm_baseline_for_team` guards each tile, but a failure *outside*
+            # that loop (e.g. building the tile matrix) would otherwise propagate
+            # out of `pool.map`, abort the teams not yet iterated, and discard the
+            # counts of teams that already warmed. Contain it so the pool drains.
+            logger.exception("eager_baseline_warming_team_errored", team_id=team.pk)
         finally:
             # Each pool thread holds its own Django DB connections; close them on
             # the way out so the run doesn't leak one connection per team.
