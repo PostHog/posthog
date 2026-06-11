@@ -36,7 +36,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
-from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable
+from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -92,6 +92,16 @@ class TestImageExporter(APIBaseTest):
         )
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_PREFIX).delete()
+
+    def test_export_without_renderable_target_raises_invalid_export_context(self, *args: Any) -> None:
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={},
+        )
+
+        with self.assertRaises(InvalidExportContext):
+            image_exporter._export_to_png(exported_asset)
 
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):

@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -18,35 +19,27 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { isHogQLQuery } from '~/queries/utils'
-import { EndpointType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, EndpointType } from '~/types'
 
 import { humanizeQueryKind } from './common'
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 
-interface EndpointsProps {
-    tabId: string
-}
-
-interface EndpointsTableProps {
-    tabId: string
-}
-
-export function Endpoints({ tabId }: EndpointsProps): JSX.Element {
+export function Endpoints(): JSX.Element {
     return (
         <>
-            <EndpointsTable tabId={tabId} />
+            <EndpointsTable />
         </>
     )
 }
 
-export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
-    const { setFilters, loadEndpoints } = useActions(endpointsLogic({ tabId }))
-    const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic({ tabId }))
+export const EndpointsTable = (): JSX.Element => {
+    const { setFilters, loadEndpoints } = useActions(endpointsLogic)
+    const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic)
 
-    const { deleteEndpoint, confirmToggleActive, setDuplicateEndpoint } = useActions(endpointLogic({ tabId }))
-    const { duplicateEndpoint } = useValues(endpointLogic({ tabId }))
+    const { deleteEndpoint, confirmToggleActive, setDuplicateEndpoint } = useActions(endpointLogic)
+    const { duplicateEndpoint } = useValues(endpointLogic)
 
     const handleDelete = (endpointName: string): void => {
         LemonDialog.open({
@@ -177,30 +170,45 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                             >
                                 View usage
                             </LemonButton>
-                            <LemonButton onClick={() => handleDuplicate(record)} fullWidth>
-                                Duplicate endpoint
-                            </LemonButton>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Endpoint}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton onClick={() => handleDuplicate(record)} fullWidth>
+                                    Duplicate endpoint
+                                </LemonButton>
+                            </AccessControlAction>
 
                             <LemonDivider />
-                            <LemonButton
-                                onClick={() => {
-                                    handleEndpointActivation(record)
-                                }}
-                                fullWidth
-                                status="alt"
-                                data-attr="endpoint-activate"
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Endpoint}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                {record.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
-                            </LemonButton>
-                            <LemonButton
-                                onClick={() => {
-                                    handleDelete(record.name)
-                                }}
-                                fullWidth
-                                status="danger"
+                                <LemonButton
+                                    onClick={() => {
+                                        handleEndpointActivation(record)
+                                    }}
+                                    fullWidth
+                                    status="alt"
+                                    data-attr="endpoint-activate"
+                                >
+                                    {record.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
+                                </LemonButton>
+                            </AccessControlAction>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Endpoint}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                Delete endpoint
-                            </LemonButton>
+                                <LemonButton
+                                    onClick={() => {
+                                        handleDelete(record.name)
+                                    }}
+                                    fullWidth
+                                    status="danger"
+                                >
+                                    Delete endpoint
+                                </LemonButton>
+                            </AccessControlAction>
                         </>
                     }
                 />
@@ -255,7 +263,6 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
             />
             {duplicateEndpoint && (
                 <EndpointFromInsightModal
-                    tabId={tabId}
                     insightQuery={duplicateEndpoint.query}
                     insightShortId={duplicateEndpoint.derived_from_insight ?? undefined}
                 />

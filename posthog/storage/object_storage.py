@@ -89,6 +89,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
     def delete(self, bucket: str, key: str) -> None:
         pass
 
+    @abc.abstractmethod
+    def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
+        pass
+
 
 class UnavailableStorage(ObjectStorageClient):
     def head_bucket(self, bucket: str):
@@ -141,6 +145,9 @@ class UnavailableStorage(ObjectStorageClient):
 
     def delete(self, bucket: str, key: str) -> None:
         pass
+
+    def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
+        return []
 
 
 class ObjectStorage(ObjectStorageClient):
@@ -366,6 +373,34 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("delete failed") from e
 
+    def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
+        failed_keys: list[str] = []
+
+        for index in range(0, len(keys), 1000):
+            chunk = keys[index : index + 1000]
+            if not chunk:
+                continue
+
+            response = {}
+            try:
+                response = self.aws_client.delete_objects(
+                    Bucket=bucket,
+                    Delete={"Objects": [{"Key": key} for key in chunk], "Quiet": True},
+                )
+                failed_keys.extend(error["Key"] for error in response.get("Errors", []))
+            except Exception as e:
+                logger.exception(
+                    "object_storage.delete_objects_failed",
+                    bucket=bucket,
+                    keys_count=len(chunk),
+                    error=e,
+                    s3_response=response,
+                )
+                capture_exception(e)
+                failed_keys.extend(chunk)
+
+        return failed_keys
+
 
 _client: ObjectStorageClient = UnavailableStorage()
 
@@ -432,6 +467,10 @@ def write_stream(file_name: str, fileobj: IO[bytes], extras: dict | None = None,
 
 def delete(file_name: str, bucket: str | None = None) -> None:
     return object_storage_client().delete(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
+
+
+def delete_objects(file_names: list[str], bucket: str | None = None) -> list[str]:
+    return object_storage_client().delete_objects(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, keys=file_names)
 
 
 def tag(file_name: str, tags: dict[str, str]) -> None:

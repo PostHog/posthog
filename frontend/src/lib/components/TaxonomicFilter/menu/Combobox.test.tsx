@@ -14,10 +14,15 @@ import { initKeaTests } from '~/test/init'
 import { TaxonomicFilterHeadless } from '../headless'
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
 import { TaxonomicFilterGroupType } from '../types'
-import { MenuFilterCombobox } from './Combobox'
+import { MenuFilterCombobox, SEARCH_QUERY_DEBOUNCE_MS } from './Combobox'
 
 jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
+}))
+
+jest.mock('posthog-js', () => ({
+    __esModule: true,
+    default: { capture: jest.fn() },
 }))
 
 jest.mock('lib/api', () => {
@@ -38,6 +43,7 @@ jest.mock('lib/api', () => {
 })
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
+const captureMock = jest.requireMock('posthog-js').default.capture as jest.Mock
 
 function renderCombobox(): ReturnType<typeof render> {
     return render(
@@ -66,6 +72,7 @@ function renderAll(options: {
     recentEntries?: any[]
     pinnedEntries?: any[]
     searchQuery?: string
+    onCommit?: any
 }): ReturnType<typeof render> {
     return render(
         <Provider>
@@ -78,7 +85,7 @@ function renderAll(options: {
                     drillTo="all"
                     recentEntries={options.recentEntries}
                     pinnedEntries={options.pinnedEntries}
-                    onCommit={jest.fn()}
+                    onCommit={options.onCommit ?? jest.fn()}
                     onBack={jest.fn()}
                 />
             </TaxonomicFilterHeadless.Root>
@@ -96,6 +103,7 @@ describe('MenuFilterCombobox', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
+        captureMock.mockClear()
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({})
         initKeaTests()
@@ -304,13 +312,38 @@ describe('MenuFilterCombobox', () => {
         expect(pageviewRows).toHaveLength(1)
     })
 
-    it('floats $email to the top of the content when searching "email"', async () => {
+    it('shows a complete recent as both a full value row and a separate bare key row', async () => {
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.EventProperties],
+            recentEntries: [
+                {
+                    ...makeEntry(TaxonomicFilterGroupType.EventProperties, '$browser', 'Event properties'),
+                    recentPropertyFilter: { key: '$browser', operator: 'exact', value: 'Chrome' },
+                    recentLabel: 'Browser = Chrome',
+                },
+                makeEntry(TaxonomicFilterGroupType.EventProperties, '$browser', 'Event properties'),
+            ],
+        })
+
+        await waitFor(() => expect(rowTexts().length).toBeGreaterThan(0))
+        const texts = rowTexts()
+        expect(texts.some((t) => t.includes('Browser = Chrome'))).toBe(true)
+        expect(texts.some((t) => t.includes('$browser') && !t.includes('Chrome'))).toBe(true)
+    })
+
+    it.each([
+        ['email', '$email'],
+        ['url', '$current_url'],
+        ['path', '$pathname'],
+    ])('floats the promoted property to the top of the content when searching %p', async (searchTerm, promotedName) => {
         apiGet.mockImplementation((url: string) => {
             if (url.includes('property_definitions')) {
+                // The decoy is returned first so a passing assertion can only mean
+                // promotion reordered the result, not the server order.
                 return Promise.resolve({
                     results: [
                         { id: 1, name: 'other_prop' },
-                        { id: 2, name: '$email' },
+                        { id: 2, name: promotedName },
                     ],
                     count: 2,
                 })
@@ -318,14 +351,123 @@ describe('MenuFilterCombobox', () => {
             return Promise.resolve({ results: [], count: 0 })
         })
 
-        renderAll({ groupTypes: [TaxonomicFilterGroupType.EventProperties], searchQuery: 'email' })
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.EventProperties], searchQuery: searchTerm })
 
         await waitFor(() => expect(screen.getByText('other_prop')).toBeInTheDocument())
         const rows = rowTexts()
-        const emailIdx = rows.findIndex((t) => t.includes('$email'))
+        const promotedIdx = rows.findIndex((t) => t.includes(promotedName))
         const otherIdx = rows.findIndex((t) => t.includes('other_prop'))
-        expect(emailIdx).toBeGreaterThanOrEqual(0)
-        expect(emailIdx).toBeLessThan(otherIdx)
+        expect(promotedIdx).toBeGreaterThanOrEqual(0)
+        expect(promotedIdx).toBeLessThan(otherIdx)
+    })
+
+    describe('pageview URLs collapse to a single "contains" suggestion', () => {
+        const mockUrlValues = (urls: string[]): void => {
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('events/values') && url.includes('current_url')) {
+                    return Promise.resolve(urls.map((name) => ({ name })))
+                }
+                return Promise.resolve({ results: [], count: 0 })
+            })
+        }
+
+        it('collapses matching URLs into one "URL contains <query>" row, not the raw URL list', async () => {
+            mockUrlValues(['https://app.posthog.com/checkout', 'https://app.posthog.com/checkout/pay'])
+
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: 'checkout' })
+
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "checkout"'))).toBe(true))
+            const rows = rowTexts()
+            // Exactly one synthetic row, and none of the raw matched URLs are listed.
+            expect(rows.filter((t) => t.includes('URL contains "checkout"'))).toHaveLength(1)
+            expect(rows.some((t) => t.includes('https://app.posthog.com/checkout'))).toBe(false)
+        })
+
+        it('shows no URL suggestion when no pageview URL matches (0 slots)', async () => {
+            mockUrlValues([])
+
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: 'zzznomatch' })
+
+            await waitFor(() => expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument())
+            expect(screen.queryByText(/URL contains/)).not.toBeInTheDocument()
+        })
+
+        it('does not offer Pageview URLs as a navigable category', async () => {
+            const user = userEvent.setup()
+            mockUrlValues(['https://app.posthog.com/checkout'])
+
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PageviewUrls],
+            })
+
+            await user.click(screen.getByRole('combobox', { name: 'Filter category' }))
+            expect(screen.queryByRole('option', { name: 'Pageview URLs' })).not.toBeInTheDocument()
+        })
+
+        it('commits the typed query as the value so it becomes $current_url contains <query>', async () => {
+            const user = userEvent.setup()
+            const onCommit = jest.fn()
+            mockUrlValues(['https://app.posthog.com/checkout'])
+
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.PageviewUrls],
+                searchQuery: 'checkout',
+                onCommit,
+            })
+
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "checkout"'))).toBe(true))
+            const row = Array.from(document.querySelectorAll('[data-slot="taxonomic-filter-menu-row"]')).find((el) =>
+                el.textContent?.includes('URL contains "checkout"')
+            ) as HTMLElement
+            await user.click(row)
+
+            const [entry] = onCommit.mock.calls[0]
+            expect(entry.group.type).toBe(TaxonomicFilterGroupType.PageviewUrls)
+            // getValue reads the item name; the synthetic row carries the query, which
+            // `taxonomicPropertyFilterLogic.selectItem` turns into `$current_url IContains`.
+            expect(entry.group.getValue(entry.item)).toBe('checkout')
+            // Tagged so the commit telemetry can measure adoption of the shortcut.
+            expect((entry.item as { isContainsShortcut?: boolean }).isContainsShortcut).toBe(true)
+        })
+
+        it('opens on the All scope when the committed selection is from the hidden Pageview URLs category', async () => {
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('property_definitions')) {
+                    return Promise.resolve({ results: [{ id: 1, name: '$browser' }], count: 1 })
+                }
+                return Promise.resolve([])
+            })
+            // What TaxonomicPopoverMenu builds when reopening an existing
+            // `$current_url icontains <value>` filter picked via the shortcut.
+            const selectedEntry = makeEntry(TaxonomicFilterGroupType.PageviewUrls, 'checkout', 'Pageview URLs')
+
+            render(
+                <Provider>
+                    <TaxonomicFilterHeadless.Root
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PageviewUrls,
+                        ]}
+                        onChange={jest.fn()}
+                    >
+                        <MenuFilterCombobox
+                            drillTo="all"
+                            selectedEntry={selectedEntry}
+                            onCommit={jest.fn()}
+                            onBack={jest.fn()}
+                        />
+                    </TaxonomicFilterHeadless.Root>
+                </Provider>
+            )
+
+            // Stranded-scope regression: the category dropdown must read "All"
+            // (pageview_urls is not a navigable option) and the All-surface
+            // content must render rather than an empty hidden-category list.
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('$browser'))).toBe(true))
+            expect(screen.getByRole('combobox', { name: 'Filter category' })).toHaveTextContent('All')
+            // The committed selection stays reachable via the selected-entry prepend.
+            expect(rowTexts().some((t) => t.includes('checkout'))).toBe(true)
+        })
     })
 
     it('drops the recents/pinned prefix once the query no longer matches them', async () => {
@@ -400,5 +542,247 @@ describe('MenuFilterCombobox', () => {
         await user.click(screen.getByRole('combobox', { name: 'Filter category' }))
         expect(await screen.findByRole('option', { name: 'Recent' })).toBeInTheDocument()
         expect(screen.getByRole('option', { name: 'Pinned' })).toBeInTheDocument()
+    })
+
+    it('forwards row selection context on commit and does not emit the legacy event itself', async () => {
+        const user = userEvent.setup()
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+        const onCommit = jest.fn()
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'pageview', 'Events')],
+            onCommit,
+        })
+
+        await waitFor(() => expect(document.querySelector('[data-slot="taxonomic-filter-menu-row"]')).toBeTruthy())
+        await user.click(document.querySelector('[data-slot="taxonomic-filter-menu-row"]') as HTMLElement)
+
+        expect(onCommit).toHaveBeenCalledWith(
+            expect.objectContaining({ group: expect.objectContaining({ type: TaxonomicFilterGroupType.Events }) }),
+            undefined,
+            // groupType is undefined for the 'all' meta scope; the final-commit funnel
+            // (TaxonomicFilterMenu) turns this context into the legacy event.
+            {
+                groupType: undefined,
+                position: 0,
+                wasFromRecents: true,
+                wasFromPinnedList: false,
+            }
+        )
+        // The combobox no longer fires the legacy event on row click — that moved to
+        // the final-commit funnel so cancelable DWH table picks are not counted.
+        expect(captureMock).not.toHaveBeenCalledWith('taxonomic filter item selected', expect.anything())
+    })
+
+    it('forwards wasFromPinnedList=true in the commit context for a pinned row', async () => {
+        const user = userEvent.setup()
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+        const onCommit = jest.fn()
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.EventProperties],
+            pinnedEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, 'plan', 'Event properties')],
+            onCommit,
+        })
+
+        await waitFor(() => expect(document.querySelector('[data-slot="taxonomic-filter-menu-row"]')).toBeTruthy())
+        await user.click(document.querySelector('[data-slot="taxonomic-filter-menu-row"]') as HTMLElement)
+
+        expect(onCommit).toHaveBeenCalledWith(
+            expect.anything(),
+            undefined,
+            expect.objectContaining({ wasFromPinnedList: true, wasFromRecents: false })
+        )
+    })
+
+    it('captures debounced `taxonomic_filter_search_query` for a typed query', async () => {
+        // Fake timers only here — the rest of the suite drives real async via
+        // userEvent/waitFor. Scoped so advancing the debounce is deterministic and
+        // instant instead of blocking on a real 500 ms timeout.
+        jest.useFakeTimers()
+        try {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.Events], searchQuery: 'pageview' })
+
+            await act(async () => {
+                // Flush the data-fetch microtasks the debounce effect rides behind…
+                await Promise.resolve()
+                // …then fire the debounce timer.
+                jest.advanceTimersByTime(SEARCH_QUERY_DEBOUNCE_MS)
+            })
+
+            expect(captureMock).toHaveBeenCalledWith(
+                'taxonomic_filter_search_query',
+                expect.objectContaining({
+                    surface: 'rebuild-menu',
+                    searchQuery: 'pageview',
+                    inputMode: 'typed',
+                    pastedFraction: 0,
+                    // Stale events hidden by default → excludeStale reads true at search time.
+                    excludeStale: true,
+                })
+            )
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('captures `taxonomic filter empty result` for a no-match search', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.Events], searchQuery: 'zzz_no_match' })
+
+        await waitFor(() =>
+            expect(captureMock).toHaveBeenCalledWith(
+                'taxonomic filter empty result',
+                expect.objectContaining({ searchQuery: 'zzz_no_match' })
+            )
+        )
+    })
+
+    it('fires `taxonomic filter empty result` exactly once per scope+query (dedup)', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.Events], searchQuery: 'zzz_no_match' })
+
+        await waitFor(() =>
+            expect(captureMock).toHaveBeenCalledWith(
+                'taxonomic filter empty result',
+                expect.objectContaining({ searchQuery: 'zzz_no_match' })
+            )
+        )
+
+        const emptyResultCalls = captureMock.mock.calls.filter(
+            ([event, props]: [string, any]) =>
+                event === 'taxonomic filter empty result' && props?.searchQuery === 'zzz_no_match'
+        )
+        expect(emptyResultCalls).toHaveLength(1)
+    })
+
+    it('re-fires empty result for a query revisited after a different one (last-key dedup, matches legacy)', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+        const emptyFor = (q: string): number =>
+            captureMock.mock.calls.filter(
+                ([event, props]: [string, any]) => event === 'taxonomic filter empty result' && props?.searchQuery === q
+            ).length
+        const tree = (q: string): JSX.Element => (
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery={q}
+                >
+                    <MenuFilterCombobox drillTo="all" onCommit={jest.fn()} onBack={jest.fn()} />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        const { rerender } = render(tree('aaa'))
+        await waitFor(() => expect(emptyFor('aaa')).toBe(1))
+
+        rerender(tree('bbb'))
+        await waitFor(() => expect(emptyFor('bbb')).toBe(1))
+
+        // Returning to "aaa" re-fires — an unbounded set would have suppressed it.
+        rerender(tree('aaa'))
+        await waitFor(() => expect(emptyFor('aaa')).toBe(2))
+    })
+
+    it('hides stale events by default and refetches including them when the empty-state button is clicked', async () => {
+        const user = userEvent.setup()
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery="zzz_no_match"
+                >
+                    <MenuFilterCombobox
+                        drillTo={TaxonomicFilterGroupType.Events}
+                        onCommit={jest.fn()}
+                        onBack={jest.fn()}
+                    />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        // Default: the events fetch hides stale definitions.
+        await waitFor(() =>
+            expect(apiGet.mock.calls.some(([url]: [string]) => url.includes('exclude_stale=true'))).toBe(true)
+        )
+
+        const callsBeforeOptIn = apiGet.mock.calls.length
+        await user.click(await screen.findByRole('button', { name: 'Include stale events' }))
+
+        // Opting in emits the legacy toggle event…
+        expect(captureMock).toHaveBeenCalledWith(
+            'taxonomic filter include stale toggled',
+            expect.objectContaining({ surface: 'rebuild-menu', includeStaleEvents: true })
+        )
+
+        // …and refetches the events list without the stale exclusion.
+        await waitFor(() => {
+            const newUrls: string[] = apiGet.mock.calls.slice(callsBeforeOptIn).map(([url]: [string]) => url)
+            expect(newUrls.length).toBeGreaterThan(0)
+            expect(newUrls.every((url: string) => !url.includes('exclude_stale=true'))).toBe(true)
+        })
+    })
+
+    describe('reveal barrier', () => {
+        it('hides stale results during a refetch and reveals once it settles', async () => {
+            const user = userEvent.setup()
+            let resolveSecond: ((value: { results: any[]; count: number }) => void) | undefined
+            apiGet.mockImplementation((url: string) => {
+                if (!url.includes('property_definitions')) {
+                    return Promise.resolve({ results: [], count: 0, next: null })
+                }
+                if (url.includes('search=alpha')) {
+                    return Promise.resolve({ results: [{ id: 1, name: 'alpha_prop' }], count: 1 })
+                }
+                // The second query's fetch is held open so we can observe the barrier holding.
+                return new Promise((resolve) => {
+                    resolveSecond = resolve
+                })
+            })
+
+            function Harness(): JSX.Element {
+                const [query, setQuery] = useState('alpha')
+                return (
+                    <>
+                        <button onClick={() => setQuery('beta')}>change-query</button>
+                        <Provider>
+                            <TaxonomicFilterHeadless.Root
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                onChange={jest.fn()}
+                                searchQuery={query}
+                            >
+                                <MenuFilterCombobox drillTo="all" onCommit={jest.fn()} onBack={jest.fn()} />
+                            </TaxonomicFilterHeadless.Root>
+                        </Provider>
+                    </>
+                )
+            }
+
+            render(<Harness />)
+
+            // First query settles -> its result is revealed.
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('alpha_prop'))).toBe(true))
+
+            // Change query: the refetch is in flight. `keepPreviousData` means the stale
+            // `alpha_prop` is still in the list data, but the barrier must hide it behind a
+            // skeleton rather than leaking it (the bug this ports the legacy barrier to fix).
+            await user.click(screen.getByRole('button', { name: 'change-query' }))
+            await waitFor(() => expect(screen.getByTestId('menu-filter-loading')).toBeInTheDocument())
+            expect(rowTexts().some((t) => t.includes('alpha_prop'))).toBe(false)
+
+            // Resolve the refetch -> barrier opens, the new result shows, skeleton gone.
+            resolveSecond?.({ results: [{ id: 2, name: 'beta_prop' }], count: 1 })
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('beta_prop'))).toBe(true))
+            expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument()
+        })
     })
 })

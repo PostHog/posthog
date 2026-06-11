@@ -195,6 +195,17 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(lookup.params[4]).toEqual(['flow-1']) // functionIds
         })
 
+        it('does not constrain the lookup by queue_name so waits parked on any queue are found', async () => {
+            // A wait that follows an email step parks on the email queue, not hogflow. The lookup
+            // must not filter queue_name or it would silently miss those parked jobs; function_id
+            // already scopes the results to hogflow jobs.
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
+            await matcher.runWake([makeGlobals({})])
+            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            expect(lookup).not.toBeUndefined()
+            expect(lookup.sql).not.toContain('queue_name')
+        })
+
         it('correlates team_id with distinct_id so a cross-team pairing is never queried or woken', async () => {
             // Bug scenario: event A is (team 1, alice), event B is (team 2, bob). A naive
             // `team_id = ANY([1,2]) AND distinct_id = ANY([alice,bob])` query would also match
@@ -309,17 +320,18 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             matcher.updateRowCount = 1
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
 
-            await matcher.runWake([makeGlobals({})])
+            await matcher.runWake([
+                makeGlobals({ event: { ...makeGlobals({}).event, timestamp: '2026-01-30T21:00:00.000Z' } }),
+            ])
 
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
             expect(update).not.toBeUndefined()
             expect(update!.params[0]).toEqual(['job-1'])
             const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
             expect(newState.state.currentAction.eventMatched).toBe(true)
-            // The matching event's name and UUID are persisted so the executor log and the
-            // logs view can pinpoint exactly which event woke the step.
             expect(newState.state.currentAction.eventMatchedEvent).toBe('wuc_subscribed')
             expect(newState.state.currentAction.eventMatchedEventUuid).toBe('event-uuid')
+            expect(newState.state.currentAction.eventMatchedEventTimestamp).toBe('2026-01-30T21:00:00.000Z')
             expect(newState.state.conversionMatched).toBeUndefined()
         })
 
@@ -516,6 +528,35 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(newState.state.conversionMatched).toBe(true)
         })
 
+        it('does not wake on an empty conversion "events" entry (always-true bytecode)', async () => {
+            // A conversion entry that targets neither events nor actions compiles to always-true
+            // bytecode and would otherwise mark every incoming event as a conversion.
+            const flow = makeHogFlow({
+                id: 'flow-1',
+                conversion: { events: [{ filters: { bytecode: ['_H', 1, 29], events: [] } }] } as any,
+            } as any)
+            matcher.findRows = [
+                {
+                    id: 'job-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            // Wire the wake path so that IF the empty entry incorrectly matched, an UPDATE would
+            // be produced — otherwise this assertion would pass trivially.
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
+        })
+
         it('does not wake when neither step filter nor conversion matches', async () => {
             matcher.findRows = [
                 {
@@ -530,6 +571,116 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
 
             // Event name doesn't match wuc_subscribed (waiter event) nor any conversion
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
+        })
+
+        it('does not wake on an empty "events to wait for" entry (always-true bytecode)', async () => {
+            // An events entry that references no events compiles to always-true bytecode and would
+            // otherwise wake the job on any incoming event, bypassing the property condition.
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            // Wire the wake path so that IF the empty entry incorrectly matched, an UPDATE would
+            // be produced — otherwise this assertion would pass trivially.
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({
+                    id: 'flow-1',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'wait_node',
+                            name: 'Wait',
+                            type: 'wait_until_condition',
+                            config: {
+                                // Empty events entry: bytecode is TRUE (op 29), events list is empty.
+                                events: [{ filters: { bytecode: ['_H', 1, 29], events: [] } }],
+                                condition: { filters: null },
+                                max_wait_duration: '5m',
+                            },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                } as any),
+            })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
+        })
+
+        it('does not wake on an empty property condition (always-true bytecode)', async () => {
+            // A condition with no properties compiles to always-true bytecode and would otherwise
+            // wake the job on any incoming event, bypassing the events the wait is configured for.
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({
+                    id: 'flow-1',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'wait_node',
+                            name: 'Wait',
+                            type: 'wait_until_condition',
+                            config: {
+                                events: [
+                                    {
+                                        filters: {
+                                            bytecode: eventBytecode('wuc_subscribed'),
+                                            events: [
+                                                {
+                                                    id: 'wuc_subscribed',
+                                                    name: 'wuc_subscribed',
+                                                    type: 'events',
+                                                    order: 0,
+                                                },
+                                            ],
+                                        },
+                                    },
+                                ],
+                                // Empty property condition: bytecode is TRUE (op 29), no properties.
+                                condition: { filters: { bytecode: ['_H', 1, 29], properties: [] } },
+                                max_wait_duration: '5m',
+                            },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                } as any),
+            })
+
             await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
 
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
@@ -776,6 +927,192 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // getTeam is only reached for the actionable team, never for team 2.
             expect(getTeam).toHaveBeenCalledTimes(1)
             expect(getTeam).toHaveBeenCalledWith(1)
+        })
+    })
+
+    // The full combination matrix lives here (mocked pg, ~ms each) rather than in the E2E suite:
+    // it exercises the same wake decision the matcher makes for every events/property/action shape.
+    describe('wake matrix: events / property / action combinations', () => {
+        const ALWAYS_TRUE = ['_H', 1, 29]
+        // Real, serializer-compiled bytecode for event.properties.plan == 'growth'.
+        const PROPERTY_BYTECODE = ['_H', 1, 32, 'growth', 32, 'plan', 32, 'properties', 1, 2, 11]
+
+        const eventEntry = { filters: { bytecode: eventBytecode('wakeup_event'), events: [{ id: 'wakeup_event' }] } }
+        const actionEntry = {
+            filters: { bytecode: eventBytecode('action_event'), events: [], actions: [{ id: 3, type: 'actions' }] },
+        }
+        const emptyEventEntry = { filters: { bytecode: ALWAYS_TRUE, events: [] } }
+        const propertyCondition = {
+            filters: {
+                bytecode: PROPERTY_BYTECODE,
+                properties: [{ key: 'plan', type: 'event', value: 'growth', operator: 'exact' }],
+            },
+        }
+        const emptyCondition = { filters: { bytecode: ALWAYS_TRUE, properties: [] } }
+        // A real condition expressed through an events-shaped filter (no top-level `properties`).
+        // Guards the regression where the guard keyed on `properties` and skipped this as "empty".
+        const eventShapedCondition = {
+            filters: { bytecode: eventBytecode('special_event'), events: [{ id: 'special_event' }] },
+        }
+
+        const wakeWith = (event: string, properties: Record<string, any> = {}): HogFunctionInvocationGlobals =>
+            makeGlobals({ event: { ...makeGlobals({}).event, event, properties } })
+        const matchingEvent = (): HogFunctionInvocationGlobals => wakeWith('wakeup_event')
+        const actionEvent = (): HogFunctionInvocationGlobals => wakeWith('action_event')
+        const propertyEvent = (): HogFunctionInvocationGlobals => wakeWith('some_event', { plan: 'growth' })
+        const unrelatedEvent = (): HogFunctionInvocationGlobals => wakeWith('unrelated_event', { plan: 'starter' })
+
+        interface WakeCase {
+            name: string
+            config: Record<string, any>
+            event: () => HogFunctionInvocationGlobals
+            woken: boolean
+        }
+
+        const cases: WakeCase[] = [
+            // ---- real combinations that SHOULD wake ----
+            {
+                name: 'event only + matching event',
+                config: { events: [eventEntry] },
+                event: matchingEvent,
+                woken: true,
+            },
+            {
+                name: 'property only + satisfying event',
+                config: { condition: propertyCondition },
+                event: propertyEvent,
+                woken: true,
+            },
+            {
+                name: 'event + property + matching event',
+                config: { events: [eventEntry], condition: propertyCondition },
+                event: matchingEvent,
+                woken: true,
+            },
+            {
+                name: 'event + property + satisfying event',
+                config: { events: [eventEntry], condition: propertyCondition },
+                event: propertyEvent,
+                woken: true,
+            },
+            {
+                name: 'action only + action event',
+                config: { events: [actionEntry] },
+                event: actionEvent,
+                woken: true,
+            },
+            {
+                name: 'action + property + action event',
+                config: { events: [actionEntry], condition: propertyCondition },
+                event: actionEvent,
+                woken: true,
+            },
+            {
+                name: 'action + property + satisfying event',
+                config: { events: [actionEntry], condition: propertyCondition },
+                event: propertyEvent,
+                woken: true,
+            },
+            {
+                name: 'event + empty property (suppressed) + matching event',
+                config: { events: [eventEntry], condition: emptyCondition },
+                event: matchingEvent,
+                woken: true,
+            },
+            {
+                name: 'empty events (suppressed) + property + satisfying event',
+                config: { events: [emptyEventEntry], condition: propertyCondition },
+                event: propertyEvent,
+                woken: true,
+            },
+            {
+                name: 'condition via events shape (no properties) + matching event',
+                config: { condition: eventShapedCondition },
+                event: () => wakeWith('special_event'),
+                woken: true,
+            },
+            // ---- combinations that must NOT wake ----
+            {
+                name: 'event only + unrelated event',
+                config: { events: [eventEntry] },
+                event: unrelatedEvent,
+                woken: false,
+            },
+            {
+                name: 'property only + unrelated event',
+                config: { condition: propertyCondition },
+                event: unrelatedEvent,
+                woken: false,
+            },
+            {
+                name: 'event + property + unrelated event',
+                config: { events: [eventEntry], condition: propertyCondition },
+                event: unrelatedEvent,
+                woken: false,
+            },
+            {
+                name: 'empty property only + unrelated event',
+                config: { condition: emptyCondition },
+                event: unrelatedEvent,
+                woken: false,
+            },
+            {
+                name: 'empty events only + unrelated event',
+                config: { events: [emptyEventEntry] },
+                event: unrelatedEvent,
+                woken: false,
+            },
+            {
+                name: 'empty events + empty property + unrelated event',
+                config: { events: [emptyEventEntry], condition: emptyCondition },
+                event: unrelatedEvent,
+                woken: false,
+            },
+        ]
+
+        it.each(cases)('$name -> woken: $woken', async ({ config, event, woken }) => {
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            // Wire the wake path so that IF the job is woken, an UPDATE is produced.
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({
+                    id: 'flow-1',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'wait_node',
+                            name: 'Wait',
+                            type: 'wait_until_condition',
+                            config: { max_wait_duration: '5m', ...config },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                } as any),
+            })
+
+            await matcher.runWake([event()])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            if (woken) {
+                expect(update).toBeDefined()
+            } else {
+                expect(update).toBeUndefined()
+            }
         })
     })
 })

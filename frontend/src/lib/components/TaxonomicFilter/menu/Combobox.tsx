@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IconCheck, IconChevronRight, IconClock, IconPinFilled } from '@posthog/icons'
 import {
     Badge,
+    Button,
     cn,
     InputGroup,
     InputGroupAddon,
@@ -45,7 +46,7 @@ import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupTyp
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
-import { CommitFn, DrillCategory, MenuFilterEntry } from './types'
+import { CommitFn, CommitSelectionContext, DrillCategory, MenuFilterEntry, TAXONOMIC_FILTER_SURFACE } from './types'
 import { VerificationBadge } from './VerificationBadge'
 
 // `threshold` + `ignoreDiacritics` come from `createFuse` defaults; we
@@ -53,7 +54,7 @@ import { VerificationBadge } from './VerificationBadge'
 // `ignoreLocation` switch so a typo near the end of the string still
 // matches).
 const FUSE_OPTIONS = {
-    keys: ['name', 'friendlyLabel'],
+    keys: ['name', 'friendlyLabel', 'recentLabel'],
     ignoreLocation: true,
 }
 
@@ -76,21 +77,46 @@ const HIDDEN_FROM_CHIPS: ReadonlySet<TaxonomicFilterGroupType> = new Set([
     TaxonomicFilterGroupType.HogQLExpression,
 ])
 
+/** Groups that feed the "all" surface but are collapsed to a single
+ *  "URL contains <query>" suggestion rather than listing every matching value,
+ *  and are not offered as a standalone chip/category. People filtering by URL
+ *  overwhelmingly want a contains match, so one synthetic row (when any URL
+ *  matches) beats a wall of exact URLs. */
+const COLLAPSED_TO_CONTAINS_ROW: ReadonlySet<TaxonomicFilterGroupType> = new Set([
+    TaxonomicFilterGroupType.PageviewUrls,
+])
+
 /** How many recents and pinned each lead the default "All" surface, matching
  *  the pill variant's top-3 face. */
 const RECENT_PINNED_PREFIX_LIMIT = 3
 
+/** Fallback that opens the reveal barrier even if some group's fetch never
+ *  settles. Matches the legacy `taxonomicFilterLogic` value. */
+const REVEAL_BARRIER_TIMEOUT_MS = 5000
+
+/** Stable empty list so a held (barrier-closed) render keeps a constant
+ *  `items` identity instead of allocating a new array each time. */
+const NO_ENTRIES: MenuFilterEntry[] = []
+
+/** Debounce before emitting `taxonomic_filter_search_query` — matches the
+ *  legacy picker so the search telemetry is comparable across variants. */
+export const SEARCH_QUERY_DEBOUNCE_MS = 500
+
 /** Identity for an entry's underlying definition — source group + value.
  *  Uses `::` as separator to serve as a dedup key (distinct from DOM ids). */
 function entryKey(entry: MenuFilterEntry): string {
-    return `${entry.group.type}::${String(entry.group.getValue?.(entry.item) ?? entry.name)}`
+    return `${entry.group.type}::${String(entry.group.getValue?.(entry.item) ?? entry.name)}${
+        entry.recentPropertyFilter ? '::full' : ''
+    }`
 }
 
 /** Stable DOM id for a menu row — used for scroll-into-view, checkmark
  *  lookups, and `aria-activedescendant`. The format must be identical
  *  everywhere it is constructed. */
 function rowDomId(entry: MenuFilterEntry): string {
-    return `menu-filter-row-${entry.group.type}-${String(entry.group.getValue?.(entry.item) ?? entry.name)}`
+    return `menu-filter-row-${entry.group.type}-${String(entry.group.getValue?.(entry.item) ?? entry.name)}${
+        entry.recentPropertyFilter ? '-full' : ''
+    }`
 }
 
 function fuseMatchEntries(entries: MenuFilterEntry[], query: string): MenuFilterEntry[] {
@@ -140,17 +166,34 @@ export function MenuFilterCombobox({
     // their selection's category by default — they can still tab back to
     // "All" or any other chip without leaving the combobox.
     const [activeChip, setActiveChip] = useState<DrillCategory>(() => {
-        if (drillTo === 'all' && selectedEntry) {
+        // Collapsed groups (e.g. Pageview URLs) aren't navigable categories, so a
+        // selection from one lands on "All" — its row still surfaces there via the
+        // selected-entry prepend — instead of stranding the user in a hidden scope.
+        if (drillTo === 'all' && selectedEntry && !COLLAPSED_TO_CONTAINS_ROW.has(selectedEntry.group.type)) {
             return selectedEntry.group.type
         }
         return drillTo
     })
+    // The scope the user is actually looking at: the active chip when chips show
+    // (drillTo='all'), otherwise the drilled-to category. Single source for the
+    // telemetry group type, empty state, stale-toggle gating, and reset trigger.
+    const activeScope: DrillCategory = drillTo === 'all' ? activeChip : drillTo
     const [itemsByType, setItemsByType] = useState<Record<string, TaxonomicDefinitionTypes[]>>({})
     // Per-group loading flags reported up by `Fetcher`. We need this in the
     // parent so the empty-state vs. skeleton decision sees the freshest
     // fetch status across every visible (target) group, not just the one
     // whose `useGroupList` hook last rendered.
     const [loadingByType, setLoadingByType] = useState<Record<string, boolean>>({})
+    // Per-group `isFetching` flags (true during background refetches too, unlike
+    // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
+    // barrier so kept-previous-data refetches still hold the list.
+    const [fetchingByType, setFetchingByType] = useState<Record<string, boolean>>({})
+    // Reveal barrier (ported from the legacy `taxonomicFilterLogic`): on a fresh
+    // search we hold the result list behind skeletons until every visible group's
+    // fetch settles (or a 5s fallback), so slower groups don't render on top of a
+    // stale/partial list and rows don't jump around. Mirrors `revealBarrierOpen`.
+    const [revealBarrierOpen, setRevealBarrierOpen] = useState(true)
+    const [barrierQuery, setBarrierQuery] = useState(searchQuery)
     // Seed the highlight with the committed selection so the preview
     // pane shows the right definition before any row hovers fire. Once
     // the list mounts, `autoHighlight="always"` + the reordered
@@ -158,6 +201,21 @@ export function MenuFilterCombobox({
     // highlight on the same row.
     const [highlightedEntry, setHighlightedEntry] = useState<MenuFilterEntry | null>(selectedEntry ?? null)
     const inputRef = useRef<HTMLInputElement | null>(null)
+
+    // Stale events (event definitions not ingested within the staleness window)
+    // are hidden by default to match the legacy picker. The opt-in is per-search:
+    // reset whenever the query or active scope changes so stale results never
+    // carry across unrelated searches (mirrors legacy `setSearchQuery`/`setActiveTab`).
+    const [includeStaleEvents, setIncludeStaleEvents] = useState(false)
+    useEffect(() => {
+        setIncludeStaleEvents(false)
+    }, [searchQuery, activeScope])
+    // Read inside the debounced search-query capture without re-triggering it on
+    // toggle (the toggle changes results, not the query).
+    const includeStaleEventsRef = useRef(includeStaleEvents)
+    useEffect(() => {
+        includeStaleEventsRef.current = includeStaleEvents
+    }, [includeStaleEvents])
 
     // Stable DOM id for the selected row — derived via `rowDomId` to stay in
     // sync with `Row`'s `stableId` and the `filtered` selected-promotion logic.
@@ -209,6 +267,10 @@ export function MenuFilterCombobox({
         setLoadingByType((prev) => (prev[type] === loading ? prev : { ...prev, [type]: loading }))
     }, [])
 
+    const reportFetching = useCallback((type: string, fetching: boolean): void => {
+        setFetchingByType((prev) => (prev[type] === fetching ? prev : { ...prev, [type]: fetching }))
+    }, [])
+
     // Chips show only when `drillTo='all'` — drilled scopes lock to one
     // category and hide the chip row per spec.
     const showChips = drillTo === 'all'
@@ -228,6 +290,10 @@ export function MenuFilterCombobox({
             opts.push({ value: 'pinned', label: 'Pinned' })
         }
         for (const g of visibleChipGroups) {
+            // Collapsed groups feed the "all" rows but aren't navigable categories.
+            if (COLLAPSED_TO_CONTAINS_ROW.has(g.type)) {
+                continue
+            }
             opts.push({ value: g.type, label: g.name })
         }
         return opts
@@ -236,16 +302,15 @@ export function MenuFilterCombobox({
     // Resolve which groups feed the visible list, based on the active chip
     // (or the drill scope when chips are hidden).
     const targetGroups = useMemo<TaxonomicFilterGroup[]>(() => {
-        const scope = showChips ? activeChip : drillTo
-        if (scope === 'all') {
+        if (activeScope === 'all') {
             return visibleChipGroups
         }
-        if (scope === 'recent' || scope === 'pinned') {
+        if (activeScope === 'recent' || activeScope === 'pinned') {
             return [] // items come from `drillItems`
         }
-        const g = groups.find((gr) => gr.type === scope)
+        const g = groups.find((gr) => gr.type === activeScope)
         return g ? [g] : []
-    }, [showChips, activeChip, drillTo, groups, visibleChipGroups])
+    }, [activeScope, groups, visibleChipGroups])
 
     // Mount + subscribe so `$survey_response_<question-id>` keys resolve to the
     // actual question text. `getFriendlyLabel` reads through `getCoreFilterDefinition`,
@@ -272,8 +337,29 @@ export function MenuFilterCombobox({
             return pinnedEntries ?? []
         }
         const merged: MenuFilterEntry[] = []
+        const trimmedQuery = searchQuery.trim()
         for (const group of targetGroups) {
             const items = itemsByType[group.type] ?? []
+            // Collapse to a single "URL contains <query>" row when the contains
+            // search found at least one matching URL. The synthetic item's value
+            // is the typed query (its `name`, since the group's getValue reads
+            // `name`), so `selectItem`'s existing PageviewUrls branch commits
+            // `$current_url IContains <query>`.
+            if (COLLAPSED_TO_CONTAINS_ROW.has(group.type)) {
+                if (trimmedQuery && items.length > 0) {
+                    const label = `URL contains "${trimmedQuery}"`
+                    merged.push({
+                        // `isContainsShortcut` tags this synthetic row so the commit
+                        // telemetry can measure adoption of the contains shortcut vs
+                        // the old per-URL value-picker.
+                        item: { name: trimmedQuery, isContainsShortcut: true } as unknown as TaxonomicDefinitionTypes,
+                        group,
+                        name: label,
+                        friendlyLabel: label,
+                    })
+                }
+                continue
+            }
             for (const item of items) {
                 merged.push({
                     item,
@@ -329,6 +415,7 @@ export function MenuFilterCombobox({
         showChips,
         activeChip,
         drillTo,
+        searchQuery,
         surveyQuestionLabels,
     ])
 
@@ -423,6 +510,15 @@ export function MenuFilterCombobox({
         return base
     }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, showChips, activeChip, drillTo])
 
+    // O(1) row -> rendered-position lookup, rebuilt with `filtered`. Avoids an
+    // O(n) `indexOf` per commit and the stale-index risk if `filtered`'s identity
+    // shifts between render and click.
+    const positionByEntry = useMemo<Map<MenuFilterEntry, number>>(() => {
+        const map = new Map<MenuFilterEntry, number>()
+        filtered.forEach((entry, position) => map.set(entry, position))
+        return map
+    }, [filtered])
+
     // Active-chip-aware placeholder. When the user has narrowed to a
     // specific category, use that group's `searchPlaceholder` so the
     // input reflects the search scope ("Search events" vs. the broad
@@ -451,6 +547,44 @@ export function MenuFilterCombobox({
         return targetGroups.some((g) => loadingByType[g.type])
     }, [drillItems, targetGroups, loadingByType])
 
+    // ---- Reveal barrier ----------------------------------------------------
+    // Only engages while actively searching a fetching scope. Recent/Pinned
+    // drills read pre-resolved `drillItems` (no fetch) so they're never gated.
+    const searching = !drillItems && !!searchQuery.trim()
+    // Close synchronously the instant the query changes (React "adjust state
+    // while rendering" pattern) so a stale list never paints between keystroke
+    // and the fetch starting. Re-opens immediately for empty/drill scopes.
+    if (searchQuery !== barrierQuery) {
+        setBarrierQuery(searchQuery)
+        setRevealBarrierOpen(!searching)
+    }
+    const anyFetching = useMemo(() => targetGroups.some((g) => fetchingByType[g.type]), [targetGroups, fetchingByType])
+    // Open once every visible group has settled. Edge-triggered on results /
+    // fetching changes (not the bare query change) so the close commit — where
+    // the Fetchers haven't yet reported `isFetching` — can't open it early.
+    // Mirrors legacy's `!anyGroupLoading` check after `infiniteListResultsReceived`.
+    useEffect(() => {
+        if (revealBarrierOpen || !searching) {
+            return
+        }
+        if (!anyFetching) {
+            setRevealBarrierOpen(true)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [itemsByType, fetchingByType])
+    // 5s fallback so a wedged/never-settling fetch can't trap the list behind
+    // skeletons forever. Re-armed on every fresh query.
+    useEffect(() => {
+        if (!searching) {
+            return
+        }
+        const id = window.setTimeout(() => setRevealBarrierOpen(true), REVEAL_BARRIER_TIMEOUT_MS)
+        return () => window.clearTimeout(id)
+    }, [barrierQuery, searching])
+    // While held, show skeletons in place of the (stale/partial) result list.
+    const barrierClosed = searching && !revealBarrierOpen
+    const displayedItems = barrierClosed ? NO_ENTRIES : filtered
+
     // Empty-state message. Three branches:
     //   - "needs more characters" — when the active chip resolves to a
     //     single group with `minSearchQueryLength` and the search query
@@ -471,10 +605,9 @@ export function MenuFilterCombobox({
         if (isAnyLoading) {
             return null
         }
-        const scope = showChips ? activeChip : drillTo
         const singleGroup =
-            scope !== 'all' && scope !== 'recent' && scope !== 'pinned'
-                ? (groups.find((g) => g.type === scope) ?? null)
+            activeScope !== 'all' && activeScope !== 'recent' && activeScope !== 'pinned'
+                ? (groups.find((g) => g.type === activeScope) ?? null)
                 : null
         const minLen = singleGroup?.minSearchQueryLength ?? 0
         const trimmedLen = searchQuery.trim().length
@@ -485,7 +618,7 @@ export function MenuFilterCombobox({
                 body: `Type at least ${minLen} characters to search ${description} we have seen.`,
             }
         }
-        const categoryLabel = singleGroup?.name ?? (showChips ? null : null)
+        const categoryLabel = singleGroup?.name ?? null
         if (trimmedLen > 0) {
             return {
                 title: categoryLabel ? `No "${categoryLabel}" found` : 'No matches',
@@ -494,7 +627,107 @@ export function MenuFilterCombobox({
         return {
             title: categoryLabel ? `No "${categoryLabel}" found` : 'No items',
         }
-    }, [filtered.length, showChips, activeChip, drillTo, groups, searchQuery, isAnyLoading])
+    }, [filtered.length, activeScope, groups, searchQuery, isAnyLoading])
+
+    // --- Telemetry parity ---------------------------------------------------
+    // Emit the legacy `taxonomic filter *` contract so the rebuild is
+    // comparable to the control/pill variants by feature-flag value (PostHog
+    // auto-attaches the active flag to every event). The meta scopes
+    // (all/recent/pinned) have no single source group, so groupType is
+    // undefined there — matching how legacy reports the active content tab.
+    const telemetryGroupType = useMemo<TaxonomicFilterGroupType | undefined>(() => {
+        return activeScope === 'all' || activeScope === 'recent' || activeScope === 'pinned' ? undefined : activeScope
+    }, [activeScope])
+
+    const pastedCharsRef = useRef(0)
+
+    // `taxonomic_filter_search_query` — debounced; `inputMode`/`pastedFraction`
+    // distinguish typed vs pasted input. `excludeStale` mirrors legacy: stale events
+    // are hidden by default (so it reads true at search time, since the per-search
+    // opt-in resets on every query change).
+    useEffect(() => {
+        const trimmed = searchQuery.trim()
+        if (!trimmed) {
+            pastedCharsRef.current = 0
+            return
+        }
+        const timer = setTimeout(() => {
+            const pastedChars = pastedCharsRef.current
+            pastedCharsRef.current = 0
+            const totalLength = searchQuery.length
+            // Mirrors the legacy `taxonomicFilterLogic` classifier (kept in sync until the legacy picker is retired).
+            const inputMode = classifyInputMode(pastedChars, totalLength)
+            posthog.capture('taxonomic_filter_search_query', {
+                surface: TAXONOMIC_FILTER_SURFACE,
+                searchQuery,
+                groupType: telemetryGroupType,
+                inputMode,
+                pastedFraction: totalLength > 0 ? Math.min(1, pastedChars / totalLength) : 0,
+                excludeStale: !includeStaleEventsRef.current,
+            })
+        }, SEARCH_QUERY_DEBOUNCE_MS)
+        return () => clearTimeout(timer)
+    }, [searchQuery, telemetryGroupType])
+
+    // `taxonomic filter empty result` — once per scope+query when a real search
+    // returns nothing. `emptyState.body` marks the "type more" prompt, which is
+    // not an empty result.
+    // `groupType` is `undefined` for the meta scopes (All/Recent/Pinned) because there's no single content group there
+    // (legacy fires per-group).
+    // Dedup mirrors legacy `lastEmptyResultDedupeKey`: remember only the most
+    // recent fired key so re-typing the same dead-end after an intervening query
+    // re-fires (an unbounded set would under-count repeated dead-ends vs legacy).
+    const lastEmptyResultKeyRef = useRef<string | null>(null)
+    useEffect(() => {
+        const trimmed = searchQuery.trim()
+        if (!emptyState || emptyState.body || !trimmed) {
+            return
+        }
+        const key = `${telemetryGroupType ?? 'all'}::${trimmed}`
+        if (lastEmptyResultKeyRef.current === key) {
+            return
+        }
+        lastEmptyResultKeyRef.current = key
+        posthog.capture('taxonomic filter empty result', {
+            surface: TAXONOMIC_FILTER_SURFACE,
+            groupType: telemetryGroupType,
+            searchQuery: trimmed,
+        })
+    }, [emptyState, searchQuery, telemetryGroupType])
+
+    // Offered in the empty state whenever an event/custom-event group is among
+    // the visible targets (drilled Events/CustomEvents, or the merged All surface
+    // where stale events are also hidden) — mirrors legacy's recovery button:
+    // no matches behind the default stale filter -> let the user opt in and
+    // refetch with stale definitions included.
+    const eventGroupInScope = targetGroups.some(
+        (g) => g.type === TaxonomicFilterGroupType.Events || g.type === TaxonomicFilterGroupType.CustomEvents
+    )
+    const canOfferStaleToggle = !includeStaleEvents && !!searchQuery.trim() && eventGroupInScope
+    const handleIncludeStaleEvents = useCallback((): void => {
+        setIncludeStaleEvents(true)
+        posthog.capture('taxonomic filter include stale toggled', {
+            surface: TAXONOMIC_FILTER_SURFACE,
+            includeStaleEvents: true,
+            groupType: telemetryGroupType,
+            searchQuery: searchQuery || undefined,
+        })
+    }, [telemetryGroupType, searchQuery])
+
+    const selectionContextFor = useCallback(
+        (entry: MenuFilterEntry): CommitSelectionContext => {
+            const key = entryKey(entry)
+            return {
+                groupType: telemetryGroupType,
+                // Rendered-row index; absent (not a sentinel) if the entry somehow
+                // isn't in `filtered` — `position` then drops out of the payload.
+                position: positionByEntry.get(entry),
+                wasFromRecents: recentKeys.has(key),
+                wasFromPinnedList: pinnedKeys.has(key),
+            }
+        },
+        [telemetryGroupType, recentKeys, pinnedKeys, positionByEntry]
+    )
 
     const headerTitle =
         title ??
@@ -556,7 +789,7 @@ export function MenuFilterCombobox({
                 showTabHint={showChips && visibleChipGroups.length > 0}
             />
             <Autocomplete.Root
-                items={filtered}
+                items={displayedItems}
                 mode="none"
                 inline
                 defaultOpen
@@ -585,6 +818,9 @@ export function MenuFilterCombobox({
                                             data-attr="menu-filter-search"
                                             placeholder={activePlaceholder}
                                             onKeyDown={handleInputKeyDown}
+                                            onPaste={(e: React.ClipboardEvent<HTMLInputElement>) => {
+                                                pastedCharsRef.current += e.clipboardData.getData('text').length
+                                            }}
                                         />
                                     }
                                     value={searchQuery}
@@ -643,12 +879,19 @@ export function MenuFilterCombobox({
                         </div>
                         {!drillItems &&
                             targetGroups.map((g) => (
-                                <Fetcher key={g.type} group={g} onItems={reportItems} onLoadingChange={reportLoading} />
+                                <Fetcher
+                                    key={g.type}
+                                    group={g}
+                                    excludeStale={!includeStaleEvents}
+                                    onItems={reportItems}
+                                    onLoadingChange={reportLoading}
+                                    onFetchingChange={reportFetching}
+                                />
                             ))}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
                             <Autocomplete.List data-quill className="p-2 scroll-py-8">
                                 <Autocomplete.Empty className="empty:hidden">
-                                    {isAnyLoading ? (
+                                    {isAnyLoading || barrierClosed ? (
                                         <LoadingRows />
                                     ) : (
                                         emptyState && (
@@ -661,6 +904,16 @@ export function MenuFilterCombobox({
                                                     <div className="text-xs text-secondary leading-relaxed">
                                                         {emptyState.body}
                                                     </div>
+                                                )}
+                                                {canOfferStaleToggle && !emptyState.body && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        data-attr="menu-filter-include-stale-events"
+                                                        onClick={handleIncludeStaleEvents}
+                                                    >
+                                                        Include stale events
+                                                    </Button>
                                                 )}
                                             </div>
                                         )
@@ -690,7 +943,7 @@ export function MenuFilterCombobox({
                                             // signal that with a chevron.
                                             opensSubmenu={drillTo === TaxonomicFilterGroupType.DataWarehouse}
                                             selectedRowId={selectedRowId}
-                                            onCommit={onCommit}
+                                            onSelect={() => onCommit(entry, undefined, selectionContextFor(entry))}
                                         />
                                     )}
                                 </Autocomplete.Collection>
@@ -718,7 +971,8 @@ interface RowProps {
     opensSubmenu?: boolean
     /** DOM id of the currently-selected row (for the trailing checkmark). */
     selectedRowId?: string | null
-    onCommit: CommitFn
+    /** Commit this row (also fires item-selected telemetry). */
+    onSelect: () => void
 }
 
 /**
@@ -734,6 +988,9 @@ interface RowProps {
  * the value cell.
  */
 function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string; category: string } {
+    if (entry.recentLabel) {
+        return { name: entry.recentLabel, category: entry.group.name }
+    }
     const friendly = entry.friendlyLabel
     const url = parseUrl(entry.name)
     if (url) {
@@ -745,7 +1002,7 @@ function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string
     return { name: entry.name, category: entry.group.name }
 }
 
-function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onCommit }: RowProps): JSX.Element {
+function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSelect }: RowProps): JSX.Element {
     const { name, value, category } = resolveRowCells(entry)
     const stableId = rowDomId(entry)
     const isSelected = selectedRowId === stableId
@@ -754,7 +1011,7 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onComm
             value={entry}
             onClick={(e) => {
                 e.preventDefault()
-                onCommit(entry)
+                onSelect()
             }}
             data-slot="taxonomic-filter-menu-row"
             className={cn(
@@ -806,31 +1063,42 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onComm
  */
 function Fetcher({
     group,
+    excludeStale,
     onItems,
     onLoadingChange,
+    onFetchingChange,
 }: {
     group: TaxonomicFilterGroup
+    /** Hide stale event definitions (event / custom-event groups only). */
+    excludeStale: boolean
     onItems: (type: string, items: TaxonomicDefinitionTypes[]) => void
     /** Reports `isLoading` (no items yet) so the parent can show a skeleton
      *  instead of "No X found" during the first fetch. */
     onLoadingChange: (type: string, loading: boolean) => void
+    /** Reports `isFetching` (true during background refetches too) so the
+     *  parent's reveal barrier holds the list until every group settles. */
+    onFetchingChange: (type: string, fetching: boolean) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
-    const list = useGroupList(getGroupListInput(group))
+    const list = useGroupList({ ...getGroupListInput(group), excludeStale })
     useEffect(() => {
         onItems(group.type, list.items)
     }, [group.type, list.items, onItems])
     useEffect(() => {
         onLoadingChange(group.type, list.showLoadingState)
     }, [group.type, list.showLoadingState, onLoadingChange])
-    // Make sure we flip back to "not loading" when this group unmounts —
-    // otherwise a stale `true` from a previously-active chip would keep
-    // the skeleton on screen after we switch scope.
+    useEffect(() => {
+        onFetchingChange(group.type, list.isFetching)
+    }, [group.type, list.isFetching, onFetchingChange])
+    // Make sure we flip back to "not loading"/"not fetching" when this group
+    // unmounts — otherwise a stale `true` from a previously-active chip would
+    // keep the skeleton (or the reveal barrier) stuck after we switch scope.
     useEffect(() => {
         return () => {
             onLoadingChange(group.type, false)
+            onFetchingChange(group.type, false)
         }
-    }, [group.type, onLoadingChange])
+    }, [group.type, onLoadingChange, onFetchingChange])
     return null
 }
 
@@ -890,4 +1158,9 @@ function getFriendlyLabel(item: TaxonomicDefinitionTypes, group: TaxonomicFilter
         return undefined
     }
     return getCoreFilterDefinition(raw, group.type)?.label
+}
+
+// Mirrors the legacy `taxonomicFilterLogic` classifier (kept in sync until the legacy picker is retired).
+function classifyInputMode(pastedChars: number, totalLength: number): 'typed' | 'mixed' | 'pasted' {
+    return pastedChars >= totalLength && pastedChars > 0 ? 'pasted' : pastedChars > 0 ? 'mixed' : 'typed'
 }

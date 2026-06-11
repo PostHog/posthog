@@ -107,21 +107,22 @@ describe('hog-charts bar-layout', () => {
 
     describe('computeSeriesBars — stacked', () => {
         it('uses the band top/bottom values for stack height', () => {
+            // Asserts on the bottom-of-stack segment, whose baseline edge is exact (no seam overlap).
             const labels = ['a', 'b']
             const a = makeSeries({ key: 'a', data: [10, 20] })
             const b = makeSeries({ key: 'b', data: [5, 15] })
             const scales = createBarScales([a, b], labels, dimensions, { barLayout: 'stacked' })
-            const stackB = computeStackData([a, b], labels).get('b')!
+            const stackA = computeStackData([a, b], labels).get('a')!
             const bars = layoutOf({
-                series: b,
+                series: a,
                 labels,
                 scales,
                 layout: 'stacked',
-                stackedBand: stackB,
-                isTopOfStack: true,
+                stackedBand: stackA,
+                isTopOfStack: false,
             })
             expect(bars).toHaveLength(2)
-            const expectedHeight = Math.abs(scales.value(stackB.top[0]) - scales.value(stackB.bottom[0]))
+            const expectedHeight = Math.abs(scales.value(stackA.top[0]) - scales.value(stackA.bottom[0]))
             expect(bars[0]!.height).toBeCloseTo(expectedHeight, 5)
         })
 
@@ -190,6 +191,29 @@ describe('hog-charts bar-layout', () => {
             // Step 1: value rounds the baseline (left) only; filler rounds the cap (right) only.
             expect(valueBars[1]?.corners).toEqual({ topLeft: true, bottomLeft: true })
             expect(fillerBars[1]?.corners).toEqual({ topRight: true, bottomRight: true })
+        })
+
+        it('overlaps an interior segment 0.5px into its lower neighbour, keeping baseline and cap exact', () => {
+            const labels = ['L1']
+            const a = makeSeries({ key: 'a', data: [50] })
+            const b = makeSeries({ key: 'b', data: [50] })
+            const stacks = computeStackData([a, b], labels)
+            const stackedSeries = [a, b].map((s) => ({ ...s, data: stacks.get(s.key)!.top }))
+            const scales = createBarScales([a, b], labels, PIXEL_TEST_DIMENSIONS, {
+                barLayout: 'stacked',
+                bandPadding: 0,
+                groupPadding: 0,
+                stackedSeries,
+            })
+            const opts = { labels, scales, layout: 'stacked' as const, isHorizontal: false }
+            const lower = computeSeriesBars({ ...opts, series: a, stackedBand: stacks.get('a'), isTopOfStack: false })[0]!
+            const upper = computeSeriesBars({ ...opts, series: b, stackedBand: stacks.get('b'), isTopOfStack: true })[0]!
+            // Bottom segment sits exactly on the baseline — no 0.5px overpaint past the axis.
+            expect(lower.y + lower.height).toBeCloseTo(PIXEL_TEST_DIMENSIONS.plotHeight, 5)
+            // Interior (upper) segment extends its baseline edge 0.5px past the lower segment's top.
+            expect(upper.y + upper.height).toBeCloseTo(lower.y + 0.5, 5)
+            // Cap (away-from-baseline) edge stays exact.
+            expect(upper.y).toBeCloseTo(0, 5)
         })
 
         it('returns nulls when stackedBand is omitted for non-grouped layouts', () => {
@@ -276,12 +300,13 @@ describe('hog-charts bar-layout', () => {
                     {
                         key: 'b',
                         isTopOfStack: true,
+                        // Interior segment: baseline edge extended 0.5px into the lower neighbour.
                         bars: [
                             {
                                 x: 0,
                                 y: 50,
                                 width: 100,
-                                height: 25,
+                                height: 25.5,
                                 corners: { topLeft: true, topRight: true },
                                 dataIndex: 0,
                             },
@@ -289,7 +314,7 @@ describe('hog-charts bar-layout', () => {
                                 x: 100,
                                 y: 0,
                                 width: 100,
-                                height: 50,
+                                height: 50.5,
                                 corners: { topLeft: true, topRight: true },
                                 dataIndex: 1,
                             },
@@ -371,11 +396,12 @@ describe('hog-charts bar-layout', () => {
                     {
                         key: 'b',
                         isTopOfStack: true,
+                        // Interior segment: baseline edge extended 0.5px into the lower neighbour.
                         bars: [
                             {
-                                x: 100,
+                                x: 99.5,
                                 y: 0,
-                                width: 100,
+                                width: 100.5,
                                 height: 100,
                                 corners: { topRight: true, bottomRight: true },
                                 dataIndex: 0,
