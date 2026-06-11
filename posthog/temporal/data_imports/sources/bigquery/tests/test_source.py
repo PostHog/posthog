@@ -9,11 +9,13 @@ from google.auth import credentials as google_auth_credentials
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_SCOPES,
+    BigQueryAuthInfo,
     BigQueryImplementation,
-    resolve_bigquery_auth,
     _bq_select_clause,
     _get_query,
     delete_all_temp_destination_tables,
+    resolve_bigquery_auth,
+    validate_bigquery_credentials,
 )
 from posthog.temporal.data_imports.sources.bigquery.source import BigQuerySource
 from posthog.temporal.data_imports.sources.common.sql.identifiers import InvalidIdentifierError
@@ -111,6 +113,67 @@ def test_bigquery_validate_config_accepts_integration_or_key_file(job_inputs, ex
         assert any("google_cloud_service_account_integration_id" in err for err in errors)
 
 
+def test_bigquery_validate_credentials_surfaces_auth_resolution_error():
+    config = _make_config()
+    expected_error = "Google Cloud impersonation is not configured on this instance"
+
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.bigquery.source.resolve_bigquery_auth",
+        side_effect=ValueError(expected_error),
+    ):
+        is_valid, error = BigQuerySource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    assert error == expected_error
+
+
+def test_bigquery_validate_credentials_surfaces_validation_error():
+    config = _make_config()
+    auth = BigQueryAuthInfo(
+        project_id="project-id",
+        credentials=mock.MagicMock(spec=google_auth_credentials.Credentials),
+    )
+    expected_error = "BigQuery dataset 'dataset-id' was not found in project 'project-id'."
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.source.resolve_bigquery_auth",
+            return_value=auth,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.source.validate_bigquery_credentials",
+            return_value=(False, expected_error),
+        ),
+    ):
+        is_valid, error = BigQuerySource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    assert error == expected_error
+
+
+def test_bigquery_validate_credentials_success():
+    config = _make_config()
+    auth = BigQueryAuthInfo(
+        project_id="project-id",
+        credentials=mock.MagicMock(spec=google_auth_credentials.Credentials),
+    )
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.source.resolve_bigquery_auth",
+            return_value=auth,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.source.validate_bigquery_credentials",
+            return_value=(True, None),
+        ),
+    ):
+        is_valid, error = BigQuerySource().validate_credentials(config, team_id=1)
+
+    assert is_valid is True
+    assert error is None
+
+
 def test_resolve_bigquery_auth_uses_integration_key_when_present():
     config = BigQuerySourceConfig.from_dict(
         {
@@ -139,9 +202,7 @@ def test_resolve_bigquery_auth_uses_integration_key_when_present():
     gcp_integration.project_id = "project-id"
 
     with (
-        mock.patch(
-            "posthog.temporal.data_imports.sources.bigquery.bigquery.Integration.objects.filter"
-        ) as mock_filter,
+        mock.patch("posthog.temporal.data_imports.sources.bigquery.bigquery.Integration.objects.filter") as mock_filter,
         mock.patch(
             "posthog.temporal.data_imports.sources.bigquery.bigquery.GoogleCloudServiceAccountIntegration",
             return_value=gcp_integration,
@@ -181,9 +242,7 @@ def test_resolve_bigquery_auth_uses_impersonation_when_integration_has_no_key():
     gcp_integration.project_id = "project-id"
 
     with (
-        mock.patch(
-            "posthog.temporal.data_imports.sources.bigquery.bigquery.Integration.objects.filter"
-        ) as mock_filter,
+        mock.patch("posthog.temporal.data_imports.sources.bigquery.bigquery.Integration.objects.filter") as mock_filter,
         mock.patch(
             "posthog.temporal.data_imports.sources.bigquery.bigquery.GoogleCloudServiceAccountIntegration",
             return_value=gcp_integration,
@@ -252,6 +311,13 @@ def test_bigquery_build_pipeline_resolves_dataset_routing(
         mock.patch(
             "posthog.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
         ) as mock_delete_all,
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.resolve_bigquery_auth",
+            return_value=BigQueryAuthInfo(
+                project_id="project-id",
+                credentials=mock.MagicMock(spec=google_auth_credentials.Credentials),
+            ),
+        ),
         mock.patch.object(
             BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()
         ) as mock_build,
@@ -374,4 +440,64 @@ def test_delete_all_temp_destination_tables_captures_unexpected_errors():
 
     mock_capture = _run_delete_all_temp_destination_tables(RuntimeError("boom"), logger)
 
+    mock_capture.assert_called_once()
+
+
+def _run_validate_bigquery_credentials(
+    side_effect: Exception,
+    *,
+    dataset_project_id: str | None = None,
+):
+    bq = mock.MagicMock()
+    bq.list_tables.side_effect = side_effect
+    bq.dataset.return_value = mock.sentinel.dataset_ref
+
+    client_cm = mock.MagicMock()
+    client_cm.__enter__.return_value = bq
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.bigquery_client",
+            return_value=client_cm,
+        ),
+        mock.patch("posthog.temporal.data_imports.sources.bigquery.bigquery.capture_exception") as mock_capture,
+    ):
+        is_valid, error = validate_bigquery_credentials(
+            dataset_id="dataset-id",
+            project_id="project-id",
+            credentials=mock.MagicMock(spec=google_auth_credentials.Credentials),
+            dataset_project_id=dataset_project_id,
+            location=None,
+        )
+
+    return is_valid, error, mock_capture
+
+
+def test_validate_bigquery_credentials_reports_not_found():
+    is_valid, error, mock_capture = _run_validate_bigquery_credentials(
+        NotFound("Dataset was not found"),
+        dataset_project_id="dataset-project-id",
+    )
+
+    assert is_valid is False
+    assert error == "BigQuery dataset 'dataset-id' was not found in project 'dataset-project-id'."
+    mock_capture.assert_not_called()
+
+
+def test_validate_bigquery_credentials_reports_permission_denied():
+    is_valid, error, mock_capture = _run_validate_bigquery_credentials(
+        Forbidden("Permission denied"),
+        dataset_project_id="dataset-project-id",
+    )
+
+    assert is_valid is False
+    assert error == "Permission denied while accessing BigQuery dataset 'dataset-id' in project 'dataset-project-id'."
+    mock_capture.assert_not_called()
+
+
+def test_validate_bigquery_credentials_reports_unexpected_errors():
+    is_valid, error, mock_capture = _run_validate_bigquery_credentials(RuntimeError("boom"))
+
+    assert is_valid is False
+    assert error == "Failed to validate BigQuery credentials"
     mock_capture.assert_called_once()

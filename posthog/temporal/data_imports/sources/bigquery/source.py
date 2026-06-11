@@ -73,8 +73,8 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     ) -> tuple[bool, str | None]:
         try:
             auth = resolve_bigquery_auth(config, team_id)
-        except ValueError:
-            return False, "Invalid BigQuery credentials"
+        except ValueError as e:
+            return False, str(e)
 
         region: str | None = None
         if (
@@ -84,16 +84,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             and config.use_custom_region.region != ""
         ):
             region = config.use_custom_region.region
-        if validate_bigquery_credentials(
+        is_valid, error = validate_bigquery_credentials(
             config.dataset_id,
             auth.project_id,
             auth.credentials,
             config.dataset_project.dataset_project_id if config.dataset_project else None,
             region,
-        ):
+        )
+        if is_valid:
             return True, None
 
-        return False, "Invalid BigQuery credentials"
+        return False, error or "Invalid BigQuery credentials"
 
     def get_schemas(
         self,

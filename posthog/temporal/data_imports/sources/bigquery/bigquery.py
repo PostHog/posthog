@@ -15,21 +15,24 @@ import typing
 import contextlib
 import collections
 import collections.abc
-from dataclasses import dataclass
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
+
+from django.conf import settings
 
 import boto3
 import pyarrow as pa
 import structlog
-from django.conf import settings
 from google.api_core.exceptions import Forbidden, NotFound
-from google.auth import aws as google_auth_aws
-from google.auth import credentials as google_auth_credentials
-from google.auth import exceptions as google_auth_exceptions
-from google.auth import impersonated_credentials as google_auth_impersonated_credentials
+from google.auth import (
+    aws as google_auth_aws,
+    credentials as google_auth_credentials,
+    exceptions as google_auth_exceptions,
+    impersonated_credentials as google_auth_impersonated_credentials,
+)
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
@@ -38,6 +41,7 @@ from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
@@ -54,7 +58,6 @@ from posthog.temporal.data_imports.sources.common.sql.implementation import SQLS
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.common.sql.projection import format_projected_select_clause
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
-from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -337,17 +340,27 @@ def validate_bigquery_credentials(
     credentials: google_auth_credentials.Credentials,
     dataset_project_id: str | None,
     location: str | None,
-) -> bool:
+) -> tuple[bool, str | None]:
+    resolved_dataset_project_id = dataset_project_id or project_id
     with bigquery_client(project_id, location, credentials) as bq:
         try:
             bq.list_tables(
-                bq.dataset(dataset_id, project=dataset_project_id or project_id),
+                bq.dataset(dataset_id, project=resolved_dataset_project_id),
                 retry=bigquery.DEFAULT_RETRY.with_timeout(5),
             )
-            return True
+            return True, None
+        except NotFound:
+            return False, (f"BigQuery dataset '{dataset_id}' was not found in project '{resolved_dataset_project_id}'.")
+        except Forbidden:
+            return False, (
+                f"Permission denied while accessing BigQuery dataset '{dataset_id}' in project "
+                f"'{resolved_dataset_project_id}'."
+            )
+        except google_auth_exceptions.RefreshError as e:
+            return False, f"Failed to obtain Google Cloud credentials: {e}"
         except Exception as e:
             capture_exception(e)
-            return False
+            return False, "Failed to validate BigQuery credentials"
 
 
 def _get_partition_settings(
