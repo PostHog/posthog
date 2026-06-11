@@ -17,8 +17,24 @@ import {
     type TrendsResultLike,
 } from '../../frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
-// PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts
-const CHART_COLORS = ['#1d4aff', '#621da6', '#00d683', '#f54e00', '#f7a501', '#dc2626']
+// PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts (the web's --data-color-1..15)
+const CHART_COLORS = [
+    '#1d4aff',
+    '#621da6',
+    '#42827e',
+    '#ce0e74',
+    '#f14f58',
+    '#7c440e',
+    '#529a0a',
+    '#0476fb',
+    '#fe729e',
+    '#35416b',
+    '#41cbc4',
+    '#b64b02',
+    '#e4a604',
+    '#a56eff',
+    '#30d5c8',
+]
 
 const CHART_THEME: ChartTheme = {
     colors: CHART_COLORS,

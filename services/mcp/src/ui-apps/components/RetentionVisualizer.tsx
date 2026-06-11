@@ -7,7 +7,7 @@ import { TimeSeriesBarChart, TimeSeriesLineChart, type TooltipConfig } from '@po
 import { buildRetentionChartModel } from 'products/product_analytics/frontend/insights/retention/shared/retentionChartTransforms'
 
 import { Select } from './charts'
-import { CHART_COLORS, CHART_THEME, colorAt } from './charts/theme'
+import { CHART_THEME, colorAt } from './charts/theme'
 import type { RetentionVisualizerProps } from './types'
 
 type ChartMode = 'line' | 'bar'
@@ -19,14 +19,11 @@ const CHART_MODE_OPTIONS = [
 
 const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
-// Cap at the size of the shared chart palette so each cohort gets its own distinct color rather
-// than cycling — beyond this the lines blur into noise anyway.
-const MAX_COHORTS = CHART_COLORS.length
-
 export function RetentionVisualizer({ query, results }: RetentionVisualizerProps): ReactElement {
     const [chartMode, setChartMode] = useState<ChartMode>('line')
 
-    const { series, labels, lineConfig, barConfig, totalCohorts } = useMemo(
+    // No cohort cap — mirrors the web, which renders every cohort and lets colors wrap past the palette.
+    const { series, labels, lineConfig, barConfig } = useMemo(
         () =>
             buildRetentionChartModel(results ?? [], {
                 aggregationType: query?.retentionFilter?.aggregationType ?? 'count',
@@ -35,7 +32,6 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
                 showTrendLines: query?.retentionFilter?.showTrendLines ?? false,
                 getColor: colorAt,
                 tooltip: TOOLTIP_CONFIG,
-                maxCohorts: MAX_COHORTS,
             }),
         [
             results,
@@ -57,13 +53,9 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
         )
     }
 
-    const truncationNotice =
-        totalCohorts > MAX_COHORTS ? `Showing first ${MAX_COHORTS} of ${totalCohorts} cohorts (oldest first)` : null
-
     return (
         <div>
-            <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">{truncationNotice}</span>
+            <div className="mb-2 flex items-center justify-end">
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>

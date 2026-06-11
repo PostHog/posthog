@@ -10,8 +10,24 @@ import {
     type RetentionCohortLike,
 } from '../../frontend/insights/retention/shared/retentionChartTransforms'
 
-// PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts
-const CHART_COLORS = ['#1d4aff', '#621da6', '#00d683', '#f54e00', '#f7a501', '#dc2626']
+// PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts (the web's --data-color-1..15)
+const CHART_COLORS = [
+    '#1d4aff',
+    '#621da6',
+    '#42827e',
+    '#ce0e74',
+    '#f14f58',
+    '#7c440e',
+    '#529a0a',
+    '#0476fb',
+    '#fe729e',
+    '#35416b',
+    '#41cbc4',
+    '#b64b02',
+    '#e4a604',
+    '#a56eff',
+    '#30d5c8',
+]
 
 const CHART_THEME: ChartTheme = {
     colors: CHART_COLORS,
@@ -54,7 +70,6 @@ function RetentionChartDemo({ cohorts, mode }: { cohorts: RetentionCohortLike[];
         period: 'Day',
         getColor: (i) => CHART_COLORS[i % CHART_COLORS.length]!,
         tooltip: TOOLTIP_CONFIG,
-        maxCohorts: CHART_COLORS.length,
     })
     return (
         // Fixed pixel size, not w-full — the chart sizes its canvas off a ResizeObserver, which measures 0
@@ -92,4 +107,20 @@ export const BarChart: Story = {
 export const SingleCohort: Story = {
     render: () => <RetentionChartDemo cohorts={[COHORTS[0]!]} mode="line" />,
     name: 'Single cohort',
+}
+
+// More cohorts than palette colors — confirms nothing is truncated and colors wrap past the 15th.
+const MANY_COHORTS: RetentionCohortLike[] = Array.from({ length: 18 }, (_, i) => {
+    const day = String(i + 1).padStart(2, '0')
+    const base = 100 + i * 5
+    const retentionCurve = [1, 0.66, 0.5, 0.41, 0.31]
+    return {
+        date: `2024-05-${day}`,
+        values: retentionCurve.map((ratio) => ({ count: Math.round(base * ratio) })),
+    }
+})
+
+export const ManyCohorts: Story = {
+    render: () => <RetentionChartDemo cohorts={MANY_COHORTS} mode="line" />,
+    name: 'Many cohorts',
 }
