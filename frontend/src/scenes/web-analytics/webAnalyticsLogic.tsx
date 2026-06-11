@@ -296,6 +296,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     })),
     reducers(() => {
         const persistConfig = { persist: true, prefix: `${getCurrentTeamId()}__` }
+        // The precompute toggle changed from opt-in (default `false`) to a tri-state where
+        // `null` means "use the team default". Legacy users persisted the old `false`, which
+        // would now read as an explicit opt-out. A versioned prefix orphans that stale value so
+        // they rehydrate `null` and the backend's per-team default applies.
+        const precomputePersistConfig = { persist: true, prefix: `${getCurrentTeamId()}__precompute_optout_v2__` }
         return {
             surveyModalPath: [
                 null as string | null,
@@ -453,7 +458,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 // backend's per-team default decides (opt-out for unrestricted teams,
                 // opt-in for everyone else). An explicit `true`/`false` overrides it.
                 null as boolean | null,
-                persistConfig,
+                precomputePersistConfig,
                 {
                     setUseWebAnalyticsPrecompute: (_, { useWebAnalyticsPrecompute }) => useWebAnalyticsPrecompute,
                 },
