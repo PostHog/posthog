@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.personhog_client.client import PersonHogClient
 
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import DatabaseError, models
 from django.db.models import Count
@@ -290,14 +291,15 @@ def _fetch_group_types_for_projects_via_personhog(
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdsRequest
 
-    resp = client.get_group_type_mappings_by_project_ids(
-        GetGroupTypeMappingsByProjectIdsRequest(project_ids=project_ids)
-    )
     result: dict[int, list[dict[str, Any]]] = {}
-    for batch in resp.results:
-        mappings = [proto_group_type_mapping_to_dict(m) for m in batch.mappings]
-        mappings.sort(key=lambda d: d["group_type_index"])
-        result[batch.key] = mappings
+    for i in range(0, len(project_ids), settings.PERSONHOG_BATCH_SIZE):
+        resp = client.get_group_type_mappings_by_project_ids(
+            GetGroupTypeMappingsByProjectIdsRequest(project_ids=project_ids[i : i + settings.PERSONHOG_BATCH_SIZE])
+        )
+        for batch in resp.results:
+            mappings = [proto_group_type_mapping_to_dict(m) for m in batch.mappings]
+            mappings.sort(key=lambda d: d["group_type_index"])
+            result[batch.key] = mappings
     return result
 
 
