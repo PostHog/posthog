@@ -1,25 +1,24 @@
 ---
 name: designing-email-templates
-description: 'Author, save, and edit email templates in the PostHog workflows library — compose Unlayer design JSON or email-client-safe HTML with Liquid personalization, and create and round-trip-edit templates over MCP. Use when asked to design, build, update, or fix an email template for workflows, broadcasts, or campaigns.'
+description: 'Author, save, and edit email templates in the PostHog workflows library — compose Unlayer design JSON with Liquid personalization and create and round-trip-edit templates over MCP. Use when asked to design, build, update, or fix an email template for workflows, broadcasts, or campaigns.'
 ---
 
 # Designing email templates
 
-Use this skill when creating or editing email templates for PostHog workflows — broadcast campaigns and `function_email` workflow actions send the template's stored HTML.
+Use this skill when creating or editing email templates for PostHog workflows — broadcast campaigns and `function_email` workflow actions send the rendered template.
 
-## Two ways to author a template
+## How authoring works
 
-- **Author the Unlayer design JSON** (`workflows-create-email-template` with `content.email.design`) — the default. The server renders the sent HTML from your design with Unlayer's own renderer (the same one the visual editor uses), so you never write or send `html`, and the template opens as editable blocks in PostHog's visual editor. Schema and a working example in [references/unlayer-design-json.md](references/unlayer-design-json.md).
-- **Author raw HTML** (`content.email.html`, no `design`) — for pixel control the block editor can't express. The HTML is sent verbatim but the template is opaque to the visual editor. Prefer an `html`-type content block _inside_ a design for one custom fragment before going fully raw.
+You author **Unlayer design JSON** (`content.email.design`) and save it with `workflows-create-email-template`. The server renders the sent email from your design with Unlayer's own renderer — the same one PostHog's visual editor uses — so the template opens as editable blocks for humans and sends exactly what the design describes. Schema and a working example in [references/unlayer-design-json.md](references/unlayer-design-json.md).
 
-Either way, read [references/design-guidelines.md](references/design-guidelines.md) before composing — it covers committing to a design direction, typography, color, and the patterns that make an email look designed rather than generated.
+Read [references/design-guidelines.md](references/design-guidelines.md) before composing — it covers committing to a design direction, typography, color, and the patterns that make an email look designed rather than generated. For one fragment the block editor can't express, use an `html`-type content block inside the design.
 
 ## Personalization with Liquid
 
-Liquid tags pass through the renderer as plain text, so use them anywhere — block text, subject, html:
+Email content uses Liquid templating. Liquid tags pass through the renderer as plain text, so use them anywhere — block text, subject, links:
 
 ```liquid
-Hi {{ person.properties.first_name | default: "there" }},
+Hi {{ person.properties.first_name | default: 'there' }},
 ```
 
 Marketing emails must include an unsubscribe link — render it with the built-in variables:
@@ -42,7 +41,7 @@ Call `workflows-create-email-template` with:
   "content": {
     "templating": "liquid",
     "email": {
-      "subject": "Welcome to {{ person.properties.company | default: \"our product\" }}",
+      "subject": "Welcome to {{ person.properties.company | default: 'our product' }}",
       "design": { "counters": { "u_row": 1 }, "schemaVersion": 16, "body": { "rows": ["…"] } },
       "text": "Plain-text fallback of the same message"
     }
@@ -51,42 +50,20 @@ Call `workflows-create-email-template` with:
 ```
 
 - `subject` is required for email templates.
-- Omit `html` when sending a `design` — the server renders it. Sending both skips the render and trusts your `html` (that's the visual editor's own save path; don't hand-pair them yourself).
-- Always provide `text` — it's the fallback for clients that block HTML and improves deliverability.
-- The tool result renders an inline preview and returns an edit link into the PostHog library.
+- Always provide `text` — it's the fallback for clients that block rich content and improves deliverability.
+- The tool result returns an edit link into the PostHog library.
 
 ### Payload mechanics
 
-Pass the design (or HTML) directly in the tool call — no scratch files. Liquid tags (`{{ }}`, `{% %}`) and CSS braces are ordinary characters inside JSON strings; only standard JSON escaping applies. If the tool call is rejected as malformed, fix the JSON escaping and resend the same call.
-
-### Braces and templating engines
-
-PostHog has two templating engines, and `hog` treats `{` as syntax — content run through it fails to compile. Keep templates on `liquid` everywhere they travel:
-
-- `content.templating` defaults to `liquid` on templates created via the API.
-- When wiring HTML into a workflow's `function_email` action inputs directly, set `"templating": "liquid"` on the email input so the braces are preserved verbatim.
-
-## Authoring email-client-safe HTML (raw-HTML path)
-
-Email clients render a ~2003 subset of HTML. The design path handles this for you; going raw means following these constraints yourself:
-
-- **Layout with tables**, not flexbox/grid — nested `<table role="presentation">` is the only layout primitive Outlook respects.
-- **Inline CSS on every element.** `<style>` blocks are stripped by some clients; keep them only as progressive enhancement (e.g. dark mode, mobile media queries).
-- **600px max content width**, centered; single column degrades best on mobile.
-- **Web-safe font stacks** with fallbacks (`Arial, Helvetica, sans-serif`); custom fonts via `@font-face` are enhancement-only.
-- **Images**: absolute `https://` URLs, explicit width/height, meaningful `alt` text. No background-image-dependent content.
-- **No JavaScript, no external stylesheets, no forms** — stripped or broken everywhere.
-- Use real text for the message; never image-only emails.
+Pass the design directly in the tool call — no scratch files, no pre-validation subprocesses, no payload preview rounds. Liquid tags (`{{ }}`, `{% %}`), apostrophes, single quotes, and emoji are ordinary characters inside JSON strings; only standard JSON escaping applies. Never rewrite content to avoid them — converting Liquid's single quotes to double quotes inside markup attributes breaks the markup. If the tool call is rejected as malformed, fix the JSON escaping and resend the same content unchanged.
 
 ## Editing a template (read–modify–write)
 
-`content` is replaced as a whole on update, never merged:
+`content` is replaced as a whole on update, never merged — and humans may have edited the design in PostHog's visual editor since you last saw it:
 
-1. `workflows-get-email-template` — fetch the current template.
+1. `workflows-get-email-template` — always fetch fresh; the returned `design` is the current source of truth.
 2. Modify the `design` (keep subject/text alongside it).
-3. `workflows-update-email-template` — send the complete `content` back, omitting `html` so the server re-renders it from the edited design.
-
-For a raw-HTML template (no `design`), edit and send `html` instead — it stays canonical and the template remains detached from the visual editor.
+3. `workflows-update-email-template` — send the complete `content` back. The server re-renders the sent email from the edited design.
 
 ## Using templates
 

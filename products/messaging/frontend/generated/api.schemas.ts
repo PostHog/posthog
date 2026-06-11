@@ -80,14 +80,12 @@ export interface MessagePreferencesApi {
 }
 
 /**
- * * `hog` - hog
- * `liquid` - liquid
+ * * `liquid` - liquid
  */
-export type HogFunctionTemplatingEnumApi =
-    (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
+export type MessageTemplateContentTemplatingEnumApi =
+    (typeof MessageTemplateContentTemplatingEnumApi)[keyof typeof MessageTemplateContentTemplatingEnumApi]
 
-export const HogFunctionTemplatingEnumApi = {
-    Hog: 'hog',
+export const MessageTemplateContentTemplatingEnumApi = {
     Liquid: 'liquid',
 } as const
 
@@ -119,7 +117,7 @@ export type EmailTemplateApiDesignBody = {
 }
 
 /**
- * Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.
+ * Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.
  */
 export type EmailTemplateApiDesign = {
     /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
@@ -132,20 +130,19 @@ export type EmailTemplateApiDesign = {
 export interface EmailTemplateApi {
     /** Email subject line. Supports Liquid templating. Required for email-type templates. */
     subject?: string
-    /** Plain-text fallback body, sent alongside the HTML. */
+    /** Plain-text fallback body for clients that can't render the email. */
     text?: string
-    /** Rendered email body — omit when sending design; the server renders it from the design. Author html directly (full document, inline CSS, table layout) only for pixel control the block editor can't express. */
+    /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
     html?: string
-    /** Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill. */
+    /** Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill. */
     design?: EmailTemplateApiDesign
 }
 
 export interface MessageTemplateContentApi {
-    /** Templating language for subject/html/text. Defaults to 'liquid'; hog treats braces as syntax.
+    /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
 
-  * `hog` - hog
   * `liquid` - liquid */
-    templating?: HogFunctionTemplatingEnumApi
+    templating?: MessageTemplateContentTemplatingEnumApi
     /** Email message content. Replaced as a whole on update — send the complete object. */
     email?: EmailTemplateApi | null
 }

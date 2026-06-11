@@ -60,28 +60,27 @@ class EmailTemplateSerializer(serializers.Serializer):
     text = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Plain-text fallback body, sent alongside the HTML.",
+        help_text="Plain-text fallback body for clients that can't render the email.",
     )
     html = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Rendered email body — omit when sending design; the server renders it from the design. "
-        "Author html directly (full document, inline CSS, table layout) only for pixel control "
-        "the block editor can't express.",
+        help_text="Rendered email body — derived from the design at save time. "
+        "The visual editor's save path supplies it directly; omit it otherwise.",
     )
     design = UnlayerDesignField(
         required=False,
         help_text="Unlayer design JSON — the authoring surface and source of truth. The server renders "
-        "the sent HTML from it, and it opens as editable blocks in the visual editor. "
+        "the sent email from it, and it opens as editable blocks in the visual editor. "
         "Full schema in the designing-email-templates skill.",
     )
 
 
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
-        choices=["hog", "liquid"],
+        choices=["liquid"],
         default="liquid",
-        help_text="Templating language for subject/html/text. Defaults to 'liquid'; hog treats braces as syntax.",
+        help_text="Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.",
     )
     email = EmailTemplateSerializer(
         required=False,

@@ -177,11 +177,11 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
     content: zod
         .object({
             templating: zod
-                .enum(['hog', 'liquid'])
-                .describe('\* `hog` - hog\n\* `liquid` - liquid')
+                .enum(['liquid'])
+                .describe('\* `liquid` - liquid')
                 .default(messagingTemplatesCreateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for subject\/html\/text. Defaults to 'liquid'; hog treats braces as syntax.\n\n\* `hog` - hog\n\* `liquid` - liquid"
+                    "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([
@@ -192,12 +192,15 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .describe(
                                 'Email subject line. Supports Liquid templating. Required for email-type templates.'
                             ),
-                        text: zod.string().optional().describe('Plain-text fallback body, sent alongside the HTML.'),
+                        text: zod
+                            .string()
+                            .optional()
+                            .describe("Plain-text fallback body for clients that can't render the email."),
                         html: zod
                             .string()
                             .optional()
                             .describe(
-                                "Rendered email body — omit when sending design; the server renders it from the design. Author html directly (full document, inline CSS, table layout) only for pixel control the block editor can't express."
+                                "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise."
                             ),
                         design: zod
                             .object({
@@ -227,7 +230,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             })
                             .optional()
                             .describe(
-                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
+                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
                             ),
                     }),
                     zod.null(),
@@ -263,11 +266,11 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
     content: zod
         .object({
             templating: zod
-                .enum(['hog', 'liquid'])
-                .describe('\* `hog` - hog\n\* `liquid` - liquid')
+                .enum(['liquid'])
+                .describe('\* `liquid` - liquid')
                 .default(messagingTemplatesUpdateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for subject\/html\/text. Defaults to 'liquid'; hog treats braces as syntax.\n\n\* `hog` - hog\n\* `liquid` - liquid"
+                    "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([
@@ -278,12 +281,15 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                             .describe(
                                 'Email subject line. Supports Liquid templating. Required for email-type templates.'
                             ),
-                        text: zod.string().optional().describe('Plain-text fallback body, sent alongside the HTML.'),
+                        text: zod
+                            .string()
+                            .optional()
+                            .describe("Plain-text fallback body for clients that can't render the email."),
                         html: zod
                             .string()
                             .optional()
                             .describe(
-                                "Rendered email body — omit when sending design; the server renders it from the design. Author html directly (full document, inline CSS, table layout) only for pixel control the block editor can't express."
+                                "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise."
                             ),
                         design: zod
                             .object({
@@ -313,7 +319,7 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                             })
                             .optional()
                             .describe(
-                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
+                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
                             ),
                     }),
                     zod.null(),
@@ -350,11 +356,11 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     content: zod
         .object({
             templating: zod
-                .enum(['hog', 'liquid'])
-                .describe('\* `hog` - hog\n\* `liquid` - liquid')
+                .enum(['liquid'])
+                .describe('\* `liquid` - liquid')
                 .default(messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for subject\/html\/text. Defaults to 'liquid'; hog treats braces as syntax.\n\n\* `hog` - hog\n\* `liquid` - liquid"
+                    "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([
@@ -365,12 +371,15 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .describe(
                                 'Email subject line. Supports Liquid templating. Required for email-type templates.'
                             ),
-                        text: zod.string().optional().describe('Plain-text fallback body, sent alongside the HTML.'),
+                        text: zod
+                            .string()
+                            .optional()
+                            .describe("Plain-text fallback body for clients that can't render the email."),
                         html: zod
                             .string()
                             .optional()
                             .describe(
-                                "Rendered email body — omit when sending design; the server renders it from the design. Author html directly (full document, inline CSS, table layout) only for pixel control the block editor can't express."
+                                "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise."
                             ),
                         design: zod
                             .object({
@@ -400,7 +409,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             })
                             .optional()
                             .describe(
-                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
+                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
                             ),
                     }),
                     zod.null(),

@@ -143,6 +143,19 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["content"]["templating"] == "liquid"
 
+    def test_create_rejects_hog_templating(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_templates/",
+            data={
+                "name": "Hog attempt",
+                "content": {"templating": "hog", "email": {"subject": "Hi", "html": "<p>Hi</p>"}},
+                "type": "email",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "templating" in str(response.json())
+
     @patch("products.messaging.backend.api.message_templates.render_design_html")
     def test_create_with_design_only_renders_html_server_side(self, mock_render):
         mock_render.return_value = "<html><body>Rendered</body></html>"

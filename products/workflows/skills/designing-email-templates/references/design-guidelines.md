@@ -1,6 +1,6 @@
 # Email design guidelines
 
-Authored HTML is the high-quality path: you control every pixel. These guidelines adapt strong frontend design practice to the email medium. The goal is a template that looks deliberately designed for the brand — not a generic notification.
+These guidelines adapt strong frontend design practice to the email medium — they apply to the Unlayer design as a whole and to the markup fragments inside its text blocks. The goal is a template that looks deliberately designed for the brand — not a generic notification.
 
 ## Commit to a direction first
 
@@ -42,7 +42,7 @@ Centered white card on gray, purple gradient header, Arial everywhere at uniform
 
 ## Quality pass before saving
 
-1. Read the HTML top to bottom: every element styled inline, palette values consistent, alt text on images.
+1. Read the design top to bottom: every text-block element styled inline, palette values consistent, alt text on images.
 2. Squint test on the rendered preview: clear hierarchy — eye lands on headline → key message → CTA.
 3. Confirm Liquid variables have `| default:` fallbacks so no reader sees a blank.
 4. Confirm the plain-text version carries the full message, not a stub.

@@ -6443,7 +6443,7 @@
         }
     },
     "workflows-create-email-template": {
-        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a plain-text fallback, and content.email.design (Unlayer design JSON — full schema in the designing-email-templates skill) — the server renders the sent HTML from the design and the template stays editable in PostHog's visual editor. Liquid supported throughout. Alternatively author content.email.html directly (full document, inline CSS + table layout; sent verbatim) when you need pixel control the block editor can't express. Use the template in a workflow's function_email action.",
+        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a plain-text fallback, and content.email.design (Unlayer design JSON — full schema in the designing-email-templates skill). The server renders the sent email from the design with Unlayer's own renderer, and the template opens as editable blocks in PostHog's visual editor. Liquid personalization is supported throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design inline in this call exactly as authored. Use the template in a workflow's function_email action.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create email template",
@@ -6471,7 +6471,7 @@
         }
     },
     "workflows-get-email-template": {
-        "description": "Get an email template by ID, including content.email (subject, html, text, and the editor's design when present). Fetch before updating — content is replaced as a whole, so build your update payload from this response.",
+        "description": "Get an email template by ID, including content.email (subject, text, design). Always fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build your update payload from this response.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get email template",
@@ -6625,7 +6625,7 @@
         }
     },
     "workflows-update-email-template": {
-        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first and send back the complete content.email. Edit the design and omit html: the server re-renders the sent HTML from the design. Sending html without design makes that HTML canonical and detaches the template from the visual editor.",
+        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update email template",

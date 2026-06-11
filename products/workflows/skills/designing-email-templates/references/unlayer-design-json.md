@@ -1,11 +1,6 @@
 # Unlayer design JSON schema
 
-Schema for `content.email.design` — the Unlayer design document that is the source of truth for a template. PostHog's visual email editor opens it as editable blocks, and the server renders the sent HTML from it (Unlayer's export API — the same renderer the editor uses).
-
-How `design` and `html` relate in PostHog:
-
-- `design` is what you author and edit. Send it without `html` and the server renders `html` from it on save.
-- `html` is what broadcasts and `function_email` actions send. If you do send `html` alongside `design`, the server trusts it and skips the render — that's the visual editor's own save path; don't hand-pair them yourself.
+Schema for `content.email.design` — the Unlayer design document that is the source of truth for a template. You author and edit the design; on save, the server renders the sent email from it with Unlayer's export API (the same renderer PostHog's visual editor uses), and the editor opens it as editable blocks. Don't supply rendered output yourself — that's the visual editor's save path.
 
 Adapted from [unlayer/unlayer-skills](https://github.com/unlayer/unlayer-skills) (`unlayer-export/references/design-json.md`), MIT License, Copyright (c) Unlayer.
 

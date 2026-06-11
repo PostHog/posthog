@@ -12024,24 +12024,6 @@ export namespace Schemas {
       representative_email: string;
     }
 
-    export interface CreateMessageTemplateTool {
-      /**
-         * What email template to generate. May include a single URL to draw branding and copy from.
-         * @maxLength 4000
-         */
-      instructions: string;
-      /**
-         * Optional template name. Falls back to a name generated from the instructions.
-         * @maxLength 400
-         */
-      name?: string;
-      /**
-         * Optional message category ID to file the template under.
-         * @nullable
-         */
-      message_category?: string | null;
-    }
-
     /**
      * Typed output for view set `create`.
      */
@@ -14406,7 +14388,7 @@ export namespace Schemas {
     };
 
     /**
-     * Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.
+     * Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.
      */
     export type EmailTemplateDesign = {
       /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
@@ -14419,11 +14401,11 @@ export namespace Schemas {
     export interface EmailTemplate {
       /** Email subject line. Supports Liquid templating. Required for email-type templates. */
       subject?: string;
-      /** Plain-text fallback body, sent alongside the HTML. */
+      /** Plain-text fallback body for clients that can't render the email. */
       text?: string;
-      /** Rendered email body — omit when sending design; the server renders it from the design. Author html directly (full document, inline CSS, table layout) only for pixel control the block editor can't express. */
+      /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
       html?: string;
-      /** Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill. */
+      /** Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill. */
       design?: EmailTemplateDesign;
     }
 
@@ -23011,12 +22993,21 @@ export namespace Schemas {
       scores: MessageSentimentScores;
     }
 
-    export interface MessageTemplateContent {
-      /** Templating language for subject/html/text. Defaults to 'liquid'; hog treats braces as syntax.
+    /**
+     * * `liquid` - liquid
+     */
+    export type MessageTemplateContentTemplatingEnum = typeof MessageTemplateContentTemplatingEnum[keyof typeof MessageTemplateContentTemplatingEnum];
 
-      * `hog` - hog
+
+    export const MessageTemplateContentTemplatingEnum = {
+      Liquid: 'liquid',
+    } as const;
+
+    export interface MessageTemplateContent {
+      /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
+
       * `liquid` - liquid */
-      templating?: HogFunctionTemplatingEnum;
+      templating?: MessageTemplateContentTemplatingEnum;
       /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
     }
