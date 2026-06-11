@@ -1,4 +1,4 @@
-import { parseTimestampToMs } from './timestamps'
+import { parseTimestampToMs } from './NotebookNodeRecording'
 
 describe('parseTimestampToMs', () => {
     describe('valid inputs', () => {
