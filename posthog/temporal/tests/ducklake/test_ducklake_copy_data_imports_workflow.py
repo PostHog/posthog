@@ -89,6 +89,9 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
         only_evaluate_locally=False,
         send_feature_flag_events=True,
     ):
+        if key == "duckgres-batch-sink":
+            # The sink-exclusion check runs first; this team is not sink-enabled.
+            return False
         captured["key"] = key
         captured["distinct_id"] = distinct_id
         captured["groups"] = groups
@@ -110,6 +113,25 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
     assert captured["groups"] == {"organization": str(ateam.organization_id), "project": str(ateam.id)}
     assert captured["only_evaluate_locally"] is True
     assert captured["send_feature_flag_events"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ducklake_copy_data_imports_gate_skips_duckgres_sink_teams(monkeypatch, ateam):
+    """A team on the duckgres batch sink must never also run the copy workflow."""
+
+    def fake_feature_enabled(key, distinct_id, **kwargs):
+        # Both flags enabled: the sink exclusion must win.
+        return True
+
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.posthoganalytics.feature_enabled",
+        fake_feature_enabled,
+    )
+
+    result = await ducklake_copy_data_imports_gate_activity(DuckLakeCopyWorkflowGateInputs(team_id=ateam.id))
+
+    assert result is False
 
 
 @pytest.mark.asyncio
