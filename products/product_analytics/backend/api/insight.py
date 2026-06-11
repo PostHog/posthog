@@ -189,7 +189,11 @@ def log_and_report_insight_activity(
             report_user_action(
                 user,
                 f"insight {activity}",
-                {"insight_id": insight_short_id, "insight_type": insight.get_analytics_type()},
+                {
+                    "insight_id": insight_short_id,
+                    "insight_type": insight.get_analytics_type(),
+                    **insight.get_analytics_query_metadata(),
+                },
                 team=team,
                 organization=organization,
                 request=request,

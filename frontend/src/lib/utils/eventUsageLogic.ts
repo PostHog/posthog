@@ -362,7 +362,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
-        reportInsightCreated: (query: Node | null) => ({ query }),
+        reportInsightStarted: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
             query: Node | null,
@@ -1185,11 +1185,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 total_properties: totalProperties,
             })
         },
-        reportInsightCreated: async ({ query }, breakpoint) => {
-            // "insight created" essentially means that the user clicked "New insight"
+        reportInsightStarted: async ({ query }, breakpoint) => {
+            // "insight started" means the user opened a blank insight editor (intent — it may never be
+            // persisted). The actual creation is tracked server-side as "insight created".
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
 
-            posthog.capture('insight created', { ...sanitizeQuery(query), source: 'web' })
+            posthog.capture('insight started', { ...sanitizeQuery(query), source: 'web' })
         },
         reportInsightMetadataAiGenerated: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generated', { query_kind: queryKind })
@@ -1202,10 +1203,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('insight saved', {
                 ...sanitizeQuery(query),
                 insight: sanitizeInsight(insight),
-                insight_short_id: insight?.short_id,
                 is_new_insight: isNewInsight,
                 save_type: saveType,
-                source: 'web',
             })
         },
         reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {

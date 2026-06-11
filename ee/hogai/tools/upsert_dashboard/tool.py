@@ -266,6 +266,7 @@ class UpsertDashboardTool(MaxTool):
                     {
                         "insight_id": insight.short_id,
                         "insight_type": insight.get_analytics_type(),
+                        **insight.get_analytics_query_metadata(),
                         "source": EventSource.POSTHOG_AI,
                     },
                     team=self._team,
