@@ -1,5 +1,5 @@
 import type { S3Client } from '@aws-sdk/client-s3'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import request from 'supertest'
 
@@ -780,6 +780,92 @@ describe('janitor HTTP', () => {
         expect(res.status).toBe(200)
         const paths = (res.body.files as Array<{ path: string }>).map((f) => f.path).sort()
         expect(paths).toEqual(['agent.md', 'skills/x.md'])
+    })
+
+    /**
+     * Regression: spec drift in a draft row must not block the re-seed path
+     * that's about to overwrite it. Before this was fixed, both
+     * `clone_from` and `put_bundle` ran `AgentSpecSchema.parse()` on read,
+     * so a drafted-then-tightened spec (chat trigger missing `auth`) made
+     * `requireDraft` / `assertDraft` return 400 invalid_request — and the
+     * seed flow that copies the live spec onto a fresh draft via Django's
+     * `new_draft` would deadlock on it forever.
+     */
+    it('POST /revisions/:id/clone_from still works when the draft has a drifted spec', async () => {
+        const { app, bundles, revisions, revisionId } = await mkRevisionApp()
+        await bundles.write(revisionId, 'agent.md', 'parent')
+        await request(app).post(`/revisions/${revisionId}/freeze`)
+        const apps = await revisions.listApplications(1)
+        // Insert a draft directly via SQL with a spec that AgentSpecSchema
+        // would reject (chat trigger without `auth`). Bypasses
+        // createRevision's post-insert parse on purpose.
+        const draftId = randomUUID()
+        await pool.query(
+            `INSERT INTO agent_revision (id, application_id, parent_revision_id, created_by_id,
+                                          state, bundle_uri, bundle_sha256, spec)
+             VALUES ($1, $2, $3, NULL, 'draft', 'mem://b2', NULL, $4::jsonb)`,
+            [
+                draftId,
+                apps[0].id,
+                revisionId,
+                JSON.stringify({
+                    model: 'x',
+                    triggers: [{ type: 'chat', config: {} }], // missing `auth`
+                }),
+            ]
+        )
+        const res = await request(app).post(`/revisions/${draftId}/clone_from`).send({ source_revision_id: revisionId })
+        expect(res.status).toBe(200)
+    })
+
+    /**
+     * Same regression on the put-bundle path: `assertDraft` would 400 on a
+     * drifted draft, and `persistAuthorSpec` would explode reading
+     * `rev.spec` even though it overlays every author field on top. The
+     * author payload itself is parsed strictly, so the merged result is
+     * still validated — drift only stops blocking the read, not the write.
+     */
+    it('PUT /revisions/:id/bundle still works when the draft has a drifted spec', async () => {
+        const { app, revisions, revisionId } = await mkRevisionApp()
+        const apps = await revisions.listApplications(1)
+        const draftId = randomUUID()
+        await pool.query(
+            `INSERT INTO agent_revision (id, application_id, parent_revision_id, created_by_id,
+                                          state, bundle_uri, bundle_sha256, spec)
+             VALUES ($1, $2, $3, NULL, 'draft', 'mem://b3', NULL, $4::jsonb)`,
+            [
+                draftId,
+                apps[0].id,
+                revisionId,
+                JSON.stringify({
+                    model: 'x',
+                    triggers: [{ type: 'chat', config: {} }], // missing `auth`
+                }),
+            ]
+        )
+        const res = await request(app)
+            .put(`/revisions/${draftId}/bundle`)
+            .send({
+                agent_md: 'hello',
+                skills: [],
+                tools: [],
+                spec: {
+                    model: 'y',
+                    triggers: [
+                        {
+                            type: 'chat',
+                            config: {},
+                            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                        },
+                    ],
+                },
+            })
+        expect(res.status).toBe(200)
+        // Confirm the bad spec was actually replaced — getRevision will
+        // parse it strictly, so a successful read proves the merge wrote a
+        // valid spec.
+        const after = await revisions.getRevision(draftId)
+        expect(after?.spec.model).toBe('y')
     })
 
     it('returns 503 when the revision/bundle stores are not configured', async () => {

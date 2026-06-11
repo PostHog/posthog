@@ -47,6 +47,7 @@ import { z } from 'zod'
 import {
     accumulateUsage,
     AgentRevision,
+    AgentRevisionRaw,
     AgentSession,
     AgentSpec,
     AgentSpecSchema,
@@ -172,7 +173,7 @@ function defaultSince(): string {
  */
 async function deriveSpec(args: {
     revisionId: string
-    rev: AgentRevision
+    rev: AgentRevisionRaw
     bundles: BundleStore
     entries?: BundleEntry[]
 }): Promise<AgentSpec> {
@@ -701,8 +702,11 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     const requireDraft = async (
         res: Response,
         revisionId: string
-    ): Promise<{ rev: Awaited<ReturnType<RevisionStore['getRevision']>> } | null> => {
-        const rev = await opts.revisions!.getRevision(revisionId)
+    ): Promise<{ rev: Awaited<ReturnType<RevisionStore['getRevisionRaw']>> } | null> => {
+        // Raw read: clone_from + freeze only care about state + bundle pointers
+        // here, not the parsed spec. A drifted source spec would otherwise
+        // block re-seeding from inside the very flow that overwrites it.
+        const rev = await opts.revisions!.getRevisionRaw(revisionId)
         if (!rev) {
             res.status(404).json({ error: 'revision_not_found' })
             return null

@@ -292,7 +292,10 @@ async function assertDraft(
     revisionId: string,
     res: import('express').Response
 ): Promise<boolean> {
-    const rev = await opts.revisions.getRevision(revisionId)
+    // Raw read: the state + frozen-marker checks below don't need a parsed
+    // spec, and a re-seed that overwrites a drifted source spec must not
+    // be blocked by the drift it's about to fix.
+    const rev = await opts.revisions.getRevisionRaw(revisionId)
     if (!rev) {
         res.status(404).json({ error: 'revision_not_found' })
         return false
@@ -336,17 +339,21 @@ async function persistAuthorSpec(
     revisionId: string,
     authorSpec: z.infer<typeof TypedSpecSchema>
 ): Promise<void> {
-    const rev = await opts.revisions.getRevision(revisionId)
+    // Raw read: we treat the existing spec as a JSONB blob for the merge —
+    // every author field gets overlaid by `authorSpec` and the final result
+    // is parsed strictly below, so a drifted source spec is fine here.
+    const rev = await opts.revisions.getRevisionRaw(revisionId)
     if (!rev) {
         throw new Error('revision_not_found')
     }
+    const existing = (rev.spec ?? {}) as Record<string, unknown>
     const merged: Record<string, unknown> = {
-        ...(rev.spec as Record<string, unknown>),
+        ...existing,
         ...authorSpec,
         // Author cannot write these — they're server-derived at freeze.
         // Leave existing values alone if Django seeded them; otherwise default to [].
-        skills: (rev.spec as Record<string, unknown>).skills ?? [],
-        tools: (rev.spec as Record<string, unknown>).tools ?? [],
+        skills: existing.skills ?? [],
+        tools: existing.tools ?? [],
     }
     // Parse loosely — defaults fill anything the partial author payload
     // doesn't supply (model, triggers, mcps, etc.).

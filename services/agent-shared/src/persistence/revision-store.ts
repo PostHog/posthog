@@ -5,7 +5,7 @@
  * against the real PG schema under `agent_runtime_queue_test`.
  */
 
-import { AgentApplication, AgentRevision, AgentSpec, RevisionState } from '../spec/spec'
+import { AgentApplication, AgentRevision, AgentRevisionRaw, AgentSpec, RevisionState } from '../spec/spec'
 
 export interface RevisionStore {
     getApplication(applicationId: string): Promise<AgentApplication | null>
@@ -22,6 +22,14 @@ export interface RevisionStore {
     archiveApplication(applicationId: string): Promise<void>
 
     getRevision(revisionId: string): Promise<AgentRevision | null>
+    /**
+     * Same as `getRevision` but skips `AgentSpecSchema.parse`. For callers
+     * that only need state / bundle pointers, or that are about to overwrite
+     * the spec wholesale (e.g. `put_bundle`'s merge step). Lets a re-seed
+     * recover from schema drift in the source row instead of deadlocking
+     * on it.
+     */
+    getRevisionRaw(revisionId: string): Promise<AgentRevisionRaw | null>
     listRevisions(applicationId: string): Promise<AgentRevision[]>
     /**
      * Resolve revisions on an application whose id starts with the given hex

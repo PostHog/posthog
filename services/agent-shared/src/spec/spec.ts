@@ -737,6 +737,16 @@ export interface AgentRevision {
 }
 
 /**
+ * Same shape as `AgentRevision` but with the raw JSONB spec. Used by reads
+ * that only need state / bundle pointers, or that overwrite the spec
+ * wholesale — they shouldn't fail on schema drift in a row that's about
+ * to be replaced. The strict-parse path stays on `AgentRevision`.
+ */
+export interface AgentRevisionRaw extends Omit<AgentRevision, 'spec'> {
+    spec: unknown
+}
+
+/**
  * Session-bound identity — **never carries tokens**. Tokens live in the
  * `CredentialBroker` keyed by session_id; this struct is the persisted
  * "who" answer that the ACL machinery + audit log consume.

@@ -8,7 +8,14 @@ import { v4 as uuidv4 } from 'uuid'
 import { ZodError } from 'zod'
 
 import { createLogger } from '../runtime/logger'
-import { AgentApplication, AgentRevision, AgentSpec, AgentSpecSchema, RevisionState } from '../spec/spec'
+import {
+    AgentApplication,
+    AgentRevision,
+    AgentRevisionRaw,
+    AgentSpec,
+    AgentSpecSchema,
+    RevisionState,
+} from '../spec/spec'
 import { NewApplication, NewRevision, RevisionStore } from './revision-store'
 
 const log = createLogger('pg-revision-store')
@@ -77,6 +84,16 @@ export class PgRevisionStore implements RevisionStore {
         return r.rowCount === 0 ? null : rowToRev(r.rows[0])
     }
 
+    async getRevisionRaw(revisionId: string): Promise<AgentRevisionRaw | null> {
+        const r = await this.pool.query(
+            `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
+                    bundle_uri, bundle_sha256, spec
+             FROM agent_revision WHERE id = $1`,
+            [revisionId]
+        )
+        return r.rowCount === 0 ? null : rowToRevRaw(r.rows[0])
+    }
+
     async listRevisions(applicationId: string): Promise<AgentRevision[]> {
         const r = await this.pool.query(
             `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
@@ -133,7 +150,10 @@ export class PgRevisionStore implements RevisionStore {
     }
 
     async updateSpec(revisionId: string, spec: AgentSpec): Promise<void> {
-        const cur = await this.getRevision(revisionId)
+        // Raw read: this is the write path that fixes a drifted spec — we
+        // must not block on parsing the drift we're about to overwrite. The
+        // `spec` argument has already been parsed strictly by the caller.
+        const cur = await this.getRevisionRaw(revisionId)
         if (!cur) {
             return
         }
@@ -227,6 +247,13 @@ type RevisionRow = {
 
 function rowToRev(row: RevisionRow): AgentRevision {
     return {
+        ...rowToRevRaw(row),
+        spec: AgentSpecSchema.parse(row.spec ?? {}),
+    }
+}
+
+function rowToRevRaw(row: RevisionRow): AgentRevisionRaw {
+    return {
         id: row.id,
         application_id: row.application_id,
         parent_revision_id: row.parent_revision_id,
@@ -235,7 +262,7 @@ function rowToRev(row: RevisionRow): AgentRevision {
         state: row.state as RevisionState,
         bundle_uri: row.bundle_uri,
         bundle_sha256: row.bundle_sha256,
-        spec: AgentSpecSchema.parse(row.spec ?? {}),
+        spec: row.spec ?? {},
     }
 }
 
