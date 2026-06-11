@@ -376,7 +376,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             if source_type == "amplitude" and (end_date - start_date) < timedelta(hours=1):
                 raise serializers.ValidationError("Date range must be at least 1 hour for Amplitude migrations.")
 
-        # For Amplitude, ensure at least one of import_events or generate_identify_events is enabled
+        # For Amplitude, validate required fields and event-type selection
         source_type = data.get("source_type")
         if source_type == "amplitude":
             if not data.get("access_key"):
