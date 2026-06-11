@@ -202,6 +202,8 @@ export interface PullRequestListApi {
 }
 
 export interface WorkflowHealthItemApi {
+    /** Repository the workflow runs in. */
+    repo: RepoRefApi
     /** GitHub Actions workflow name. */
     workflow_name: string
     /** Total runs started in the window. */

@@ -151,6 +151,8 @@ class CICardSummarySerializer(DataclassSerializer):
 
 
 class WorkflowHealthItemSerializer(DataclassSerializer):
+    repo = RepoRefSerializer(help_text="Repository the workflow runs in.")
+
     class Meta:
         dataclass = WorkflowHealthItem
         extra_kwargs = {

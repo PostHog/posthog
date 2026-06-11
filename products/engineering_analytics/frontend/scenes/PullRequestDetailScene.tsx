@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconExternal } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonSkeleton,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    LemonTagType,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -12,6 +20,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { PullRequestApi } from '../generated/api.schemas'
+import { githubPrUrl, githubWorkflowUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
 import { PullRequestDetailLogicProps, pullRequestDetailLogic } from './pullRequestDetailLogic'
 
@@ -144,7 +153,7 @@ export function PullRequestDetailScene(): JSX.Element {
 
     const pullRequest = lifecycle?.pull_request
     const githubUrl = pullRequest
-        ? `https://github.com/${pullRequest.repo.owner}/${pullRequest.repo.name}/pull/${pullRequest.number}`
+        ? githubPrUrl(pullRequest.repo.owner, pullRequest.repo.name, pullRequest.number)
         : null
 
     const passed = runs.filter((run) => run.conclusion !== null && isPassingConclusion(run.conclusion)).length
@@ -155,7 +164,18 @@ export function PullRequestDetailScene(): JSX.Element {
         {
             title: 'Workflow',
             key: 'workflow',
-            render: (_, run) => <span className="font-medium">{run.workflow}</span>,
+            render: (_, run) =>
+                pullRequest ? (
+                    <Link
+                        to={githubWorkflowUrl(pullRequest.repo.owner, pullRequest.repo.name, run.workflow)}
+                        target="_blank"
+                        className="font-medium"
+                    >
+                        {run.workflow}
+                    </Link>
+                ) : (
+                    <span className="font-medium">{run.workflow}</span>
+                ),
         },
         {
             title: 'Verdict',

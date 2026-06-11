@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
+import { githubWorkflowUrl } from '../lib/github'
 import { WorkflowHealthRow, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 function formatSeconds(seconds: number | null): string {
@@ -42,7 +43,15 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         {
             title: 'Workflow',
             key: 'workflowName',
-            render: (_, row) => <span className="font-medium">{row.workflowName}</span>,
+            render: (_, row) => (
+                <Link
+                    to={githubWorkflowUrl(row.repoOwner, row.repoName, row.workflowName)}
+                    target="_blank"
+                    className="font-medium"
+                >
+                    {row.workflowName}
+                </Link>
+            ),
         },
         {
             title: 'Runs',
@@ -102,7 +111,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                 size="small"
                 columns={columns}
                 dataSource={workflowHealth}
-                rowKey="workflowName"
+                rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
                 loading={workflowHealthLoading}
                 useURLForSorting={false}
                 pagination={{ pageSize: 50 }}

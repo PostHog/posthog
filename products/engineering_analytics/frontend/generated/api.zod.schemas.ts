@@ -311,6 +311,13 @@ export type PullRequestListApi = zod.input<typeof PullRequestListApi>
 export type PullRequestListApiOutput = zod.output<typeof PullRequestListApi>
 
 export const WorkflowHealthItemApi = zod.object({
+    repo: zod
+        .object({
+            provider: zod.string().describe("Code host provider, e.g. 'github'."),
+            owner: zod.string().describe('Repository owner or organization.'),
+            name: zod.string().describe('Repository name.'),
+        })
+        .describe('Repository the workflow runs in.'),
     workflow_name: zod.string().describe('GitHub Actions workflow name.'),
     run_count: zod.number().describe('Total runs started in the window.'),
     success_rate: zod

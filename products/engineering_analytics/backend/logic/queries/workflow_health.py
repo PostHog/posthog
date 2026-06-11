@@ -13,13 +13,15 @@ from posthog.hogql import ast
 
 from posthog.models.team import Team
 
-from products.engineering_analytics.backend.facade.contracts import WorkflowHealthItem
+from products.engineering_analytics.backend.facade.contracts import RepoRef, WorkflowHealthItem
 from products.engineering_analytics.backend.logic.queries import _curated
 
 _LIMIT = 100
 
 _SELECT = f"""
     SELECT
+        repo_owner,
+        repo_name,
         workflow_name,
         count() AS run_count,
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
@@ -28,7 +30,7 @@ _SELECT = f"""
         max(if(conclusion = 'failure', run_started_at, NULL)) AS last_failure_at
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__
-    GROUP BY workflow_name
+    GROUP BY repo_owner, repo_name, workflow_name
     ORDER BY run_count DESC
     LIMIT {_LIMIT}
 """
@@ -55,6 +57,7 @@ def query_workflow_health(
     )
     return [
         WorkflowHealthItem(
+            repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
             workflow_name=workflow_name,
             run_count=run_count,
             success_rate=_to_opt_float(success_rate),
@@ -62,7 +65,7 @@ def query_workflow_health(
             p95_seconds=_to_opt_float(p95_seconds),
             last_failure_at=last_failure_at,
         )
-        for workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at in response.results
+        for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at in response.results
     ]
 
 

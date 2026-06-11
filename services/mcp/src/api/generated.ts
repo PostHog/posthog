@@ -42069,6 +42069,8 @@ export namespace Schemas {
     }
 
     export interface WorkflowHealthItem {
+      /** Repository the workflow runs in. */
+      repo: RepoRef;
       /** GitHub Actions workflow name. */
       workflow_name: string;
       /** Total runs started in the window. */

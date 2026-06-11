@@ -52,6 +52,7 @@ def _pr_list_item() -> contracts.PullRequestListItem:
 
 def _workflow_health() -> contracts.WorkflowHealthItem:
     return contracts.WorkflowHealthItem(
+        repo=contracts.RepoRef(provider="github", owner="PostHog", name="posthog"),
         workflow_name="CI",
         run_count=10,
         success_rate=0.9,

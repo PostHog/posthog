@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { CIStatusTag } from '../components/CIStatusTag'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { StatCard } from '../components/StatCard'
+import { githubPrUrl } from '../lib/github'
 import {
     CIStatusFilter,
     PRStateFilter,
@@ -28,10 +29,6 @@ import {
     engineeringAnalyticsLogic,
     prKeyOf,
 } from './engineeringAnalyticsLogic'
-
-function githubPrUrl(row: PullRequestRow): string {
-    return `https://github.com/${row.repoOwner}/${row.repoName}/pull/${row.number}`
-}
 
 export function EngineeringAnalyticsPullRequests(): JSX.Element {
     const {
@@ -67,7 +64,11 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
             key: 'title',
             render: (_, row) => (
                 <div className="flex flex-col gap-0.5">
-                    <Link to={githubPrUrl(row)} target="_blank" className="font-medium">
+                    <Link
+                        to={githubPrUrl(row.repoOwner, row.repoName, row.number)}
+                        target="_blank"
+                        className="font-medium"
+                    >
                         {row.title}
                     </Link>
                     <div className="flex items-center gap-1.5 text-xs text-secondary">

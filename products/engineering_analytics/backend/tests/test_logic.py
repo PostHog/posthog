@@ -244,14 +244,15 @@ class TestEndpointMapping(BaseTest):
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         rows = [
-            ("CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00")),
+            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00")),
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None.
-            ("Deploy", 2, None, float("nan"), float("nan"), None),
+            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None),
         ]
         with mock.patch(_RUN_QUERY, return_value=_resp(rows)):
             items = build_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
         assert items[0].workflow_name == "CI" and items[0].success_rate == 0.9
+        assert items[0].repo.owner == "PostHog" and items[0].repo.name == "posthog"
         assert items[0].p50_seconds == 120.0 and items[0].p95_seconds == 600.0
         assert items[1].success_rate is None
         assert items[1].p50_seconds is None and items[1].p95_seconds is None

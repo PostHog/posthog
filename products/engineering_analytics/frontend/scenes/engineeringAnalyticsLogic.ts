@@ -58,6 +58,8 @@ export interface CardsData {
 }
 
 export interface WorkflowHealthRow {
+    repoOwner: string
+    repoName: string
     workflowName: string
     runCount: number
     /** Over completed runs only; null when nothing has settled yet. */
@@ -198,6 +200,8 @@ export const engineeringAnalyticsLogic = kea<engineeringAnalyticsLogicType>([
                     const items = await engineeringAnalyticsWorkflowHealth(projectId())
                     return items.map(
                         (it): WorkflowHealthRow => ({
+                            repoOwner: it.repo.owner,
+                            repoName: it.repo.name,
                             workflowName: it.workflow_name,
                             runCount: it.run_count,
                             successRate: it.success_rate,

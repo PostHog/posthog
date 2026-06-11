@@ -205,6 +205,7 @@ class WorkflowHealthItem:
     completed runs only, so they are ``None`` when the window has none.
     """
 
+    repo: RepoRef
     workflow_name: str
     run_count: int
     success_rate: float | None
