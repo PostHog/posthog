@@ -4,7 +4,7 @@ from typing import Any, Protocol
 
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
-from posthog.hogql.database.models import LazyJoin, Table
+from posthog.hogql.database.models import LazyJoin, Table, TableNode
 from posthog.hogql.database.utils import get_join_field_chain
 
 from posthog.exceptions_capture import capture_exception
@@ -19,6 +19,8 @@ class DatabaseTableLookup(Protocol):
 
     def get_table(self, table_name: str | list[str]) -> Table: ...
 
+    def get_table_node(self, table_name: str | list[str]) -> TableNode: ...
+
 
 @dataclasses.dataclass(frozen=True)
 class WarehouseForeignKey:
@@ -28,17 +30,31 @@ class WarehouseForeignKey:
 
 
 def add_postgres_foreign_key_lazy_joins(
-    hogql_table: Table,
+    source_name: str,
     warehouse_table: DataWarehouseTable,
     database: DatabaseTableLookup,
     schemas: Sequence[ExternalDataSchema],
+    field_names_by_name: dict[str, set[str]] | None = None,
 ) -> None:
+    """Wire a warehouse table's foreign keys, emitting forward/reverse joins onto the source/target
+    *nodes* by name (via add_pending_field). Works from the source's name and column metadata, so it can
+    run before the source (a deferred stub) is built and never forces it to build.
+
+    `field_names_by_name` maps each warehouse table's name to the field names it will expose, so FK
+    inference can resolve a target's columns without building it."""
+    columns = warehouse_table.columns or {}
+    # The field names the built table will expose (after redefinitions / dropped columns / synthetic
+    # `properties`). Checking against these — not raw columns — keeps FK wiring byte-identical to the
+    # eager build, which consulted the built table's fields, while still avoiding a build. Reuse the
+    # caller's prebuilt map entry for this table when present rather than recomputing it.
+    field_names = (field_names_by_name or {}).get(source_name) or warehouse_table.hogql_field_names()
     foreign_keys = _get_foreign_keys_from_schemas(schemas)
 
     for foreign_key in foreign_keys:
         _add_foreign_key_lazy_join(
-            hogql_table=hogql_table,
+            source_name=source_name,
             warehouse_table=warehouse_table,
+            field_names=field_names,
             database=database,
             column=foreign_key.column,
             target_table=foreign_key.target_table,
@@ -50,34 +66,32 @@ def add_postgres_foreign_key_lazy_joins(
 
     # Fallback inference when explicit FK metadata is unavailable.
     # This keeps direct Postgres ergonomics high for common *_id columns.
-    if not isinstance(hogql_table.name, str):
-        return
-
-    namespace = hogql_table.name.split(".")[:-1]
-    columns = warehouse_table.columns or {}
+    namespace = source_name.split(".")[:-1]
 
     for column_name in columns.keys():
         if not column_name.endswith("_id") or len(column_name) <= 3:
             continue
 
         field_name = column_name[:-3]
-        if hogql_table.fields.get(field_name):
+        if field_name in field_names:
             continue
 
         inferred_foreign_key = _find_inferred_foreign_key(
             column=column_name,
             base_name=field_name,
             namespace=namespace,
-            hogql_table=hogql_table,
+            source_name=source_name,
             warehouse_table=warehouse_table,
             database=database,
+            field_names_by_name=field_names_by_name or {},
         )
         if inferred_foreign_key is None:
             continue
 
         _add_foreign_key_lazy_join(
-            hogql_table=hogql_table,
+            source_name=source_name,
             warehouse_table=warehouse_table,
+            field_names=field_names,
             database=database,
             column=inferred_foreign_key.column,
             target_table=inferred_foreign_key.target_table,
@@ -121,8 +135,9 @@ def _get_foreign_keys(schema: ExternalDataSchema | None) -> list[WarehouseForeig
 
 def _add_foreign_key_lazy_join(
     *,
-    hogql_table: Table,
+    source_name: str,
     warehouse_table: DataWarehouseTable,
+    field_names: set[str],
     database: DatabaseTableLookup,
     column: str,
     target_table: str,
@@ -142,81 +157,88 @@ def _add_foreign_key_lazy_join(
         return
 
     field_name = column[:-3] if column.endswith("_id") and len(column) > 3 else column
-    if hogql_table.fields.get(field_name):
+    # A field already named `field_name` (e.g. `user` alongside `user_id`) owns that name; don't shadow
+    # it with a FK join, and don't emit the matching reverse join either. Checked against the built
+    # field set (which may redefine/drop columns) so this matches the eager build without forcing one.
+    if field_name in field_names:
         return
 
-    resolved_target = _resolve_target_table(
+    source_table_name = source_name
+
+    target_table_name = _resolve_target_name(
         target_table=target_table,
-        source_table_name=hogql_table.name if isinstance(hogql_table.name, str) else None,
+        source_table_name=source_table_name,
         database=database,
     )
-    if resolved_target is None:
+    if target_table_name is None:
         return
 
-    join_table, target_hogql_table = resolved_target
-    if not _is_same_external_scope(hogql_table, target_hogql_table, warehouse_table):
+    if not _is_same_external_scope(source_table_name, target_table_name, warehouse_table, database):
         return
 
-    hogql_table.fields[field_name] = LazyJoin(
-        from_field=from_field,
-        to_field=to_field,
-        join_table=join_table,
-        resolver=FOREIGN_KEY,
+    # Forward and reverse FK joins are attached to the source/target *nodes*, by name, via
+    # add_pending_field: applied immediately if the node is already built, or when it later materializes
+    # if it's a deferred stub. Referencing both endpoints by name (resolved lazily on traversal) means
+    # wiring a table's FK never forces another table to build. The join recipe is plain data — a
+    # resolver tag, not a closure — so the built table stays serializable.
+    database.get_table_node(source_table_name).add_pending_field(
+        field_name,
+        LazyJoin(
+            from_field=from_field,
+            to_field=to_field,
+            join_table=target_table_name,
+            resolver=FOREIGN_KEY,
+        ),
+        override=False,
     )
-
-    target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
-    source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
-    if target_table_name is None or source_table_name is None:
-        return
 
     reverse_field_name = _reverse_foreign_key_field_name(source_table_name, target_table_name)
-    if target_hogql_table.fields.get(reverse_field_name) is not None:
-        return
-
-    target_hogql_table.fields[reverse_field_name] = LazyJoin(
-        from_field=to_field,
-        to_field=from_field,
-        join_table=hogql_table,
-        resolver=FOREIGN_KEY,
+    database.get_table_node(target_table_name).add_pending_field(
+        reverse_field_name,
+        LazyJoin(
+            from_field=to_field,
+            to_field=from_field,
+            join_table=source_table_name,
+            resolver=FOREIGN_KEY,
+        ),
+        override=False,
     )
 
 
-def _resolve_target_table(
+def _resolve_target_name(
     *,
     target_table: str,
-    source_table_name: str | None,
+    source_table_name: str,
     database: DatabaseTableLookup,
-) -> tuple[Table | str, Table] | None:
-    join_table: Table | str = target_table
-    if (
-        source_table_name is not None
-        and isinstance(join_table, str)
-        and "." in source_table_name
-        and "." not in join_table
-    ):
-        join_table = ".".join([*source_table_name.split(".")[:-1], join_table])
+) -> str | None:
+    """Resolve a FK target to its (possibly namespace-qualified) table name without building it.
 
-    if isinstance(join_table, str):
-        if not database.has_table(join_table):
-            return None
+    Uses has_table (which treats an unbuilt stub as present), so the join can be wired without forcing
+    the target's build — the resolver materializes it lazily only if a query traverses the join.
+    """
+    name = target_table
+    if "." in source_table_name and "." not in name:
+        name = ".".join([*source_table_name.split(".")[:-1], name])
 
-        return join_table, database.get_table(join_table)
+    if not database.has_table(name):
+        return None
 
-    return join_table, join_table
+    return name
 
 
 def _is_same_external_scope(
-    source_hogql_table: Table,
-    target_hogql_table: Table,
+    source_table_name: str,
+    target_table_name: str,
     warehouse_table: DataWarehouseTable,
+    database: DatabaseTableLookup,
 ) -> bool:
-    source_table_name = source_hogql_table.name if isinstance(source_hogql_table.name, str) else None
-    target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
-    if source_table_name is None or target_table_name is None:
-        return False
-
     source = warehouse_table.external_data_source
     if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+        # Direct-query mode (the eager path): the scope check needs the built target's type/source id,
+        # so resolve it here. This branch is not reached on the lazy path (direct queries stay eager).
+        if not database.has_table(target_table_name):
+            return False
+        target_hogql_table = database.get_table(target_table_name)
         return isinstance(
             target_hogql_table, DirectPostgresTable
         ) and target_hogql_table.external_data_source_id == str(source.id)
@@ -247,37 +269,36 @@ def _find_inferred_foreign_key(
     column: str,
     base_name: str,
     namespace: list[str],
-    hogql_table: Table,
+    source_name: str,
     warehouse_table: DataWarehouseTable,
     database: DatabaseTableLookup,
+    field_names_by_name: dict[str, set[str]],
 ) -> WarehouseForeignKey | None:
-    source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
+    source_table_name = source_name
 
     for candidate in _candidate_target_tables(base_name=base_name, namespace=namespace):
-        if not database.has_table(candidate):
+        if not database.has_table(candidate) or candidate == source_table_name:
             continue
 
-        target_hogql_table = database.get_table(candidate)
-        target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
-        if source_table_name is not None and target_table_name == source_table_name:
+        # Read the target's field names from metadata (no build). hogql_field_names() equals the built
+        # field set (pinned by test), so this is equivalent to inspecting the built table. Fall back to
+        # building only for a candidate that isn't a known warehouse table (e.g. a view) — uncommon, and
+        # preserves the prior behavior there.
+        target_field_names = field_names_by_name.get(candidate)
+        if target_field_names is None:
+            target_hogql_table = database.get_table(candidate)
+            if not isinstance(target_hogql_table, Table) or not isinstance(target_hogql_table.name, str):
+                continue
+            target_field_names = set(target_hogql_table.fields)
+
+        if not _is_same_external_scope(source_table_name, candidate, warehouse_table, database):
             continue
 
-        if not _is_same_external_scope(hogql_table, target_hogql_table, warehouse_table):
-            continue
-
-        target_column = _find_inferred_target_column(column=column, target_hogql_table=target_hogql_table)
+        target_column = next((name for name in (column, "id") if name in target_field_names), None)
         if target_column is None:
             continue
 
         return WarehouseForeignKey(column=column, target_table=candidate, target_column=target_column)
-
-    return None
-
-
-def _find_inferred_target_column(*, column: str, target_hogql_table: Table) -> str | None:
-    for candidate in (column, "id"):
-        if target_hogql_table.fields.get(candidate) is not None:
-            return candidate
 
     return None
 

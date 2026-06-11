@@ -2269,7 +2269,7 @@ class Resolver(CloningVisitor):
         if isinstance(table_type, (ast.LazyTableType, ast.TableType)):
             return isinstance(table_type.table, classes)
         if isinstance(table_type, ast.LazyJoinType):
-            return isinstance(table_type.lazy_join.join_table, classes)
+            return isinstance(table_type.lazy_join.resolve_table(self.context), classes)
         return False
 
     def _select_reads_sessions(self, node: ast.SelectQuery) -> bool:

@@ -528,11 +528,14 @@ class PropertySwapper(CloningVisitor):
                     ),
                 )
 
-            if isinstance(node.type.table_type, ast.LazyJoinType) and isinstance(
-                node.type.table_type.lazy_join.join_table, S3Table
-            ):
+            join_table = (
+                node.type.table_type.lazy_join.resolve_table(self.context)
+                if isinstance(node.type.table_type, ast.LazyJoinType)
+                else None
+            )
+            if isinstance(join_table, S3Table):
                 field = node.chain[-1]
-                field_type = node.type.table_type.lazy_join.join_table.fields.get(str(field), None)
+                field_type = join_table.fields.get(str(field), None)
                 prop_type = "String"
 
                 if isinstance(field_type, DateTimeDatabaseField):

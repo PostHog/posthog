@@ -1,3 +1,4 @@
+import os
 import copy
 import dataclasses
 from collections import defaultdict
@@ -139,6 +140,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
+from posthog.settings import TEST
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -194,6 +196,7 @@ class HogQLDatabaseSources:
     modifiers: "HogQLQueryModifiers"
     is_managed_viewset_enabled: bool
     is_hogql_access_control_enabled: bool
+    lazy_warehouse_tables: bool  # defer per-table warehouse build to the tables a query references
     direct_connection_metadata: dict[str, Any] | None
     # Access-control decision, computed from a warmed UserAccessControl so build does no AC queries.
     user_access_control: Optional["UserAccessControl"]
@@ -611,6 +614,15 @@ class Database(BaseModel):
                     if isinstance(field, LazyJoin) and not should_keep_join(field):
                         del table.fields[field_name]
 
+            # An unbuilt stub's reverse-FK joins live in _pending_fields until it materializes; filter
+            # them here too, so a disallowed target can't slip back in when the stub later builds.
+            if node._pending_fields:
+                node._pending_fields[:] = [
+                    spec
+                    for spec in node._pending_fields
+                    if not (isinstance(spec[1], LazyJoin) and not should_keep_join(spec[1]))
+                ]
+
             for child in node.children.values():
                 visit(child)
 
@@ -619,8 +631,11 @@ class Database(BaseModel):
     def prune_to_table_names(self, allowed_table_names: set[str]) -> None:
         def prune_node(node: TableNode, chain: list[str]) -> bool:
             full_name = ".".join(chain)
-            keep_table = node.table is not None and (
-                full_name in allowed_table_names or (len(chain) > 0 and self._is_helper_function_table(node.table))
+            # has_table() so an unbuilt stub (table is None, factory set) is kept by name without being
+            # forced to build; the helper-function-table check only applies to an already-built table.
+            keep_table = node.has_table() and (
+                full_name in allowed_table_names
+                or (len(chain) > 0 and node.table is not None and self._is_helper_function_table(node.table))
             )
 
             pruned_children: dict[str, TableNode] = {}
@@ -874,53 +889,58 @@ class Database(BaseModel):
             if include_only and view_name not in include_only:
                 continue
 
+            # Isolate per-view failures: a view is user-defined and can be broken, and serialize_fields
+            # resolves its LazyJoins, so one bad view shouldn't fail the whole catalog (matches the
+            # warehouse-table loop). Core PostHog/system tables above stay fail-hard on purpose.
             try:
                 view = self.get_table(view_name)
-            except QueryError:
-                continue
 
-            fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
+                fields_dict = {field.name: field for field in fields}
 
-            if isinstance(view, RevenueAnalyticsBaseView):
-                tables[view_name] = DatabaseSchemaManagedViewTable(
-                    fields=fields_dict,
-                    id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
-                    name=view.name,
-                    kind=view.DATABASE_SCHEMA_TABLE_KIND,
-                    source_id=view.source_id,
-                    query=HogQLQuery(query=view.query),
-                )
+                if isinstance(view, RevenueAnalyticsBaseView):
+                    tables[view_name] = DatabaseSchemaManagedViewTable(
+                        fields=fields_dict,
+                        id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
+                        name=view.name,
+                        kind=view.DATABASE_SCHEMA_TABLE_KIND,
+                        source_id=view.source_id,
+                        query=HogQLQuery(query=view.query),
+                    )
 
-                continue
+                    continue
 
-            saved_query = views_dict.get(view_name)
+                saved_query = views_dict.get(view_name)
 
-            if not saved_query:
-                continue
+                if not saved_query:
+                    continue
 
-            row_count: int | None = None
-            if saved_query.table:
-                row_count = saved_query.table.row_count
+                row_count: int | None = None
+                if saved_query.table:
+                    row_count = saved_query.table.row_count
 
-            if saved_query and saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
-                tables[view_name] = DatabaseSchemaEndpointTable(
+                if saved_query and saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+                    tables[view_name] = DatabaseSchemaEndpointTable(
+                        fields=fields_dict,
+                        id=str(saved_query.pk),
+                        name=view_name,
+                        query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
+                        row_count=row_count,
+                        status=saved_query.status,
+                    )
+                    continue
+
+                tables[view_name] = DatabaseSchemaViewTable(
                     fields=fields_dict,
                     id=str(saved_query.pk),
                     name=view_name,
                     query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                     row_count=row_count,
-                    status=saved_query.status,
                 )
+            except (QueryError, ResolutionError) as e:
+                logger.warning(f"Failed to serialize view '{view_name}': {str(e)}", exc_info=True)
+                self._serialization_errors[view_name] = str(e)
                 continue
-
-            tables[view_name] = DatabaseSchemaViewTable(
-                fields=fields_dict,
-                id=str(saved_query.pk),
-                name=view_name,
-                query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
-                row_count=row_count,
-            )
 
         return tables
 
@@ -946,7 +966,9 @@ class Database(BaseModel):
             timings=timings,
             connection_id=connection_id,
         )
-        return Database._build_from_sources(sources, timings=timings)
+        return Database._build_from_sources(
+            sources, timings=timings, lazy_warehouse_tables=sources.lazy_warehouse_tables
+        )
 
     @staticmethod
     def _fetch_sources(
@@ -1002,6 +1024,22 @@ class Database(BaseModel):
                 },
                 send_feature_flag_events=False,
             )
+            is_lazy_warehouse_tables_enabled = bool(
+                posthoganalytics.feature_enabled(
+                    "hogql-lazy-warehouse-tables",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id), "project": str(team.id)},
+                    group_properties={
+                        "organization": {"id": str(team.organization_id)},
+                        "project": {"id": str(team.id)},
+                    },
+                    send_feature_flag_events=False,
+                )
+            )
+            # Test-only override: run the suite against the lazy path with HOGQL_LAZY_WAREHOUSE_TABLES=1
+            # without changing the prod default (the feature flag). Gated on TEST so it can't affect prod.
+            if TEST and (lazy_override := os.environ.get("HOGQL_LAZY_WAREHOUSE_TABLES")) is not None:
+                is_lazy_warehouse_tables_enabled = lazy_override == "1"
 
         with timings.measure("database", emit_span=True):
             direct_connection_metadata: dict[str, Any] | None = None
@@ -1160,6 +1198,7 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_access_control_enabled=is_hogql_access_control_enabled,
+            lazy_warehouse_tables=is_lazy_warehouse_tables_enabled,
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
@@ -1173,9 +1212,19 @@ class Database(BaseModel):
         )
 
     @staticmethod
-    def _build_from_sources(sources: HogQLDatabaseSources, timings: HogQLTimings | None = None) -> "Database":
+    def _build_from_sources(
+        sources: HogQLDatabaseSources,
+        timings: HogQLTimings | None = None,
+        *,
+        lazy_warehouse_tables: bool = False,
+    ) -> "Database":
         """Construct the HogQL Database purely from already-fetched sources. Performs no I/O: every
-        Postgres query and feature-flag check was done up front in Database._fetch_sources."""
+        Postgres query and feature-flag check was done up front in Database._fetch_sources.
+
+        Warehouse tables are registered as deferred stubs. With lazy_warehouse_tables off (the default)
+        they're all built immediately, byte-identically to the eager build; with it on (and not a
+        direct-connection or dataWarehouseEventsModifiers query) each is built only when a query
+        references it."""
         if timings is None:
             timings = HogQLTimings()
 
@@ -1311,15 +1360,17 @@ class Database(BaseModel):
         warehouse_tables: TableNode = TableNode()
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
-        warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
+        warehouse_tables_to_process: list[tuple[str, DataWarehouseTable]] = []
 
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
+                    # Register the view as a deferred stub; its hogql_definition is built only when a
+                    # query references it (drained eagerly unless lazy build is enabled).
                     views.add_child(
                         TableNode.create_nested_for_chain(
                             saved_query.name.split("."),
-                            table=saved_query.hogql_definition(modifiers),
+                            factory=_make_view_factory(saved_query, modifiers),
                         ),
                         table_conflict_mode="ignore",
                     )
@@ -1354,17 +1405,6 @@ class Database(BaseModel):
                         continue
 
         with timings.measure("data_warehouse_tables", emit_span=True):
-
-            class WarehousePropertiesVirtualTable(VirtualTable):
-                fields: dict[str, FieldOrTable]
-                parent_table: Table
-
-                def to_printed_hogql(self):
-                    return self.parent_table.to_printed_hogql()
-
-                def to_printed_clickhouse(self, context):
-                    return self.parent_table.to_printed_clickhouse(context)
-
             with timings.measure("build_tables", emit_span=True):
                 sync_warnings_now = datetime.now(UTC)
                 for table in sources.warehouse_tables:
@@ -1376,30 +1416,37 @@ class Database(BaseModel):
                         continue
 
                     with timings.measure(f"table_{table.name}"):
-                        s3_table = table.hogql_definition(modifiers)
+                        keys = (
+                            _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
+                            if table.external_data_source
+                            else []
+                        )
+                        # The name the built table carries (and what FK wiring references): the first
+                        # dotted key for an external table, else the bare name.
+                        primary_name = keys[0] if keys else table.name
+                        table_factory = _make_warehouse_table_factory(
+                            table, modifiers, now=sync_warnings_now, name=primary_name, database=database
+                        )
 
-                        sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
-                        if sync_warnings:
-                            database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
-                        primary_table = s3_table
-
-                        # If the warehouse table has no _properties_ field, then set it as a virtual table
-                        if s3_table.fields.get("properties") is None:
-                            s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
-                                fields=s3_table.fields, parent_table=s3_table, hidden=True
-                            )
-
+                        # Register the table as a deferred stub: the bare-name node and the (index-0)
+                        # dotted node share one factory, so they materialize one object on first access.
+                        # They must also share one pending-fields list — FK joins are wired onto the
+                        # dotted name, but a query may build the object via either name, and pending
+                        # fields only apply to the node that triggers the build.
+                        shared_pending_fields: list[tuple[str, FieldOrTable, bool]] | None = None
                         if table.external_data_source:
                             if not database._is_direct_query():
-                                warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
+                                bare_node = TableNode(name=table.name)
+                                bare_node._table_factory = table_factory
+                                warehouse_tables.add_child(bare_node)
+                                shared_pending_fields = bare_node._pending_fields
                         else:
-                            self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
+                            self_managed_node = TableNode(name=table.name)
+                            self_managed_node._table_factory = table_factory
+                            self_managed_warehouse_tables.add_child(self_managed_node)
 
                         if table.external_data_source:
-                            for index, table_key in enumerate(
-                                _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
-                            ):
-                                table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
+                            for index, table_key in enumerate(keys):
                                 table_chain = table_key.split(".")
                                 table_conflict_mode: Literal["override", "ignore"] = (
                                     "override"
@@ -1410,23 +1457,32 @@ class Database(BaseModel):
                                     else "ignore"
                                 )
 
+                                # index 0 shares the table's factory; extra keys deep-copy it under their
+                                # own name (matches the eager per-key model_copy).
+                                key_factory = (
+                                    table_factory
+                                    if index == 0
+                                    else _make_warehouse_table_copy_factory(table_factory, name=".".join(table_chain))
+                                )
                                 # For a chain of type a.b.c, we want to create a nested table node
                                 # where a is the parent, b is the child of a, and c is the child of b
-                                # where a.b.c will contain the table
+                                # where a.b.c will contain the table. The index-0 leaf shares the bare
+                                # node's pending-fields list so FK joins land on both names.
                                 warehouse_tables.add_child(
-                                    TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                    TableNode.create_nested_for_chain(
+                                        table_chain,
+                                        factory=key_factory,
+                                        pending_fields=shared_pending_fields if index == 0 else None,
+                                    ),
                                     table_conflict_mode=table_conflict_mode,
                                 )
 
                                 joined_table_chain = ".".join(table_chain)
-                                table_for_key.name = joined_table_chain
                                 warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
                                 if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
                                     database._direct_access_warehouse_table_names.add(joined_table_chain)
-                                if index == 0:
-                                    primary_table = table_for_key
 
-                        warehouse_tables_to_process.append((primary_table, table))
+                        warehouse_tables_to_process.append((cast(str, primary_name), table))
 
         db_span.set_attribute("warehouse_table_count", len(sources.warehouse_tables))
 
@@ -1568,12 +1624,18 @@ class Database(BaseModel):
         database._add_views(views)
 
         with timings.measure("warehouse_foreign_keys", emit_span=True):
-            for hogql_table, warehouse_table_model in warehouse_tables_to_process:
+            # The field names each warehouse table will expose, so FK inference can resolve a target's
+            # columns from metadata instead of building it (keeping the lazy build lazy).
+            warehouse_field_names_by_name = {
+                name: model.hogql_field_names() for name, model in warehouse_tables_to_process
+            }
+            for source_name, warehouse_table_model in warehouse_tables_to_process:
                 add_postgres_foreign_key_lazy_joins(
-                    hogql_table=hogql_table,
+                    source_name=source_name,
                     warehouse_table=warehouse_table_model,
                     database=database,
                     schemas=_get_active_external_data_schemas(warehouse_table_model),
+                    field_names_by_name=warehouse_field_names_by_name,
                 )
 
         with timings.measure("data_warehouse_joins", emit_span=True):
@@ -1584,9 +1646,6 @@ class Database(BaseModel):
                     continue
 
                 try:
-                    source_table = database.get_table(join.source_table_name)
-                    joining_table = database.get_table(join.joining_table_name)
-
                     from_field = get_join_field_chain(join.source_table_key)
                     if from_field is None:
                         continue
@@ -1595,6 +1654,8 @@ class Database(BaseModel):
                     if to_field is None:
                         continue
 
+                    # Forward join field on the source node, referencing the target by name (resolved
+                    # lazily): applied now if the source is built, or when it materializes if it's a stub.
                     join_configuration = join.configuration if isinstance(join.configuration, dict) else {}
                     use_experiments = bool(
                         join.joining_table_name == "events" and join_configuration.get("experiments_optimized")
@@ -1605,12 +1666,16 @@ class Database(BaseModel):
                         "joining_table_name": join.joining_table_name,
                         "configuration": join_configuration,
                     }
-                    source_table.fields[join.field_name] = LazyJoin(
-                        from_field=from_field,
-                        to_field=to_field,
-                        join_table=joining_table,
-                        resolver=DATA_WAREHOUSE_EXPERIMENTS if use_experiments else DATA_WAREHOUSE,
-                        resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
+                    database.get_table_node(join.source_table_name).add_pending_field(
+                        join.field_name,
+                        LazyJoin(
+                            from_field=from_field,
+                            to_field=to_field,
+                            join_table=join.joining_table_name,
+                            resolver=DATA_WAREHOUSE_EXPERIMENTS if use_experiments else DATA_WAREHOUSE,
+                            resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
+                        ),
+                        override=True,
                     )
 
                     if not database._is_direct_query() and join.source_table_name == "persons":
@@ -1648,7 +1713,7 @@ class Database(BaseModel):
                                 events_table.fields[join.field_name] = LazyJoin(
                                     from_field=from_field,
                                     to_field=to_field,
-                                    join_table=joining_table,
+                                    join_table=join.joining_table_name,
                                     # reusing the data-warehouse resolver but with a different source_table_key
                                     # since we're joining 'directly' on events
                                     resolver=DATA_WAREHOUSE,
@@ -1660,7 +1725,7 @@ class Database(BaseModel):
                                 table_or_field.fields[join.field_name] = LazyJoin(
                                     from_field=from_field,
                                     to_field=to_field,
-                                    join_table=joining_table,
+                                    join_table=join.joining_table_name,
                                     resolver=DATA_WAREHOUSE,
                                     resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                                 )
@@ -1668,13 +1733,20 @@ class Database(BaseModel):
                             person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
                                 from_field=from_field,
                                 to_field=to_field,
-                                join_table=joining_table,
+                                join_table=join.joining_table_name,
                                 resolver=DATA_WAREHOUSE,
                                 resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                             )
 
                 except Exception as e:
                     capture_exception(e)
+
+        # Lazy build only applies to the common path; direct-connection and dataWarehouseEventsModifiers
+        # queries build everything (the modifier path mutates named tables, which forces their build).
+        lazy = lazy_warehouse_tables and not database._is_direct_query() and not modifiers.dataWarehouseEventsModifiers
+        if not lazy:
+            with timings.measure("drain_warehouse_stubs", emit_span=True):
+                _drain_stub_tables(database.tables)
 
         database.apply_schema_scope()
 
@@ -1896,6 +1968,108 @@ def _constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> 
 
 HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
 NOT_DELETED_Q = Q(deleted=False) | Q(deleted__isnull=True)
+
+
+class WarehousePropertiesVirtualTable(VirtualTable):
+    fields: dict[str, FieldOrTable]
+    parent_table: Table
+
+    def to_printed_hogql(self):
+        return self.parent_table.to_printed_hogql()
+
+    def to_printed_clickhouse(self, context):
+        return self.parent_table.to_printed_clickhouse(context)
+
+
+def _build_warehouse_table_definition(
+    warehouse_table: DataWarehouseTable, modifiers: "HogQLQueryModifiers", *, now: datetime
+) -> tuple[Table, list["DataWarehouseSyncWarning"]]:
+    """Build a single warehouse table's HogQL definition (the per-table CPU work).
+
+    Pure given the already-fetched row: the s3 table, its synthetic `properties` virtual table, and its
+    sync warnings, with no I/O and no mutation of other tables. This is the unit a lazy build defers to
+    only-referenced tables; the eager build calls it for every table.
+    """
+    s3_table = warehouse_table.hogql_definition(modifiers)
+    sync_warnings = get_warehouse_sync_warnings(warehouse_table, now=now)
+    # No _properties_ field on the table → expose one as a (hidden) virtual table over the same fields.
+    if s3_table.fields.get("properties") is None:
+        s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
+            fields=s3_table.fields, parent_table=s3_table, hidden=True
+        )
+    return s3_table, sync_warnings
+
+
+@dataclasses.dataclass
+class LazyValue[T]:
+    """A value built lazily and cached: `get` runs `build` on first access, stores the result, and
+    returns that same value on every later call. Backs a deferred-stub table's build-once factory —
+    clearer than memoizing via a one-element list, and avoids needing `nonlocal`. Assumes `build`
+    returns non-None (a None slot reads as not-yet-built)."""
+
+    value: T | None = None
+
+    def get(self, build: Callable[[], T]) -> T:
+        cached = self.value
+        if cached is None:
+            cached = build()
+            self.value = cached
+        return cached
+
+
+def _make_warehouse_table_factory(
+    warehouse_table: DataWarehouseTable,
+    modifiers: "HogQLQueryModifiers",
+    *,
+    now: datetime,
+    name: str,
+    database: "Database",
+) -> Callable[[], Table]:
+    """A deferred builder for one warehouse table: builds its definition on first call and caches it,
+    so every node that references the table (its bare name and dotted name) shares one built object,
+    and registers its sync warnings at build time. Lets the build defer this per-table CPU work to the
+    tables a query actually touches."""
+    cell: LazyValue[Table] = LazyValue()
+
+    def build() -> Table:
+        s3_table, sync_warnings = _build_warehouse_table_definition(warehouse_table, modifiers, now=now)
+        s3_table.name = name
+        if sync_warnings:
+            database._data_warehouse_sync_warnings[str(warehouse_table.id)] = sync_warnings
+        return s3_table
+
+    return lambda: cell.get(build)
+
+
+def _make_view_factory(
+    saved_query: "DataWarehouseSavedQuery", modifiers: "HogQLQueryModifiers"
+) -> Callable[[], FieldOrTable]:
+    """A deferred builder for a saved-query view: builds its hogql_definition on first access and caches
+    it, so a view is materialized only when a query references it."""
+    cell: LazyValue[FieldOrTable] = LazyValue()
+    return lambda: cell.get(lambda: saved_query.hogql_definition(modifiers))
+
+
+def _make_warehouse_table_copy_factory(base_factory: Callable[[], Table], *, name: str) -> Callable[[], Table]:
+    """A deferred deep-copy of a table built by `base_factory`, under a different name — mirrors the
+    eager path's per-key model_copy for tables exposed under more than one dotted key."""
+    cell: LazyValue[Table] = LazyValue()
+
+    def build() -> Table:
+        copy = base_factory().model_copy(deep=True)
+        copy.name = name
+        return copy
+
+    return lambda: cell.get(build)
+
+
+def _drain_stub_tables(node: TableNode) -> None:
+    """Eagerly build every deferred-stub table in the tree (the default, non-lazy behaviour): walk the
+    nodes and materialize any that still have a factory. Equivalent to building them inline."""
+    if node.table is None and node._table_factory is not None:
+        node.get()
+    for child in node.children.values():
+        _drain_stub_tables(child)
 
 
 def _attach_external_data_sources(

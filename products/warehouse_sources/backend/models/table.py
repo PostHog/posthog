@@ -459,6 +459,38 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
         )(name=column_name, nullable=is_nullable)
 
+    def hogql_field_names(self) -> set[str]:
+        """The top-level field names the table exposes once BUILT, derived from column metadata without
+        building it — so FK wiring can detect a name collision without forcing a (lazy) build. Mirrors
+        the field set the build produces: `hogql_definition` (redefinitions, dropped
+        `_dlt`/`_ph_debug`/partition columns, merged default fields) plus the synthetic `properties`
+        virtual table that `_build_warehouse_table_definition` always adds."""
+        columns = self.columns or {}
+        if self.external_data_source and self.external_data_source.is_direct_postgres:
+            names = set(columns)
+        else:
+            external_table_fields = external_tables.get(self.table_name_without_prefix())
+            default_fields = external_tables.get("*", {})
+            if external_table_fields is not None:
+                names = set(external_table_fields) | set(default_fields)
+            else:
+                names = set(columns)
+                added_defaults = False
+                if "_dlt_id" in columns and "_dlt_load_id" in columns:
+                    names -= {"_dlt_id", "_dlt_load_id"}
+                    added_defaults = True
+                if "_ph_debug" in columns:
+                    names.discard("_ph_debug")
+                    added_defaults = True
+                if PARTITION_KEY in columns:
+                    names.discard(PARTITION_KEY)
+                    added_defaults = True
+                if added_defaults:
+                    names |= set(default_fields)
+
+        names.add("properties")
+        return names
+
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
     ) -> HogQLDataWarehouseTable | DirectPostgresTable:

@@ -1,4 +1,5 @@
 import datetime
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -6,6 +7,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field as PydanticField,
+    PrivateAttr,
 )
 
 from posthog.hogql.base import Expr
@@ -239,11 +241,54 @@ class TableNode(BaseModel):
     # via subqueries) but is omitted from the SQL editor schema and autocomplete lists.
     hidden: bool = False
 
+    # Deferred build: when set, `get()` builds the table on first access and caches it. Lets a
+    # warehouse table be registered as a stub and materialized only when a query references it.
+    _table_factory: Callable[[], FieldOrTable] | None = PrivateAttr(default=None)
+    # Fields to set on the table once it's built — typically foreign-key / join fields contributed by
+    # *other* tables (e.g. a reverse FK from a table that references this one). Each is
+    # `(field_name, field, override)`: override replaces any existing field, otherwise it's only set
+    # when absent. Applied in append order after the factory runs, so a stub carries everything it
+    # needs to build a complete table without any other table being built.
+    _pending_fields: list[tuple[str, FieldOrTable, bool]] = PrivateAttr(default_factory=list)
+
+    def has_table(self) -> bool:
+        """True if a table is built here OR an unbuilt stub factory can build one.
+
+        Lets name resolution, catalogs and pruning treat a stub as present without forcing its build.
+        """
+        return self.table is not None or self._table_factory is not None
+
+    @staticmethod
+    def _apply_field_to(table: FieldOrTable, field_name: str, field: FieldOrTable, *, override: bool) -> None:
+        if isinstance(table, Table) and (override or field_name not in table.fields):
+            table.fields[field_name] = field
+
+    def add_pending_field(self, field_name: str, field: FieldOrTable, *, override: bool) -> None:
+        """Apply a field contributed by another table (e.g. a reverse FK from a table that references
+        this one). If this node's table is already built, set it directly; otherwise defer it to build
+        time. Do not append to ``_pending_fields`` directly after the table is built — that would
+        silently drop the field (pending fields only run when the factory does); always go through here.
+        """
+        if self.table is not None:
+            self._apply_field_to(self.table, field_name, field, override=override)
+        else:
+            self._pending_fields.append((field_name, field, override))
+
     def get(self) -> FieldOrTable:
         """
-        Evaluates and returns the table currently associated with this node.
-        Raises `ResolutionError` if the table is not set.
+        Evaluates and returns the table currently associated with this node, building it from the
+        stub factory (and applying any pending fields) on first access. Raises `ResolutionError` if
+        neither a table nor a factory is set.
+
+        Build-on-first-use mutates the node, so a lazily-built `Database` is single-threaded: don't
+        share one across concurrent queries (build it eagerly, or give each query its own `Database`).
         """
+        if self.table is None and self._table_factory is not None:
+            built = self._table_factory()
+            for field_name, field, override in self._pending_fields:
+                self._apply_field_to(built, field_name, field, override=override)
+            self.table = built
+
         if self.table is None:
             raise ResolutionError(f"Table is not set at `{self.name}`")
 
@@ -253,7 +298,7 @@ class TableNode(BaseModel):
     # is a valid path to a child table - not just any path.
     def has_child(self, path: list[str]) -> bool:
         if len(path) == 0:
-            return self.table is not None
+            return self.has_table()
 
         first, *rest_of_path = path
         if first not in self.children:
@@ -300,14 +345,29 @@ class TableNode(BaseModel):
         table_conflict_mode: Literal["override", "ignore"] = "ignore",
         children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
     ):
-        if other.table is not None:
-            if self.table is None:  # Easy case, just set it
+        # A node's table may be a built table or a deferred factory stub; carry whichever `other` has so
+        # a stub isn't silently dropped on merge. (In the eager build no node has a factory, so this is
+        # a no-op there.)
+        if other.has_table():
+            if not self.has_table():  # Easy case, just adopt it
                 self.table = other.table
-            else:  # We have a conflict so check conflict mode to decide what to do here
-                if table_conflict_mode == "override":
-                    self.table = other.table
-                elif table_conflict_mode == "ignore":
-                    pass
+                self._table_factory = other._table_factory
+            elif table_conflict_mode == "override":
+                self.table = other.table
+                self._table_factory = other._table_factory
+            # "ignore": keep self's table/factory
+
+        # If we adopted an already-built table, our own deferred fields must be applied now — get()
+        # only replays pending fields when it builds from a factory, so a built table would drop them.
+        if self.table is not None and self._pending_fields:
+            for field_name, pending, override in self._pending_fields:
+                self._apply_field_to(self.table, field_name, pending, override=override)
+            self._pending_fields = []
+
+        # Replay other's deferred fields through add_pending_field so they apply now if this node is
+        # already built, or defer to its build otherwise. (Empty in the eager build.)
+        for field_name, pending, override in other._pending_fields:
+            self.add_pending_field(field_name, pending, override=override)
 
         for child in other.children.values():
             self.add_child(
@@ -317,7 +377,7 @@ class TableNode(BaseModel):
     def resolve_all_table_names(self) -> list[str]:
         names: list[str] = []
 
-        if self.table is not None:
+        if self.has_table():
             names.append(self.name)
 
         for child in self.children.values():
@@ -341,7 +401,7 @@ class TableNode(BaseModel):
         """
         names: list[str] = []
 
-        if self.table is not None and not self.hidden:
+        if self.has_table() and not self.hidden:
             names.append(self.name)
 
         for child in self.children.values():
@@ -357,7 +417,13 @@ class TableNode(BaseModel):
         return names
 
     @staticmethod
-    def create_nested_for_chain(chain: list[str], table: Table) -> "TableNode":
+    def create_nested_for_chain(
+        chain: list[str],
+        table: Optional["FieldOrTable"] = None,
+        *,
+        factory: Optional[Callable[[], "FieldOrTable"]] = None,
+        pending_fields: Optional[list[tuple[str, "FieldOrTable", bool]]] = None,
+    ) -> "TableNode":
         assert len(chain) > 0
 
         # Create a deeply nested table node structure
@@ -368,8 +434,17 @@ class TableNode(BaseModel):
             current.add_child(child)
             current = child
 
-        # Add the table at the end
-        current.table = table
+        # Put the table (or a deferred-build factory) at the leaf.
+        if factory is not None:
+            current._table_factory = factory
+        else:
+            current.table = table
+
+        # Adopt a caller-supplied pending-fields list so the leaf can share one list with another node
+        # that materializes the same object (e.g. a warehouse table's bare-name node) — FK joins wired
+        # onto either name then apply no matter which name a query builds first.
+        if pending_fields is not None:
+            current._pending_fields = pending_fields
 
         return start
 

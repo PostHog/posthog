@@ -743,7 +743,7 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
             # Get the underlying table based on the table_type
             table = None
             if isinstance(table_type, ast.LazyJoinType):
-                table = table_type.lazy_join.join_table
+                table = table_type.lazy_join.resolve_table(self.context)
             elif isinstance(table_type, ast.SelectQueryAliasType):
                 pass  # Subquery aliases don't represent actual database tables
             elif hasattr(table_type, "table"):
@@ -793,7 +793,7 @@ def is_session_id_string_expr(node: ast.Expr, context: HogQLContext) -> bool:
             if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                 table_type = table_type.table_type
             if isinstance(table_type, ast.LazyJoinType):
-                table = table_type.lazy_join.join_table
+                table = table_type.lazy_join.resolve_table(context)
             elif isinstance(table_type, ast.SelectQueryAliasType):
                 # Subquery aliases don't represent actual database tables
                 return False
