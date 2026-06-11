@@ -1,6 +1,13 @@
 import 'jest-canvas-mock'
 
 import { configure } from '@testing-library/react'
+import { TextDecoder, TextEncoder } from 'util'
+import { deserialize, serialize } from 'v8'
+
+// Jest/JSDom don't know about TextEncoder but the browsers we support do
+// https://github.com/jsdom/jsdom/issues/2524
+global.TextDecoder = TextDecoder as any
+global.TextEncoder = TextEncoder as any
 
 window.scrollTo = jest.fn()
 window.matchMedia = jest.fn(
@@ -55,6 +62,11 @@ if (typeof localStorage === 'undefined') {
     ;(globalThis as any).localStorage = localStorageStub
     ;(window as any).localStorage = localStorageStub
     ;(global as any).localStorage = localStorageStub
+}
+
+// jsdom does not implement structuredClone — polyfill via Node's v8 serializer
+if (typeof globalThis.structuredClone !== 'function') {
+    globalThis.structuredClone = <T>(value: T): T => deserialize(serialize(value))
 }
 
 // jsdom does not implement AbortSignal.timeout — polyfill for tests
@@ -114,6 +126,18 @@ configure({ testIdAttribute: 'data-attr' })
 
 // Mock DecompressionWorkerManager globally to avoid import.meta.url issues in tests
 jest.mock('scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager')
+
+// Mock ConcurrencyController to be a pass-through. The module-level singleton in
+// dataNodeLogic persists across test files on the same Jest worker (resetModules is
+// disabled). Under CI load, stale items can block subsequent tests' queries indefinitely.
+// Tests don't need concurrency limiting, so we bypass it entirely.
+jest.mock('lib/utils/concurrencyController', () => {
+    class ConcurrencyController {
+        run = <T>({ fn }: { fn: () => Promise<T> }): Promise<T> => fn()
+        setConcurrencyLimit = (): void => {}
+    }
+    return { ConcurrencyController }
+})
 
 // Mock posthog-js surveys-preview to avoid ESM import issues in tests
 jest.mock('posthog-js/dist/surveys-preview', () => ({

@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -66,9 +66,15 @@ export interface UserInterviewTopicApi {
     readonly id: string
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** Email addresses of people to interview. May be combined with interviewee_distinct_ids. */
+    /**
+     * Email addresses of people to interview. May be combined with interviewee_distinct_ids.
+     * @items.maxLength 254
+     */
     interviewee_emails?: string[]
-    /** PostHog distinct IDs of people to interview. May be combined with interviewee_emails. */
+    /**
+     * PostHog distinct IDs of people to interview. May be combined with interviewee_emails.
+     * @items.maxLength 400
+     */
     interviewee_distinct_ids?: string[]
     /** The product, feature, or idea you want to ask interviewees about. */
     topic: string
@@ -101,9 +107,15 @@ export interface PatchedUserInterviewTopicApi {
     readonly id?: string
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    /** Email addresses of people to interview. May be combined with interviewee_distinct_ids. */
+    /**
+     * Email addresses of people to interview. May be combined with interviewee_distinct_ids.
+     * @items.maxLength 254
+     */
     interviewee_emails?: string[]
-    /** PostHog distinct IDs of people to interview. May be combined with interviewee_emails. */
+    /**
+     * PostHog distinct IDs of people to interview. May be combined with interviewee_emails.
+     * @items.maxLength 400
+     */
     interviewee_distinct_ids?: string[]
     /** The product, feature, or idea you want to ask interviewees about. */
     topic?: string
@@ -307,7 +319,7 @@ export interface BulkIntervieweeContextResponseApi {
 
 /**
  * * `abandoned` - Abandoned
- * `off-topic` - Off-topic
+ * * `off-topic` - Off-topic
  */
 export type ClassificationsEnumApi = (typeof ClassificationsEnumApi)[keyof typeof ClassificationsEnumApi]
 
@@ -320,6 +332,7 @@ export interface UserInterviewApi {
     readonly id: string
     readonly created_by: UserBasicApi
     readonly created_at: string
+    /** @items.maxLength 254 */
     interviewee_emails?: string[]
     readonly interviewee_identifier: string
     /** @nullable */
@@ -344,6 +357,7 @@ export interface PatchedUserInterviewApi {
     readonly id?: string
     readonly created_by?: UserBasicApi
     readonly created_at?: string
+    /** @items.maxLength 254 */
     interviewee_emails?: string[]
     readonly interviewee_identifier?: string
     /** @nullable */
@@ -357,7 +371,7 @@ export interface PatchedUserInterviewApi {
 
 /**
  * * `transcript` - transcript
- * `summary` - summary
+ * * `summary` - summary
  */
 export type UserInterviewSearchDocumentTypeEnumApi =
     (typeof UserInterviewSearchDocumentTypeEnumApi)[keyof typeof UserInterviewSearchDocumentTypeEnumApi]
@@ -400,9 +414,9 @@ export interface UserInterviewSearchResultApi {
     /** ID of the matched UserInterview. */
     interview_id: string
     /** Which document type matched — `transcript` is the raw conversation, `summary` is the AI-generated abstract.
-
-  * `transcript` - transcript
-  * `summary` - summary */
+     *
+     * * `transcript` - transcript
+     * * `summary` - summary */
     document_type: UserInterviewSearchDocumentTypeEnumApi
     /** Cosine similarity in [0, 1]; higher is closer to the query. Computed as `1 - cosineDistance`. */
     similarity: number

@@ -102,6 +102,7 @@ const ALL_FEATURES = [
     AvailableFeature.SSO_ENFORCEMENT,
     AvailableFeature.SAML,
     AvailableFeature.SCIM,
+    AvailableFeature.XAA_AUTHENTICATION,
 ]
 
 type Story = StoryObj<typeof App>
