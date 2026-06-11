@@ -880,6 +880,9 @@ class SessionRecordingViewSet(
                         cast(User, request.user),
                         team=self.team,
                         allow_event_property_expansion=allow_event_property_expansion,
+                        # explicitly selected sessions (e.g. a funnel drop-off handoff) must not be
+                        # hidden by the default date range; only this user-facing list path opts in
+                        bypass_date_window_for_session_ids=True,
                     )
 
                 with tracer.start_as_current_span("make_response"):
@@ -1099,8 +1102,7 @@ class SessionRecordingViewSet(
             "kind": "RecordingsQuery",
         }
         query = RecordingsQuery.model_validate(query_data)
-        # date_from is an explicit search bound here, so it must apply even with session_ids
-        recordings, _, _, _ = list_recordings_from_query(query, None, self.team, apply_date_window_to_session_ids=True)
+        recordings, _, _, _ = list_recordings_from_query(query, None, self.team)
 
         user_access_control = self.user_access_control
         accessible_recordings = [
@@ -1941,8 +1943,6 @@ def _load_recording_if_matches_filters(
         team=team,
         hogql_query_modifiers=None,
         allow_event_property_expansion=allow_event_property_expansion,
-        # matching the filters includes matching the date range
-        apply_date_window_to_session_ids=True,
     ).run()
 
     if not ch_query_result.results:
@@ -1967,7 +1967,7 @@ def list_recordings_from_query(
     user: User | None,
     team: Team,
     allow_event_property_expansion: bool = False,
-    apply_date_window_to_session_ids: bool = False,
+    bypass_date_window_for_session_ids: bool = False,
 ) -> tuple[list[SessionRecording], bool, str, str | None]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
@@ -2058,7 +2058,7 @@ def list_recordings_from_query(
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
                 session_ids_to_exclude=session_ids_to_exclude,
-                apply_date_window_to_session_ids=apply_date_window_to_session_ids,
+                bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
             ).run()
             ch_session_recordings = query_result.results
 

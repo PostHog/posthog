@@ -928,71 +928,89 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
         return old_session_id
 
+    def _filter_recordings_with_bypass(self, query: dict) -> list[str]:
+        result = SessionRecordingListFromQuery(
+            query=RecordingsQuery.model_validate(query),
+            team=self.team,
+            hogql_query_modifiers=None,
+            bypass_date_window_for_session_ids=True,
+        ).run()
+        return sorted(r["session_id"] for r in result.results)
+
     @parameterized.expand(
         [
-            ("default_date_range", None),
-            ("explicit_narrow_date_range", "-1d"),
+            ("default_date_range", None, False),
+            ("explicit_narrow_date_range", "-1d", False),
+            ("window_covering_the_recording", "-30d", True),
         ]
     )
-    def test_session_ids_query_ignores_date_window(self, _name: str, date_from: str | None) -> None:
+    def test_session_ids_apply_date_window_by_default(
+        self, _name: str, date_from: str | None, expect_found: bool
+    ) -> None:
+        # every caller that doesn't opt into the bypass keeps date filtering on session_ids:
+        # the public query runner, playlists, counting, deletion sweeps, AI tools, scanners
         old_session_id = self._an_old_recording()
 
         query: dict = {"session_ids": [old_session_id]}
         if date_from is not None:
             query["date_from"] = date_from
 
-        self._assert_query_matches_session_ids(query, [old_session_id])
+        self._assert_query_matches_session_ids(query, [old_session_id] if expect_found else [])
+
+    @parameterized.expand(
+        [
+            ("default_date_range", None),
+            ("explicit_narrow_date_range", "-1d"),
+        ]
+    )
+    def test_bypass_returns_explicitly_selected_sessions_regardless_of_date_window(
+        self, _name: str, date_from: str | None
+    ) -> None:
+        old_session_id = self._an_old_recording()
+
+        query: dict = {"session_ids": [old_session_id]}
+        if date_from is not None:
+            query["date_from"] = date_from
+
+        assert self._filter_recordings_with_bypass(query) == [old_session_id]
 
     def test_date_window_still_excludes_old_recordings_without_session_ids(self) -> None:
         self._an_old_recording()
 
         self._assert_query_matches_session_ids(None, [])
 
-    def test_date_window_still_applies_to_session_ids_derived_from_comment_search(self) -> None:
+    def test_bypass_does_not_apply_to_session_ids_derived_from_comment_search(self) -> None:
         old_session_id = self._an_old_recording()
 
         # the API populates session_ids from the comment search when comment_text is set,
         # so these are not user-selected sessions and the date range must still apply
-        self._assert_query_matches_session_ids(
-            {
-                "session_ids": [old_session_id],
-                "comment_text": {
-                    "key": "comment_text",
-                    "type": "recording",
-                    "operator": "icontains",
-                    "value": "anything",
-                },
+        comment_query = {
+            "session_ids": [old_session_id],
+            "comment_text": {
+                "key": "comment_text",
+                "type": "recording",
+                "operator": "icontains",
+                "value": "anything",
             },
-            [],
-        )
+        }
+        assert self._filter_recordings_with_bypass(comment_query) == []
 
     @parameterized.expand(
         [
-            ("windowed_excludes_old_recording", True, False),
-            ("not_windowed_includes_old_recording", False, True),
+            ("default", False),
+            ("with_bypass", True),
         ]
     )
-    def test_apply_date_window_to_session_ids_restores_date_filtering(
-        self, _name: str, apply_date_window: bool, expect_found: bool
-    ) -> None:
-        old_session_id = self._an_old_recording()
-
-        # internal callers (bulk_delete, the session_recording_id prepend check, scheduled sweeps)
-        # use the date range as a search bound and opt back into windowing via the kwarg
-        result = SessionRecordingListFromQuery(
-            query=RecordingsQuery(session_ids=[old_session_id], date_from="-1d"),
-            team=self.team,
-            hogql_query_modifiers=None,
-            apply_date_window_to_session_ids=apply_date_window,
-        ).run()
-
-        actual = [r["session_id"] for r in result.results]
-        assert actual == ([old_session_id] if expect_found else [])
-
-    def test_empty_session_ids_list_still_matches_nothing(self) -> None:
+    def test_empty_session_ids_list_still_matches_nothing(self, _name: str, bypass: bool) -> None:
         self._an_old_recording()
 
-        self._assert_query_matches_session_ids({"session_ids": []}, [])
+        result = SessionRecordingListFromQuery(
+            query=RecordingsQuery(session_ids=[]),
+            team=self.team,
+            hogql_query_modifiers=None,
+            bypass_date_window_for_session_ids=bypass,
+        ).run()
+        assert result.results == []
 
     def test_retention_bound_cannot_hide_live_recordings(self) -> None:
         # a recording older than the 5y bound is necessarily past the longest retention period,
@@ -1011,7 +1029,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             retention_period_days=1826,
         )
 
-        self._assert_query_matches_session_ids({"session_ids": [ancient_session_id]}, [])
+        assert self._filter_recordings_with_bypass({"session_ids": [ancient_session_id]}) == []
 
     @parameterized.expand(
         [
@@ -1019,11 +1037,11 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ("wide_window_includes_events", "-30d", True),
         ]
     )
-    def test_event_filters_bound_session_ids_queries_by_date(
+    def test_event_filters_bound_session_ids_queries_by_date_even_with_bypass(
         self, _name: str, date_from: str | None, expect_found: bool
     ) -> None:
-        # event subqueries scan the events table within the query date range, so event-filtered
-        # session_ids lookups only match when the range covers the session's events
+        # even when bypassing the date window for session_ids, event subqueries scan the events
+        # table within the query date range, so event-filtered lookups only match in-range events
         user = "test_session_ids_event_window-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
@@ -1050,7 +1068,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         if date_from is not None:
             query["date_from"] = date_from
 
-        self._assert_query_matches_session_ids(query, [old_session_id] if expect_found else [])
+        assert self._filter_recordings_with_bypass(query) == ([old_session_id] if expect_found else [])
 
     @snapshot_clickhouse_queries
     def test_event_filter_with_active_sessions(

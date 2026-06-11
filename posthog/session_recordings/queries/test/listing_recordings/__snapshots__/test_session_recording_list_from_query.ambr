@@ -6247,7 +6247,8 @@
   WHERE and(equals(s.team_id, 99999),
             in(s.session_id,
                ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */],
-               greaterOrEquals(s.min_first_timestamp, toDateTime64('2016-01-01 13:46:23.000000', 6, 'UTC')))
+               greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')),
+               lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -6292,7 +6293,8 @@
   WHERE and(equals(s.team_id, 99999),
             in(s.session_id,
                ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */],
-               greaterOrEquals(s.min_first_timestamp, toDateTime64('2016-01-01 13:46:23.000000', 6, 'UTC')))
+               greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')),
+               lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -7926,14 +7928,14 @@
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), in(s.session_id, ['session_id_one']), greaterOrEquals(s.min_first_timestamp, toDateTime64('2016-01-01 13:46:23.000000', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                     (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                      FROM events
-                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')), in(nullIf(nullIf(events.`$session_id`, ''), 'null'), ['session_id_one']))
-                                                                                                                                                                                      GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
-                                                                                                                                                                                      HAVING 1
-                                                                                                                                                                                      ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                      LIMIT 1000000)))
+  WHERE and(equals(s.team_id, 99999), in(s.session_id, ['session_id_one']), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                           (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
+                                                                                                                                                                                                                                                            FROM events
+                                                                                                                                                                                                                                                            WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')), in(nullIf(nullIf(events.`$session_id`, ''), 'null'), ['session_id_one']))
+                                                                                                                                                                                                                                                            GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                                                            HAVING 1
+                                                                                                                                                                                                                                                            ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -7975,14 +7977,14 @@
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), in(s.session_id, ['session_id_two']), greaterOrEquals(s.min_first_timestamp, toDateTime64('2016-01-01 13:46:23.000000', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                     (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                      FROM events
-                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')), in(nullIf(nullIf(events.`$session_id`, ''), 'null'), ['session_id_two']))
-                                                                                                                                                                                      GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
-                                                                                                                                                                                      HAVING 1
-                                                                                                                                                                                      ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                      LIMIT 1000000)))
+  WHERE and(equals(s.team_id, 99999), in(s.session_id, ['session_id_two']), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                           (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
+                                                                                                                                                                                                                                                            FROM events
+                                                                                                                                                                                                                                                            WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')), in(nullIf(nullIf(events.`$session_id`, ''), 'null'), ['session_id_two']))
+                                                                                                                                                                                                                                                            GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                                                            HAVING 1
+                                                                                                                                                                                                                                                            ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -13959,7 +13961,8 @@
   WHERE and(equals(s.team_id, 99999),
             in(s.session_id,
                ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */],
-               greaterOrEquals(s.min_first_timestamp, toDateTime64('2016-01-01 13:46:23.000000', 6, 'UTC')))
+               greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')),
+               lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -14004,7 +14007,8 @@
   WHERE and(equals(s.team_id, 99999),
             in(s.session_id,
                ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */],
-               greaterOrEquals(s.min_first_timestamp, toDateTime64('2016-01-01 13:46:23.000000', 6, 'UTC')))
+               greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')),
+               lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -15638,14 +15642,14 @@
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), in(s.session_id, ['session_id_one']), greaterOrEquals(s.min_first_timestamp, toDateTime64('2016-01-01 13:46:23.000000', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                     (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                      FROM events
-                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')), in(nullIf(nullIf(events.`$session_id`, ''), 'null'), ['session_id_one']))
-                                                                                                                                                                                      GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
-                                                                                                                                                                                      HAVING 1
-                                                                                                                                                                                      ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                      LIMIT 1000000)))
+  WHERE and(equals(s.team_id, 99999), in(s.session_id, ['session_id_one']), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                           (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
+                                                                                                                                                                                                                                                            FROM events
+                                                                                                                                                                                                                                                            WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')), in(nullIf(nullIf(events.`$session_id`, ''), 'null'), ['session_id_one']))
+                                                                                                                                                                                                                                                            GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                                                            HAVING 1
+                                                                                                                                                                                                                                                            ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -15687,14 +15691,14 @@
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), in(s.session_id, ['session_id_two']), greaterOrEquals(s.min_first_timestamp, toDateTime64('2016-01-01 13:46:23.000000', 6, 'UTC')), globalIn(s.session_id,
-                                                                                                                                                                                     (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
-                                                                                                                                                                                      FROM events
-                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')), in(nullIf(nullIf(events.`$session_id`, ''), 'null'), ['session_id_two']))
-                                                                                                                                                                                      GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
-                                                                                                                                                                                      HAVING 1
-                                                                                                                                                                                      ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                      LIMIT 1000000)))
+  WHERE and(equals(s.team_id, 99999), in(s.session_id, ['session_id_two']), greaterOrEquals(s.min_first_timestamp, toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                           (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
+                                                                                                                                                                                                                                                            FROM events
+                                                                                                                                                                                                                                                            WHERE and(equals(events.team_id, 99999), notEmpty(nullIf(nullIf(events.`$session_id`, ''), 'null')), lessOrEquals(events.timestamp, now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(events.timestamp, toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')), in(nullIf(nullIf(events.`$session_id`, ''), 'null'), ['session_id_two']))
+                                                                                                                                                                                                                                                            GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
+                                                                                                                                                                                                                                                            HAVING 1
+                                                                                                                                                                                                                                                            ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
