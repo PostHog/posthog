@@ -363,11 +363,15 @@ class CreateFeatureFlagTool(MaxTool):
             return []
 
         # Mirror the web UI, which applies defaults only when this gate is also on (featureFlagLogic.ts).
+        organization = self._user.organization
+        distinct_id = self._user.distinct_id
+        if organization is None or distinct_id is None:
+            return []
         if not posthoganalytics.feature_enabled(
             "default-evaluation-environments",
-            self._user.distinct_id,
-            groups={"organization": str(self._user.organization.id)},
-            group_properties={"organization": {"id": str(self._user.organization.id)}},
+            distinct_id,
+            groups={"organization": str(organization.id)},
+            group_properties={"organization": {"id": str(organization.id)}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         ):
