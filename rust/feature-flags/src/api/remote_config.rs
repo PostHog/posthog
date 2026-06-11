@@ -22,6 +22,7 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use serde_json::Value;
+use std::sync::Arc;
 use tracing::warn;
 
 enum AuthOutcome {
@@ -206,7 +207,19 @@ async fn authenticate(
             }
             Err(e) => return Err(e),
         };
-        auth::validate_personal_api_key_with_scopes_for_team(state, &key, &team).await?;
+        let pak_id =
+            auth::validate_personal_api_key_with_scopes_for_team(state, &key, &team).await?;
+
+        // Track PAK usage like flag_definitions does, so a key used only for remote config
+        // doesn't look dormant and get rotated as unused. Advisory: shared Redis (not the
+        // flags cache), and the DB write only fires when the debounce key is newly set.
+        if !*state.config.skip_writes {
+            let redis = state.redis_client.clone();
+            let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
+                state.database_pools.non_persons_writer.clone();
+            drop(super::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
+        }
+
         return Ok(AuthOutcome::Authorized {
             should_decrypt: true,
             team_id: project_id,
