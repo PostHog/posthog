@@ -17,6 +17,7 @@ export {
     stripCollidingInlineEnums,
     stripNullDefaults,
 } from './src/preprocess.mjs'
+export { aliasKernelTypes, buildSchemaSourceIndex, collectKernelComponents } from './src/alias-kernel-types.mjs'
 export { formatJs, formatYaml } from './src/format.mjs'
 export { runOrvalParallel } from './src/orval.mjs'
 export { annotatePureZodExports, fixNullDefaults } from './src/zod-postprocess.mjs'

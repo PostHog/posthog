@@ -7,7 +7,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
+    aliasKernelTypes,
     annotatePureZodExports,
+    buildSchemaSourceIndex,
+    collectKernelComponents,
     collectSchemaRefs,
     fixNullDefaults,
     preprocessSchema,
@@ -384,6 +387,11 @@ const schema = preprocessSchema(JSON.parse(fs.readFileSync(schemaPath, 'utf8')))
 const mappings = loadProductMappings()
 const tmpDir = createTempDir()
 
+// Kernel components (x-schema-source: posthog.schema.*) are projections of
+// schema.ts types; their emitted twins get aliased back to the authored source.
+const kernelComponents = collectKernelComponents(schema)
+const schemaSourceIndex = buildSchemaSourceIndex(repoRoot)
+
 console.log('')
 console.log('┌─────────────────────────────────────────────────────────────────────┐')
 if (generateAll) {
@@ -758,6 +766,15 @@ for (let i = 0; i < results.length; i++) {
             const zodFile = path.join(job.outputDir, 'api.zod.ts')
             fixNullDefaults(zodFile)
             annotatePureZodExports(zodFile)
+        }
+        if (job.kind === 'fetch') {
+            const schemasFile = path.join(job.outputDir, 'api.schemas.ts')
+            if (fs.existsSync(schemasFile)) {
+                const aliasStats = aliasKernelTypes(schemasFile, kernelComponents, schemaSourceIndex)
+                if (aliasStats.aliased > 0) {
+                    console.log(`     ↪ aliased ${aliasStats.aliased} kernel types to their schema.ts source`)
+                }
+            }
         }
         console.log(`   ✓ ${job.label}:${job.kind} → ${path.relative(repoRoot, job.outputDir)}`)
         if (!outputDirs.includes(job.outputDir)) {
