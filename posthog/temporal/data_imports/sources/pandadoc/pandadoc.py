@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -35,7 +36,9 @@ class PandaDocResumeConfig:
 
 
 def _get_session(api_key: str) -> requests.Session:
-    return make_tracked_session(headers={"Authorization": f"API-Key {api_key}"}, redact_values=(api_key,))
+    return make_tracked_session(
+        headers={"Authorization": f"API-Key {api_key}"}, redact_values=(api_key,), retry=Retry(total=0)
+    )
 
 
 def _format_date_filter(value: Any) -> str:
