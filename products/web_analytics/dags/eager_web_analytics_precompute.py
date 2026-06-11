@@ -50,8 +50,10 @@ the replay covers the long tail (custom hosts, custom filters, etc.).
 """
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
+from django.db import connections
 
 import dagster
 import structlog
@@ -78,6 +80,13 @@ logger = structlog.get_logger(__name__)
 # stores per-day buckets, so a 28-day warm naturally serves any user
 # request for a sub-window (today, last 7d, etc.) via the lazy CH cache.
 BASELINE_WINDOW_DAYS = 28
+
+
+# How many teams to warm concurrently. Each team's tiles still run sequentially
+# inside `_warm_baseline_for_team`, so this is the number of simultaneous warm
+# queries hitting ClickHouse — keep it small so warming never competes with
+# user-facing traffic for the per-user query cap.
+WARM_TEAM_CONCURRENCY = 5
 
 
 # The set of `WebStatsBreakdown` values rendered as tiles in the Web
@@ -320,6 +329,13 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
     warmed = 0
     failed = 0
     skipped = 0
+
+    # Resolve the eligible teams up front (cheap Postgres/flag checks), then warm
+    # them with a small thread pool. Each team's tile matrix still runs
+    # sequentially inside `_warm_baseline_for_team`, so we never fire concurrent
+    # INSERTs into one team's buckets — the pool just runs several *different*
+    # teams at once to spread the ClickHouse load and cut total wall-clock.
+    eligible: list[Team] = []
     for team_id in team_ids:
         team = teams_by_id.get(team_id)
         if team is None:
@@ -342,17 +358,29 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
             skipped += 1
             continue
 
+        eligible.append(team)
+
+    def _warm(team: Team) -> tuple[int, int]:
         team_started = time.monotonic()
-        team_warmed, team_failed = _warm_baseline_for_team(context, team)
+        try:
+            team_warmed, team_failed = _warm_baseline_for_team(context, team)
+        finally:
+            # Each pool thread holds its own Django DB connections; close them on
+            # the way out so the run doesn't leak one connection per team.
+            connections.close_all()
         logger.info(
             "eager_baseline_warming_team",
-            team_id=team_id,
+            team_id=team.pk,
             warmed=team_warmed,
             failed=team_failed,
             duration_ms=round((time.monotonic() - team_started) * 1000),
         )
-        warmed += team_warmed
-        failed += team_failed
+        return team_warmed, team_failed
+
+    with ThreadPoolExecutor(max_workers=WARM_TEAM_CONCURRENCY) as pool:
+        for team_warmed, team_failed in pool.map(_warm, eligible):
+            warmed += team_warmed
+            failed += team_failed
 
     duration_ms = round((time.monotonic() - started) * 1000)
     context.log.info(
