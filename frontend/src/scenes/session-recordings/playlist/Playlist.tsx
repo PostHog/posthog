@@ -94,6 +94,7 @@ export function Playlist({
         visiblePinnedRecordings: pinnedRecordings,
         otherRecordings,
         hasNext,
+        selectedRecordingOutsideFilters,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId } =
         useActions(sessionRecordingsPlaylistLogic)
@@ -301,6 +302,12 @@ export function Playlist({
                             </DraggableToNotebook>
                             <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                         </div>
+                        {selectedRecordingOutsideFilters && (
+                            <LemonBanner type="info" className="m-2 text-xs">
+                                The selected recording doesn't match the current filters. It's shown because it was
+                                opened from a direct link.
+                            </LemonBanner>
+                        )}
                         <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={contentRef}>
                             {sectionCount > 1 ? (
                                 <LemonCollapse
