@@ -1,11 +1,9 @@
-//! Phase 2 of the cross-partition merge protocol (TDD §4.5.1): apply a `MergeStateTransfer` on
-//! P_new's worker.
+//! Apply a `MergeStateTransfer` on P_new's worker (phase 2 of cross-partition merge).
 //!
-//! Sink-free and store-level — given a transfer (P_old's drained per-leaf records) it merges each
-//! leaf into P_new's state, commits one atomic `WriteBatch` (merged puts, `cf_person_index` appends,
-//! and the `cf_merge_applied` idempotence marker), schedules P_new's eviction deadlines, and returns
-//! the membership transitions for the caller to compose Stage 2 and produce. The Kafka consumer that
-//! feeds it and the producer that ships its transitions are C2.
+//! Given a transfer (P_old's drained per-leaf records), merges each leaf into P_new's state, commits
+//! one atomic `WriteBatch` (merged puts, `cf_person_index` appends, and the `cf_merge_applied`
+//! idempotence marker), schedules P_new's eviction deadlines, and returns the membership transitions
+//! for the caller to compose Stage 2 and produce.
 
 use metrics::counter;
 use uuid::Uuid;
@@ -24,29 +22,19 @@ use crate::store::{CohortStore, IndexOp, MergeAppliedKey, PersonIndexKey, StoreE
 use crate::sweep::EvictionQueue;
 use crate::workers::event_path::schedule_deadline;
 
-/// The result of applying a transfer.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApplyOutcome {
-    /// The transfer was applied; `transitions` are P_new's per-leaf flips (the caller composes Stage 2
-    /// + produces them).
+    /// Transfer applied; `transitions` are P_new's per-leaf membership flips.
     Applied { transitions: Vec<LeafTransition> },
-    /// A `cf_merge_applied` hit — this transfer message was already applied (replay / crash-recovery),
-    /// so it is a no-op (acceptance #4 / #7).
+    /// Idempotence hit — this transfer was already applied (replay / crash-recovery).
     AlreadyApplied,
 }
 
 /// Apply `transfer` on P_new's worker (`partition_id` owns P_new).
 ///
-/// Replay idempotence keys `cf_merge_applied` by the *source merge message's* coordinates
-/// (`transfer.source_partition`/`source_offset`): every copy of one merge's transfer carries the
-/// same source pair, while the designed duplication paths (outbox redrive racing the inline retry,
-/// an `AlreadyDrained` re-produce, a crash between the produce ack and the outbox clear) each
-/// re-produce at fresh transfer-topic coordinates — keying by those would let the second copy past
-/// the guard and double-count the daily/compressed bucket merge.
-///
-/// `_transfer_coords` is the transfer message's own Kafka `(partition, offset)`. The handler never
-/// consults it — it rides along for the caller, which marks the transfer-topic offset once the
-/// apply `WriteBatch` has committed.
+/// Idempotence is keyed by the *source merge message's* coordinates (not the transfer message's
+/// own), because duplicate transfer copies (redrive, crash-retry) arrive at fresh transfer-topic
+/// offsets but share the same source pair.
 pub fn handle_transfer(
     partition_id: u16,
     store: &CohortStore,
@@ -71,8 +59,6 @@ pub fn handle_transfer(
         return Ok(ApplyOutcome::AlreadyApplied);
     }
 
-    // Decode the hex LSK on each leaf; a malformed one is a counted skip (the wire is our own, so this
-    // is purely defensive).
     let mut leaves: Vec<(LeafStateKey, StatefulRecord)> = Vec::with_capacity(transfer.leaves.len());
     for leaf in &transfer.leaves {
         match leaf.decode_leaf_state_key() {
@@ -93,8 +79,6 @@ pub fn handle_transfer(
         &leaves,
     )?;
 
-    // One atomic batch: merged P_new puts + index appends + the applied marker. The stamp is the merge
-    // instant (deterministic, no wall clock); the key's presence is the idempotence guard.
     let p_new_index = PersonIndexKey {
         partition_id,
         team_id: team_u64,
@@ -113,7 +97,6 @@ pub fn handle_transfer(
         batch.put_merge_applied(&applied_key, &stamp.encode());
     })?;
 
-    // Post-commit: schedule P_new's merged deadlines, mirroring the event path's ordering.
     for (key, deadline) in &apply.schedules {
         queue.schedule(*key, *deadline);
     }
@@ -123,24 +106,19 @@ pub fn handle_transfer(
     })
 }
 
-/// The writes one application of P_old's leaves into P_new produces, computed without committing so
-/// the caller composes the final batch (the apply handler, or the drain's same-partition fast path).
+/// Computed writes from applying P_old's leaves into P_new, uncommitted so the caller can compose
+/// the final batch.
 #[derive(Debug, Default)]
 pub(crate) struct LeafApply {
-    /// P_new's merged `cf_stage1` records to put (`(key, encoded)`).
     pub puts: Vec<(Stage1Key, Vec<u8>)>,
-    /// LSKs to append to P_new's `cf_person_index` (one per written leaf; the merge operator dedups).
     pub appends: Vec<LeafStateKey>,
-    /// P_new's per-leaf membership flips, for the caller to fan into Stage 2 + the output producer.
     pub transitions: Vec<LeafTransition>,
-    /// P_new's behavioral eviction deadlines to (re)schedule, post-commit.
     pub schedules: Vec<(Stage1Key, i64)>,
 }
 
-/// Merge each of P_old's `leaves` into P_new's state on `partition_new`, reading P_new's prior record
-/// per leaf. Pure reads — emits no writes, so both the apply handler and the drain fast path call it
-/// before composing their own batch (the "all reads before any write" discipline). A leaf whose LSK
-/// left the catalog is a counted skip; a corrupt P_new record is treated as absent (re-created).
+/// Merge each of P_old's `leaves` into P_new's state on `partition_new`. Pure reads only — the
+/// caller composes the final write batch. A leaf whose LSK left the catalog is skipped; a corrupt
+/// P_new record is treated as absent.
 pub(crate) fn apply_leaves(
     partition_new: u16,
     store: &CohortStore,
@@ -155,7 +133,6 @@ pub(crate) fn apply_leaves(
 
     for (lsk, old_record) in leaves {
         let Some(meta) = filters.by_lsk.get(lsk) else {
-            // The leaf left the catalog mid-flight (drift) — drop it, mirroring the sweep.
             counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "leaf_drift").increment(1);
             continue;
         };
@@ -167,7 +144,6 @@ pub(crate) fn apply_leaves(
         };
         let p_new_record = match store.get_stage1(&p_new_key)? {
             None => None,
-            // A corrupt P_new record reads as absent: the merge re-creates it from P_old's side.
             Some(bytes) => StatefulRecord::decode(&bytes).ok(),
         };
 

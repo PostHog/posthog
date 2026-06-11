@@ -1,31 +1,14 @@
-//! The merge-protocol worker paths (TDD §4.5.1): the produce/track I/O around the sink-free
-//! drain/apply handlers in [`crate::merge`].
+//! Merge-protocol worker paths: the produce/track I/O around the drain/apply handlers in
+//! [`crate::merge`].
 //!
 //! [`handle_merge`] drains a `PersonMergeEvent` on P_old's worker and owns the transfer produce;
-//! [`handle_apply`] applies a `MergeStateTransfer` on P_new's worker. Both are self-contained like
-//! the sweep — they produce their own membership output and mark their own [`OffsetTracker`], never
-//! the events `max_offset` (D7: per-topic offsets never cross-contaminate).
+//! [`handle_apply`] applies a `MergeStateTransfer` on P_new's worker. Both are self-contained ---
+//! they produce their own membership output and mark their own [`OffsetTracker`], never the events
+//! `max_offset` (per-topic offsets never cross-contaminate).
 //!
-//! ## Offset gating (D7)
-//!
-//! - The **merge** offset commits on: the drain `WriteBatch` (fast path / skip / empty transfer) or
-//!   the transfer produce ack + outbox-clear *attempt* (slow path). A membership-produce failure
-//!   never holds it: the drain state committed write-before-produce, so a replay short-circuits on
-//!   `cf_merge_drains_applied` and can't re-emit — holding would be pure lag (the same at-most-once
-//!   envelope as the event path's shadow output).
-//! - The **transfer** offset commits on the apply `WriteBatch` alone, by the same argument.
-//! - A [`StoreError`] holds the offset (D8, the inverse of the event path's advance-past): a skipped
-//!   merge permanently strands P_old, merges are rare, and the held offset is visible as group lag.
-//!
-//! ## Transfer-produce failure (D3/D4)
-//!
-//! The produce is retried inline with bounded backoff *while the partition worker is held*: the
-//! worker is serial, so no later merge can leapfrog the uncommitted offset while it blocks, and the
-//! outbox does not survive a revoke, so within-tenure recovery cannot lean on Kafka redelivery
-//! alone. On exhaustion the entry stays in `cf_pending_transfers`, the offset is not marked, and
-//! the periodic redrive re-produces it. The budget (≈15.5 s end to end) deliberately undercuts the
-//! TDD's 10×→60 s spec: a worker blocked longer would backpressure the bounded channel into the
-//! liveness deadline (60 s × stall 3) and the 30 s graceful-shutdown window.
+//! A transfer produce failure is retried inline with bounded backoff while the partition worker is
+//! held. On exhaustion the entry stays in `cf_pending_transfers` and the periodic redrive
+//! re-produces it.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -58,10 +41,8 @@ use crate::sweep::EvictionQueue;
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{count_by_status, transition_metric_label};
 
-/// Inline bounded backoff for the transfer produce (D4): `max_retries` retries after the first
-/// attempt, pausing `base × 2^(retry−1)` capped at `cap` before each. The defaults
-/// (5 × 0.5/1/2/4/8 s ≈ 15.5 s total) keep a blocked worker well inside the liveness and
-/// graceful-shutdown windows; env-tunable wiring arrives with the consumer config.
+/// Inline bounded backoff for the transfer produce. The defaults (5 retries, ≈15.5 s total)
+/// keep a blocked worker inside the liveness and graceful-shutdown windows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TransferRetryPolicy {
     /// Retries after the initial attempt (total attempts = `max_retries + 1`).
@@ -81,8 +62,7 @@ impl Default for TransferRetryPolicy {
 }
 
 impl TransferRetryPolicy {
-    /// The pause before 1-based retry `attempt`: `base × 2^(attempt−1)`, capped at `cap`.
-    /// Saturating so a misconfigured policy degrades to `cap`, never panics.
+    /// The pause before 1-based retry `attempt`: `base * 2^(attempt-1)`, capped at `cap`.
     fn backoff(&self, attempt: u32) -> Duration {
         self.base
             .saturating_mul(2u32.saturating_pow(attempt.saturating_sub(1)))
@@ -90,27 +70,18 @@ impl TransferRetryPolicy {
     }
 }
 
-/// The merge-protocol dependencies a [`Stage1Worker`](crate::workers::Stage1Worker) needs beyond
-/// its event-path set, bundled so the spawn signature grows by one handle, not five. Shared
-/// (`Arc`) across all workers and with the dispatcher, which marks dispatch ceilings on the two
-/// trackers and forgets revoked partitions in them.
+/// Merge-protocol dependencies for a [`Stage1Worker`](crate::workers::Stage1Worker), shared
+/// across all workers and the dispatcher.
 pub struct MergeWorkerDeps {
-    /// Producer for `cohort_merge_state_transfer`, keyed by P_new (D1).
     pub transfer_sink: Arc<dyn TransferSink>,
-    /// Producer for the straggler re-key back into `cohort_stream_events`, keyed by the rewritten
-    /// target person (D1).
     pub stream_event_sink: Arc<dyn StreamEventSink>,
-    /// Commit tracking for `KAFKA_PERSON_MERGE_EVENTS` — never shared with the events tracker (D7).
     pub merge_tracker: Arc<OffsetTracker>,
-    /// Commit tracking for `cohort_merge_state_transfer` (D7).
     pub transfer_tracker: Arc<OffsetTracker>,
     pub retry: TransferRetryPolicy,
 }
 
 impl MergeWorkerDeps {
-    /// Deps wired to in-memory capture sinks and fresh trackers — the default for tests that
-    /// exercise paths which never touch the merge protocol (mirrors
-    /// [`CaptureSink`](crate::producer::CaptureSink)'s role for the membership output).
+    /// Deps wired to in-memory capture sinks and fresh trackers for tests.
     pub fn capture() -> Arc<Self> {
         Arc::new(Self {
             transfer_sink: Arc::new(CaptureTransferSink::new()),
@@ -122,8 +93,8 @@ impl MergeWorkerDeps {
     }
 }
 
-/// Drain one merge event on P_old's worker and settle its offset per the module-level gating rules.
-#[allow(clippy::too_many_arguments)] // the worker's full I/O surface, mirroring handle_sweep
+/// Drain one merge event on P_old's worker and settle its offset.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_merge(
     partition_id: u16,
     store: &CohortStore,
@@ -137,9 +108,8 @@ pub(crate) async fn handle_merge(
 ) {
     let msg_coords = (partition_id as i32, offset);
 
-    // D9: a team absent from the catalog still drains against empty filters — the tombstone, drain
-    // marker, and state deletes are load-bearing even with no cohorts (leaves drop as drift on the
-    // apply side). Holding would wedge the partition on a deleted team; skipping would strand P_old.
+    // A team absent from the catalog still drains against empty filters so the tombstone, drain
+    // marker, and state deletes are applied. Holding would wedge; skipping would strand P_old.
     let snapshot = catalog.load();
     let fallback: TeamFilters;
     let filters: &TeamFilters = match snapshot.team(TeamId(event.team_id)) {
@@ -175,8 +145,6 @@ pub(crate) async fn handle_merge(
         }
         Ok(DrainOutcome::Drained { transfer }) => {
             if transfer.leaves.is_empty() {
-                // D10: an empty transfer ferries nothing and was never staged (the drain skips the
-                // outbox put), so there is nothing to produce or clear — count and commit.
                 counter!(MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL).increment(1);
                 mark_processed(&merge.merge_tracker, partition_id, offset);
                 return;
@@ -184,9 +152,7 @@ pub(crate) async fn handle_merge(
             produce_and_settle(partition_id, store, merge, &transfer, &pending_key, offset).await;
         }
         Ok(DrainOutcome::AlreadyDrained) => {
-            // A redelivered merge (crash or produce failure after the drain committed): re-produce
-            // any still-staged outbox entry, then commit. An already-cleared slot means the prior
-            // tenure's produce was acked — just commit.
+            // Redelivered merge: re-produce any still-staged outbox entry, or just commit.
             match store.get_pending_transfer(&pending_key) {
                 Ok(None) => mark_processed(&merge.merge_tracker, partition_id, offset),
                 Ok(Some(bytes)) => match PendingTransfer::decode(&bytes) {
@@ -202,9 +168,7 @@ pub(crate) async fn handle_merge(
                         .await;
                     }
                     Err(error) => {
-                        // A corrupt outbox value cannot be produced; holding would wedge the
-                        // partition on it forever. Commit and leave the entry for the redrive scan,
-                        // which surfaces the same decode failure every tick.
+                        // A corrupt outbox value cannot be produced; commit past it.
                         warn!(
                             partition_id,
                             team_id = event.team_id,
@@ -216,7 +180,6 @@ pub(crate) async fn handle_merge(
                     }
                 },
                 Err(error) => {
-                    // D8: a store read error holds the offset for redelivery.
                     warn!(
                         partition_id,
                         team_id = event.team_id,
@@ -227,12 +190,9 @@ pub(crate) async fn handle_merge(
             }
         }
         Ok(DrainOutcome::Skipped(_)) => {
-            // Validation skip (counted inside the handler): nothing to recover, commit.
             mark_processed(&merge.merge_tracker, partition_id, offset);
         }
         Err(error) => {
-            // D8: hold. The drain committed nothing, so redelivery is the only recovery; the held
-            // offset shows up as merge-group lag.
             warn!(
                 partition_id,
                 team_id = event.team_id,
@@ -244,9 +204,8 @@ pub(crate) async fn handle_merge(
     }
 }
 
-/// Apply one state transfer on P_new's worker and settle its offset: marked once the apply
-/// `WriteBatch` commits, held on a store error (D8). The membership produce never gates it (D7).
-#[allow(clippy::too_many_arguments)] // the worker's full I/O surface, mirroring handle_sweep
+/// Apply one state transfer on P_new's worker and settle its offset.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_apply(
     partition_id: u16,
     store: &CohortStore,
@@ -260,8 +219,7 @@ pub(crate) async fn handle_apply(
 ) {
     let transfer_coords = (partition_id as i32, offset);
 
-    // D9, apply side: an absent team applies against empty filters — every leaf drops as drift, but
-    // the `cf_merge_applied` marker still commits so the transfer is settled, not wedged.
+    // An absent team applies against empty filters so the transfer is settled, not wedged.
     let snapshot = catalog.load();
     let fallback: TeamFilters;
     let filters: &TeamFilters = match snapshot.team(TeamId(transfer.team_id)) {
@@ -312,37 +270,9 @@ pub(crate) async fn handle_apply(
     }
 }
 
-/// Re-produce every `cf_pending_transfers` entry staged on this partition — the periodic redrive
-/// that closes D3's within-tenure gap (TDD §4.5.1: the worker "scans `cf_pending_transfers` for its
-/// assigned partitions ... and re-produces any leftover entries"). An entry only exists here when
-/// the inline retry exhausted (or the post-ack clear failed), and the monotonic-max tracker may
-/// have already committed past its merge offset, so this tick — not Kafka redelivery — is what
-/// recovers the stranded transfer.
-///
-/// **Single produce attempt per entry, not the inline retry budget.** The inline path may hold the
-/// worker (the merge offset is uncommitted and nothing can leapfrog while it blocks); the redrive
-/// has no such claim — its retry vehicle is the next tick, and burning the ≈15.5 s budget on each
-/// of many dead entries against a down broker would starve the partition's live events and merges
-/// queued behind the tick. Even the single attempt is not free: a black-hole broker (connection
-/// up, no acks) resolves the produce future only at the producer's `message.timeout.ms` (20 s),
-/// so the tick attempts at most [`REDRIVE_MAX_ATTEMPTS_PER_TICK`] entries — entries past the cap
-/// stay staged and the next tick's scan reaches them (in key order) once the attempted ones clear,
-/// no resume cursor needed. A produce failure just leaves the entry in place.
-///
-/// On an acked produce the entry is cleared and the **stored** merge-message coordinates are marked
-/// on the merge tracker — the reason [`PendingTransfer`] carries them: the exhausted merge skipped
-/// its mark (D3), so this mark is what finally lets the merge group's commit advance past the
-/// recovered merge. A clear failure still marks, mirroring the inline path (D7): the transfer is
-/// durable, and the leftover entry only re-produces a duplicate the apply side's source-coords
-/// dedup absorbs (D2). A scan failure skips the whole tick; the next one retries.
-/// Produce attempts per redrive tick. Each redrive produce is a *single* attempt, but against a
-/// black-hole broker (connection up, no acks) that one attempt blocks until the producer's
-/// `message.timeout.ms` — 20 s — so the worst-case tick hold is `cap × 20 s` = 160 s, inside the
-/// 180 s stall budget (60 s liveness deadline × stall threshold 3) a worker blocked behind a full
-/// channel would otherwise trip. The floor: a fast-fail outage stages at most one entry per inline
-/// retry budget (the serial worker is held ≈15.5 s per exhaustion, ≈0.065/s/partition), and 8 per
-/// default 60 s tick drains ≈0.13/s — 2× that worst-case staging rate, so the backlog shrinks even
-/// while the outage continues.
+/// Re-produce every `cf_pending_transfers` entry staged on this partition. Entries exist when the
+/// inline retry exhausted (or the post-ack clear failed). Single produce attempt per entry; the
+/// retry vehicle is the next tick. Capped at [`REDRIVE_MAX_ATTEMPTS_PER_TICK`] per tick.
 const REDRIVE_MAX_ATTEMPTS_PER_TICK: usize = 8;
 
 pub(crate) async fn handle_redrive(
@@ -361,9 +291,6 @@ pub(crate) async fn handle_redrive(
             return;
         }
     };
-    // Set at scan time, so a fully-recovered tick reads as staged until the next tick's 0. The
-    // `partition` label is bounded at the 64 shuffler partitions — the same labelling as
-    // `partition_channel_depth` (D12's label frugality is about unbounded ids, not these).
     gauge!(MERGE_PENDING_TRANSFERS_GAUGE, "partition" => partition_id.to_string())
         .set(entries.len() as f64);
 
@@ -379,9 +306,6 @@ pub(crate) async fn handle_redrive(
         let pending = match PendingTransfer::decode(&bytes) {
             Ok(pending) => pending,
             Err(error) => {
-                // Same posture as the `AlreadyDrained` decode failure above: a corrupt entry cannot
-                // be produced, so it stays put (resurfacing this warn every tick) until PR 3.5's
-                // recovery decides where its GC belongs.
                 warn!(
                     partition_id,
                     team_id = key.team_id,
@@ -394,8 +318,6 @@ pub(crate) async fn handle_redrive(
         };
         let team_id = pending.transfer.team_id;
         let old_person = pending.transfer.old_person_uuid;
-        // Only produce attempts count toward the cap — the produce is the step that can block; a
-        // decode failure (above) is instant and must not eat a slot a live entry behind it needs.
         attempted += 1;
         let acks = merge.transfer_sink.produce(vec![pending.transfer]).await;
         if !acks.iter().all(Result::is_ok) {
@@ -414,22 +336,15 @@ pub(crate) async fn handle_redrive(
                 team_id,
                 old_person = %old_person,
                 error = %error,
-                "outbox clear failed after an acked redrive produce; marking anyway (a duplicate re-produce dedups by source coords)",
+                "outbox clear failed after an acked redrive produce; marking anyway",
             );
         }
-        // The outbox key is partition-prefixed, so a scanned entry's stored coordinates are always
-        // this worker's own partition.
         debug_assert_eq!(pending.merge_msg_partition, partition_id as i32);
         mark_processed(&merge.merge_tracker, partition_id, pending.merge_msg_offset);
     }
 }
 
 /// Produce `transfer` with inline retry; on ack clear its outbox slot and mark the merge offset.
-///
-/// A clear failure still marks (D7): the transfer is durable on the topic, and the leftover entry
-/// only re-produces a duplicate the apply side's source-coords dedup absorbs. Retry exhaustion
-/// leaves the entry pending and skips the mark (D3): the monotonic-max tracker means a later merge
-/// may commit past the failed one, so recovery is the outbox + periodic redrive, not redelivery.
 async fn produce_and_settle(
     partition_id: u16,
     store: &CohortStore,
@@ -458,15 +373,13 @@ async fn produce_and_settle(
             team_id = transfer.team_id,
             old_person = %transfer.old_person_uuid,
             error = %error,
-            "outbox clear failed after an acked transfer produce; committing anyway (a duplicate re-produce dedups by source coords)",
+            "outbox clear failed after an acked transfer produce; committing anyway",
         );
     }
     mark_processed(&merge.merge_tracker, partition_id, offset);
 }
 
-/// Produce one transfer, retrying inline with bounded backoff while the partition worker is held —
-/// the serial worker means nothing leapfrogs the uncommitted merge offset while it blocks. Returns
-/// whether the produce was acked.
+/// Produce one transfer, retrying inline with bounded backoff. Returns whether the produce was acked.
 async fn produce_transfer_with_retry(
     sink: &Arc<dyn TransferSink>,
     transfer: &MergeStateTransfer,
@@ -492,11 +405,8 @@ async fn produce_transfer_with_retry(
     false
 }
 
-/// Fan a drain/apply outcome's per-leaf `transitions` into membership output: single-leaf cohorts
-/// via [`map_transition`], composable cohorts via [`compose_stage2`] (stamped with the merge
-/// instant — deterministic, replay-stable), then one produce. A produce failure is logged and
-/// dropped, never surfaced to gate the caller's offset (D7): the state already committed, so a
-/// replay short-circuits on its idempotence marker and cannot re-emit.
+/// Fan a drain/apply outcome's transitions into membership output (single-leaf + Stage 2),
+/// then produce. A produce failure is logged and dropped (at-most-once).
 async fn produce_merge_transitions(
     partition_id: u16,
     store: &CohortStore,
@@ -516,8 +426,6 @@ async fn produce_merge_transitions(
         }
         changes.extend(map_transition(filters, transition, last_updated));
     }
-    // A store error is already counted under `store_errors_total{op}`; log and skip — the recompute
-    // self-heals the missed flip on the person's next event (same posture as the event path).
     match compose_stage2(
         partition_id,
         store,
@@ -559,8 +467,7 @@ async fn produce_merge_transitions(
     }
 }
 
-/// Mark `offset` processed (`+ 1` = next to consume), surfacing a dispatch-ceiling cap the same way
-/// the event path does (the F1 invariant).
+/// Mark `offset` processed (`+ 1` = next to consume).
 fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
     if let MarkOutcome::CappedAheadOfDispatch =
         tracker.mark_processed(partition_id as i32, offset + 1)
@@ -574,8 +481,7 @@ fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
     }
 }
 
-/// The D9 fallback for a team absent from the catalog: no cohorts, UTC timezone (the team's real
-/// timezone is unknowable once it has left the catalog). Built per merge — merges are rare.
+/// Fallback for a team absent from the catalog: no cohorts, UTC timezone.
 fn empty_team_filters() -> TeamFilters {
     TeamFiltersBuilder::default().freeze(UTC)
 }
@@ -673,8 +579,6 @@ mod tests {
         assert!(capture.transfers().is_empty());
     }
 
-    // ── Pending-transfer redrive (D3's within-tenure recovery) ──────────────────
-
     const REDRIVE_PARTITION: u16 = 3;
 
     fn temp_store() -> (TempDir, CohortStore) {
@@ -687,7 +591,6 @@ mod tests {
         (dir, store)
     }
 
-    /// Deps wired to the given transfer sink, everything else capture defaults.
     fn capture_deps(transfer_sink: CaptureTransferSink) -> MergeWorkerDeps {
         MergeWorkerDeps {
             transfer_sink: Arc::new(transfer_sink),
@@ -698,8 +601,6 @@ mod tests {
         }
     }
 
-    /// An outbox entry as the drain stages it: a one-leaf transfer plus the merge message's own
-    /// coordinates (`REDRIVE_PARTITION`, `merge_offset`).
     fn staged_pending(p_old: Uuid, merge_offset: i64) -> (PendingTransferKey, PendingTransfer) {
         let transfer = MergeStateTransfer {
             team_id: 7,
@@ -741,9 +642,6 @@ mod tests {
 
     #[tokio::test]
     async fn redrive_re_produces_a_staged_entry_clears_it_and_marks_the_stored_coords() {
-        // The `merge_pending_transfers{partition}` gauge is set from the same scan; with no
-        // recorder installed in unit tests it is not asserted — the scan/produce/clear/mark
-        // sequence it summarizes is.
         let (_dir, store) = temp_store();
         let (key, pending) = staged_pending(Uuid::from_u128(1), 41);
         stage(&store, &key, &pending.encode());
@@ -804,9 +702,6 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn redrive_makes_a_single_produce_attempt_per_tick_with_no_backoff() {
-        // The inline budget would advance the paused clock ≈15.5 s in backoff sleeps; the redrive
-        // must never sleep — its retry vehicle is the next tick, and backing off here would hold
-        // the partition worker per dead entry.
         let (_dir, store) = temp_store();
         let (key, pending) = staged_pending(Uuid::from_u128(1), 41);
         stage(&store, &key, &pending.encode());
@@ -828,8 +723,6 @@ mod tests {
     #[tokio::test]
     async fn redrive_leaves_an_undecodable_entry_in_place_and_still_recovers_the_rest() {
         let (_dir, store) = temp_store();
-        // The corrupt entry's key sorts first (person 1 < person 2), so recovering the good entry
-        // proves the loop continues past a decode failure rather than aborting the tick.
         let corrupt_key = PendingTransferKey {
             partition_id: REDRIVE_PARTITION,
             team_id: 7,
@@ -860,9 +753,6 @@ mod tests {
 
     #[tokio::test]
     async fn redrive_attempts_at_most_the_cap_per_tick_and_the_remainder_survives() {
-        // Each produce attempt can block up to the producer's message timeout, so a tick over a
-        // deep backlog must bound its attempts. Entries past the cap stay staged untouched; the
-        // next tick's key-ordered scan reaches them once the attempted ones cleared.
         let (_dir, store) = temp_store();
         let backlog = REDRIVE_MAX_ATTEMPTS_PER_TICK + 3;
         let staged: Vec<_> = (0..backlog)
@@ -884,8 +774,6 @@ mod tests {
             REDRIVE_MAX_ATTEMPTS_PER_TICK,
             "tick 1 attempted exactly the cap",
         );
-        // `Uuid::from_u128` is big-endian, so the staging order above is the scan's key order: the
-        // first `cap` entries were attempted (and cleared), the rest never touched.
         for key in &staged[..REDRIVE_MAX_ATTEMPTS_PER_TICK] {
             assert!(store.get_pending_transfer(key).unwrap().is_none());
         }

@@ -1,15 +1,9 @@
-//! Rust port of `convertClickhouseRawEventToFilterGlobals`: turn a [`CohortStreamEvent`] into the
-//! HogVM globals dict that compiled cohort bytecode reads.
+//! Turn a [`CohortStreamEvent`] into the HogVM globals dict that compiled cohort bytecode reads.
 //!
-//! The Rust VM errors on a missing *top-level* global but reads a missing *nested* key as `null`,
-//! so every top-level key Node emits must be present even though supported cohort bytecode only
-//! reads `event` and `properties.*`. Group/derived fields the shuffler drops are emitted as Node's
-//! empty defaults rather than reconstructed; safe because supported realtime cohorts never filter
-//! on groups, `elements_chain`, or `timestamp`.
-//!
-//! A present-but-malformed `properties`/`person_properties` payload returns [`GlobalsError`] so the
-//! caller skips the whole event — mirroring Node's caught `JSON.parse` throw — rather than
-//! substituting an empty object.
+//! Every top-level key must be present (the VM errors on missing top-level globals). Group/derived
+//! fields are emitted as empty defaults since supported realtime cohorts never filter on them.
+//! A malformed `properties`/`person_properties` payload returns [`GlobalsError`] so the caller
+//! skips the event.
 
 use chrono::{DateTime, NaiveDateTime};
 use metrics::counter;
@@ -27,7 +21,7 @@ pub struct GlobalsError {
     pub source: serde_json::Error,
 }
 
-/// Build the full behavioral globals dict (Node's `convertClickhouseRawEventToFilterGlobals`).
+/// Build the full behavioral globals dict.
 pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let properties = parse_optional_json(event.properties.as_deref(), "properties")?;
     let person_properties =
@@ -36,7 +30,6 @@ pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, Glob
     let elements_chain = elements_chain(event, &properties);
     let timestamp = normalize_timestamp(&event.timestamp);
 
-    // `person.id` is the *person* id, never the distinct id.
     let person = json!({ "id": event.person_id.as_str(), "properties": person_properties });
     let pdi = json!({
         "distinct_id": event.distinct_id.as_str(),
@@ -71,8 +64,7 @@ pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, Glob
     }))
 }
 
-/// Build the small, strict person-property globals dict (Node's inline `personGlobals`). Node
-/// feeds `team_id` into `project.id` verbatim, matched here for byte parity.
+/// Build the small person-property globals dict (`person` + `project`).
 pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let person_properties =
         parse_optional_json(event.person_properties.as_deref(), "person_properties")?;
@@ -83,9 +75,7 @@ pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value,
     }))
 }
 
-/// Parse a raw JSON payload, mirroring Node's `event.x ? parseJSON(x) : {}`: a `None` or
-/// empty-string payload is JS-falsy and yields `{}`; a present-but-malformed payload returns
-/// [`GlobalsError`] plus the parse-error counter.
+/// Parse a raw JSON payload: `None` or empty-string yields `{}`; malformed returns [`GlobalsError`].
 fn parse_optional_json(raw: Option<&str>, field: &'static str) -> Result<Value, GlobalsError> {
     let Some(raw) = raw.filter(|s| !s.is_empty()) else {
         return Ok(json!({}));
@@ -107,12 +97,9 @@ fn elements_chain(event: &CohortStreamEvent, properties: &Value) -> Value {
     }
 }
 
-/// Normalize a ClickHouse-format timestamp to ISO 8601, matching Node's
-/// `DateTime.fromISO(ts).isValid ? ts : clickHouseTimestampToISO(ts)`.
-///
-/// An already-valid RFC 3339 string passes through; otherwise the ClickHouse form is parsed as UTC
-/// and re-emitted with millisecond precision and a `Z` suffix — byte-identical to Luxon `.toISO()`
-/// (sub-millisecond digits truncated). A value matching neither shape passes through unchanged.
+/// Normalize a ClickHouse-format timestamp to ISO 8601. An already-valid RFC 3339 string passes
+/// through; otherwise the ClickHouse form is parsed as UTC and re-emitted with millisecond
+/// precision. Unrecognized formats pass through unchanged.
 fn normalize_timestamp(raw: &str) -> String {
     if DateTime::parse_from_rfc3339(raw).is_ok() {
         return raw.to_string();

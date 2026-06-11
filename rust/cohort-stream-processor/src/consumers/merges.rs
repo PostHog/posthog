@@ -1,18 +1,8 @@
-//! The merge-protocol follower consumers (TDD §4.5.1): `KAFKA_PERSON_MERGE_EVENTS` (the drain
-//! trigger, keyed by P_old) and `cohort_merge_state_transfer` (the packaged state, keyed by P_new).
+//! Merge-protocol follower consumers: `person_merge_events` (drain trigger, keyed by P_old) and
+//! `cohort_merge_state_transfer` (packaged state, keyed by P_new).
 //!
-//! Both are one [`FollowerConsumer`], generic over a [`FollowerRoute`] that picks the decode and
-//! dispatch ends; everything between — the consume loop, the deadline-driven commit, the final sync
-//! commit — is shared and mirrors [`CohortStreamEventsConsumer`]'s
-//! [`process`](CohortStreamEventsConsumer::process) exactly, for the same cancellation-safety
-//! reasons.
-//!
-//! Followers never `subscribe()`: the events group's rebalance mirrors partition ownership onto
-//! them ([`crate::partitions::follower`]), so there is exactly one ownership lifecycle across all
-//! three co-partitioned topics. Their `group.id`s exist only so commits land on observable groups.
-//!
-//! [`CohortStreamEventsConsumer`]: crate::consumers::events::CohortStreamEventsConsumer
-//! [`process`]: crate::consumers::events::CohortStreamEventsConsumer::process
+//! Both use [`FollowerConsumer`] generic over a [`FollowerRoute`]. Followers never `subscribe()` —
+//! the events group's rebalance mirrors partition ownership onto them.
 
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
@@ -37,10 +27,7 @@ use crate::observability::metrics::{
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::workers::MergeWorkerDeps;
 
-/// One merge trigger consumed from `KAFKA_PERSON_MERGE_EVENTS`, paired with its position on that
-/// topic — the commit coordinates for the merge [`OffsetTracker`](crate::partitions::OffsetTracker)
-/// (never the events tracker; the two topics commit independently, D7). The topics are
-/// co-partitioned, so `partition` is also the worker that owns P_old's state.
+/// One merge trigger consumed from `person_merge_events`, paired with its commit coordinates.
 #[derive(Debug)]
 pub struct ConsumedMerge {
     pub event: PersonMergeEvent,
@@ -48,10 +35,8 @@ pub struct ConsumedMerge {
     pub offset: i64,
 }
 
-/// One state transfer consumed from `cohort_merge_state_transfer`, paired with its position on that
-/// topic — the commit coordinates for the transfer tracker (D7). `partition` is the worker that
-/// owns P_new's state. Replay idempotence is keyed by the transfer's *source* merge-message
-/// coordinates, not these (see [`MergeStateTransfer`]).
+/// One state transfer consumed from `cohort_merge_state_transfer`, paired with its commit
+/// coordinates. Replay idempotence is keyed by the transfer's source merge-message coordinates.
 #[derive(Debug)]
 pub struct ConsumedTransfer {
     pub transfer: MergeStateTransfer,
@@ -59,38 +44,27 @@ pub struct ConsumedTransfer {
     pub offset: i64,
 }
 
-/// What distinguishes the two follower topics: how a payload decodes and which dispatcher entry
-/// point routes the batch. The decode end is pure, so the wire seam is unit-testable without a
-/// broker; the loop around it is exercised by the broker-backed integration tests.
+/// How a follower topic's payload decodes and which dispatcher entry point routes the batch.
 #[async_trait]
 pub trait FollowerRoute: Send + Sync + 'static {
-    /// The consumed envelope [`dispatch`](Self::dispatch) routes.
     type Consumed: Send + 'static;
-    /// Topic role for logs.
     const KIND: &'static str;
-    /// Counter: envelopes consumed and successfully decoded.
     const CONSUMED_TOTAL: &'static str;
-    /// Counter: payloads that were empty or failed to decode.
     const DESERIALIZE_ERRORS_TOTAL: &'static str;
-    /// Histogram: decoded envelopes accumulated per consume → dispatch cycle.
     const CONSUME_BATCH_SIZE: &'static str;
 
-    /// This route's commit tracker within the worker deps (D7). The route selects it — rather than
-    /// the consumer's constructor taking a free tracker parameter — so the merge route can never
-    /// commit on the transfer tracker or vice versa: crossed trackers would commit one topic's
-    /// offsets from the other's marks, and nothing short of a broker test would notice.
+    /// This route's commit tracker within the worker deps. The route selects it so the merge route
+    /// can never accidentally commit on the transfer tracker or vice versa.
     fn tracker(deps: &MergeWorkerDeps) -> &Arc<OffsetTracker>;
 
-    /// Decode one payload into its consumed envelope, pairing it with its commit coordinates.
+    /// Decode one payload into its consumed envelope.
     fn decode(
         payload: &[u8],
         partition: i32,
         offset: i64,
     ) -> Result<Self::Consumed, serde_json::Error>;
 
-    /// Hand a decoded batch to the dispatcher's matching entry point. The owned/draining gate and
-    /// its skip counters live there — the consumer never pre-filters, so each drop is counted
-    /// exactly once.
+    /// Hand a decoded batch to the dispatcher.
     async fn dispatch(dispatcher: &EventDispatcher, batch: Vec<Self::Consumed>);
 }
 
@@ -160,11 +134,7 @@ impl FollowerRoute for TransferRoute {
     }
 }
 
-/// A follower-topic group consumer: consume → route → commit, one per merge-protocol topic.
-///
-/// Commits via the route's tracker inside the dispatcher's [`MergeWorkerDeps`]
-/// ([`FollowerRoute::tracker`], D7) and shares the follower `StreamConsumer` with the rebalance
-/// mirror, which drives its (un)assignments.
+/// A follower-topic group consumer: consume, route, commit. One per merge-protocol topic.
 pub struct FollowerConsumer<R: FollowerRoute> {
     consumer: Arc<StreamConsumer>,
     topic: String,
@@ -198,21 +168,13 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         }
     }
 
-    /// The route-selected commit tracker (D7) — resolved through the dispatcher so this consumer
-    /// can never be wired to the wrong topic's tracker.
+    /// The route-selected commit tracker.
     fn tracker(&self) -> &Arc<OffsetTracker> {
         R::tracker(self.dispatcher.merge_deps())
     }
 
-    /// Run until the lifecycle handle signals shutdown. Mirrors
-    /// [`CohortStreamEventsConsumer::process`] exactly: the commit is deadline-driven after
-    /// `handle_outcome`, never a `select!` arm, because a commit arm winning the race would cancel
-    /// the in-flight `consume_batch` and drop messages already `recv()`'d off librdkafka — gone
-    /// from the broker, never dispatched, then committed past by a later batch's mark. The only
-    /// future the `select!` can cancel is `consume_batch` on shutdown, whose dropped buffer was
-    /// never marked and so replays.
-    ///
-    /// [`CohortStreamEventsConsumer::process`]: crate::consumers::events::CohortStreamEventsConsumer::process
+    /// Run until the lifecycle handle signals shutdown. The commit is deadline-driven (not a
+    /// `select!` arm) to avoid cancelling an in-flight `consume_batch`.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "follower consume loop starting");
@@ -221,7 +183,6 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
 
         loop {
             tokio::select! {
-                // Check shutdown before `consume_batch` so a steady topic can't starve it.
                 biased;
                 _ = self.handle.shutdown_recv() => {
                     info!(topic = %self.topic, "shutdown signal received, stopping follower consume loop");
@@ -244,12 +205,8 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
             }
         }
 
-        // Final sync commit of whatever is marked *now*. Unlike the events consumer, no worker
-        // drain precedes this — that drain belongs to the events consumer's shutdown, which may
-        // still be marking merge/transfer offsets after this commit runs. That tail is deliberately
-        // left uncommitted: it redelivers to the partition's next owner, whose drain/apply
-        // source-coords markers absorb the replay (the same posture as the skipped revoke-time
-        // commit in the rebalance worker).
+        // Final sync commit. No worker drain precedes this — that belongs to the events consumer's
+        // shutdown, which may still be marking offsets after this commit runs.
         commit_offsets(
             &self.consumer,
             self.tracker(),
@@ -260,10 +217,7 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         info!(topic = %self.topic, "follower consume loop stopped");
     }
 
-    /// Account for a consumed batch, dispatch it, and heartbeat — the follower counterpart of the
-    /// events consumer's `handle_outcome`. The heartbeat is informational here (followers carry no
-    /// liveness deadline; their health signal is consumer-group lag), but the transport back-off
-    /// still prevents a fast-failing `recv()` from spinning the loop.
+    /// Record metrics, dispatch the batch, and heartbeat.
     async fn handle_outcome(&self, outcome: FollowerOutcome<R::Consumed>) {
         histogram!(R::CONSUME_BATCH_SIZE).record(outcome.messages.len() as f64);
         if !outcome.messages.is_empty() {
@@ -282,10 +236,7 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         }
     }
 
-    /// Accumulate up to `recv_batch_size` decoded messages within `recv_batch_timeout`, decoding
-    /// each payload immediately so no `BorrowedMessage` lifetime escapes the loop. An empty payload
-    /// counts as a deserialize error rather than its own bucket — these internal topics never emit
-    /// one, so a separate conservation leg would never move.
+    /// Accumulate up to `recv_batch_size` decoded messages within `recv_batch_timeout`.
     async fn consume_batch(&self) -> FollowerOutcome<R::Consumed> {
         let mut outcome = FollowerOutcome {
             messages: Vec::with_capacity(self.recv_batch_size),
@@ -334,10 +285,7 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         outcome
     }
 
-    /// This follower's committable offsets, restricted to partitions the events consumer still
-    /// owns — ownership is mirrored, so the events `owned` set is authoritative across all three
-    /// co-partitioned topics. This is the *commit-side* owned filter only: the message-side gate
-    /// (and its skip counters) lives in the dispatcher's `dispatch_merges`/`dispatch_transfers`.
+    /// Committable offsets restricted to partitions the events consumer still owns.
     fn owned_committable_offsets(&self) -> HashMap<i32, i64> {
         restrict_to_owned(
             self.tracker().committable_offsets(),
@@ -346,16 +294,13 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
     }
 }
 
-/// What one [`consume_batch`](FollowerConsumer::consume_batch) cycle gathered.
 struct FollowerOutcome<T> {
     messages: Vec<T>,
-    /// Empty or undecodable payloads, skipped (counted on the route's deserialize-error counter).
     deserialize_errors: u64,
     transport_error: bool,
 }
 
-/// Keep only the offsets of still-owned partitions. Pure (mirrors the events consumer's
-/// `owned_committable_offsets` guard) so the restriction is unit-testable.
+/// Keep only the offsets of still-owned partitions.
 fn restrict_to_owned(offsets: HashMap<i32, i64>, owned: &[i32]) -> HashMap<i32, i64> {
     let owned: HashSet<i32> = owned.iter().copied().collect();
     offsets
@@ -439,11 +384,11 @@ mod tests {
 
         assert!(
             Arc::ptr_eq(MergeRoute::tracker(&deps), &deps.merge_tracker),
-            "merge route must commit via the merge tracker (D7)"
+            "merge route must commit via the merge tracker"
         );
         assert!(
             Arc::ptr_eq(TransferRoute::tracker(&deps), &deps.transfer_tracker),
-            "transfer route must commit via the transfer tracker (D7)"
+            "transfer route must commit via the transfer tracker"
         );
     }
 

@@ -44,19 +44,14 @@ pub enum ExcludedReason {
     /// A group anywhere in the tree has zero children. Without exclusion an empty AND evaluates to
     /// `true` (identity), making everyone a member.
     EmptyGroup,
-    /// Has a cohort-reference leaf whose targets are all *resolvable* (each is itself single-leaf,
-    /// composable, or a resolvable ref-bearer) and is not in a cycle. Excluded only because cascade
-    /// transport is not built yet — this is the exact sizing class for the transport slice: every
-    /// cohort here flips to composable once refs can read referenced membership.
+    /// Has a cohort-reference leaf whose targets all resolve and is not in a cycle. Excluded until
+    /// cascade transport is built.
     HasCohortRef,
-    /// In a cohort-reference SCC of size > 1, or self-referencing (TDD §2.7.1 layer 2). Even with
-    /// transport, a cycle never settles, so these stay excluded permanently.
+    /// In a cohort-reference cycle (SCC > 1 or self-loop). Permanently excluded.
     CycleDetected,
-    /// A (transitive) cohort-reference target is missing from the team catalog, or itself excluded
-    /// for a non-transport reason — so this cohort cannot be composed even once transport lands.
+    /// A (transitive) cohort-reference target is missing from the catalog or itself excluded.
     UnresolvedRef,
-    /// Lost a leaf during parse; the dropped constraint cannot be recovered, so the cohort is never
-    /// composable.
+    /// Lost a leaf during parse; the dropped constraint cannot be recovered.
     HasDroppedLeaf,
 }
 
@@ -356,8 +351,6 @@ mod tests {
         );
     }
 
-    // ── condition_negation ──────────────────────────────────────────────────────
-
     #[test]
     fn condition_negation_leaf_bits() {
         assert!(!condition_negation(&person_leaf(HASH_A)));
@@ -415,8 +408,6 @@ mod tests {
         assert!(condition_negation(&cohort_ref_leaf_negated(true)));
         assert!(!condition_negation(&cohort_ref_leaf_negated(false)));
     }
-
-    // ── classifier shapes ───────────────────────────────────────────────────────
 
     #[test]
     fn and_a_neg_b_is_composable() {
@@ -521,8 +512,6 @@ mod tests {
         );
     }
 
-    // ── empty-group ─────────────────────────────────────────────────────────────
-
     #[test]
     fn root_empty_and_is_empty_group() {
         let tree = and(vec![]);
@@ -555,8 +544,6 @@ mod tests {
             CohortEligibility::Excluded(ExcludedReason::EmptyGroup),
         );
     }
-
-    // ── precedence ──────────────────────────────────────────────────────────────
 
     #[test]
     fn precedence_dropped_over_empty_group() {
@@ -681,8 +668,6 @@ mod tests {
             CohortEligibility::SingleLeaf(LeafStateKey::for_person_property(&HASH_A)),
         );
     }
-
-    // ── refine_ref_bearing ───────────────────────────────────────────────────────
 
     use std::collections::HashSet;
 

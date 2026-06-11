@@ -1,11 +1,6 @@
-//! Merge-protocol producers (TDD §4.5.1): the `cohort_merge_state_transfer` outbox produce and the
-//! straggler re-key back into `cohort_stream_events`.
-//!
-//! Both sinks are keyed produces (D1): `merge_partition_key(team, person)` through the pinned
-//! `murmur2_random` producer partitioner is the one placement mechanism shared with the shuffler,
-//! so every co-partitioned topic agrees on which worker owns a `(team, person)` pair. A transfer is
-//! keyed by **P_new** (it must land on the worker that owns the merge target's state); a re-keyed
-//! straggler is keyed by its already-rewritten target person.
+//! Merge-protocol producers: the `cohort_merge_state_transfer` produce and the straggler re-key
+//! back into `cohort_stream_events`. Both are keyed by `merge_partition_key(team, person)` so
+//! co-partitioned topics agree on worker affinity.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,10 +20,7 @@ use crate::merge::transfer::MergeStateTransfer;
 use crate::partitions::partitioner::merge_partition_key;
 use crate::producer::kafka::AlwaysHealthy;
 
-/// Produce a batch of state transfers to `cohort_merge_state_transfer` and await all acks, one
-/// result per transfer **in input order** (mirrors [`MembershipSink`](crate::producer::MembershipSink)).
-/// At-least-once: a duplicate copy of one merge's transfer is absorbed by the apply side's
-/// source-coords dedup, so the caller may re-produce freely.
+/// Produce state transfers to `cohort_merge_state_transfer` and await all acks.
 #[async_trait]
 pub trait TransferSink: Send + Sync {
     async fn produce(
@@ -37,9 +29,7 @@ pub trait TransferSink: Send + Sync {
     ) -> Vec<Result<(), KafkaProduceError>>;
 }
 
-/// Produce a batch of re-keyed straggler events back to `cohort_stream_events` and await all acks,
-/// one result per event **in input order**. At-least-once: a re-produced straggler carries its
-/// original source coordinates, so the target record's `redirect_dedup[origin]` absorbs the replay.
+/// Produce re-keyed straggler events back to `cohort_stream_events` and await all acks.
 #[async_trait]
 pub trait StreamEventSink: Send + Sync {
     async fn produce(&self, events: Vec<CohortStreamEvent>) -> Vec<Result<(), KafkaProduceError>>;
@@ -106,8 +96,7 @@ impl StreamEventSink for KafkaStreamEventSink {
     }
 }
 
-/// Keyed by `merge_partition_key(team, P_new)` (D1): the transfer must land on the partition whose
-/// worker owns P_new's state — the load-bearing co-partitioning invariant of TDD §4.5.1.
+/// Keyed by `merge_partition_key(team, P_new)` so the transfer lands on P_new's owning worker.
 fn transfer_key(transfer: &MergeStateTransfer) -> Option<String> {
     Some(merge_partition_key(
         TeamId(transfer.team_id),
@@ -115,10 +104,7 @@ fn transfer_key(transfer: &MergeStateTransfer) -> Option<String> {
     ))
 }
 
-/// Keyed by `merge_partition_key(team, person)` over the event's (already target-rewritten)
-/// `person_id`. The re-key path only ever stamps a canonical UUID; an unparseable id falls back to
-/// the same `"{team}:{person}"` shape rather than producing unkeyed, which would land on a random
-/// partition and break worker affinity.
+/// Keyed by `merge_partition_key(team, person)` over the already-rewritten `person_id`.
 fn stream_event_key(event: &CohortStreamEvent) -> Option<String> {
     match Uuid::parse_str(&event.person_id) {
         Ok(person) => Some(merge_partition_key(TeamId(event.team_id), &person)),
@@ -126,20 +112,16 @@ fn stream_event_key(event: &CohortStreamEvent) -> Option<String> {
     }
 }
 
-/// The `fail_remaining` sentinel for a sink that fails every flush.
 const FAIL_ALWAYS: usize = usize::MAX;
 
-/// The shared capture core behind the two test doubles: records produced items and reports all-`Ok`,
-/// optionally failing the first `n` flushes (or every flush) to exercise the worker's retry and
-/// offset-gating paths. Mirrors [`CaptureSink`](crate::producer::CaptureSink).
+/// Shared capture core for test doubles: records produced items, optionally failing the first `n`
+/// flushes.
 #[derive(Debug)]
 struct Capture<T> {
     items: Arc<Mutex<Vec<T>>>,
     fail_remaining: Arc<AtomicUsize>,
 }
 
-// Manual impls: a derive would needlessly bound `T: Clone`/`T: Default` (the `Arc`s clone/default
-// regardless of `T`).
 impl<T> Clone for Capture<T> {
     fn clone(&self) -> Self {
         Self {
@@ -175,7 +157,6 @@ impl<T> Capture<T> {
             .fail_remaining
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| match n {
                 0 => None,
-                // The fail-always sentinel never decrements, so it can't run out.
                 FAIL_ALWAYS => Some(FAIL_ALWAYS),
                 n => Some(n - 1),
             })

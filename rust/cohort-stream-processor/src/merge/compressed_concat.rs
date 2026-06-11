@@ -1,19 +1,15 @@
-//! Sparse run-length union for merging two `BehavioralCompressedHistory` states (TDD §4.5 / §4.5.1).
+//! Sparse run-length union for merging two `BehavioralCompressedHistory` states.
 //!
-//! Resolves the SESSION.md "compressed-history merge concat (PR 3.1)" residual. No index alignment is
-//! needed (unlike the dense daily variant) because RLE stores **absolute** day indices, so the union
-//! is a straight by-day sum (TDD §4.5).
+//! No index alignment is needed (unlike the dense daily variant) because RLE stores absolute day
+//! indices, so the union is a straight by-day sum.
 
 use std::collections::BTreeMap;
 
 /// Union two sparse run-length histories by absolute `day_idx`, summing counts for shared days.
 ///
-/// Returns `(merged_entries, merged_window_start_day)`:
-/// - `merged_entries` is sorted ascending by day with no zero-count entries (the compressed
-///   invariant), counts saturating-summed across the two sides.
-/// - `merged_window_start_day = max(old_window_start_day, new_window_start_day)` — the same anchor
-///   rule as the daily variant. Entries below it are left in place (the predicate sums all entries;
-///   the next sweep slide prunes any now out of window), so no alignment shift is performed.
+/// Returns `(merged_entries, merged_window_start_day)`. Entries are sorted ascending by day with no
+/// zero-count entries. `merged_window_start_day = max(old, new)`. Entries below the anchor are
+/// retained (the next sweep prunes out-of-window entries).
 pub fn union_by_day(
     old_entries: &[(i32, u32)],
     old_window_start_day: i32,
@@ -78,8 +74,6 @@ mod tests {
 
     #[test]
     fn entries_below_the_merged_anchor_are_retained_rle_invariant_holds() {
-        // The trailing side has a day below the merged anchor; it is kept (the predicate sums all
-        // entries) and the result stays sorted and zero-free.
         let (merged, start) = union_by_day(&[(5, 1)], 5, &[(100, 1)], 90);
         assert_eq!(merged, vec![(5, 1), (100, 1)]);
         assert_eq!(start, 90);

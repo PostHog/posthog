@@ -153,8 +153,6 @@ async fn produce_events(topic: &str) -> usize {
     total
 }
 
-/// These tests exercise the events topic alone; assignment mirroring onto the merge followers is
-/// covered by the rebalance unit tests and the merge-consumer broker tests.
 struct NoopMirror;
 
 impl PartitionMirror for NoopMirror {
@@ -214,7 +212,7 @@ fn build_consumer(
     )
 }
 
-/// Mirrors the service's `Config::build_kafka_config`; the `murmur2_random` partitioner is load-bearing.
+/// The `murmur2_random` partitioner must match production for keyed co-partitioning.
 fn shadow_kafka_config() -> KafkaConfig {
     KafkaConfig {
         kafka_hosts: bootstrap_servers(),
@@ -332,8 +330,7 @@ async fn consumes_routes_and_commits_end_to_end() {
     let catalog = behavioral_catalog();
     let lsk = behavioral_lsk(&catalog);
 
-    // Not subscribed, so reading committed offsets is an OffsetFetch RPC, not a group join that
-    // would rebalance the consumer under test.
+    // Not subscribed: reads committed offsets via OffsetFetch without joining the group.
     let verifier: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
         .set("group.id", &group)
@@ -351,7 +348,6 @@ async fn consumes_routes_and_commits_end_to_end() {
     let shutdown_handle = handle.clone();
     let _monitor = manager.monitor_background();
 
-    // CaptureSink always acks, which is enough to drive produce-before-commit offset marking here.
     let consumer = build_consumer(
         &topic,
         &group,
@@ -377,8 +373,6 @@ async fn consumes_routes_and_commits_end_to_end() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
-    // Dropping the router drains the workers before the final commit, so state is durable once
-    // `process()` returns.
     shutdown_handle.request_shutdown();
     task.await.expect("consumer task panicked");
 
@@ -464,8 +458,7 @@ async fn produces_membership_changes_and_commits_offsets() {
     shutdown_handle.request_shutdown();
     task.await.expect("consumer task panicked");
 
-    // One entered per person: the first `$pageview` enters, repeats are already members. Produce-
-    // before-commit guarantees every change is on the topic now that offsets are committed.
+    // One entered per person: the first `$pageview` enters, repeats are already members.
     let changes = drain_shadow_changes(&shadow_topic, PERSONS as usize).await;
     assert_eq!(
         changes.len(),
@@ -539,8 +532,6 @@ fn entered_persons_range(store: &CohortStore, lsk: LeafStateKey, n: usize) -> us
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn trickled_events_are_never_silently_dropped() {
-    // Regression: a commit tick cancelling an in-flight `consume_batch` in the same `select!` drops
-    // its already-`recv()`'d events while committing past them.
     const N: usize = 60;
 
     let suffix = Uuid::new_v4();
@@ -575,8 +566,7 @@ async fn trickled_events_are_never_silently_dropped() {
     let shutdown_handle = handle.clone();
     let _monitor = manager.monitor_background();
 
-    // Consumer must be live before producing: a 300ms commit interval against ~120ms gaps puts many
-    // sends mid-accumulation across a commit boundary.
+    // Consumer must be live before producing so sends straddle commit boundaries.
     let consumer = build_consumer(
         &topic,
         &group,
@@ -618,8 +608,7 @@ async fn trickled_events_are_never_silently_dropped() {
     );
 }
 
-/// Blocks its first flush until released: while parked, the worker hasn't marked its offset, so no
-/// commit tick can advance past the blocked event.
+/// Blocks its first flush until released, preventing the worker from marking its offset.
 struct BarrierSink {
     entered: Arc<tokio::sync::Notify>,
     release: Arc<tokio::sync::Notify>,
@@ -628,8 +617,6 @@ struct BarrierSink {
 }
 
 impl BarrierSink {
-    /// `Notify` is permit-based for `notify_one`, so test and worker may signal in either order
-    /// without losing the wake-up.
     fn new() -> (
         Arc<Self>,
         Arc<tokio::sync::Notify>,
@@ -679,7 +666,6 @@ async fn does_not_commit_past_a_blocked_produce() {
 
     create_topic(&topic).await;
 
-    // A single event, so exactly one worker performs exactly one (blocked) flush.
     let producer: FutureProducer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
         .set("message.timeout.ms", "10000")
@@ -724,7 +710,6 @@ async fn does_not_commit_past_a_blocked_produce() {
     let shutdown_handle = handle.clone();
     let _monitor = manager.monitor_background();
 
-    // Fast cadence so a commit tick fires while the produce is blocked.
     let consumer = build_consumer(
         &topic,
         &group,
@@ -740,7 +725,7 @@ async fn does_not_commit_past_a_blocked_produce() {
         .await
         .expect("worker reached the produce barrier");
 
-    // The worker hasn't marked its offset, so several commit ticks must not advance past the event.
+    // Several commit ticks fire while the produce is blocked.
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(
         committed_sum(&verifier, &topic),
@@ -789,8 +774,6 @@ fn partition_has_state(store: &CohortStore, partition: i32, lsk: LeafStateKey) -
     })
 }
 
-/// Distinct persons that entered, across a set of shadow membership changes — collapses the
-/// idempotent re-produces a moved partition replays.
 fn distinct_entered(changes: &[CohortMembershipChange]) -> usize {
     changes
         .iter()
@@ -821,14 +804,6 @@ async fn wait_for_committed(
     }
 }
 
-/// Two consumers in one group force a cooperative-sticky incremental migration. After it settles:
-/// (a) the committed-offset sum still covers every produced event (no Kafka-level loss), (b) the
-/// distinct persons that entered match the oracle (idempotent re-produce aside), and (c) the
-/// partition co-location invariant holds — no partition's state lives in both pods, and every person
-/// ends up in exactly one.
-///
-/// Batch 2 exercises the cold-rebuild path: a partition that moves to B carries no state, so B
-/// rebuilds it from the events that arrive after the migration.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation() {
@@ -837,8 +812,6 @@ async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation
     let group = format!("cohort-stream-processor-migrate-{suffix}");
     create_topic(&topic).await;
 
-    // A fresh, identical catalog per pod (same conditionHash → same leaf-state key); `CatalogHandle`
-    // is not `Clone`, and each consumer owns its own.
     let catalog_a = behavioral_catalog();
     let catalog_b = behavioral_catalog();
     let lsk = behavioral_lsk(&catalog_a);
@@ -856,12 +829,9 @@ async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation
     })
     .expect("open store B");
 
-    // Per-pod capture sinks stand in for the shadow topic, so the test reads each pod's output
-    // directly without a second consumer group.
     let sink_a = Arc::new(CaptureSink::new());
     let sink_b = Arc::new(CaptureSink::new());
 
-    // Subscribed nowhere, so it reads committed offsets via OffsetFetch without joining the group.
     let verifier: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
         .set("group.id", &group)
@@ -883,7 +853,7 @@ async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation
     let shutdown = handle_a.clone();
     let _monitor = manager.monitor_background();
 
-    // Batch 1: only A is up, so it builds state for every stateful partition.
+    // Batch 1: only A is up.
     let batch1 = produce_events(&topic).await;
     let consumer_a = build_consumer(
         &topic,
@@ -897,8 +867,7 @@ async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation
     let task_a = tokio::spawn(consumer_a.process());
     wait_for_committed(&verifier, &topic, batch1 as i64, Duration::from_secs(60)).await;
 
-    // B joins the same group → cooperative-sticky moves ~half the partitions off A, which deletes
-    // their state on revoke.
+    // B joins → cooperative-sticky moves ~half the partitions off A.
     let consumer_b = build_consumer(
         &topic,
         &group,
@@ -910,25 +879,23 @@ async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation
     );
     let task_b = tokio::spawn(consumer_b.process());
 
-    // Batch 2: now split across both pods; B rebuilds state for the partitions it gained.
+    // Batch 2: split across both pods.
     let batch2 = produce_events(&topic).await;
     let total = (batch1 + batch2) as i64;
     wait_for_committed(&verifier, &topic, total, Duration::from_secs(60)).await;
-    // Let any in-flight revoke cleanup settle.
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     shutdown.request_shutdown();
     task_a.await.expect("consumer A panicked");
     task_b.await.expect("consumer B panicked");
 
-    // (a) No Kafka-level loss across the migration.
     assert_eq!(
         committed_sum(&verifier, &topic),
         total,
         "committed offsets cover every produced event",
     );
 
-    // (c) Co-location: no partition's state lives in both pods at once.
+    // Co-location: no partition's state lives in both pods at once.
     for partition in 0..NUM_PARTITIONS {
         assert!(
             !(partition_has_state(&store_a, partition, lsk)
@@ -944,7 +911,6 @@ async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation
         "every person has state in exactly one pod (a={entered_a}, b={entered_b})",
     );
 
-    // (b) Distinct entered persons across both pods' output match the oracle.
     let mut changes = sink_a.changes();
     changes.extend(sink_b.changes());
     assert_eq!(

@@ -1,9 +1,7 @@
 //! Filter catalog: the in-memory view of realtime cohorts.
 //!
-//! Loads `posthog_cohort` filters, parses each cohort's tree (without the SQL-only sibling-merge
-//! optimization, so Stage 2 can re-walk the original leaves), derives each leaf's `LeafStateKey`,
-//! and builds the `condition_hash` reverse indices — refreshed every 5 min (±1 min jitter) with an
-//! atomic `Arc<FilterCatalog>` swap.
+//! Loads `posthog_cohort` filters, parses each cohort's tree, derives each leaf's `LeafStateKey`,
+//! and builds the `condition_hash` reverse indices — refreshed periodically with an atomic swap.
 
 pub(crate) mod cohort_graph;
 pub mod leaf_classifier;
@@ -23,8 +21,7 @@ pub use tree::{
     CohortRefLeafConfig, CohortTree, FilterNode, LeafSink, PersonLeafConfig,
 };
 
-/// Team identifier (`posthog_cohort.team_id`). `Stage1Key.team_id` is `u64`, converted at the store
-/// boundary.
+/// Team identifier (`posthog_cohort.team_id`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TeamId(pub i32);
 

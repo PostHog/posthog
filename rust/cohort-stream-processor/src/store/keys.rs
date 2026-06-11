@@ -45,21 +45,19 @@ pub struct Stage2Key {
     pub person_id: Uuid,
 }
 
-/// `cf_merge_drains_applied` key (TDD §4.5.1): the Phase 1 idempotence marker for one merge message.
-/// The Kafka coordinates of the triggering `KAFKA_PERSON_MERGE_EVENTS` message disambiguate a replay.
+/// `cf_merge_drains_applied` key: Phase 1 idempotence marker for one merge message.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct MergeDrainKey {
     pub partition_id: u16,
     pub team_id: u64,
     pub old_person: Uuid,
-    /// Kafka partition of the merge message. Non-negative; encoded as BE `u32` (see the sign-trap doc).
+    /// Kafka partition of the merge message.
     pub merge_msg_partition: i32,
-    /// Kafka offset of the merge message. Non-negative; encoded as BE `u64`.
+    /// Kafka offset of the merge message.
     pub merge_msg_offset: i64,
 }
 
-/// `cf_pending_transfers` key (TDD §4.5.1): the Phase 1 outbox slot for a person's drained state, one
-/// per `(team, P_old)` so a re-drain overwrites rather than accumulates.
+/// `cf_pending_transfers` key: Phase 1 outbox slot for a person's drained state.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct PendingTransferKey {
     pub partition_id: u16,
@@ -67,25 +65,20 @@ pub struct PendingTransferKey {
     pub old_person: Uuid,
 }
 
-/// `cf_merge_applied` key (TDD §4.5.1): the Phase 2 idempotence marker for one *merge*,
-/// disambiguated by the triggering merge message's Kafka coordinates (carried in the transfer as
-/// `source_partition`/`source_offset`) — **not** the transfer message's own. Duplicate copies of one
-/// merge's transfer (outbox redrive racing the inline retry, an `AlreadyDrained` re-produce, a crash
-/// between the produce ack and the outbox clear) each land at fresh transfer-topic coordinates by
-/// design, but all carry the same source pair — the only key under which every copy short-circuits
-/// instead of double-counting the bucket merge.
+/// `cf_merge_applied` key: Phase 2 idempotence marker, keyed by the triggering merge message's
+/// Kafka coordinates (not the transfer message's own) so duplicate transfer copies all short-circuit.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct MergeAppliedKey {
     pub partition_id: u16,
     pub team_id: u64,
     pub new_person: Uuid,
-    /// Kafka partition of the triggering merge message. Non-negative; encoded as BE `u32`.
+    /// Kafka partition of the triggering merge message.
     pub source_partition: i32,
-    /// Kafka offset of the triggering merge message. Non-negative; encoded as BE `u64`.
+    /// Kafka offset of the triggering merge message.
     pub source_offset: i64,
 }
 
-/// `cf_merge_tombstones` key (TDD §4.5.1): the redirect marker for a merged-away person.
+/// `cf_merge_tombstones` key: redirect marker for a merged-away person.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct TombstoneKey {
     pub partition_id: u16,
@@ -160,8 +153,6 @@ impl MergeDrainKey {
         out[0..2].copy_from_slice(&self.partition_id.to_be_bytes());
         out[2..10].copy_from_slice(&self.team_id.to_be_bytes());
         out[10..26].copy_from_slice(self.old_person.as_bytes());
-        // Kafka coords are non-negative, so the unsigned BE encoding preserves order (same sign-trap
-        // reasoning as `team_id`); the decode reverses the cast exactly for any in-range value.
         out[26..30].copy_from_slice(&(self.merge_msg_partition as u32).to_be_bytes());
         out[30..38].copy_from_slice(&(self.merge_msg_offset as u64).to_be_bytes());
         out
@@ -270,7 +261,6 @@ fn check_len(bytes: &[u8], expected: usize, kind: &'static str) -> Result<(), St
     }
 }
 
-// Callers slice after `check_len`, so `copy_from_slice` cannot panic on a length mismatch.
 fn array2(s: &[u8]) -> [u8; 2] {
     let mut a = [0u8; 2];
     a.copy_from_slice(s);
@@ -449,8 +439,6 @@ mod tests {
         // The sentinel must dominate even the (unreachable) all-0xFF key.
         assert!([0xFFu8; STAGE1_KEY_LEN].as_slice() < end.as_slice());
     }
-
-    // ── merge-protocol keys (TDD §4.5.1) ──────────────────────────────────────────
 
     #[test]
     fn merge_key_lengths_are_exact_and_within_the_stage1_bound() {

@@ -221,8 +221,6 @@ fn or_group_of_two_person_leaves_is_not_sibling_merged() {
     );
 }
 
-// ── Cohort-reference cycle defense + dependency-aware eligibility ─────────────────
-
 #[test]
 fn cycle_of_realtime_cohorts_is_excluded_cycle_detected() {
     // 1 → 2 → 3 → 1, plus an unrelated composable sibling (4) that the cycle must not touch.

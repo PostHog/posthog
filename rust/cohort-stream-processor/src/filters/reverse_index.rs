@@ -1,9 +1,7 @@
 //! Per-team reverse indices and dedup set.
 //!
 //! [`TeamFiltersBuilder`] implements [`LeafSink`] so a cohort's tree parse populates the indices in
-//! the same pass. The two `conditionHash`-keyed maps serve the two consumers: Stage 1 (condition →
-//! leaf states to update) and Stage 2 / cleanup (condition → owning cohorts). Value lists are `Vec`
-//! (not `SmallVec`): `smallvec` is not a workspace dependency and this is a cold 5-minute path.
+//! the same pass.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -28,28 +26,17 @@ use crate::stage1::state::StateVariant;
 use crate::stage2::eligibility::refine_ref_bearing;
 use crate::stage2::{classify, CohortEligibility, CohortParseFlags};
 
-/// Per-`LeafStateKey` worker metadata derived at freeze time: the state representation and (for
-/// behavioral leaves) the eviction window, so the worker picks the apply path and computes
-/// deadlines without re-deriving on the hot path. Two leaves sharing a `LeafStateKey` agree on this
-/// by construction (the key hashes exactly the fields it depends on), so a last-write-wins insert
-/// during the freeze walk is safe.
+/// Per-`LeafStateKey` worker metadata derived at freeze time.
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
     pub variant: StateVariant,
-    /// The leaf's `conditionHash` (the event-matcher hash). The sweep starts from a [`LeafStateKey`]
-    /// rather than an event, so it reads this to build a [`LeafTransition`](crate::stage1::transition::LeafTransition)
-    /// for a time-driven `Left`. `LeafStateKey → conditionHash` is a function (the hash is the first
-    /// input to [`LeafStateKey::for_behavioral`]), so a last-write-wins insert is unambiguous.
+    /// The leaf's `conditionHash` (the event-matcher hash).
     pub condition_hash: [u8; 16],
-    /// The eviction window — `BehavioralSingle` only; `None` for the bucket and person variants.
+    /// `BehavioralSingle` only; `None` for bucket and person variants.
     pub window: Option<EvictionWindow>,
-    /// The daily-bucket window length in days (`buckets.len() − 1`) — `Some` for
-    /// [`StateVariant::BehavioralDailyBuckets`] and [`StateVariant::BehavioralCompressedHistory`],
-    /// `None` otherwise.
+    /// Window length in days — `Some` for daily-bucket and compressed variants, `None` otherwise.
     pub window_days: Option<u32>,
-    /// The count comparator for a window's sum — `Some` for
-    /// [`StateVariant::BehavioralDailyBuckets`] and [`StateVariant::BehavioralCompressedHistory`],
-    /// `None` otherwise.
+    /// Count comparator for a window's sum — `Some` for daily-bucket and compressed, `None` otherwise.
     pub predicate_op: Option<PredicateOp>,
 }
 
@@ -57,53 +44,35 @@ pub struct LeafStateMeta {
 /// resolved team timezone.
 #[derive(Debug)]
 pub struct TeamFilters {
-    /// `conditionHash → [LeafStateKey]`. On a HogVM match, Stage 1 enumerates which leaf states to
-    /// update — one conditionHash can fan out to several windows/thresholds.
+    /// `conditionHash → [LeafStateKey]`. One conditionHash can fan out to several windows/thresholds.
     pub by_condition_to_lsk: HashMap<[u8; 16], Vec<LeafStateKey>>,
-    /// `conditionHash → [CohortId]` for the Stage 2 / cleanup walk back to owning cohorts.
+    /// `conditionHash → [CohortId]` for the Stage 2 walk back to owning cohorts.
     pub by_condition_to_cohorts: HashMap<[u8; 16], Vec<CohortId>>,
-    /// `conditionHash → bytecode`, fed to [`crate::hogvm::evaluate`] once per unique conditionHash
-    /// per event. One entry per conditionHash: bytecode is identical across leaves that share it,
-    /// since `conditionHash = sha256(bytecode)`.
+    /// `conditionHash → bytecode`. One entry per conditionHash.
     pub by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
-    /// Distinct conditionHashes for this team — preserves the per-team HogVM dedup of one execution
-    /// per unique conditionHash per event (`manager.ts:109-113`).
+    /// Distinct conditionHashes for this team — one HogVM execution per unique conditionHash per event.
     pub unique_condition_hashes: HashSet<[u8; 16]>,
-    /// `LeafStateKey → LeafStateMeta`: the worker's per-leaf state contract (which variant to apply
-    /// and, for behavioral leaves, the eviction window).
+    /// `LeafStateKey → LeafStateMeta`.
     pub by_lsk: HashMap<LeafStateKey, LeafStateMeta>,
-    /// conditionHashes whose leaves are behavioral. Disjoint from
-    /// [`person_property_conditions`](Self::person_property_conditions) — the two leaf kinds compile
-    /// to different bytecode, so they never share a conditionHash. Mirrors the Node consumer's
-    /// separate lists (`cdp-precalculated-filters.consumer.ts:217`).
+    /// conditionHashes whose leaves are behavioral. Disjoint from person-property conditions.
     pub behavioral_conditions: HashSet<[u8; 16]>,
     /// conditionHashes whose leaves are person-property filters.
     pub person_property_conditions: HashSet<[u8; 16]>,
-    /// `LeafStateKey → [CohortId]`, mapping a leaf flip directly to a cohort membership change. Only
-    /// single-leaf cohorts qualify — that leaf's predicate *is* the cohort's membership, so the
-    /// output producer emits a per-cohort change without Stage 2 composition. Keyed by
-    /// [`LeafStateKey`] (not `condition_hash`) so a 7d and a 30d leaf sharing one conditionHash get
-    /// distinct keys and never cross-fire.
+    /// `LeafStateKey → [CohortId]` for single-leaf cohorts: a leaf flip directly equals a membership
+    /// change. Keyed by LSK (not conditionHash) so different windows stay distinct.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// `LeafStateKey → [CohortId]` for `Stage2Composable` cohorts, so a leaf flip re-evaluates only
-    /// the composable cohorts that own it. Keyed by [`LeafStateKey`] (not `condition_hash`), built by
-    /// walking each cohort's tree: a 7d and a 30d leaf sharing one `conditionHash` get distinct keys
-    /// and never cross-fire. A cohort owning the same leaf twice (`AND(L, L)`) is indexed once. A leaf
-    /// shared between a single-leaf and a composable cohort appears in both this map and
-    /// [`by_lsk_to_single_leaf_cohorts`](Self::by_lsk_to_single_leaf_cohorts).
+    /// the composable cohorts that own it. Deduped per cohort.
     pub by_lsk_to_composable_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
-    /// Each cohort's composition class ([`CohortEligibility`]), computed once at freeze. The
-    /// single-leaf and composable mappings above are derived from it.
+    /// Each cohort's composition class, computed once at freeze.
     pub eligibility: HashMap<CohortId, CohortEligibility>,
     /// Parsed trees by cohort, retained for the Stage 2 re-walk.
     pub cohorts: HashMap<CohortId, CohortTree>,
-    /// The team's resolved IANA timezone (`posthog_team.timezone`), the zone the bucket variants
-    /// compute calendar days in (TDD D9). `Tz` is `Copy`, so the worker reads it free off the
-    /// `&TeamFilters` it already holds.
+    /// The team's resolved IANA timezone, used by bucket variants for calendar-day computation.
     pub timezone: Tz,
 }
 
-/// Hand-written (not derived) because [`Tz`] has no [`Default`]; an empty filter set is UTC.
+/// Hand-written because [`Tz`] has no [`Default`]; an empty filter set defaults to UTC.
 impl Default for TeamFilters {
     fn default() -> Self {
         Self {
@@ -132,9 +101,7 @@ pub struct TeamFiltersBuilder {
     by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
     unique_condition_hashes: HashSet<[u8; 16]>,
     cohorts: HashMap<CohortId, CohortTree>,
-    /// Per-cohort eligibility signals captured during parse (the [`LeafSink`] callbacks), consumed by
-    /// [`classify`] at [`freeze`](Self::freeze). Dropped leaves do not survive into the parsed tree,
-    /// so the loss signal is captured here; negation and empty groups are recovered from the tree.
+    /// Per-cohort eligibility signals captured during parse, consumed by [`classify`] at freeze.
     flags: HashMap<CohortId, CohortParseFlags>,
 }
 
@@ -187,16 +154,13 @@ impl TeamFiltersBuilder {
         Ok(())
     }
 
-    /// Freeze into an immutable [`TeamFilters`]: sort the dedup `HashSet`s into `Vec`s for
-    /// deterministic iteration, derive the per-leaf worker indices by walking the parsed trees, and
-    /// classify each cohort's Stage 2 eligibility from its tree + captured parse flags. `timezone` is
-    /// the team's resolved zone (the loader supplies it; tests pass `UTC`).
+    /// Freeze into an immutable [`TeamFilters`].
     pub fn freeze(self, timezone: Tz) -> TeamFilters {
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
         let mut person_property_conditions = HashSet::new();
 
-        // Pass 1 — per-leaf worker meta + each cohort's pass-1 eligibility verdict.
+        // Pass 1: per-leaf worker meta + pass-1 eligibility.
         let mut eligibility: HashMap<CohortId, CohortEligibility> = HashMap::new();
         for tree in self.cohorts.values() {
             collect_leaf_meta(
@@ -209,9 +173,7 @@ impl TeamFiltersBuilder {
             eligibility.insert(tree.cohort_id, classify(tree, &flags));
         }
 
-        // Pass 2 — dependency-aware refinement of cohort-reference cohorts, gated on any cohort ref so
-        // a ref-free team skips the O(V+E) graph build. Refinement only moves `Excluded(HasCohortRef)`
-        // to a more specific `Excluded` reason, so the emit maps in pass 3 are unaffected.
+        // Pass 2: dependency-aware refinement of cohort-reference cohorts.
         if self.flags.values().any(|flags| flags.has_cohort_ref) {
             let analysis = cohort_graph::analyze(&self.cohorts);
             refine_ref_bearing(&mut eligibility, &analysis);
@@ -233,8 +195,7 @@ impl TeamFiltersBuilder {
             }
         }
 
-        // Pass 3 — emit `cohort_eligibility_total` with the FINAL class and derive the emit maps from
-        // it, keeping "the maps follow from the final eligibility" literally true.
+        // Pass 3: emit metrics and derive the emit maps from final eligibility.
         let mut by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>> =
             HashMap::new();
         let mut by_lsk_to_composable_cohorts: HashMap<LeafStateKey, Vec<CohortId>> = HashMap::new();
@@ -242,15 +203,12 @@ impl TeamFiltersBuilder {
             let class = eligibility[&tree.cohort_id];
             counter!(COHORT_ELIGIBILITY_TOTAL, "class" => class.metric_class()).increment(1);
             match class {
-                // A `SingleLeaf` cohort's lone leaf flip equals its whole membership. A cohort that
-                // lost a leaf at parse is `Excluded`, so its lone survivor never maps here.
                 CohortEligibility::SingleLeaf(lsk) => {
                     by_lsk_to_single_leaf_cohorts
                         .entry(lsk)
                         .or_default()
                         .push(tree.cohort_id);
                 }
-                // Index each distinct leaf key → this cohort (deduped per cohort by the HashSet walk).
                 CohortEligibility::Stage2Composable => {
                     let mut leaf_keys = HashSet::new();
                     collect_leaf_state_keys(&tree.root, &mut leaf_keys);
@@ -305,8 +263,6 @@ fn collect_leaf_state_keys(node: &FilterNode, out: &mut HashSet<LeafStateKey>) {
 }
 
 /// Recursively record each state-keyed leaf's [`LeafStateMeta`] and condition-kind membership.
-/// Behavioral leaves re-run [`pick_state_variant`] to recover the variant + window; a kept leaf
-/// always succeeds, since the classifier dropped any unsupported variant.
 fn collect_leaf_meta(
     node: &FilterNode,
     by_lsk: &mut HashMap<LeafStateKey, LeafStateMeta>,
@@ -326,8 +282,6 @@ fn collect_leaf_meta(
         }
         FilterNode::Leaf(CohortLeaf::Behavioral(leaf)) => {
             if let Ok((variant, window)) = pick_state_variant(leaf) {
-                // `effective_window_days` is the function the picker routed on, so `window_days`
-                // matches the chosen variant.
                 let (window_days, predicate_op) = match variant {
                     StateVariant::BehavioralDailyBuckets
                     | StateVariant::BehavioralCompressedHistory => (

@@ -28,7 +28,6 @@ pub struct Config {
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 
-    // ── Postgres (posthog_cohort realtime filter catalog) ─────────────────
     /// DSN for the main PostHog database that owns `posthog_cohort`.
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
@@ -46,26 +45,21 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub pg_statement_timeout_ms: u64,
 
-    // ── Filter catalog refresh ────────────────────────────────────────────
     #[envconfig(default = "300")]
     pub filter_catalog_refresh_secs: u64,
 
     #[envconfig(default = "60")]
     pub filter_catalog_refresh_jitter_secs: u64,
 
-    /// Teams the filter catalog is scoped to. Defaults to team 2 (the parity baseline's gate); set
-    /// `all` to disable the gate. See [`TeamAllowlist`].
+    /// Teams the filter catalog is scoped to. Set `all` to disable the gate. See [`TeamAllowlist`].
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
 
-    // ── Partition routing ─────────────────────────────────────────────────
-    /// Bounded buffer (in sub-batches) per per-partition worker channel: the backpressure knob.
-    /// Routing to a partition this far behind blocks rather than growing memory unbounded. Per
-    /// active partition, so peak in-flight scales with the assigned partition count.
+    /// Bounded buffer (in sub-batches) per per-partition worker channel.
+    /// Routing to a partition this far behind blocks rather than growing memory unbounded.
     #[envconfig(default = "1024")]
     pub partition_channel_buffer: usize,
 
-    // ── Kafka (shared) ─────────────────────────────────────────────────────
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
 
@@ -78,50 +72,43 @@ pub struct Config {
     #[envconfig(default = "")]
     pub kafka_client_rack: String,
 
-    // ── Consumer (input: cohort_stream_events) ─────────────────────────────
-    /// The hot-path input topic. Named specifically (not `input_topic`) so sibling topics can be
-    /// added without ambiguity.
+    /// The hot-path input topic.
     #[envconfig(default = "cohort_stream_events")]
     pub cohort_stream_events_topic: String,
 
     #[envconfig(default = "cohort-stream-processor")]
     pub kafka_consumer_group: String,
 
-    /// Start at the tail, not the topic's retention: the parity window runs forward from start.
+    /// Start at the tail, not the topic's retention.
     #[envconfig(default = "latest")]
     pub kafka_consumer_offset_reset: String,
 
     /// How long the broker waits for heartbeats before declaring this consumer dead. With static
-    /// membership the broker holds this consumer's partitions for this long after it disappears, so a
-    /// restart within the window reclaims them with no rebalance.
+    /// membership, a restart within this window reclaims partitions with no rebalance.
     #[envconfig(default = "60000")]
     pub kafka_session_timeout_ms: u64,
 
-    // ── Merge-protocol follower topics + groups (TDD §4.5.1) ───────────────
     /// The person-merge trigger topic, keyed by `hash(team_id, old_person_uuid)` so a merge lands on
     /// P_old's worker.
     #[envconfig(default = "person_merge_events")]
     pub person_merge_events_topic: String,
 
     /// The internal state-transfer topic, keyed by `hash(team_id, new_person_uuid)` so a packaged
-    /// drain lands on P_new's worker. Must be co-partitioned with `cohort_stream_events` (asserted
-    /// at startup, D14).
+    /// drain lands on P_new's worker. Must be co-partitioned with `cohort_stream_events`.
     #[envconfig(default = "cohort_merge_state_transfer")]
     pub cohort_merge_state_transfer_topic: String,
 
-    /// Group for the `person_merge_events` follower — separate from the events group so drain-path
-    /// lag is observable in isolation.
+    /// Group for the `person_merge_events` follower — separate so drain-path lag is observable.
     #[envconfig(default = "cohort-stream-merges")]
     pub kafka_merge_consumer_group: String,
 
-    /// Group for the `cohort_merge_state_transfer` follower — same isolation rationale.
+    /// Group for the `cohort_merge_state_transfer` follower.
     #[envconfig(default = "cohort-stream-merge-apply")]
     pub kafka_merge_apply_consumer_group: String,
 
-    // ── Merge transfer produce retry (D4) ──────────────────────────────────
     /// Inline retries after the first transfer-produce attempt. The default budget
-    /// (5 × 0.5/1/2/4/8 s ≈ 15.5 s) keeps a blocked worker inside the liveness and graceful-shutdown
-    /// windows; exhaustion leaves the transfer staged for the periodic redrive (D3).
+    /// (5 x 0.5/1/2/4/8 s) keeps a blocked worker inside the liveness and graceful-shutdown
+    /// windows; exhaustion leaves the transfer staged for the periodic redrive.
     #[envconfig(default = "5")]
     pub merge_transfer_max_retries: u32,
 
@@ -133,42 +120,35 @@ pub struct Config {
     #[envconfig(default = "8000")]
     pub merge_transfer_retry_cap_ms: u64,
 
-    /// How often the pending-transfer redrive scans `cf_pending_transfers` and re-produces staged
-    /// transfers whose inline retry budget was exhausted.
+    /// How often the redrive scans `cf_pending_transfers` and re-produces staged transfers whose
+    /// inline retry budget was exhausted.
     #[envconfig(default = "60000")]
     pub merge_redrive_interval_ms: u64,
 
-    // ── Static group membership (sticky partitions across restarts) ────────
-    /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership so a
-    /// restart reclaims its exact partitions with no rebalance. Read from `POD_NAME`, else `HOSTNAME`
-    /// (which K8s sets to the pod name). Absent → no static membership, just cooperative rebalancing.
-    /// See [`Config::pod_identity`].
+    /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
+    /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
     #[envconfig(from = "POD_NAME")]
     pub pod_name: Option<String>,
 
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
-    // ── Producer (output: cohort_membership_changed_shadow) ────────────────
-    /// The shadow output topic, distinct from the legacy `cohort_membership_changed` so the new
-    /// pipeline can run side-by-side for parity.
+    /// The shadow output topic for membership changes.
     #[envconfig(default = "cohort_membership_changed_shadow")]
     pub cohort_membership_changed_topic: String,
 
-    /// **Load-bearing**: `murmur2_random` co-partitions a `person_id` key identically to the
-    /// Node/Python producers, so the shadow topic partitions the same way the legacy producer does.
+    /// `murmur2_random` co-partitions a `person_id` key identically to the Node/Python producers.
     #[envconfig(default = "murmur2_random")]
     pub kafka_producer_partitioner: String,
 
     #[envconfig(default = "none")]
     pub kafka_compression_codec: String,
 
-    // ── Batching + commit cadence ──────────────────────────────────────────
-    /// Max events pulled per consume → route cycle.
+    /// Max events pulled per consume-route cycle.
     #[envconfig(default = "1000")]
     pub recv_batch_size: usize,
 
-    /// Max wait before a partial batch is routed (also the idle-topic heartbeat cadence).
+    /// Max wait before a partial batch is routed.
     #[envconfig(default = "500")]
     pub recv_batch_timeout_ms: u64,
 
@@ -176,27 +156,21 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub offset_commit_interval_ms: u64,
 
-    // ── Sweep (time-driven eviction) ───────────────────────────────────────
     /// How often the sweep fires to evict state whose eviction deadline has passed.
     #[envconfig(default = "30000")]
     pub sweep_interval_ms: u64,
 
-    /// Grace period added to every eviction deadline before the sweep acts. Set high enough to
-    /// absorb consumer-lag spikes during deploys/rebalances, so a late event still lands in its
-    /// bucket before the bucket is evicted. The sweep evicts a key only once its
-    /// `deadline + safety_margin < now` — i.e. the deadline is strictly before `now − safety_margin`.
+    /// Grace period added to every eviction deadline before the sweep acts. The sweep evicts a key
+    /// only once `deadline + safety_margin < now`, absorbing consumer-lag spikes.
     #[envconfig(default = "300000")]
     pub sweep_safety_margin_ms: u64,
 
-    // ── State store (RocksDB) ──────────────────────────────────────────────
     /// On-disk path for the per-process RocksDB state store.
     #[envconfig(default = "cohort-store")]
     pub store_path: String,
 
-    /// Destroy any existing store at `store_path` before opening, for a guaranteed stale-free start
-    /// regardless of what disk the deployment mounts: re-acquiring a partition must never serve stale
-    /// per-partition state left by a previous owner. See
-    /// [`crate::store::StoreConfig::wipe_on_start`].
+    /// Destroy any existing store at `store_path` before opening, so re-acquiring a partition never
+    /// serves stale state left by a previous owner.
     #[envconfig(default = "true")]
     pub wipe_store_on_start: bool,
 }
@@ -218,7 +192,7 @@ impl Config {
         (self.pg_statement_timeout_ms != 0).then_some(self.pg_statement_timeout_ms)
     }
 
-    /// Pool config for the catalog reader: small, since the only query is the periodic refresh.
+    /// Pool config for the catalog reader.
     pub fn pool_config(&self) -> PoolConfig {
         PoolConfig {
             min_connections: self.min_pg_connections,
@@ -239,18 +213,17 @@ impl Config {
         Duration::from_millis(self.offset_commit_interval_ms)
     }
 
-    /// How often the time-driven eviction sweep fires.
+    /// How often the sweep fires.
     pub fn sweep_interval(&self) -> Duration {
         Duration::from_millis(self.sweep_interval_ms)
     }
 
-    /// The grace period subtracted from `now` before a deadline is considered due (see
-    /// [`sweep_safety_margin_ms`](Self::sweep_safety_margin_ms)).
+    /// The grace period subtracted from `now` before a deadline is considered due.
     pub fn sweep_safety_margin(&self) -> Duration {
         Duration::from_millis(self.sweep_safety_margin_ms)
     }
 
-    /// Inline bounded backoff for the transfer produce (D4), from the `MERGE_TRANSFER_*` envs.
+    /// Inline bounded backoff for the transfer produce, from the `MERGE_TRANSFER_*` envs.
     pub fn transfer_retry_policy(&self) -> TransferRetryPolicy {
         TransferRetryPolicy {
             max_retries: self.merge_transfer_max_retries,
@@ -264,8 +237,7 @@ impl Config {
         Duration::from_millis(self.merge_redrive_interval_ms)
     }
 
-    /// RocksDB settings for the state store. Only the path and the wipe-on-start flag are
-    /// configurable; the rest use defaults.
+    /// RocksDB settings for the state store.
     pub fn store_config(&self) -> StoreConfig {
         StoreConfig {
             path: PathBuf::from(&self.store_path),
@@ -275,8 +247,7 @@ impl Config {
     }
 
     /// Stable per-pod identity for static group membership, `POD_NAME` preferred over `HOSTNAME`.
-    /// `None` (or a blank value) leaves static membership off, so the consumer joins as a dynamic
-    /// member and only cooperative-sticky's incremental rebalancing applies.
+    /// `None` leaves static membership off.
     pub fn pod_identity(&self) -> Option<&str> {
         [self.pod_name.as_deref(), self.pod_hostname.as_deref()]
             .into_iter()
@@ -286,14 +257,9 @@ impl Config {
 
     /// Build the `rdkafka` client config for the `cohort_stream_events` group consumer.
     ///
-    /// Auto-commit and auto-offset-store are **off**: the consume loop marks offsets only once a
-    /// sub-batch is routed, and the commit tick turns the
-    /// [`OffsetTracker`](crate::partitions::OffsetTracker) snapshot into the committed
-    /// `TopicPartitionList`.
-    ///
-    /// `cooperative-sticky` + static membership are load-bearing for a stateful, partition-affined
-    /// consumer: a membership change revokes only the partitions that actually move, and a pod that
-    /// restarts within `session.timeout.ms` reclaims its exact partitions with no rebalance at all.
+    /// Auto-commit and auto-offset-store are off: the consume loop marks offsets only after a
+    /// sub-batch is routed and produced. `cooperative-sticky` + static membership ensure a
+    /// membership change revokes only the partitions that move.
     pub fn consumer_client_config(&self) -> ClientConfig {
         let mut config = ClientConfig::new();
         config
@@ -311,8 +277,7 @@ impl Config {
             .set("heartbeat.interval.ms", "5000")
             .set("max.poll.interval.ms", "300000");
 
-        // Static membership: a stable id lets the broker hold this pod's partitions across a quick
-        // restart. Sets `client.id` too; an explicit `kafka_client_id` overrides it below.
+        // Static membership; an explicit `kafka_client_id` overrides `client.id` below.
         if let Some(id) = self.pod_identity() {
             config.set("group.instance.id", id).set("client.id", id);
         }
@@ -330,16 +295,14 @@ impl Config {
         config
     }
 
-    /// Build the `rdkafka` client config for one of the two merge-protocol follower consumers
-    /// (`person_merge_events` / `cohort_merge_state_transfer`).
+    /// Build the `rdkafka` client config for a merge-protocol follower consumer.
     ///
-    /// Followers never `subscribe()` — the events group's rebalance mirrors every (un)assignment
-    /// onto them (D5) — so there is no assignment strategy and no static membership; `group.id`
-    /// exists only so commits land on an observable group. `auto.offset.reset` is **hard-coded** to
-    /// `earliest`, deliberately not env-tunable: a never-subscribing group is `Empty` to the broker,
-    /// so its committed offsets are pruned after `offsets.retention.minutes`, and a tail reset after
-    /// pruning would silently skip the merge backlog — a permanently split-brain person, not mere
-    /// lag.
+    /// Followers never `subscribe()` — the events group's rebalance mirrors assignments onto them —
+    /// so there is no assignment strategy and no static membership; `group.id` exists only so
+    /// commits land on an observable group. `auto.offset.reset` is hard-coded to `earliest`: a
+    /// never-subscribing group is `Empty` to the broker, so its committed offsets are pruned after
+    /// `offsets.retention.minutes`, and a tail reset after pruning would silently skip the merge
+    /// backlog.
     pub fn follower_client_config(&self, group: &str) -> ClientConfig {
         let mut config = ClientConfig::new();
         config
@@ -350,8 +313,7 @@ impl Config {
             .set("auto.offset.reset", "earliest")
             .set("socket.timeout.ms", "10000");
 
-        // `client.id` for broker-side observability only; no `group.instance.id` — there is no
-        // membership to make static.
+        // `client.id` for observability only; no `group.instance.id` (no membership to make static).
         if let Some(id) = self.pod_identity() {
             config.set("client.id", id);
         }
@@ -369,8 +331,7 @@ impl Config {
         config
     }
 
-    /// Kafka connection + producer config for the `cohort_membership_changed_shadow` producer. The
-    /// partitioner is always set — `murmur2_random` is load-bearing for cross-runtime co-partitioning.
+    /// Kafka producer config for the membership output topic.
     pub fn build_kafka_config(&self) -> KafkaConfig {
         KafkaConfig {
             kafka_hosts: self.kafka_hosts.clone(),
@@ -502,7 +463,6 @@ mod tests {
     #[test]
     fn consumer_config_sets_static_membership_only_when_pod_identity_is_present() {
         let mut config = test_config();
-        // No pod identity → dynamic membership, no instance id.
         assert_eq!(
             config.consumer_client_config().get("group.instance.id"),
             None,
@@ -577,8 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_envs_default_to_the_tdd_topology() {
-        // `init_from_hashmap` with an empty map exercises every `envconfig(default)`.
+    fn merge_envs_default_to_the_expected_topology() {
         let config = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         assert_eq!(config.person_merge_events_topic, "person_merge_events");
         assert_eq!(
@@ -634,8 +593,6 @@ mod tests {
 
     #[test]
     fn follower_config_hard_codes_earliest_regardless_of_the_events_reset() {
-        // The events group's reset env must never leak into a follower: a pruned Empty group that
-        // reset to the tail would silently skip the merge backlog.
         let mut config = test_config();
         config.kafka_consumer_offset_reset = "latest".to_string();
         let client = config.follower_client_config("cohort-stream-merges");
@@ -648,14 +605,11 @@ mod tests {
 
     #[test]
     fn follower_config_never_joins_the_group_protocol() {
-        // Followers are driven by `incremental_assign`, never `subscribe()`: no assignment strategy
-        // and no static membership, even when a pod identity is present.
         let mut config = test_config();
         config.pod_hostname = Some("cohort-stream-processor-2".to_string());
         let client = config.follower_client_config("cohort-stream-merge-apply");
         assert_eq!(client.get("partition.assignment.strategy"), None);
         assert_eq!(client.get("group.instance.id"), None);
-        // `client.id` is still stamped for broker-side observability.
         assert_eq!(client.get("client.id"), Some("cohort-stream-processor-2"));
     }
 

@@ -1,17 +1,9 @@
-//! The per-key time-driven eviction, mirroring [`process_event`]'s shape.
+//! Per-key time-driven eviction.
 //!
 //! [`sweep_evict`] is a pure read-and-compute pass: for each due key it reads the stored state,
-//! drops the aged-out bucket(s), recomputes the predicate, and returns what *would* change — the
-//! membership transition (a `Left`, or an `Entered` when a daily slide lowers the count into an
-//! `Eq`/`Lte`/`Lt` range), the state mutation (rewrite or delete), and the next eviction deadline —
-//! but writes nothing. The worker ([`handle_sweep`](crate::workers::worker)) orchestrates the
-//! produce-before-write ordering over the returned results, so a clean produce failure can replay
-//! against still-un-evicted state.
-//!
-//! It depends only on `stage1` / `store` / `producer` / `filters` — no `consumers` coupling — so it
-//! can be unit-tested against an in-process store and frozen `TeamFilters` with no Kafka.
-//!
-//! [`process_event`]: crate::workers::event_path::process_event
+//! drops aged-out bucket(s), recomputes the predicate, and returns the membership transition, state
+//! mutation, and next eviction deadline --- but writes nothing. The worker orchestrates
+//! produce-before-write ordering so a produce failure can replay against still-un-evicted state.
 
 use chrono_tz::Tz;
 use metrics::counter;
@@ -30,8 +22,7 @@ use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, StoreError};
 
-/// The state mutation an eviction implies, applied by the worker in one `WriteBatch` only after the
-/// `Left`s are durably produced. The key lives on the [`EvictionResult`], so this is just the verb.
+/// The state mutation an eviction implies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum EvictionAction {
     /// Persist the advanced state (surviving entries/buckets), encoded.
@@ -40,10 +31,7 @@ pub(crate) enum EvictionAction {
     Delete,
 }
 
-/// What evicting one key implies: the optional membership transition it emits (`Left` for any
-/// variant; `Entered` only for a daily slide lowering the count into an `Eq`/`Lte`/`Lt` range), the
-/// state mutation to apply, and the next deadline to reschedule (`Some` only for a
-/// [`Write`](EvictionAction::Write) that still has a finite eviction boundary).
+/// The outcome of evicting one key: optional transition, state mutation, and next deadline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EvictionResult {
     pub key: Stage1Key,
@@ -53,27 +41,14 @@ pub(crate) struct EvictionResult {
     pub reschedule: Option<i64>,
 }
 
-/// Why the sweep dropped a popped key instead of evicting it — a key that was due but had no valid,
-/// supported state to advance. Doubles as the `reason` label on
-/// [`SWEEP_KEYS_DROPPED_TOTAL`](crate::observability::metrics::SWEEP_KEYS_DROPPED_TOTAL); the
-/// `Decode`/`UnsupportedVariant` arms are *also* surfaced on the existing error counters.
+/// Why the sweep dropped a popped key instead of evicting it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SweepDropReason {
-    /// The team left the catalog mid-tenure; its keys cannot be evaluated until a rebalance reclaims
-    /// the slice. Raised by the worker, which groups by team before calling [`sweep_evict`].
     TeamDrift,
-    /// The leaf left the catalog mid-tenure (its `LeafStateKey` is no longer in the reverse index).
     LeafDrift,
-    /// No stored state for the key.
     MissingState,
-    /// The stored record failed to decode, or its value disagreed with the variant the `LeafStateKey`
-    /// pins (corruption / format desync). Also counted on `stage1_state_decode_error_total`.
     Decode,
-    /// A daily leaf whose catalog meta is missing `window_days`/`predicate_op` (a desync). Also
-    /// counted on `stage1_unsupported_variant_skipped_total`.
     UnsupportedVariant,
-    /// A person-property key — never time-evicted, so it should never have been scheduled; a stale
-    /// schedule is dropped defensively.
     PersonProperty,
 }
 
@@ -90,22 +65,15 @@ impl SweepDropReason {
     }
 }
 
-/// The outcome of one [`sweep_evict`] pass over a team's due keys: the per-key evictions to apply, and
-/// the reason each popped-but-not-evicted key was dropped. The worker counts both only once the tick
-/// commits, so `popped == evicted + dropped` holds in steady state.
+/// Outcome of one [`sweep_evict`] pass: evictions to apply and drop reasons.
 #[derive(Debug, Default)]
 pub(crate) struct SweepEvictions {
     pub results: Vec<EvictionResult>,
     pub drops: Vec<SweepDropReason>,
 }
 
-/// Compute the eviction for each due key against one team's frozen filters, **without writing**.
-/// Returns a [`SweepEvictions`] with one [`EvictionResult`] per key that has a supported, decodable
-/// state still in the catalog, plus a [`SweepDropReason`] for each key that was popped but not evicted
-/// (a missing/corrupt row, a leaf that left the catalog, or a person-property key). A RocksDB read
-/// error fails the whole call so the worker can reschedule and retry the tick.
-///
-/// All `due_keys` must belong to `filters`' team (the worker groups by team before calling).
+/// Compute the eviction for each due key against a team's frozen filters, **without writing**.
+/// All `due_keys` must belong to `filters`' team.
 pub(crate) fn sweep_evict(
     filters: &TeamFilters,
     due_keys: &[Stage1Key],
@@ -117,7 +85,6 @@ pub(crate) fn sweep_evict(
         drops: Vec::new(),
     };
     for &key in due_keys {
-        // Read errors propagate (?); missing/corrupt rows drop the key and continue.
         let record = match store.get_stage1(&key)? {
             None => {
                 out.drops.push(SweepDropReason::MissingState);
@@ -132,8 +99,6 @@ pub(crate) fn sweep_evict(
                 }
             },
         };
-        // The leaf left the catalog mid-tenure (drift) → drop. The state lingers until the next
-        // rebalance reclaims the partition slice; it is never spuriously evicted.
         let Some(meta) = filters.by_lsk.get(&key.leaf_state_key) else {
             out.drops.push(SweepDropReason::LeafDrift);
             continue;
@@ -146,8 +111,6 @@ pub(crate) fn sweep_evict(
             StateVariant::BehavioralCompressedHistory => {
                 evict_compressed(key, meta, record, filters.timezone, due_before_ms)
             }
-            // Person-property leaves carry no eviction deadline, so they are never scheduled; defend
-            // against a stale schedule by dropping.
             StateVariant::PersonProperty => Err(SweepDropReason::PersonProperty),
         };
         match evicted {
@@ -158,20 +121,16 @@ pub(crate) fn sweep_evict(
     Ok(out)
 }
 
-/// Evict a `performed_event` single: the window expired (the queue popped it past its deadline), so a
-/// member leaves. Always deletes — a late event re-creates the state from its own timestamp.
-/// Explicit-window singles never reach here (their `i64::MAX` deadline is never scheduled).
+/// Evict a `performed_event` single: always deletes.
 fn evict_single(
     key: Stage1Key,
     meta: &LeafStateMeta,
     record: StatefulRecord,
 ) -> Result<EvictionResult, SweepDropReason> {
     if !matches!(record.state, Stage1State::BehavioralSingle { .. }) {
-        // The LSK pins the variant; a non-single value is corruption — drop.
         counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
         return Err(SweepDropReason::Decode);
     }
-    // Defensive: a stored single is always a member; gate the Left to avoid a spurious emit.
     let transition =
         predicate(&record.state).then(|| transition_for(key, meta, TransitionKind::Left));
     Ok(EvictionResult {
@@ -183,10 +142,8 @@ fn evict_single(
     })
 }
 
-/// Slide the daily window to `day_idx(due_before_ms)`, recompute the predicate, and return the net
-/// membership flip: `Left` on true→false, or `Entered` on false→true (a falling count can enter an
-/// `Eq`/`Lte`/`Lt` range). Only the net flip across a multi-boundary slide is emitted. Rewrites the
-/// advanced state while any bucket survives; deletes when every bucket drains.
+/// Slide the daily window forward, recompute the predicate, and return the net membership flip.
+/// Rewrites while any bucket survives; deletes when every bucket drains.
 fn evict_daily(
     key: Stage1Key,
     meta: &LeafStateMeta,
@@ -194,7 +151,6 @@ fn evict_daily(
     tz: Tz,
     due_before_ms: i64,
 ) -> Result<EvictionResult, SweepDropReason> {
-    // A daily leaf carries both by construction; absence is a catalog desync — drop.
     let (Some(window_days), Some(op)) = (meta.window_days, meta.predicate_op) else {
         counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => StateVariant::BehavioralDailyBuckets.as_str())
             .increment(1);
@@ -212,12 +168,9 @@ fn evict_daily(
         ..
     } = state
     else {
-        // The LSK pins the variant; a non-bucket value here is corruption — drop.
         counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
         return Err(SweepDropReason::Decode);
     };
-    // A stored array whose length disagrees with the leaf window is a format desync — drop rather
-    // than slide out of bounds (mirrors the event path's guard).
     if buckets.len() != daily_bucket_len(window_days) {
         counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
         return Err(SweepDropReason::Decode);
@@ -232,7 +185,6 @@ fn evict_daily(
         target_now_day,
     );
     let predicate_after = daily_predicate(&buckets, op);
-    // Eq/Lte/Lt can flip false→true as the count falls (Entered), not only true→false (Left).
     let kind = match (predicate_before, predicate_after) {
         (false, true) => Some(TransitionKind::Entered),
         (true, false) => Some(TransitionKind::Left),
@@ -242,8 +194,6 @@ fn evict_daily(
 
     let new_deadline = daily_eviction_deadline(&buckets, window_start_day, window_days, tz);
     let (action, reschedule) = if new_deadline == i64::MAX {
-        // Every bucket drained: nothing left to evict, so delete. The topic's 24 h retention is below
-        // the ≥1-day window, so no replayable event remains to spuriously re-create the state.
         (EvictionAction::Delete, None)
     } else {
         let advanced = StatefulRecord {
@@ -254,15 +204,13 @@ fn evict_daily(
                 earliest_eviction_at_ms: new_deadline,
             },
             applied_offsets,
-            // A swept post-merge person keeps its ancestor replay-dedup across the slide.
             redirect_dedup,
         };
         (EvictionAction::Write(advanced.encode()), Some(new_deadline))
     };
-    // predicate_after ⟹ count ≥ 1 ⟹ finite deadline ⟹ Write branch, never Delete.
     debug_assert!(
         !predicate_after || matches!(action, EvictionAction::Write(_)),
-        "a still-member eviction must rewrite + reschedule, not delete (relies on daily_predicate's count>=1 floor)",
+        "a still-member eviction must rewrite + reschedule, not delete",
     );
     Ok(EvictionResult {
         key,
@@ -273,8 +221,8 @@ fn evict_daily(
     })
 }
 
-/// Slide the compressed window to `day_idx(due_before_ms)` and return the net membership flip —
-/// identical in shape to [`evict_daily`] but over sparse run-length entries.
+/// Slide the compressed window forward and return the net membership flip (sparse run-length
+/// analog of [`evict_daily`]).
 fn evict_compressed(
     key: Stage1Key,
     meta: &LeafStateMeta,
@@ -282,7 +230,6 @@ fn evict_compressed(
     tz: Tz,
     due_before_ms: i64,
 ) -> Result<EvictionResult, SweepDropReason> {
-    // A compressed leaf carries both by construction; absence is a catalog desync — drop.
     let (Some(window_days), Some(op)) = (meta.window_days, meta.predicate_op) else {
         counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => StateVariant::BehavioralCompressedHistory.as_str())
             .increment(1);
@@ -300,7 +247,6 @@ fn evict_compressed(
         ..
     } = state
     else {
-        // The LSK pins the variant; a non-compressed value here is corruption — drop.
         counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
         return Err(SweepDropReason::Decode);
     };
@@ -314,7 +260,6 @@ fn evict_compressed(
         target_now_day,
     );
     let predicate_after = compressed_predicate(&entries, op);
-    // Eq/Lte/Lt can flip false→true as the count falls (Entered), not only true→false (Left).
     let kind = match (predicate_before, predicate_after) {
         (false, true) => Some(TransitionKind::Entered),
         (true, false) => Some(TransitionKind::Left),
@@ -324,9 +269,6 @@ fn evict_compressed(
 
     let new_deadline = compressed_history::compressed_eviction_deadline(&entries, window_days, tz);
     let (action, reschedule) = if new_deadline == i64::MAX {
-        // Every entry drained: nothing left to evict, so delete. A compressed key drains ≥180 days
-        // after its last matching event — far past the source topic's 24 h retention — so no
-        // replayable event remains to spuriously re-create the state.
         (EvictionAction::Delete, None)
     } else {
         let advanced = StatefulRecord {
@@ -337,15 +279,13 @@ fn evict_compressed(
                 earliest_eviction_at_ms: new_deadline,
             },
             applied_offsets,
-            // A swept post-merge person keeps its ancestor replay-dedup across the slide.
             redirect_dedup,
         };
         (EvictionAction::Write(advanced.encode()), Some(new_deadline))
     };
-    // predicate_after ⟹ count ≥ 1 ⟹ finite deadline ⟹ Write branch, never Delete.
     debug_assert!(
         !predicate_after || matches!(action, EvictionAction::Write(_)),
-        "a still-member eviction must rewrite + reschedule, not delete (relies on compressed_predicate's count>=1 floor)",
+        "a still-member eviction must rewrite + reschedule, not delete",
     );
     Ok(EvictionResult {
         key,
@@ -356,8 +296,7 @@ fn evict_compressed(
     })
 }
 
-/// Build the membership transition for an evicted key. The sweep starts from a [`Stage1Key`] +
-/// catalog meta rather than an event, so `condition_hash` comes from [`LeafStateMeta`].
+/// Build the membership transition for an evicted key.
 fn transition_for(key: Stage1Key, meta: &LeafStateMeta, kind: TransitionKind) -> LeafTransition {
     LeafTransition {
         team_id: TeamId(key.team_id as i32),
@@ -430,7 +369,6 @@ mod tests {
         })
     }
 
-    /// A `performed_event_multiple` leaf over a >180-day window, routed to the compressed variant.
     fn compressed_leaf(window_days: i64, op: &str, value: i64) -> Value {
         json!({
             "type": "behavioral", "value": "performed_event_multiple", "key": "$pageview",

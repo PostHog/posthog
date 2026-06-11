@@ -358,8 +358,6 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
         .all(|t| t.kind == TransitionKind::Entered));
 
     let event_ms = clickhouse_timestamp_to_millis(BASE_TS).unwrap();
-    // D9 calendar eviction: a whole-day window evicts at the local midnight after `day + window_days`,
-    // so the deadline is `start_of_day(event_day + window_days + 1)`, not `event_ms + window`.
     let event_day = day_idx_in_tz(event_ms, UTC);
     let mut deadlines: Vec<i64> = lsks
         .iter()
@@ -416,7 +414,6 @@ fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
     // Newest-by-event-time arrives first (offset 10), at a later ts than BASE_TS.
     let later_ts = "2026-05-27 12:34:56.789000";
     let later_ms = clickhouse_timestamp_to_millis(later_ts).unwrap();
-    // D9 calendar eviction: the deadline is the local midnight after the newest event's day + window.
     let newest_deadline = start_of_day_ms_in_tz(day_idx_in_tz(later_ms, UTC) + 7 + 1, UTC);
     let newest = CohortStreamEvent {
         timestamp: later_ts.to_string(),
@@ -452,10 +449,6 @@ fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
 
 #[test]
 fn single_eviction_deadline_is_team_local_midnight_for_both_edge_persons() {
-    // D9: a `performed_event` single evicts at the team-local midnight after `day + window`, so two
-    // persons whose matching events fall on the same calendar day — one just after local midnight, one
-    // just before the next — share one eviction deadline despite being ~23h apart in event time.
-    // Freeze under Asia/Kolkata (+05:30, no DST) so the deadline is observably not the UTC midnight.
     let (_dir, store) = temp_store();
     let filters = build_team_filters_tz(
         vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))],
@@ -592,16 +585,8 @@ fn snapshot_state(store: &CohortStore, filters: &TeamFilters, persons: &[Uuid]) 
     map
 }
 
-// ── Cross-source-partition replay dedup (L11) ────────────────────────────────────
-// The shuffler re-keys by `hash(team_id, person_id)`, so one person's events span multiple source
-// partitions. These exercise the per-source-partition `AppliedOffsets` map — the cases a single
-// local source partition could not reach.
-
 #[test]
 fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
-    // The per-partition map must isolate partitions: a low offset on a newly-seen source partition
-    // must apply even when another partition already recorded a much higher offset. A single global
-    // high-water mark would wrongly skip this flip — loudly observable as a missing `Left`.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
     let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
@@ -629,11 +614,6 @@ fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
 
 #[test]
 fn cross_partition_replay_does_not_double_apply_or_disturb_other_partitions() {
-    // The core L11 fix: a replayed event from one source partition is skipped even after a later
-    // event from a *different* source partition advanced the record — where the old single-scalar
-    // guard would have re-applied it. For today's idempotent folds skip and re-apply are
-    // state-identical, so byte-identity is the observable proof; the `AppliedOffsets` unit tests pin
-    // that `is_replay` actually fires.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
     let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
@@ -665,8 +645,6 @@ fn cross_partition_replay_does_not_double_apply_or_disturb_other_partitions() {
 
 #[test]
 fn cross_partition_person_replay_leaves_state_and_other_partitions_intact() {
-    // Person-property replay before the argMax tiebreaker, across partitions: Guard 1 (`is_replay`)
-    // skips the redelivered partition-10 match without touching partition 20's mark.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
     let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
@@ -696,9 +674,6 @@ fn cross_partition_person_replay_leaves_state_and_other_partitions_intact() {
 
 #[test]
 fn argmax_stale_event_still_advances_applied_offsets_across_partitions() {
-    // A late (argMax-stale) event from a newly-seen source partition is NOT a replay, so it must
-    // still record its source offset — otherwise a later true replay of *it* would be re-applied.
-    // Also pins that offset 0 is a valid first offset (seen-ness is key presence, not a sentinel).
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
     let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
@@ -1132,11 +1107,6 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
     );
 }
 
-// A `process_event` `Err(StoreError)` is, at the worker level, identical to an empty sub-batch (no
-// changes, offset advances via `max_offset`), so it needs no dedicated test beyond
-// `worker_advances_offset_on_empty_transition_subbatch`.
-
-/// A single-leaf cohort so a matching `$pageview` produces exactly one `entered` change.
 fn single_leaf_catalog() -> Arc<CatalogHandle> {
     catalog_of(build_team_filters(vec![(
         CohortId(1),
@@ -1270,11 +1240,6 @@ async fn worker_keeps_processing_after_a_produce_failure() {
     assert_eq!(changes.len(), 1, "only the second flush's change landed");
     assert_eq!(changes[0].person_id, person(2).to_string());
 }
-
-// ── performed_event_multiple daily buckets ───────────────────────────────────────
-// These exercise the `BehavioralDailyBuckets` fold: a counter (not a bit), a window slide that can
-// emit an event-driven `Left`, the count>=1 parity guard, and replay-safety of the non-idempotent
-// `buckets[i] += 1` across source partitions.
 
 #[test]
 fn daily_multiple_enters_when_count_crosses_threshold() {
@@ -1412,10 +1377,7 @@ fn daily_multiple_counts_same_day_repeats_in_one_bucket() {
 
 #[test]
 fn daily_multiple_cross_partition_replay_after_slide_is_byte_identical() {
-    // The most important invariant given the non-idempotent `buckets[i] += 1` fold: a replay from one
-    // source partition is skipped even after a later event from a *different* source partition slid the
-    // window. Skip vs re-fold are NOT state-identical here, so byte-identity directly proves the
-    // `is_replay` guard fired before the fold.
+    // Skip vs re-fold are NOT state-identical here, so byte-identity proves `is_replay` fired.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(
         CohortId(1),
@@ -1464,9 +1426,6 @@ fn daily_multiple_cross_partition_replay_after_slide_is_byte_identical() {
 
 #[test]
 fn daily_multiple_late_behind_event_records_offset_without_counting() {
-    // Mirror of `behavioral_deadline_tracks_newest_event_not_the_late_one` for the bucket fold: an
-    // event older than the window's lower bound does not count (its bucket already slid out), but its
-    // offset is still recorded so a later true replay of it is skipped.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(
         CohortId(1),
@@ -1510,9 +1469,6 @@ fn daily_multiple_late_behind_event_records_offset_without_counting() {
 
 #[test]
 fn daily_multiple_eq_or_lte_zero_is_never_a_member() {
-    // The count>=1 parity guard: a single match makes count 1, which neither `eq 0` nor `lte 0`
-    // satisfies, so the leaf is written (the match is counted) but is never a member — no Entered, and
-    // with no prior membership, no Left.
     for op in ["eq", "lte"] {
         let (_dir, store) = temp_store();
         let filters = build_team_filters(vec![(
@@ -1543,9 +1499,6 @@ fn daily_multiple_eq_or_lte_zero_is_never_a_member() {
 
 #[test]
 fn daily_multiple_stores_eviction_deadline_at_oldest_bucket_day_boundary() {
-    // The stored deadline is the start of the day the oldest non-zero bucket leaves the window: a
-    // day-d bucket is in-window while now_day ≤ d + window_days, so it leaves at the start of day
-    // d + window_days + 1.
     let (_dir, store) = temp_store();
     let window_days = 7;
     let filters = build_team_filters(vec![(
@@ -1575,10 +1528,6 @@ fn daily_multiple_stores_eviction_deadline_at_oldest_bucket_day_boundary() {
 
 #[test]
 fn daily_multiple_buckets_by_team_timezone_day_not_utc_day() {
-    // The other daily-bucket tests freeze under UTC, so the fold's `day_idx_in_tz(event_ms, tz)` path
-    // is only ever exercised against UTC. Freeze under Asia/Kolkata (+05:30, no DST) and fold an event
-    // at 20:00 UTC — which is 01:30 the *next* calendar day in Kolkata — so its team-tz day is one
-    // greater than its UTC day. The window must anchor on the Kolkata day, not the UTC day.
     let (_dir, store) = temp_store();
     let window_days = 7;
     let filters = build_team_filters_tz(
@@ -1632,10 +1581,7 @@ fn daily_multiple_buckets_by_team_timezone_day_not_utc_day() {
 
 #[test]
 fn daily_multiple_event_on_window_start_day_counts_in_bucket_zero() {
-    // Sibling of `daily_multiple_late_behind_event_records_offset_without_counting`: that test covers
-    // an event strictly *before* `window_start_day` (the BEHIND branch, `event_day < window_start_day`,
-    // which drops it). This pins the inclusive lower bound — an event landing *exactly* on
-    // `window_start_day` is WITHIN, not BEHIND, so it must count in bucket 0.
+    // An event landing exactly on `window_start_day` is within, not behind, and counts in bucket 0.
     let (_dir, store) = temp_store();
     let window_days = 2;
     let filters = build_team_filters(vec![(
@@ -1698,8 +1644,6 @@ fn daily_multiple_event_on_window_start_day_counts_in_bucket_zero() {
 
 #[tokio::test]
 async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink() {
-    // End-to-end through the worker + producer: a single-leaf daily-bucket cohort maps its leaf flips
-    // to shadow membership changes, including the event-driven `Left`.
     let (_dir, store) = temp_store();
     let catalog = catalog_of(build_team_filters(vec![(
         CohortId(1),
@@ -1750,12 +1694,6 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
         Some(&4),
     );
 }
-
-// ── performed_event_multiple compressed history (>180-day windows) ────────────────
-// These exercise the `BehavioralCompressedHistory` fold — the sparse run-length analog of the daily
-// buckets — over a 365-day window: enter on threshold, event-driven `Left` from a window slide, sparse
-// multi-day accumulation, the late-BEHIND ignore, replay-safety, and the end-to-end
-// sweep→Delete→late-event-re-creates cycle (which also closes the lone PR-2.4 gap).
 
 fn day_of(ts: &str) -> i32 {
     day_idx_in_tz(clickhouse_timestamp_to_millis(ts).unwrap(), UTC)
@@ -1925,9 +1863,6 @@ fn compressed_multiple_accumulates_sparsely_across_days() {
 
 #[test]
 fn compressed_multiple_late_behind_event_records_offset_without_counting() {
-    // The compressed mirror of the daily late-BEHIND case: an event older than the window's lower
-    // bound does not count (its day already slid out), but its offset is still recorded so a later true
-    // replay of it is skipped.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(
         CohortId(1),
@@ -1975,9 +1910,7 @@ fn compressed_multiple_late_behind_event_records_offset_without_counting() {
 
 #[test]
 fn compressed_multiple_cross_partition_replay_after_slide_is_byte_identical() {
-    // The compressed analog of the daily non-idempotent-fold replay test: a replay from one source
-    // partition is skipped even after a later event from a different source partition slid the window.
-    // Skip vs re-fold are not state-identical here, so byte-identity proves the `is_replay` guard fired.
+    // Skip vs re-fold are not state-identical here, so byte-identity proves `is_replay` fired.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(
         CohortId(1),
@@ -2035,9 +1968,6 @@ fn compressed_multiple_cross_partition_replay_after_slide_is_byte_identical() {
 
 #[tokio::test]
 async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
-    // End-to-end through the worker: a compressed member is swept to Left + Delete on full window
-    // expiry, then a fresh event re-creates the state from its own timestamp and re-enters. This is the
-    // sweep→Delete→re-create cycle (also the lone outstanding PR-2.4 end-to-end gap).
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(
         CohortId(1),
@@ -2103,8 +2033,6 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
     );
 }
 
-// ── redirect_dedup origin routing (TDD §4.5.1, Decision 2) ────────────────────────
-
 fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
     let mut applied = AppliedOffsets::default();
     for &(partition, offset) in entries {
@@ -2122,9 +2050,8 @@ fn seed_person_record(store: &CohortStore, lsk: LeafStateKey, who: Uuid, record:
 
 #[test]
 fn fresh_event_on_a_redirect_dedup_partition_still_folds_main_map_authoritative() {
-    // Hazard A: a fresh (non-redirected) P_new event must dedup against the MAIN map, never an
-    // ancestor's `redirect_dedup` entry — otherwise a union-max would falsely skip an in-flight P_new
-    // event whose offset trails the ancestor's high-water mark on a shared upstream partition.
+    // A fresh (non-redirected) P_new event must dedup against the MAIN map, not an ancestor's
+    // `redirect_dedup` entry.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
     let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
@@ -2172,9 +2099,7 @@ fn fresh_event_on_a_redirect_dedup_partition_still_folds_main_map_authoritative(
 
 #[test]
 fn redirected_event_at_or_below_ancestor_max_is_skipped_then_above_folds() {
-    // Hazard B: a redirected straggler (origin = P_old) must dedup against `redirect_dedup[P_old]`, so
-    // a replayed-then-redirected P_old event at or below the ancestor's high-water mark is skipped —
-    // the double-fold guard — while one above it folds.
+    // A redirected straggler (origin = P_old) must dedup against `redirect_dedup[P_old]`.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
     let lsk = LeafStateKey::for_person_property(&PERSON_HASH);

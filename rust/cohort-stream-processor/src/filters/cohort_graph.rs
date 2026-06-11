@@ -1,15 +1,8 @@
-//! The per-team cohort-reference graph and its Tarjan-SCC cycle analysis (TDD §2.7.1 layer 2 / D19).
+//! Per-team cohort-reference graph and Tarjan-SCC cycle analysis.
 //!
-//! Pure and freeze-time-only: no I/O, no wall-clock. [`analyze`] walks each cohort's parsed tree for
-//! `cohort`-reference leaves, builds the directed referrer→referenced graph, and runs
-//! [`tarjan_scc`](petgraph::algo::tarjan_scc) once to surface cohort-reference cycles and a
-//! referenced-before-referrer refinement order. The dependency-aware refinement of each cohort's
-//! eligibility lives in [`stage2::eligibility::refine_ref_bearing`](crate::stage2::eligibility::refine_ref_bearing);
-//! this module only computes the structural facts that refinement reads.
-//!
-//! The graph idiom (`DiGraph` + `id → NodeIndex` map) mirrors `rust/feature-flags/src/utils/graph_utils.rs`,
-//! but the small per-team shape is replicated locally rather than imported — the two app crates do not
-//! share a graph crate.
+//! Walks each cohort's parsed tree for `cohort`-reference leaves, builds the directed
+//! referrer→referenced graph, and runs Tarjan SCC to surface cycles and a
+//! referenced-before-referrer refinement order.
 
 use std::collections::{HashMap, HashSet};
 
@@ -22,25 +15,19 @@ use crate::filters::CohortId;
 /// The structural facts about a team's cohort-reference graph, computed once at filter freeze.
 #[derive(Debug, Default)]
 pub(crate) struct RefGraphAnalysis {
-    /// Cohorts in a strongly-connected component of size > 1, or with a self-loop — i.e. every cohort
-    /// participating in a reference cycle.
+    /// Cohorts participating in a reference cycle (SCC of size > 1, or self-loop).
     pub in_cycle: HashSet<CohortId>,
-    /// The ref-bearing catalog cohorts (those in [`ref_targets`](Self::ref_targets)) in
-    /// referenced-before-referrer order, so a referrer's verdict can read its targets' final verdicts.
-    /// [`tarjan_scc`] emits SCCs in reverse topological order of the condensation, which — since edges
-    /// point referrer→referenced — is exactly referenced-before-referrer.
+    /// Ref-bearing cohorts in referenced-before-referrer order (reverse topological order of the
+    /// condensation graph).
     pub refinement_order: Vec<CohortId>,
-    /// Each ref-bearing cohort's distinct referenced ids (sorted), **including** ids absent from the
-    /// team catalog (those become placeholder nodes with no out-edges).
+    /// Each ref-bearing cohort's distinct referenced ids (sorted), including ids absent from the
+    /// team catalog.
     pub ref_targets: HashMap<CohortId, Vec<CohortId>>,
 }
 
-/// Analyze a team's parsed cohort trees into their reference-graph facts. Gated by the caller on the
-/// presence of any cohort reference, so a ref-free team never reaches here; a team that does reach
-/// here with no refs still returns the empty default.
+/// Analyze a team's parsed cohort trees into their reference-graph facts.
 pub(crate) fn analyze(cohorts: &HashMap<CohortId, CohortTree>) -> RefGraphAnalysis {
-    // Each cohort's distinct ref targets, sorted for a deterministic build (verdicts are
-    // order-independent regardless, but a stable order keeps the graph reproducible).
+    // Sorted targets for a deterministic graph build.
     let mut ref_targets: HashMap<CohortId, Vec<CohortId>> = HashMap::new();
     for (&cohort_id, tree) in cohorts {
         let mut targets = HashSet::new();
@@ -55,8 +42,7 @@ pub(crate) fn analyze(cohorts: &HashMap<CohortId, CohortTree>) -> RefGraphAnalys
         return RefGraphAnalysis::default();
     }
 
-    // Nodes = team cohorts ∪ referenced-but-missing ids. Inserted in sorted order so the NodeIndex
-    // assignment — and therefore the `tarjan_scc` output — is deterministic.
+    // Nodes = team cohorts ∪ referenced-but-missing ids, sorted for deterministic NodeIndex assignment.
     let mut node_ids: Vec<CohortId> = cohorts.keys().copied().collect();
     for targets in ref_targets.values() {
         node_ids.extend(targets.iter().copied());
@@ -70,7 +56,7 @@ pub(crate) fn analyze(cohorts: &HashMap<CohortId, CohortTree>) -> RefGraphAnalys
         index_of.insert(id, graph.add_node(id));
     }
 
-    // Edges referrer → referenced. A self-loop is a size-1 SCC in Tarjan, so it is captured separately.
+    // Self-loops are size-1 SCCs in Tarjan, so capture them separately.
     let mut self_loops: HashSet<CohortId> = HashSet::new();
     for (&referrer, targets) in &ref_targets {
         let src = index_of[&referrer];
@@ -103,8 +89,7 @@ pub(crate) fn analyze(cohorts: &HashMap<CohortId, CohortTree>) -> RefGraphAnalys
     }
 }
 
-/// Collect every distinct `cohort`-reference target in a tree. Negation is irrelevant to the graph
-/// shape, so it is ignored. Mirrors [`collect_leaf_state_keys`](crate::filters::reverse_index)'s walk.
+/// Collect every distinct `cohort`-reference target in a tree.
 fn collect_cohort_refs(node: &FilterNode, out: &mut HashSet<CohortId>) {
     match node {
         FilterNode::Group { children, .. } => {
@@ -125,8 +110,7 @@ mod tests {
     use crate::filters::tree::{BoolOp, CohortRefLeafConfig};
     use crate::filters::TeamId;
 
-    /// A cohort whose only leaves are `cohort`-references to `refs` (an empty `refs` makes a ref-free
-    /// leaf cohort — a graph node with no out-edges).
+    /// A cohort whose only leaves are `cohort`-references to `refs`.
     fn ref_cohort(id: i32, refs: &[i32]) -> (CohortId, CohortTree) {
         let children = refs
             .iter()

@@ -52,22 +52,16 @@ async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
 
-    // The generous shutdown timeout leaves room for the final RocksDB checkpoint flush.
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(90))
         .build();
 
     let metrics_handle =
         manager.register("metrics", ComponentOptions::new().is_observability(true));
-    // Monitored for clean shutdown, not liveness: a refresh outage must not kill the service, which
-    // keeps serving the last good snapshot.
     let catalog_handle_lifecycle = manager.register(
         "filter-catalog",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
     );
-    // The consumer owns the liveness deadline: a wedged consume loop or sustained broker outage
-    // trips coordinated shutdown. Its graceful window covers draining worker channels and the
-    // final commit.
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
@@ -75,10 +69,6 @@ async fn async_main(config: Config) -> Result<()> {
             .with_liveness_deadline(Duration::from_secs(60))
             .with_stall_threshold(3),
     );
-    // The merge-protocol followers stop on the same coordinated signal; their graceful window
-    // covers the final sync commit. Deliberately no liveness deadline — a follower's health signal
-    // is consumer-group lag on its merge group, and the events consumer above already owns
-    // process-level liveness.
     let merge_follower_handle = manager.register(
         "merge-follower",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
@@ -97,8 +87,6 @@ async fn async_main(config: Config) -> Result<()> {
         None
     };
 
-    // Build all infrastructure before starting the monitor: a failure here returns before the
-    // monitor thread runs, so the dropped handles are harmless no-ops and the process exits non-zero.
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating posthog_cohort database pool")?;
 
@@ -115,15 +103,10 @@ async fn async_main(config: Config) -> Result<()> {
         ),
     }
 
-    // The `StreamConsumer` subscribes here but does not fetch until `process()` polls it after the
-    // monitor starts, so building it now keeps the fail-fast discipline above. `wipe_store_on_start`
-    // makes `open` destroy any on-disk state first, so a restart never serves a previous owner's
-    // per-partition state.
     let store = CohortStore::open(&config.store_config()).context("opening RocksDB state store")?;
     let router = PartitionRouter::new(config.partition_channel_buffer);
     let offset_tracker = Arc::new(OffsetTracker::new());
 
-    // `KafkaMembershipSink::new` pings broker metadata, so a bad Kafka config fails fast here.
     let kafka_config = config.build_kafka_config();
     let sink: Arc<dyn MembershipSink> = Arc::new(
         KafkaMembershipSink::new(
@@ -134,9 +117,6 @@ async fn async_main(config: Config) -> Result<()> {
         .context("creating shadow producer")?,
     );
 
-    // Merge-protocol sinks + trackers (TDD §4.5.1). The trackers are shared three ways: workers
-    // mark processed offsets, the dispatcher marks dispatch ceilings and forgets revoked
-    // partitions, and the follower consumers commit from them through the dispatcher (D7).
     let transfer_sink: Arc<dyn TransferSink> = Arc::new(
         KafkaTransferSink::new(
             &kafka_config,
@@ -158,10 +138,6 @@ async fn async_main(config: Config) -> Result<()> {
         retry: config.transfer_retry_policy(),
     });
 
-    // The dispatcher owns the shared router/workers/ownership state; the consume loop dispatches
-    // through it while the rebalance context (and its async worker) drive the partition lifecycle
-    // over the *same* state. It shares the catalog snapshot the refresh loop swaps, and hands the
-    // sink + offset tracker + merge deps to each per-partition worker.
     let dispatcher = Arc::new(EventDispatcher::new(
         router,
         offset_tracker,
@@ -171,8 +147,6 @@ async fn async_main(config: Config) -> Result<()> {
         merge_deps,
     ));
 
-    // The consumer carries the rebalance context, so `create_with_context` (which pings broker
-    // metadata) still fails fast here on a bad Kafka config.
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let stream_consumer: StreamConsumer<CohortConsumerContext> = config
         .consumer_client_config()
@@ -182,9 +156,7 @@ async fn async_main(config: Config) -> Result<()> {
         .subscribe(&[config.cohort_stream_events_topic.as_str()])
         .context("subscribing to cohort_stream_events")?;
 
-    // The merge-protocol followers never `subscribe()` — the events group's rebalance mirrors
-    // ownership onto them (D5). Client creation alone is lazy, so the co-partitioning check below
-    // doubles as their fail-fast broker ping.
+    // Followers never `subscribe()` — the events group's rebalance mirrors ownership onto them.
     let merges_follower_consumer: Arc<StreamConsumer> = Arc::new(
         config
             .follower_client_config(&config.kafka_merge_consumer_group)
@@ -198,10 +170,7 @@ async fn async_main(config: Config) -> Result<()> {
             .context("creating cohort_merge_state_transfer follower consumer")?,
     );
 
-    // D14: the merge protocol's partition arithmetic — the keyed transfer produce, `partition_of`'s
-    // same-vs-cross-partition split, assignment mirroring by partition number — assumes all three
-    // topics are co-partitioned. A mismatch is silently wrong forever (drains land on workers that
-    // don't own P_old), so fail fast on live broker metadata instead.
+    // Merge protocol assumes all three topics are co-partitioned. Fail fast on a mismatch.
     let events_partitions =
         fetch_partition_count(&stream_consumer, &config.cohort_stream_events_topic)?;
     let merge_partitions =
@@ -228,7 +197,6 @@ async fn async_main(config: Config) -> Result<()> {
         config.cohort_merge_state_transfer_topic.clone(),
     ));
 
-    // Currently unused; wired through to the rebalance worker and the consume loop.
     let (consumer_command_tx, consumer_command_rx) = mpsc::unbounded_channel();
 
     let guard = manager.monitor_background();
@@ -248,9 +216,6 @@ async fn async_main(config: Config) -> Result<()> {
         .await;
     });
 
-    // The async half of rebalancing: mirror every (un)assignment onto the merge followers and
-    // reclaim revoked partitions off the poll thread, exiting on the consumer's shutdown token.
-    // Held so teardown can await it after the consume loop stops.
     let rebalance_worker = tokio::spawn(run_rebalance_worker(
         rebalance_rx,
         dispatcher.clone(),
@@ -259,30 +224,19 @@ async fn async_main(config: Config) -> Result<()> {
         consumer_handle.shutdown_token(),
     ));
 
-    // The time-driven eviction sweep: each tick routes a `Sweep` to every owned partition's worker,
-    // which drains its own queue and emits any `left`. Shares the consumer's shutdown token so it
-    // stops on coordinated shutdown. Grab the token + dispatcher clone before the consumer takes
-    // ownership of both (mirrors the rebalance-worker spawn above).
     tokio::spawn(run_sweep_loop(
         DispatchSweeper::new(dispatcher.clone(), config.sweep_safety_margin_ms as i64),
         config.sweep_interval(),
         consumer_handle.shutdown_token(),
     ));
 
-    // The pending-transfer redrive (TDD §4.5.1, D3): each tick routes a redrive to every owned
-    // partition's worker, which re-produces any `cf_pending_transfers` entries stranded by
-    // inline-retry exhaustion and finally lets the merge group's commit advance past them. Same
-    // timer machinery and shutdown token as the eviction sweep above.
     tokio::spawn(run_sweep_loop(
         RedriveSweeper::new(dispatcher.clone()),
         config.merge_redrive_interval(),
         consumer_handle.shutdown_token(),
     ));
 
-    // The two follower consume loops, gated on the first successful catalog load (D9): their
-    // partitions are already mirrored, so until the gate opens librdkafka prefetches the assigned
-    // partitions into its client-side buffer (bounded by `queued.max.messages.kbytes`) with nothing
-    // `recv()`ing it — harmless at merge-topic rates, and visible as lag on the two merge groups.
+    // Follower consume loops, gated on the first successful catalog load.
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_follower_consumer,
         config.person_merge_events_topic.clone(),
@@ -332,8 +286,6 @@ async fn async_main(config: Config) -> Result<()> {
 
     guard.wait().await?;
 
-    // The consume loop has stopped and drained its workers; wait for the rebalance worker to finish
-    // any in-flight revoke cleanup before exiting.
     if let Err(err) = rebalance_worker.await {
         warn!(error = %err, "rebalance worker task did not exit cleanly");
     }
@@ -342,8 +294,7 @@ async fn async_main(config: Config) -> Result<()> {
     Ok(())
 }
 
-/// One topic's partition count from live broker metadata — D14's input. Fails on a missing topic,
-/// a broker-reported topic error, or an empty partition set.
+/// One topic's partition count from live broker metadata.
 fn fetch_partition_count<C: ConsumerContext>(
     consumer: &StreamConsumer<C>,
     topic: &str,
@@ -367,11 +318,7 @@ fn fetch_partition_count<C: ConsumerContext>(
     Ok(count)
 }
 
-/// Spawn a merge-protocol follower's consume loop, gated on the first successful filter-catalog
-/// load (D9): before it, every team reads as absent, and a drain/apply against that false-empty
-/// view would silently drop a real team's leaves as drift. Shutdown can preempt the gate — the
-/// task then drops the never-started follower, and the handle's drop-during-shutdown reports
-/// completion to the manager (nothing was consumed, so there is nothing to commit).
+/// Spawn a follower's consume loop, gated on the first successful filter-catalog load.
 fn spawn_follower_after_catalog_load<R: FollowerRoute>(
     catalog: Arc<CatalogHandle>,
     follower: FollowerConsumer<R>,
@@ -414,7 +361,6 @@ fn log_startup(config: &Config) {
 }
 
 /// JSON structured logging in production; human-readable when `RUST_LOG` requests debug.
-/// Mirrors `rust/ingestion-consumer/src/main.rs`.
 fn init_tracing() {
     let is_debug = std::env::var("RUST_LOG")
         .map(|v| v.contains("debug"))

@@ -1,15 +1,12 @@
-//! Tombstone redirect for post-merge straggler events (TDD §4.5.1, "Late events for merged persons").
+//! Tombstone redirect for post-merge straggler events.
 //!
-//! After a merge, P_old's `cf_stage1`/`cf_person_index` rows are gone but a `cf_merge_tombstones`
-//! entry records `P_old → P_new`. A straggler `cohort_stream_events` message for P_old then resolves
-//! through that tombstone (and any chain of further merges) to the person it should fold into.
+//! After a merge, P_old's state rows are gone but a `cf_merge_tombstones` entry records
+//! `P_old -> P_new`. A straggler event for P_old resolves through the tombstone chain to the
+//! person it should fold into.
 //!
-//! [`resolve`] follows **same-partition** tombstone hops in process (no cross-worker reads), stopping
-//! at the first hop that lands on a different partition — that one is re-keyed and re-produced to
-//! `cohort_stream_events` so it hops to the owning worker, which re-resolves from there. The chain
-//! `origin` is always the **first** person (the straggler's own id): it keys the merged record's
-//! `redirect_dedup`, so rewriting it mid-chain would consult the wrong dedup map and re-open the
-//! double-fold hazard.
+//! [`resolve`] follows same-partition tombstone hops in process, stopping at the first hop that
+//! lands on a different partition (re-keyed and re-produced). The chain `origin` is always the
+//! straggler's own person id, since it keys into `redirect_dedup`.
 
 use metrics::counter;
 use tracing::{debug, warn};
@@ -21,37 +18,25 @@ use crate::observability::metrics::MERGE_TOMBSTONE_REDIRECTS_TOTAL;
 use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
 use crate::store::{CohortStore, StoreError, TombstoneKey};
 
-/// Bound on a merge chain followed in one [`resolve`] call. Merge chains only grow forward (a
-/// merged-away person is deleted and never becomes a target again), so a real chain is short; the cap
-/// is a defensive backstop against a pathological/corrupt cycle.
+/// Defensive bound on same-partition tombstone hops in one [`resolve`] call.
 const MAX_TOMBSTONE_HOPS: usize = 16;
 
-/// Bound on the number of **cross-partition** re-produce hops one straggler event may take
-/// (`redirect_hops` on the wire, D13). [`MAX_TOMBSTONE_HOPS`] only bounds a chain within one
-/// partition's slice: a corrupt cross-partition tombstone cycle (A→B on one partition, B→A on
-/// another) looks like a fresh single hop to each worker, so an un-capped event would re-produce
-/// between the two partitions forever. At the cap the worker stops producing and processes the
-/// event inline at the best-known target — the same degrade as the same-partition cap, trading a
-/// possibly wrong-slice fold for guaranteed termination.
+/// Bound on cross-partition re-produce hops (`redirect_hops` on the wire). Prevents infinite
+/// re-production between partitions in case of a corrupt cross-partition tombstone cycle.
 pub(crate) const MAX_CROSS_PARTITION_REDIRECT_HOPS: u8 = 8;
 
-/// Where a straggler event for `person` should actually be processed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resolution {
-    /// No tombstone — process the event normally for `person`.
+    /// No tombstone -- process the event normally.
     NotMerged,
-    /// The chain resolves to `final_person`, which co-resides on this partition. Rewrite the event's
-    /// person to `final_person` and process inline, stamping `origin` (the first person in the chain)
-    /// as the merge origin so the fold dedups against `redirect_dedup[origin]`.
+    /// Chain resolves to `final_person` on this partition. Process inline with `origin` as the
+    /// dedup key into `redirect_dedup`.
     Inline { final_person: Uuid, origin: Uuid },
-    /// The chain reaches `target_person` on a **different** partition. Re-key the event to
-    /// `target_person` and re-produce it to `cohort_stream_events` so it lands on the owning worker;
-    /// `origin` is preserved.
+    /// Chain reaches `target_person` on a different partition. Re-key and re-produce.
     CrossPartition { target_person: Uuid, origin: Uuid },
 }
 
-/// Resolve a straggler event's person through the tombstone chain. A backend read error propagates; a
-/// corrupt tombstone is treated as "not merged" (debug-logged) rather than panicking.
+/// Resolve a straggler event's person through the tombstone chain.
 pub fn resolve(
     store: &CohortStore,
     partition_id: u16,
@@ -64,20 +49,17 @@ pub fn resolve(
         return Ok(Resolution::NotMerged);
     };
 
-    // The origin is the straggler's own id — fixed across the whole chain.
     let origin = person;
     let mut current = first.new_person;
 
     for _hop in 0..MAX_TOMBSTONE_HOPS {
         let current_partition = partition_of(team_id, &current, COHORT_PARTITION_COUNT);
         if current_partition as u16 != partition_id {
-            // First cross-partition hop: stop and let the re-produce carry it to the owning worker.
             return Ok(Resolution::CrossPartition {
                 target_person: current,
                 origin,
             });
         }
-        // Same partition: follow the chain if `current` was itself merged away, else we are done.
         match read_tombstone(store, partition_id, team, current)? {
             Some(next) => current = next.new_person,
             None => {
@@ -89,8 +71,6 @@ pub fn resolve(
         }
     }
 
-    // Hop cap hit — a corrupt/cyclic chain. Degrade to processing inline at the best-known target
-    // rather than looping forever; near-impossible in practice (chains only grow forward).
     warn!(
         partition_id,
         team_id = team_id.0,
@@ -104,8 +84,7 @@ pub fn resolve(
     })
 }
 
-/// Read and decode one tombstone, or [`None`] when absent or corrupt (the latter debug-logged + read
-/// as "not merged" — a single bad row must not wedge the hot path).
+/// Read and decode one tombstone, or `None` when absent or corrupt.
 fn read_tombstone(
     store: &CohortStore,
     partition_id: u16,
@@ -129,12 +108,8 @@ fn read_tombstone(
     }
 }
 
-/// Record an **inline** redirect at resolve time (a no-op for [`Resolution::NotMerged`]).
-///
-/// A [`Resolution::CrossPartition`] is deliberately *not* counted here: its `re_keyed` count is
-/// recorded by [`record_re_keyed`] only after the re-produce ack — a failed produce holds the
-/// events offset and the redelivery re-resolves the same tombstone, so resolve-time counting would
-/// count every retry of a never-produced redirect.
+/// Record an inline redirect metric. Cross-partition redirects are counted separately via
+/// [`record_re_keyed`] after the re-produce ack.
 pub fn record_redirect(resolution: &Resolution) {
     match resolution {
         Resolution::NotMerged | Resolution::CrossPartition { .. } => {}
@@ -144,9 +119,7 @@ pub fn record_redirect(resolution: &Resolution) {
     }
 }
 
-/// Record `count` cross-partition redirects under `merge_tombstone_redirects_total{path="re_keyed"}`.
-/// Called by the worker's batch epilogue strictly **after** the re-produce ack, so the counter only
-/// ever counts stragglers that durably hopped to their owning partition.
+/// Record `count` cross-partition redirects (called after the re-produce ack).
 pub fn record_re_keyed(count: u64) {
     if count > 0 {
         counter!(MERGE_TOMBSTONE_REDIRECTS_TOTAL, "path" => "re_keyed").increment(count);
@@ -177,7 +150,7 @@ mod tests {
         partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16
     }
 
-    /// A person UUID whose merge partition equals `target`.
+    /// Find a UUID that hashes to `target` partition.
     fn person_on(target: u16) -> Uuid {
         (1u128..)
             .map(Uuid::from_u128)
@@ -185,7 +158,7 @@ mod tests {
             .expect("some uuid hashes to the target partition")
     }
 
-    /// A person UUID whose merge partition is anything but `avoid`.
+    /// Find a UUID that hashes to any partition except `avoid`.
     fn person_not_on(avoid: u16) -> Uuid {
         (1u128..)
             .map(Uuid::from_u128)
@@ -223,7 +196,7 @@ mod tests {
         let (_dir, store) = temp_store();
         let p_old = Uuid::from_u128(0xA11CE);
         let part = partition(p_old);
-        let p_new = person_on(part); // co-resides
+        let p_new = person_on(part);
         write_tombstone(&store, part, p_old, p_new);
 
         assert_eq!(
@@ -240,7 +213,7 @@ mod tests {
         let (_dir, store) = temp_store();
         let p_old = Uuid::from_u128(0xA11CE);
         let part = partition(p_old);
-        let p_new = person_not_on(part); // different partition
+        let p_new = person_not_on(part);
         write_tombstone(&store, part, p_old, p_new);
 
         assert_eq!(
@@ -257,7 +230,6 @@ mod tests {
         let (_dir, store) = temp_store();
         let p_old = Uuid::from_u128(0xA11CE);
         let part = partition(p_old);
-        // Build a 2-hop same-partition chain: p_old → p_mid → p_final.
         let mids = (1u128..)
             .map(Uuid::from_u128)
             .filter(|p| partition(*p) == part && *p != p_old)
@@ -282,8 +254,8 @@ mod tests {
         let (_dir, store) = temp_store();
         let p_old = Uuid::from_u128(0xA11CE);
         let part = partition(p_old);
-        let p_mid = person_on(part); // same partition (continues)
-        let p_far = person_not_on(part); // different partition (stop here)
+        let p_mid = person_on(part);
+        let p_far = person_not_on(part);
         write_tombstone(&store, part, p_old, p_mid);
         write_tombstone(&store, part, p_mid, p_far);
 
@@ -302,11 +274,9 @@ mod tests {
         let p_old = Uuid::from_u128(0xA11CE);
         let part = partition(p_old);
         let p_b = person_on(part);
-        // A degenerate cycle p_old → p_b → p_old (impossible in practice): resolve must terminate.
         write_tombstone(&store, part, p_old, p_b);
         write_tombstone(&store, part, p_b, p_old);
 
-        // Terminates with an Inline (best-effort), not a hang.
         assert!(matches!(
             resolve(&store, part, TEAM, p_old).unwrap(),
             Resolution::Inline { origin, .. } if origin == p_old,

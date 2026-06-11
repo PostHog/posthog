@@ -130,7 +130,6 @@ fn point_writes_and_reads_per_cf() {
         .is_empty());
 }
 
-/// `cf_person_index` is merge-only (not an `OpaqueCf` variant), so a raw put to it would not compile.
 #[test]
 fn put_raw_writes_to_the_addressed_opaque_cf() {
     let dir = TempDir::new().unwrap();
@@ -298,8 +297,6 @@ fn data_survives_reopen() {
     assert_eq!(reopened.get_person_index(&pix).unwrap(), vec![lsk(4)]);
 }
 
-// ── merge-protocol column families (TDD §4.5.1) ───────────────────────────────────
-
 #[test]
 fn one_write_batch_spans_state_and_merge_cfs_atomically() {
     let dir = TempDir::new().unwrap();
@@ -358,7 +355,6 @@ fn one_write_batch_spans_state_and_merge_cfs_atomically() {
         Some(&b"P_new+merged_at"[..]),
     );
 
-    // delete_pending_transfer clears the outbox slot (the C2 ack path) without touching the markers.
     store
         .write_batch(|b| b.delete_pending_transfer(&pending))
         .unwrap();
@@ -371,8 +367,6 @@ fn one_write_batch_spans_state_and_merge_cfs_atomically() {
 
 #[test]
 fn delete_person_index_then_reappend_rebuilds_from_empty() {
-    // The drain whole-key-deletes P_old's index; a later append for the same key must rebuild from an
-    // empty base, not resurrect the deleted leaves (the merge operator's `existing = None` path).
     let dir = TempDir::new().unwrap();
     let store = open_store(&dir);
     let pix = person_index_key(0, 100, 7);
@@ -519,7 +513,6 @@ fn merge_cf_values_survive_reopen_without_wipe() {
         reopened.get_tombstone(&tombstone).unwrap().as_deref(),
         Some(&b"s"[..]),
     );
-    // The scan recovers the persisted outbox entry on reopen — the C2 startup-recovery path.
     let scanned = reopened.scan_pending_transfers(2).unwrap();
     assert_eq!(scanned, vec![(pending, b"t".to_vec())]);
 }

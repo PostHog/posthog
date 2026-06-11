@@ -1,19 +1,15 @@
-//! Phase 1 of the cross-partition merge protocol (TDD §4.5.1): drain P_old on its own worker.
+//! Drain P_old on its own worker (phase 1 of cross-partition merge).
 //!
-//! Sink-free and store-level — given a `PersonMergeEvent` (keyed by P_old, so it lands here) it reads
-//! P_old's per-leaf state, then either:
+//! Given a `PersonMergeEvent` (keyed by P_old), reads P_old's per-leaf state, then either:
 //!
-//! - **fast path** (P_new co-resides on this partition, ~1.6%): merges P_old into P_new via the apply
-//!   core and commits one atomic `WriteBatch` (delete P_old's state + tombstone + drain marker +
-//!   merged P_new puts + index appends), returning P_new's transitions; or
-//! - **slow path** (~98.4%): packages P_old's records into a [`MergeStateTransfer`] staged in
+//! - **fast path** (P_new co-resides on this partition): merges inline via the apply core in one
+//!   atomic `WriteBatch`, returning P_new's transitions; or
+//! - **slow path**: packages P_old's records into a [`MergeStateTransfer`] staged in
 //!   `cf_pending_transfers`, deletes P_old's state, writes the tombstone + drain marker, and returns
-//!   the transfer for the caller (C2) to produce → clear the outbox → commit the merge offset.
+//!   the transfer for the caller to produce.
 //!
-//! Per Decision 1 the drain emits **no `Left`** for P_old — it silently deletes P_old's
-//! `cf_stage1` / `cf_person_index` / `cf_stage2` rows (the parity comparator scopes merged-away
-//! persons out), and so needs no `cf_stage2` reads: P_old's `Stage2Key`s are built from the catalog's
-//! composable-cohort list and deleting an absent key is a no-op.
+//! The drain emits no `Left` for P_old — it silently deletes P_old's rows. P_old's `cf_stage2` keys
+//! are built from the catalog (no reads needed; deleting an absent key is a no-op).
 
 use metrics::counter;
 
@@ -37,34 +33,25 @@ use crate::store::{
 };
 use crate::sweep::EvictionQueue;
 
-/// The result of draining a merge event.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrainOutcome {
-    /// Same-partition fast path: P_old merged into P_new inline. `transitions` are P_new's per-leaf
-    /// flips for the caller to compose Stage 2 + produce (acceptance #1).
+    /// Same-partition fast path: P_old merged into P_new inline.
     FastPath { transitions: Vec<LeafTransition> },
-    /// Cross-partition slow path: P_old's state was drained into `transfer`, staged in
-    /// `cf_pending_transfers`. The caller produces it to `cohort_merge_state_transfer`, clears the
-    /// outbox, then commits the merge offset (acceptance #2). A transfer with **no leaves** was not
-    /// staged (D10 — staging it could overwrite a still-pending prior transfer on a duplicate merge
-    /// event); the caller skips the produce and commits directly.
+    /// Cross-partition slow path: state drained into `transfer`, staged in `cf_pending_transfers`.
+    /// An empty transfer (no leaves) is not staged; the caller skips the produce and commits directly.
     Drained { transfer: MergeStateTransfer },
-    /// A `cf_merge_drains_applied` hit — this merge message was already drained (acceptance #3 / #6).
-    /// The caller re-produces any still-staged `cf_pending_transfers` entry, then commits.
+    /// Idempotence hit — already drained. The caller re-produces any still-staged pending transfer.
     AlreadyDrained,
     /// Skipped before any state change (validation failure).
     Skipped(DrainSkip),
 }
 
-/// Why a merge was skipped before draining.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DrainSkip {
-    /// `old_person == new_person` — a degenerate self-merge the merge service never emits.
     SamePerson,
 }
 
-/// Drain the merge `event` on P_old's worker (`partition_id` owns P_old). `msg_coords` is the
-/// triggering merge message's Kafka `(partition, offset)`, keying `cf_merge_drains_applied`.
+/// Drain the merge `event` on P_old's worker (`partition_id` owns P_old).
 pub fn handle_merge_event(
     partition_id: u16,
     store: &CohortStore,
@@ -95,7 +82,6 @@ pub fn handle_merge_event(
         return Ok(DrainOutcome::AlreadyDrained);
     }
 
-    // ── All reads before any write (red-team H1) ──────────────────────────────────
     let old_index = PersonIndexKey {
         partition_id,
         team_id: team_u64,
@@ -116,8 +102,6 @@ pub fn handle_merge_event(
     let mut present_leaves: Vec<(LeafStateKey, StatefulRecord)> = Vec::new();
     for (&lsk, bytes) in lsks.iter().zip(raw) {
         match bytes {
-            // A stale index entry pointing at deleted state — tolerate the hole (the row delete below
-            // is still a no-op for it).
             None => {
                 counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "stale_index").increment(1);
             }
@@ -130,7 +114,6 @@ pub fn handle_merge_event(
         }
     }
 
-    // Values shared by both paths. P_old's `cf_stage2` rows are built from the catalog, not read.
     let tombstone = Tombstone {
         new_person,
         merged_at_ms: event.merged_at_ms,
@@ -189,7 +172,7 @@ pub fn handle_merge_event(
     )
 }
 
-/// Same-partition fast path: drain P_old and apply into P_new in one atomic `WriteBatch`.
+/// Same-partition fast path: drain P_old and apply into P_new in one atomic batch.
 #[allow(clippy::too_many_arguments)]
 fn fast_path(
     partition_id: u16,
@@ -209,7 +192,6 @@ fn fast_path(
     counter!(MERGE_HANDLED_TOTAL, "path" => "same_partition").increment(1);
 
     let team_u64 = event.team_id as u64;
-    // The apply core reads P_new's records (still before any write).
     let apply = apply_leaves(
         partition_id,
         store,
@@ -226,7 +208,6 @@ fn fast_path(
         person_id: event.new_person_uuid,
     };
     store.write_batch(|batch| {
-        // Drain P_old: delete its stage1 rows, person index, and composable cf_stage2 rows.
         for key in old_keys {
             batch.delete_stage1(key);
         }
@@ -234,10 +215,8 @@ fn fast_path(
         for key in old_stage2_keys {
             batch.delete_stage2(key);
         }
-        // Tombstone + drain idempotence marker (a same-partition replay short-circuits via the latter).
         batch.put_tombstone(tombstone_key, &tombstone.encode());
         batch.put_merge_drain_applied(drain_key, &drain_stamp.encode());
-        // Apply into P_new.
         for (key, bytes) in &apply.puts {
             batch.put_stage1(key, bytes);
         }
@@ -246,7 +225,6 @@ fn fast_path(
         }
     })?;
 
-    // Cancel P_old's pending evictions; (re)schedule P_new's merged deadlines.
     for key in old_keys {
         queue.cancel(key);
     }
@@ -259,7 +237,7 @@ fn fast_path(
     })
 }
 
-/// Cross-partition slow path: drain P_old and stage the transfer for the caller to produce.
+/// Cross-partition slow path: drain P_old, stage the transfer for the caller to produce.
 #[allow(clippy::too_many_arguments)]
 fn slow_path(
     partition_id: u16,
@@ -286,17 +264,13 @@ fn slow_path(
         merged_at_ms: event.merged_at_ms,
         source_partition: msg_coords.0,
         source_offset: msg_coords.1,
-        // Records carried whole, so `redirect_dedup` chains transfer for free on the apply side.
         leaves: present_leaves
             .iter()
             .map(|(lsk, record)| TransferLeaf::new(*lsk, record.clone()))
             .collect(),
     };
-    // An empty transfer is never staged (D10): it ferries nothing, and — load-bearing — a duplicate
-    // upstream merge event at fresh coordinates misses the per-message drain marker, re-drains the
-    // by-then-empty P_old, and an unconditional put here would overwrite a still-pending,
-    // never-produced transfer with an empty payload, losing the packaged state. The caller skips
-    // the produce for it symmetrically.
+    // An empty transfer is never staged: a duplicate merge event at fresh coordinates could
+    // overwrite a still-pending, never-produced transfer with an empty payload.
     let pending = (!transfer.leaves.is_empty()).then(|| PendingTransfer {
         transfer: transfer.clone(),
         merge_msg_partition: msg_coords.0,
@@ -309,8 +283,6 @@ fn slow_path(
     };
 
     store.write_batch(|batch| {
-        // Stage the outbox + drain marker, then delete P_old's state and write the tombstone — one
-        // atomic batch, so a crash leaves either the full drain or none of it.
         if let Some(pending) = &pending {
             batch.put_pending_transfer(&pending_key, &pending.encode());
         }
@@ -332,9 +304,7 @@ fn slow_path(
     Ok(DrainOutcome::Drained { transfer })
 }
 
-/// The team's `Stage2Composable` cohort ids — the only cohorts that ever wrote a `cf_stage2` row, so
-/// deleting P_old's `Stage2Key` for each (a no-op when absent) reclaims its membership rows with no
-/// reads.
+/// The team's `Stage2Composable` cohort ids (the only cohorts that write `cf_stage2` rows).
 fn composable_cohort_ids(filters: &TeamFilters) -> impl Iterator<Item = CohortId> + '_ {
     filters
         .eligibility

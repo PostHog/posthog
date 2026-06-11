@@ -1,18 +1,9 @@
-//! Event-driven Stage 2 composition: the store I/O around the pure [`evaluator`](crate::stage2::evaluator).
+//! Stage 2 composition: re-evaluates multi-leaf cohorts when Stage 1 flips a leaf.
 //!
-//! When Stage 1 flips a leaf, [`compose_stage2`] re-evaluates each `Stage2Composable` cohort owning
-//! it — reads the cohort's leaves' Stage 1 state, folds them through [`evaluate_tree`], diffs against
-//! the stored `cf_stage2` bit, and emits a per-cohort [`CohortMembershipChange`] on a flip.
-//!
-//! ## Correctness
-//!
-//! - **Read-your-writes within a sub-batch.** Each call commits its own `cf_stage2` batch before
-//!   returning, so a later event in the same sub-batch sees this event's bits. `process_event` commits
-//!   the Stage 1 writes this reads before it returns the transitions, so `multi_get_stage1` sees them.
-//! - **At-most-once, self-healing.** Stage 1 and Stage 2 commit in two independent batches, both
-//!   before the worker produces. A crash between them drops a flip; `evaluate_tree` recomputes the
-//!   whole cohort each event, so a stored-bit mismatch emits a correcting flip on the person's next
-//!   event.
+//! [`compose_stage2`] reads each affected cohort's leaf states, evaluates the tree, diffs against the
+//! stored `cf_stage2` bit, and emits membership changes on a flip. At-most-once: a crash between
+//! the Stage 1 and Stage 2 commits drops a flip, but `evaluate_tree` recomputes the whole cohort
+//! each event, so a mismatch self-heals on the person's next event.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -33,13 +24,8 @@ use crate::stage2::evaluator::{evaluate_tree, leaf_membership};
 use crate::stage2::state::Stage2State;
 use crate::store::{CohortStore, Stage2Key, StoreError};
 
-/// Re-evaluate every `Stage2Composable` cohort owning a leaf that flipped in `transitions`, emitting
-/// the per-cohort membership changes that flipped and committing their new `cf_stage2` bits.
-///
-/// `event_ms` stamps `last_evaluated_at_ms` on the bits it writes; `last_updated` is the shared
-/// sub-batch timestamp threaded onto each [`CohortMembershipChange`]. A [`StoreError`] (a RocksDB
-/// read/commit failure) aborts the whole call with nothing committed — the worker logs and skips, and
-/// the affected bits self-heal on the persons' next events.
+/// Re-evaluate every `Stage2Composable` cohort owning a flipped leaf, emit membership changes,
+/// and commit the new `cf_stage2` bits.
 pub fn compose_stage2(
     partition_id: u16,
     store: &CohortStore,
@@ -48,8 +34,7 @@ pub fn compose_stage2(
     event_ms: i64,
     last_updated: &str,
 ) -> Result<Vec<CohortMembershipChange>, StoreError> {
-    // One event can flip several leaves of one cohort, but the cohort composes once per person; the
-    // `BTreeSet` dedups and gives a deterministic `(cohort, person)` output order.
+    // Dedup: one event can flip several leaves of one cohort, but the cohort composes once per person.
     let mut affected: BTreeSet<(CohortId, Uuid)> = BTreeSet::new();
     for transition in transitions {
         if let Some(cohorts) = filters
@@ -70,8 +55,6 @@ pub fn compose_stage2(
     let mut evaluated: u64 = 0;
 
     for (cohort_id, person_id) in affected {
-        // The composable index and `cohorts` are one freeze, so the tree is always present; skip a
-        // `None` defensively rather than panic.
         let Some(tree) = filters.cohorts.get(&cohort_id) else {
             continue;
         };
@@ -103,8 +86,7 @@ pub fn compose_stage2(
             last_updated: last_updated.to_string(),
             status,
         });
-        // On a `Left`, write `in_cohort = false` rather than deleting: an absent `cf_stage2` entry
-        // means "never evaluated", so the explicit false bit keeps absence unambiguous.
+        // Write `false` rather than deleting so absence stays unambiguous ("never evaluated").
         pending.push((
             stage2_key,
             Stage2State {
@@ -114,7 +96,6 @@ pub fn compose_stage2(
         ));
     }
 
-    // One batch per call so a later event in the same sub-batch reads its own writes.
     if !pending.is_empty() {
         store.write_batch(|batch| {
             for (key, state) in &pending {
@@ -123,7 +104,6 @@ pub fn compose_stage2(
         })?;
     }
 
-    // Count post-commit: a failed write returns above, so a dropped batch never inflates the counters.
     counter!(STAGE2_COHORTS_EVALUATED).increment(evaluated);
     for change in &changes {
         counter!(STAGE2_TRANSITIONS, "kind" => change.status.as_str()).increment(1);
@@ -132,9 +112,7 @@ pub fn compose_stage2(
     Ok(changes)
 }
 
-/// Compose one cohort for one person: batch-read its leaves' Stage 1 state, fold each to a member bit
-/// via [`leaf_membership`], and evaluate the tree. A leaf with absent or undecodable state reads as a
-/// non-member.
+/// Compose one cohort for one person. A leaf with absent or undecodable state reads as non-member.
 fn evaluate_cohort(
     partition_id: u16,
     team_id: u64,
@@ -159,8 +137,6 @@ fn evaluate_cohort(
 
     let mut membership: HashMap<LeafStateKey, bool> = HashMap::with_capacity(lsks.len());
     for (lsk, bytes) in lsks.iter().zip(raw) {
-        // A leaf missing from `by_lsk` is a catalog desync (the tree and `by_lsk` are one freeze);
-        // leave it out of the map so `evaluate_tree` reads it as false.
         let Some(meta) = filters.by_lsk.get(lsk) else {
             continue;
         };
@@ -171,9 +147,7 @@ fn evaluate_cohort(
     Ok(evaluate_tree(&tree.root, &membership))
 }
 
-/// Decode a `cf_stage1` value to its [`Stage1State`], or [`None`] for an absent or undecodable row. A
-/// decode failure (a corrupt prior leaf record) counts [`STAGE2_STATE_DECODE_ERROR`] and reads as a
-/// non-member.
+/// Decode a `cf_stage1` value, or [`None`] for absent/undecodable rows.
 fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
     let bytes = bytes?;
     match StatefulRecord::decode(&bytes) {
@@ -185,8 +159,7 @@ fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
     }
 }
 
-/// The stored `cf_stage2` membership bit for `key` — `false` when absent (never evaluated) or
-/// undecodable (counts [`STAGE2_STATE_DECODE_ERROR`]; a corrupt bit recomputes to a correcting flip).
+/// The stored `cf_stage2` membership bit for `key`, `false` when absent or undecodable.
 fn read_stage2_bit(store: &CohortStore, key: &Stage2Key) -> Result<bool, StoreError> {
     let Some(bytes) = store.get_stage2(key)? else {
         return Ok(false);
@@ -200,8 +173,7 @@ fn read_stage2_bit(store: &CohortStore, key: &Stage2Key) -> Result<bool, StoreEr
     }
 }
 
-/// Collect every state-keyed leaf's [`LeafStateKey`] in pre-order (cohort-ref leaves have none).
-/// Duplicates are kept — the `membership` map collapses them — so the walk stays trivial.
+/// Collect every state-keyed leaf's [`LeafStateKey`] in pre-order.
 fn collect_leaf_state_keys(node: &FilterNode, out: &mut Vec<LeafStateKey>) {
     match node {
         FilterNode::Group { children, .. } => {
@@ -629,8 +601,6 @@ mod tests {
             "a single-leaf cohort is handled by map_transition, not Stage 2",
         );
     }
-
-    // ── Negation XOR ────────────────────────────────────────────────────────────
 
     fn negated_person_leaf() -> Value {
         json!({

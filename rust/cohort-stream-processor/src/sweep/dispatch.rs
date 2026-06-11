@@ -1,7 +1,4 @@
-//! [`DispatchSweeper`]: the real [`Sweeper`] that drives one eviction cycle over the dispatcher.
-//!
-//! Computes `due_before_ms = now − safety_margin` once per tick and routes a `Sweep` message
-//! carrying it to every owned partition's worker.
+//! [`DispatchSweeper`]: routes one eviction cycle to every owned partition's worker.
 
 use std::sync::Arc;
 
@@ -11,11 +8,8 @@ use chrono::Utc;
 use super::scheduler::{due_before_ms, Sweeper};
 use crate::consumers::events::EventDispatcher;
 
-/// Wall-clock provider for the cutoff. `Arc<dyn Fn>` so production uses [`Utc::now`] and tests inject
-/// a fixed clock to make the cutoff deterministic.
 type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
-/// A [`Sweeper`] that routes a `Sweep` tick to every owned partition each cycle.
 #[derive(Clone)]
 pub struct DispatchSweeper {
     dispatcher: Arc<EventDispatcher>,
@@ -24,7 +18,6 @@ pub struct DispatchSweeper {
 }
 
 impl DispatchSweeper {
-    /// Uses the system clock; `with_clock` injects a test clock.
     pub fn new(dispatcher: Arc<EventDispatcher>, safety_margin_ms: i64) -> Self {
         Self::with_clock(
             dispatcher,
@@ -33,7 +26,6 @@ impl DispatchSweeper {
         )
     }
 
-    /// Inject the clock — the test seam — so a fixed `now` makes the routed cutoff deterministic.
     pub fn with_clock(
         dispatcher: Arc<EventDispatcher>,
         safety_margin_ms: i64,

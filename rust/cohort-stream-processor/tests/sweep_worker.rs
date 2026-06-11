@@ -269,8 +269,6 @@ fn spawn_worker(
     (tx, worker)
 }
 
-// ── BehavioralSingle eviction ────────────────────────────────────────────────────
-
 #[tokio::test]
 async fn sweep_evicts_a_single_leaf_member_emits_left_and_deletes() {
     let (_dir, store) = temp_store();
@@ -311,9 +309,6 @@ async fn sweep_evicts_a_single_leaf_member_emits_left_and_deletes() {
 
 #[tokio::test]
 async fn sweep_full_expiry_delete_retracts_the_person_index_entry() {
-    // The merge drain (M3) enumerates a person's leaves from `cf_person_index`, so a full-expiry
-    // delete must retract the leaf there too — not just delete the `cf_stage1` row — or the drain
-    // would read a key for state that no longer exists.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![behavioral_leaf(7)]);
     let lsk = behavioral_lsk(&filters);
@@ -421,12 +416,6 @@ async fn sweep_on_an_empty_queue_is_a_noop() {
 
 #[tokio::test]
 async fn single_does_not_evict_before_its_calendar_midnight_and_does_after() {
-    // D9 boundary regression: two persons whose matching events fall on the same team-local calendar
-    // day — one at 00:30, one at 23:30 Kolkata — share one eviction midnight,
-    // `start_of_day(day + window + 1)` in the team zone. A sweep at that exact midnight evicts neither
-    // (the queue pops strictly before its cutoff); one ms past evicts both in the same tick. The old
-    // instant-granular deadline would have split them ~23h apart. Kolkata (+05:30) makes the deadline
-    // observably the team-local midnight, not UTC's.
     let lsk = behavioral_lsk(&build_team_filters_tz(vec![behavioral_leaf(7)], Kolkata));
     let alice = person(1);
     let bob = person(2);
@@ -501,8 +490,6 @@ async fn single_does_not_evict_before_its_calendar_midnight_and_does_after() {
         assert!(state_at(&store, lsk, bob).is_none());
     }
 }
-
-// ── BehavioralDailyBuckets eviction ──────────────────────────────────────────────
 
 #[tokio::test]
 async fn sweep_evicts_a_daily_member_on_full_window_expiry() {
@@ -676,8 +663,6 @@ async fn sweep_emits_entered_when_a_daily_eq_count_falls_into_range() {
         "the fully-drained window is deleted",
     );
 }
-
-// ── BehavioralCompressedHistory eviction (>180-day windows) ──────────────────────
 
 #[tokio::test]
 async fn sweep_evicts_a_compressed_member_on_full_window_expiry() {
@@ -884,10 +869,7 @@ async fn sweep_emits_entered_when_a_compressed_eq_count_falls_into_range() {
     );
 }
 
-// ── Produce-before-write retry ───────────────────────────────────────────────────
-
-/// A sink that records like [`CaptureSink`] but fails the `fail_call`-th produce (1-based), so a
-/// preceding event's `Entered` flushes cleanly and the sweep's `Left` flush can be forced to fail.
+/// A sink that fails the `fail_call`-th produce (1-based).
 #[derive(Clone)]
 struct FailNthSink {
     changes: Arc<Mutex<Vec<CohortMembershipChange>>>,
@@ -913,9 +895,6 @@ impl FailNthSink {
     }
 }
 
-/// Drive the runtime until the sink has seen `count` produce calls (acked *or* failed), so a test
-/// can read mid-stream state after a produce that recorded nothing. The worker's state writes
-/// precede each produce call, so observing the call proves they committed.
 async fn drain_until_calls(sink: &FailNthSink, count: usize) {
     for _ in 0..10_000 {
         if sink.calls() >= count {
@@ -950,7 +929,6 @@ async fn sweep_produce_failure_reschedules_and_a_later_sweep_retries() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![behavioral_leaf(7)]);
     let lsk = behavioral_lsk(&filters);
-    // Fail the 2nd produce: the event's Entered (call 1) flushes, the first sweep's Left (call 2) fails.
     let sink = FailNthSink::new(2);
     let tracker = Arc::new(OffsetTracker::new());
     let (tx, worker) = spawn_worker(
@@ -986,8 +964,6 @@ async fn sweep_produce_failure_reschedules_and_a_later_sweep_retries() {
         "the retry deleted the state once its Left was durable",
     );
 }
-
-// ── Stage 2 composition through the sweep ────────────────────────────────────────
 
 #[tokio::test]
 async fn sweep_left_recomposes_a_two_leaf_cohort() {
@@ -1282,9 +1258,6 @@ async fn sweep_compose_produce_failure_does_not_corrupt() {
     send_event(&tracker, &tx, person_event_at(alice, ts, 0), 0).await;
     send_sweep(&tx, event_ms + 8 * DAY_MS).await;
 
-    // Barrier on the failed compose produce: both writes precede it, so once the call is observed
-    // the Stage 1 eviction and the false `cf_stage2` bit are committed, while the Left itself was
-    // dropped for good (write-before-produce: there is no retry vehicle).
     drain_until_calls(&sink, 2).await;
     assert!(
         state_at(&store, lsk, alice).is_none(),
@@ -1301,8 +1274,7 @@ async fn sweep_compose_produce_failure_does_not_corrupt() {
         "only the initial Entered was recorded — the composed Left is lost (at-most-once)",
     );
 
-    // A follow-up matching event re-creates the behavioral leaf and recomposes: false → true emits
-    // a fresh Entered — the active person's self-heal. (A dormant person would stay dropped.)
+    // A follow-up matching event re-creates the behavioral leaf and recomposes an Entered.
     send_event(
         &tracker,
         &tx,
@@ -1323,15 +1295,12 @@ async fn sweep_compose_produce_failure_does_not_corrupt() {
     assert_eq!(stage2_bit(&store, 1, alice), Some(true));
 }
 
-// ── Scheduling: explicit windows are excluded ────────────────────────────────────
-
 #[test]
 fn relative_window_schedules_an_eviction_but_an_explicit_window_does_not() {
     let (_dir, store) = temp_store();
     let alice = person(1);
     let ts = "2026-05-20 10:00:00.000000";
 
-    // A whole-day window schedules its eviction at the local midnight after `day + window` (D9).
     let relative = build_team_filters(vec![behavioral_leaf(7)]);
     let lsk = behavioral_lsk(&relative);
     let out = process_event(PARTITION_ID, &store, &relative, &event_at(alice, ts, 0)).unwrap();
@@ -1366,8 +1335,6 @@ fn relative_window_schedules_an_eviction_but_an_explicit_window_does_not() {
         "an explicit-window single is never scheduled for eviction",
     );
 }
-
-// ── DispatchSweeper end-to-end over the dispatcher ───────────────────────────────
 
 #[tokio::test]
 async fn dispatch_sweeper_routes_an_end_to_end_eviction() {
@@ -1421,8 +1388,6 @@ async fn dispatch_sweeper_routes_an_end_to_end_eviction() {
     assert_eq!(changes[0].status, MembershipStatus::Entered);
     assert_eq!(changes[1].status, MembershipStatus::Left);
 }
-
-// ── Negation + sweep ────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn sweep_expiry_of_negated_leaf_emits_entered() {

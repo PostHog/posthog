@@ -28,22 +28,18 @@ use crate::consumers::events::EventDispatcher;
 use crate::observability::metrics::{REBALANCES_TOTAL, REBALANCE_EMPTY_SKIPPED_TOTAL};
 use crate::partitions::follower::PartitionMirror;
 
-/// Work shipped from the synchronous rebalance callbacks to the async [`run_rebalance_worker`],
-/// which can do the I/O the callbacks must not.
+/// Work shipped from the synchronous rebalance callbacks to the async [`run_rebalance_worker`].
 #[derive(Debug, Clone)]
 pub enum RebalanceEvent {
-    /// Reclaim these revoked partitions: drain each worker (produce + ack its tail), then delete its
-    /// on-disk state slice.
+    /// Reclaim these revoked partitions: drain each worker, then delete its state slice.
     Revoke(Vec<i32>),
     /// Partitions newly assigned.
     Assign(Vec<i32>),
 }
 
-/// Receiving half of a context's rebalance channel, handed to [`run_rebalance_worker`].
 pub type RebalanceEventReceiver = mpsc::UnboundedReceiver<RebalanceEvent>;
 
-/// Commands from the rebalance worker to the consume loop for seeking and resuming partition
-/// consumption. Currently unused.
+/// Commands from the rebalance worker to the consume loop. Currently unused.
 #[derive(Debug)]
 pub enum ConsumerCommand {
     /// Resume consumption for these partitions.
@@ -52,22 +48,18 @@ pub enum ConsumerCommand {
     SeekPartitions(TopicPartitionList),
 }
 
-/// Sending half of the consumer-command channel.
 pub type ConsumerCommandSender = mpsc::UnboundedSender<ConsumerCommand>;
-/// Receiving half of the consumer-command channel.
 pub type ConsumerCommandReceiver = mpsc::UnboundedReceiver<ConsumerCommand>;
 
-/// The rdkafka [`ConsumerContext`] for `cohort_stream_events`. Its rebalance callbacks drive the
-/// shared [`EventDispatcher`]'s partition lifecycle and hand slow cleanup to the async worker.
+/// The rdkafka [`ConsumerContext`] for `cohort_stream_events`. Rebalance callbacks drive the
+/// [`EventDispatcher`]'s partition lifecycle and hand slow cleanup to the async worker.
 pub struct CohortConsumerContext {
     dispatcher: Arc<EventDispatcher>,
     rebalance_tx: mpsc::UnboundedSender<RebalanceEvent>,
 }
 
 impl CohortConsumerContext {
-    /// Build the context and the receiver half of its rebalance channel. The caller spawns
-    /// [`run_rebalance_worker`] with the returned receiver, so the slow revoke cleanup runs off the
-    /// librdkafka poll thread.
+    /// Build the context and the receiver half of its rebalance channel.
     pub fn new(dispatcher: Arc<EventDispatcher>) -> (Self, RebalanceEventReceiver) {
         let (rebalance_tx, rebalance_rx) = mpsc::unbounded_channel();
         (
@@ -79,12 +71,9 @@ impl CohortConsumerContext {
         )
     }
 
-    /// Sync, on the poll thread: mark each revoked partition un-owned and hand the slow reclaim
-    /// (drain + delete) to the async worker. No `.await` and no panic — both are forbidden here.
+    /// Sync, on the poll thread: mark each revoked partition un-owned and queue async cleanup.
     fn on_revoke(&self, partitions: &TopicPartitionList) {
         if partitions.count() == 0 {
-            // Cooperative-sticky fires empty callbacks whenever group membership changes without
-            // moving this consumer's partitions.
             counter!(REBALANCE_EMPTY_SKIPPED_TOTAL, "event_type" => "revoke").increment(1);
             debug!("skipping empty revoke");
             return;
@@ -96,13 +85,11 @@ impl CohortConsumerContext {
             self.dispatcher.revoke_partition_sync(partition);
         }
         if let Err(err) = self.rebalance_tx.send(RebalanceEvent::Revoke(partitions)) {
-            // Only at teardown (worker gone); the slice is reclaimed on the next clean start.
             error!(error = %err, "failed to queue revoke cleanup");
         }
     }
 
-    /// Sync, on the poll thread: record ownership for each assigned partition. Workers spawn lazily
-    /// on first message.
+    /// Sync, on the poll thread: record ownership for each assigned partition.
     fn on_assign(&self, partitions: &TopicPartitionList) {
         if partitions.count() == 0 {
             counter!(REBALANCE_EMPTY_SKIPPED_TOTAL, "event_type" => "assign").increment(1);
@@ -124,13 +111,9 @@ impl CohortConsumerContext {
 impl ClientContext for CohortConsumerContext {}
 
 impl ConsumerContext for CohortConsumerContext {
-    /// Never calls `assign`/`unassign`: rdkafka performs the incremental (un)assign automatically
-    /// between `pre_`/`post_` under the cooperative protocol, and calling the non-incremental form
-    /// forces eager semantics.
     fn pre_rebalance(&self, _base: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
         match rebalance {
             Rebalance::Revoke(partitions) => self.on_revoke(partitions),
-            // Cooperative pre-assign reports the to-be-added set; ownership is recorded in post.
             Rebalance::Assign(_) => {}
             Rebalance::Error(err) => error!(error = %err, "pre-rebalance error"),
         }
@@ -138,7 +121,6 @@ impl ConsumerContext for CohortConsumerContext {
 
     fn post_rebalance(&self, _base: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
         match rebalance {
-            // Assign in post, not pre: the partitions are ours and messages start flowing now.
             Rebalance::Assign(partitions) => self.on_assign(partitions),
             Rebalance::Revoke(_) => {}
             Rebalance::Error(err) => error!(error = %err, "post-rebalance error"),
@@ -146,20 +128,12 @@ impl ConsumerContext for CohortConsumerContext {
     }
 }
 
-/// Drain the async half of rebalancing: mirror every (un)assignment onto the merge-protocol
-/// follower consumers, and reclaim revoked partitions (drain worker + delete state) off the poll
-/// thread. Runs until the [`shutdown`](CancellationToken) token fires or the context (its only
-/// sender) is dropped.
+/// Async rebalance worker: mirrors (un)assignments onto follower consumers and drains revoked
+/// partitions off the poll thread. Runs until shutdown or the sender is dropped.
 ///
-/// Both mirror calls are **unconditional** (D5) — no ownership re-check, even on the rapid
-/// revoke→assign path where the drain itself skips. Between the sync revoke and the unassign here,
-/// the followers keep fetching and the owned-gate drops their messages while the in-session fetch
-/// position advances; only an unconditional re-assign at `Offset::Stored` rewinds over that dropped
-/// window, and the drain/apply source-coords markers absorb the redelivered prefix.
-///
-/// An in-flight cleanup is never interrupted: `select!` only races the *futures* — once a
-/// `RebalanceEvent` is received and its handler is running, it completes before the next shutdown
-/// check, so a partition is never left half-drained.
+/// Mirror calls are unconditional — even on rapid revoke→assign where the drain skips — because
+/// the followers' in-session fetch position advances past owned-gate-dropped messages and only a
+/// re-assign at `Offset::Stored` rewinds over that gap.
 pub async fn run_rebalance_worker(
     mut events: RebalanceEventReceiver,
     dispatcher: Arc<EventDispatcher>,
@@ -183,19 +157,13 @@ pub async fn run_rebalance_worker(
                 };
                 match event {
                     RebalanceEvent::Revoke(partitions) => {
-                        // Unassign the followers *before* the drain: the drain joins the worker, and
-                        // anything the followers fetched during that window would be dropped at the
-                        // owned-gate while still advancing their fetch position. Deliberately **no**
-                        // follower offset commit here: the worker may still be marking the drained
-                        // tail, and an uncommitted offset simply redelivers to the partition's next
-                        // owner, whose drain/apply source-coords markers absorb the replay.
+                        // Unassign followers before drain: during drain, their fetch position
+                        // would advance past owned-gate-dropped messages.
                         mirror.unassign(&partitions);
                         for partition in partitions {
                             dispatcher.revoke_partition_drain(partition).await;
                         }
                     }
-                    // The dispatcher side needs no async work (workers spawn lazily on first
-                    // message); the followers resume from each group's committed offset.
                     RebalanceEvent::Assign(partitions) => mirror.assign(&partitions),
                 }
             }
@@ -203,8 +171,6 @@ pub async fn run_rebalance_worker(
     }
 }
 
-/// This consumer's partition numbers from a rebalance TPL. It subscribes to a single topic, so the
-/// partition number alone identifies a partition.
 fn partition_numbers(partitions: &TopicPartitionList) -> Vec<i32> {
     partitions
         .elements()
@@ -235,9 +201,6 @@ mod tests {
         list
     }
 
-    /// A dispatcher over an empty catalog: enough to exercise the ownership/queue plumbing without
-    /// processing any events. Also returns the shared events tracker, the seam the mirror tests
-    /// use to observe whether the revoke drain has run yet.
     fn test_dispatcher() -> (TempDir, Arc<EventDispatcher>, Arc<OffsetTracker>) {
         let dir = TempDir::new().unwrap();
         let store = CohortStore::open(&StoreConfig {
@@ -265,9 +228,8 @@ mod tests {
         Unassign(Vec<i32>),
     }
 
-    /// Records every mirror call in order. At unassign time it also snapshots whether the events
-    /// tracker still held every revoked partition's entry — the drain forgets those entries, so a
-    /// `true` observation proves the unassign ran *before* the drain.
+    /// Records mirror calls. At unassign time, snapshots whether the tracker still held the
+    /// partition's entry (proving unassign ran before drain).
     struct RecordingMirror {
         tracker: Arc<OffsetTracker>,
         calls: Mutex<Vec<MirrorCall>>,
@@ -312,9 +274,6 @@ mod tests {
         }
     }
 
-    /// Queue the context's pending events, drop it, and run the worker to completion — the closed
-    /// channel drains every queued event before `recv()` yields `None`, so no polling or token
-    /// cancellation is needed.
     async fn run_worker_to_completion(
         events: RebalanceEventReceiver,
         dispatcher: Arc<EventDispatcher>,
@@ -333,7 +292,6 @@ mod tests {
 
     #[test]
     fn empty_tpl_has_zero_count() {
-        // The short-circuit precondition both callbacks rely on.
         assert_eq!(TopicPartitionList::new().count(), 0);
         assert_eq!(tpl(&[0]).count(), 1);
     }
@@ -444,10 +402,6 @@ mod tests {
         tracker.mark_dispatched(3, 10);
         assert_eq!(tracker.mark_processed(3, 10), MarkOutcome::WithinDispatch);
 
-        // Cooperative-sticky can revoke and immediately hand the partition back. The drain skips
-        // (re-acquired at its entry check) but the mirror must still unassign *and* re-assign:
-        // skipping the re-assign would leave the follower's in-session position past the
-        // owned-gate-dropped window, which a later monotonic-max mark would commit over.
         ctx.on_assign(&tpl(&[3]));
         ctx.on_revoke(&tpl(&[3]));
         ctx.on_assign(&tpl(&[3]));
@@ -466,7 +420,7 @@ mod tests {
         assert_eq!(
             tracker.committable_offsets().get(&3),
             Some(&10),
-            "the drain skipped for the re-acquired partition, so its tracker entry survives",
+            "drain skipped for re-acquired partition, so tracker entry survives",
         );
     }
 }

@@ -1,11 +1,8 @@
 //! Raw leaf JSON → classified leaf.
 //!
-//! Mirrors the Node filter manager's leaf gate (`realtime-supported-filter-manager-cdp.ts`) and the
-//! save-time bytecode rules (`posthog/cdp/filters.py`): only leaves that produced realtime bytecode
-//! (and therefore a `conditionHash`) are state-keyed; cohort references are kept in the tree but
-//! not indexed; everything else is dropped with a reason for the counter.
-//!
-//! Absent optional predicate fields hash as `""`/`0` per the [`LeafStateKey`] contract.
+//! Only leaves that produced realtime bytecode (and therefore a `conditionHash`) are state-keyed;
+//! cohort references are kept in the tree but not indexed; everything else is dropped with a reason
+//! for the counter.
 
 use std::sync::Arc;
 
@@ -23,19 +20,15 @@ use crate::stage1::pick_state::pick_state_variant;
 pub enum LeafDropReason {
     /// No `conditionHash`, or one that is not a 16-character string.
     MissingConditionHash,
-    /// No inline array `bytecode`. Node gates on `conditionHash` *and* `bytecode` (`manager.ts:137`).
+    /// No inline array `bytecode`.
     MissingBytecode,
     /// A behavioral `value` outside the two bytecode-producing types.
     UnsupportedBehavioralValue,
-    /// A behavioral leaf keyed by an action id (integer `key`) — never produced bytecode.
+    /// A behavioral leaf keyed by an action id (integer `key`).
     BehavioralActionKey,
-    /// A bytecode-bearing behavioral leaf whose Stage 1 state variant is not yet representable
-    /// (`performed_event_multiple`, or a `performed_event` with no resolvable window). Dropped here
-    /// so an unsupported variant never reaches the worker.
+    /// A bytecode-bearing behavioral leaf whose Stage 1 state variant is not yet representable.
     UnsupportedStateVariant,
-    /// A `type` outside `{person, behavioral, cohort}`. Matches Node, which logs and skips
-    /// (`realtime-supported-filter-manager-cdp.ts:146-159`); canonical cohorts always carry a
-    /// `type`, so this only fires on malformed input.
+    /// A `type` outside `{person, behavioral, cohort}`.
     UnknownLeafType,
     /// A leaf that matches none of the recognized shapes.
     MalformedLeaf,
@@ -82,8 +75,7 @@ fn classify_behavioral(node: &Value) -> LeafClass {
         _ => return LeafClass::Drop(LeafDropReason::UnsupportedBehavioralValue),
     };
 
-    // An integer `key` is an action id; action-keyed behavioral leaves never produced bytecode
-    // (`filters.py:341` returns None).
+    // An integer `key` is an action id — no bytecode is produced for these.
     if node.get("key").is_some_and(Value::is_number) {
         return LeafClass::Drop(LeafDropReason::BehavioralActionKey);
     }
@@ -92,7 +84,6 @@ fn classify_behavioral(node: &Value) -> LeafClass {
         return LeafClass::Drop(LeafDropReason::MissingConditionHash);
     };
 
-    // Node gates on conditionHash *and* bytecode together.
     let Some(bytecode) = bytecode_array(node.get("bytecode")) else {
         return LeafClass::Drop(LeafDropReason::MissingBytecode);
     };
@@ -140,20 +131,16 @@ fn classify_cohort_ref(node: &Value) -> LeafClass {
     }
 }
 
-/// Whether a person/behavioral leaf is negated for Stage 2 composition: `negation: true` only.
-/// A bare `operator: "not_in"` is a value-list predicate compiled into the bytecode, not a
-/// composition negation. Cohort-ref leaves differ: see [`cohort_ref_negation`].
+/// Whether a person/behavioral leaf is negated: `negation: true` only. A bare `operator: "not_in"`
+/// is a value-list predicate compiled into the bytecode, not a composition negation.
 fn explicit_negation(node: &Value) -> bool {
     node.get("negation")
         .and_then(Value::as_bool)
         .unwrap_or(false)
 }
 
-/// Whether a cohort-reference leaf is negated: explicit `negation: true`, or `operator: "not_in"` —
-/// the two equivalent exclusion encodings (`{ type: "cohort", …, operator: "not_in" }`). Mirrors
-/// `posthog/cdp/filters.py:104`, which wraps the whole referenced-cohort expression in `Not` for
-/// either. Unlike a person/behavioral leaf, a cohort ref has no bytecode to compile the `not_in`
-/// into, so the negation must be captured here.
+/// Whether a cohort-reference leaf is negated: `negation: true` or `operator: "not_in"`. Unlike a
+/// person/behavioral leaf, a cohort ref has no bytecode to compile `not_in` into.
 fn cohort_ref_negation(node: &Value) -> bool {
     explicit_negation(node) || node.get("operator").and_then(Value::as_str) == Some("not_in")
 }
@@ -174,8 +161,7 @@ fn classify_person(node: &Value) -> LeafClass {
     }))
 }
 
-/// The 16 ASCII bytes of the hex `conditionHash` string, carried verbatim (not hex-decoded) so the
-/// [`LeafStateKey`] maps 1:1. Anything other than a 16-byte string is rejected.
+/// The 16 ASCII bytes of the hex `conditionHash` string, or `None` if not exactly 16 bytes.
 fn condition_hash_bytes(value: Option<&Value>) -> Option<[u8; 16]> {
     let hash = value?.as_str()?;
     let bytes = hash.as_bytes();
@@ -188,16 +174,13 @@ fn condition_hash_bytes(value: Option<&Value>) -> Option<[u8; 16]> {
     }
 }
 
-/// The leaf's inline `bytecode`, or `None` if absent or not an array. `Arc` so tree clones /
-/// ArcSwap snapshots share one allocation. Not validated here — `Program::new` does that at
-/// evaluation time.
+/// The leaf's inline `bytecode`, or `None` if absent or not an array.
 fn bytecode_array(value: Option<&Value>) -> Option<Arc<Vec<Value>>> {
     let array = value?.as_array()?;
     Some(Arc::new(array.clone()))
 }
 
-/// A referenced cohort id as a JSON number or string-encoded int, mirroring `cohort.py`'s
-/// `int(cohort_id)` coercion.
+/// A referenced cohort id as a JSON number or string-encoded int.
 fn cohort_id_from_value(value: Option<&Value>) -> Option<i32> {
     let value = value?;
     if let Some(number) = value.as_i64() {

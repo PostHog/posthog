@@ -5,35 +5,25 @@ use rocksdb::{BlockBasedOptions, Cache, ColumnFamilyDescriptor, DBCompressionTyp
 use super::rocks::StoreConfig;
 use super::secondary_index::{full_merge, partial_merge, PERSON_INDEX_MERGE_OPERATOR_NAME};
 
-/// Stage 1 per-leaf state: `(partition_id, team_id, leaf_state_key, person_id) → StatefulRecord`.
+/// Stage 1 per-leaf state.
 pub const CF_STAGE1: &str = "cf_stage1";
-/// Per-person secondary index: `… → set<LeafStateKey>`.
+/// Per-person secondary index.
 pub const CF_PERSON_INDEX: &str = "cf_person_index";
-/// Stage 2 membership: `(partition_id, team_id, cohort_id, person_id) → Stage2State`.
+/// Stage 2 membership.
 pub const CF_STAGE2: &str = "cf_stage2";
-/// Cross-partition merge protocol (TDD §4.5.1), Phase 1 idempotence: `(partition_id, team_id,
-/// P_old, merge_msg_partition, merge_msg_offset) → drained_at_ms`. Short-circuits a re-drained merge
-/// message.
+/// Merge Phase 1 idempotence: short-circuits re-drained merge messages.
 pub const CF_MERGE_DRAINS_APPLIED: &str = "cf_merge_drains_applied";
-/// Phase 1 durability outbox: `(partition_id, team_id, P_old) → PendingTransfer`. Holds a packaged
-/// merge between the drain `WriteBatch` and the successful produce to `cohort_merge_state_transfer`;
-/// scanned on startup so an orphaned drain is re-produced.
+/// Phase 1 durability outbox: holds packaged merges until the transfer produce is acked.
 pub const CF_PENDING_TRANSFERS: &str = "cf_pending_transfers";
-/// Phase 2 idempotence: `(partition_id, team_id, P_new, source_partition, source_offset) →
-/// applied_at_ms`. Keyed by the triggering merge message's coordinates, so every duplicate copy of
-/// one merge's transfer short-circuits — not just a redelivery at the same transfer-topic offset.
+/// Phase 2 idempotence: keyed by the triggering merge message's coordinates.
 pub const CF_MERGE_APPLIED: &str = "cf_merge_applied";
-/// Post-merge straggler redirect (closes S6a): `(partition_id, team_id, P_old) → Tombstone`. Records
-/// merged-away persons so a late `cohort_stream_events` message for P_old is redirected to P_new.
+/// Post-merge straggler redirect: records merged-away persons for late-event redirection.
 pub const CF_MERGE_TOMBSTONES: &str = "cf_merge_tombstones";
 
 /// 10 bits ≈ 1% false-positive rate.
 const BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
 
-/// `Cf::ALL` iteration order is the canonical fan-out order (e.g. `delete_partition`).
-///
-/// The four `Merge*` families (TDD §4.5.1) are plain put/delete CFs — only [`Cf::PersonIndex`] runs a
-/// merge operator — so they are written by the typed `BatchBuilder` ops, never `put_raw`.
+/// Column family enum. Only [`Cf::PersonIndex`] runs a merge operator; the rest are plain put/delete.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Cf {
     Stage1,
@@ -69,11 +59,7 @@ impl Cf {
     }
 }
 
-/// A column family whose value is caller-owned opaque bytes — safe for a raw `put`.
-///
-/// `cf_person_index` is deliberately *not* a variant: it is merge-only (value format owned by the
-/// merge operator), so excluding it makes a raw put to the merge CF fail to compile rather than
-/// silently corrupt the set.
+/// A column family safe for raw `put`. `cf_person_index` is excluded (merge-only).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum OpaqueCf {
     Stage1,
@@ -116,8 +102,6 @@ fn cf_options(cf: Cf, config: &StoreConfig, cache: &Cache) -> Options {
         Cf::PersonIndex => {
             opts.set_merge_operator(PERSON_INDEX_MERGE_OPERATOR_NAME, full_merge, partial_merge);
         }
-        // Plain put/delete CFs — no merge operator (the merge families track offsets/payloads, not
-        // a merge-collapsed set).
         Cf::Stage1
         | Cf::Stage2
         | Cf::MergeDrainsApplied

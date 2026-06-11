@@ -1,10 +1,8 @@
-//! The cross-partition merge protocol (TDD §4.5.1) driven end-to-end through the public handler API
-//! against a real RocksDB — **no Kafka**. Seeds P_old and P_new state by folding events through
-//! [`process_event`](cohort_stream_processor::workers::process_event), then drives the drain +
-//! transfer + apply handlers directly, comparing the merged state to the same-partition fast path and
-//! to an "all events keyed to P_new from the start" oracle (Single + Daily + Compressed). Replays
-//! every handler twice for idempotence, and exercises the reopen-without-wipe recovery via
-//! `scan_pending_transfers` (crash criteria #5–#7 at the store level).
+//! Cross-partition merge protocol driven end-to-end through the public handler API against a real
+//! RocksDB (no Kafka). Seeds state via `process_event`, then drives drain + transfer + apply
+//! handlers directly, comparing merged state to the same-partition fast path and to an "all events
+//! keyed to P_new from the start" oracle. Replays every handler twice for idempotence and exercises
+//! the reopen-without-wipe recovery via `scan_pending_transfers`.
 
 use chrono_tz::UTC;
 use cohort_stream_processor::consumers::CohortStreamEvent;
@@ -409,10 +407,8 @@ fn seed_and_drain(dir: &TempDir) -> (CohortStore, TeamFilters, u16, Uuid, MergeS
     (store, filters, p_new_part, p_new, transfer)
 }
 
-/// Duplicate transfer copies are designed protocol paths (a crash between the produce ack and the
-/// outbox clear, an `AlreadyDrained` re-produce racing the original ack, the redrive racing the
-/// inline retry) — each copy lands at fresh transfer-topic coordinates, so the apply dedup must key
-/// by the source merge message's coordinates, which are identical across every copy.
+/// Each transfer copy lands at fresh transfer-topic coordinates, so the apply dedup must key by the
+/// source merge message's coordinates.
 #[test]
 fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() {
     let dir = TempDir::new().unwrap();
@@ -459,11 +455,9 @@ fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() 
     );
 }
 
-/// The accepted residual of source-coords dedup: a re-drain after a drain-marker wipe can capture
-/// straggler-rebuilt P_old state in a second transfer for the same merge — same source coordinates,
-/// different payload. The dedup cannot distinguish it from a plain duplicate copy, so the rebuilt
-/// state is dropped (rare — it needs a marker wipe plus stragglers in the same window; bounded by
-/// the straggler tail and comparator-scoped). This pins the drop as intended behavior.
+/// A re-drain after a drain-marker wipe can capture straggler-rebuilt P_old state in a second
+/// transfer with the same source coordinates but different payload. The dedup drops it. This pins
+/// the drop as intended behavior.
 #[test]
 fn redrained_transfer_with_rebuilt_state_is_dropped_by_source_coords_dedup() {
     let dir = TempDir::new().unwrap();
@@ -562,8 +556,7 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
     let p_new = person_not_on(p_old_part);
     let p_new_part = part(p_new);
 
-    // Drain (slow path), then drop the store handle — simulating a crash after the drain WriteBatch
-    // but before the transfer was produced.
+    // Drain, then drop the store handle (simulating a crash before the transfer was produced).
     {
         let store = temp_store_in(&dir);
         fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
@@ -593,7 +586,6 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
     let pending = PendingTransfer::decode(&recovered[0].1).unwrap();
     assert_eq!(pending.transfer.old_person_uuid, p_old);
 
-    // Apply the recovered transfer, then clear the outbox (the C2 produce → clear → commit sequence).
     let mut new_queue = EvictionQueue::<Stage1Key>::new();
     let applied = handle_transfer(
         p_new_part,
@@ -678,8 +670,6 @@ fn apply_transitions_compose_into_stage2() {
         other => panic!("expected Applied, got {other:?}"),
     };
 
-    // Compose Stage 2 over the apply transitions: the daily flip recomposes AND(daily, person) → it
-    // enters for P_new (cohort 4).
     let changes = compose_stage2(
         p_new_part,
         &store,
@@ -698,11 +688,8 @@ fn apply_transitions_compose_into_stage2() {
     );
 }
 
-/// D10's staging seam: a duplicate upstream merge event at NEW coordinates (the merge producer is
-/// at-least-once) misses the per-message drain marker, re-drains the by-then-empty P_old, and must
-/// NOT overwrite a still-pending, never-produced transfer with its empty payload — that would lose
-/// the packaged state for good. The empty re-drain stages nothing; the original entry survives
-/// verbatim for the redrive to produce.
+/// A duplicate merge event at new coordinates re-drains the already-empty P_old. The empty re-drain
+/// must NOT overwrite a still-pending transfer with its empty payload.
 #[test]
 fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
     let dir = TempDir::new().unwrap();
@@ -715,7 +702,6 @@ fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
         old_person: p_old,
     };
 
-    // The transfer was never produced (a produce failure), so the outbox entry is still staged.
     let staged = PendingTransfer::decode(
         &store
             .get_pending_transfer(&pending_key)
@@ -729,7 +715,7 @@ fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
         (5, 100),
     );
 
-    // The duplicate merge redelivers at fresh coordinates → the drain marker misses → re-drain.
+    // Duplicate merge at fresh coordinates → drain marker misses → re-drain.
     let mut queue = EvictionQueue::<Stage1Key>::new();
     let redrain = handle_merge_event(
         p_old_part,
@@ -751,7 +737,6 @@ fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
         "P_old was already drained, so the re-drain packages nothing",
     );
 
-    // The staged entry is untouched: same payload, same merge-message coordinates.
     let after = PendingTransfer::decode(
         &store
             .get_pending_transfer(&pending_key)

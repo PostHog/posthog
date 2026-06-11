@@ -1,59 +1,35 @@
 //! The typed unit of work the partition router dispatches to a partition worker.
-//!
-//! The router never inspects the payload: affinity is supplied alongside the message, since the
-//! shuffler's re-key already placed each event on the correct `cohort_stream_events` partition, and
-//! the merge-protocol topics are co-partitioned with it (TDD §4.5.1).
 
 use crate::consumers::events::CohortStreamEvent;
 use crate::merge::transfer::{MergeStateTransfer, PersonMergeEvent};
 
 /// A unit of work routed to the partition worker that owns its `(team_id, person_id)` key.
-///
-/// The hot `Event` variant is deliberately unboxed (see its doc), so it dwarfs the rare `Sweep`
-/// tick — boxing the common variant to shrink the enum would add a per-event allocation on the
-/// hot path, the opposite of what we want. A `Sweep` is at most one per partition per cycle; merges
-/// are ~12/s globally.
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ShuffleMessage {
-    /// A re-keyed event from `cohort_stream_events`, paired with its offset on that topic
-    /// (`cse_offset`); the partition is implicit (the worker's own). The worker marks this offset
-    /// processed only *after* the event's membership changes are produced and acked
-    /// (produce-before-commit), so it can't be committed ahead of its durable shadow output. Distinct
-    /// from [`CohortStreamEvent::source_partition`]/[`source_offset`](CohortStreamEvent::source_offset),
-    /// which anchor per-key replay idempotence in Stage 1.
-    ///
-    /// Unboxed on purpose: events are the hot, common variant, so inlining avoids a per-event heap
-    /// allocation and keeps each `Vec<ShuffleMessage>` slot contiguous.
+    /// A re-keyed event from `cohort_stream_events`, paired with its offset (`cse_offset`).
+    /// The worker marks this offset processed only after membership changes are produced and acked.
+    /// Unboxed: events are the hot path.
     Event {
         event: CohortStreamEvent,
         cse_offset: i64,
     },
-    /// A time-driven eviction tick, carrying the cutoff `due_before_ms = now − safety_margin`
-    /// computed once per cycle by the sweeper and shipped to every owned worker. Riding the same
-    /// per-partition channel as [`Event`](Self::Event) serializes the sweep behind in-flight events
-    /// on the owning worker, so the worker drains its own `EvictionQueue` with no locks (the
-    /// worker-affinity invariant). The cutoff is the queue's only clock input.
+    /// A time-driven eviction tick with the cutoff `due_before_ms`. Serialized on the same channel
+    /// as events so the worker processes it in order with no locks.
     Sweep { due_before_ms: i64 },
-    /// A merge trigger from `KAFKA_PERSON_MERGE_EVENTS` (keyed by P_old, so it lands on the worker
-    /// that owns P_old's state), paired with its offset on that topic. The worker drains P_old and
-    /// marks `offset` on the **merge** tracker — never the events `max_offset` — gating it per the
-    /// drain outcome (D7).
+    /// A merge trigger from `KAFKA_PERSON_MERGE_EVENTS` (keyed by P_old), paired with its topic
+    /// offset. Marked on the merge tracker, not the events tracker.
     Merge {
         event: PersonMergeEvent,
         offset: i64,
     },
-    /// A packaged state transfer from `cohort_merge_state_transfer` (keyed by P_new), paired with
-    /// its offset on that topic, marked on the **transfer** tracker once the apply `WriteBatch`
-    /// commits (D7). Boxed: rare (~12/s globally) and large (it carries whole per-leaf records), so
-    /// boxing keeps the enum near the hot `Event` variant's size at a negligible per-merge cost.
+    /// A state transfer from `cohort_merge_state_transfer` (keyed by P_new), paired with its topic
+    /// offset. Boxed because it's rare and large.
     Transfer {
         transfer: Box<MergeStateTransfer>,
         offset: i64,
     },
-    /// A periodic tick telling the worker to re-produce any `cf_pending_transfers` entries left by
-    /// a transfer-produce failure (D3's within-tenure recovery). Carries no payload — the worker
-    /// scans its own partition's outbox slice.
+    /// Periodic tick to re-produce any `cf_pending_transfers` entries left by a failed produce.
     RedrivePendingTransfers,
 }
 

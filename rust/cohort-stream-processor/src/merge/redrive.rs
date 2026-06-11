@@ -1,11 +1,7 @@
-//! [`RedriveSweeper`]: the periodic pending-transfer redrive tick (TDD §4.5.1, D3).
+//! Periodic pending-transfer redrive tick.
 //!
-//! Lives in the merge module — not [`crate::sweep`] — so the sweep stays merge-free; it reuses
-//! only the sweep's timer ([`run_sweep_loop`](crate::sweep::run_sweep_loop)) and its [`Sweeper`]
-//! seam. Each tick routes a [`RedrivePendingTransfers`](crate::partitions::shuffle_message::ShuffleMessage::RedrivePendingTransfers)
-//! to every owned partition's worker, which re-produces any `cf_pending_transfers` entries
-//! stranded by inline-retry exhaustion (see
-//! [`handle_redrive`](crate::workers::merge_path::handle_redrive)).
+//! Each tick routes a `RedrivePendingTransfers` to every owned partition's worker, which
+//! re-produces any `cf_pending_transfers` entries stranded by inline-retry exhaustion.
 
 use std::sync::Arc;
 
@@ -14,10 +10,7 @@ use async_trait::async_trait;
 use crate::consumers::events::EventDispatcher;
 use crate::sweep::Sweeper;
 
-/// A [`Sweeper`] that routes a redrive tick to every owned partition each cycle. Carries no clock —
-/// unlike the eviction sweep there is no cutoff to compute; the worker's outbox scan is the whole
-/// tick. The no-spawn / benign-`RouteError` reasoning lives on
-/// [`EventDispatcher::route_redrive`].
+/// A [`Sweeper`] that routes a redrive tick to every owned partition each cycle.
 pub struct RedriveSweeper {
     dispatcher: Arc<EventDispatcher>,
 }
@@ -69,8 +62,6 @@ mod tests {
 
     #[tokio::test]
     async fn run_once_routes_to_owned_partitions_without_panicking() {
-        // Owned partitions with no spawned worker: each tick is a benign dropped RouteError (no
-        // worker ⇒ nothing was staged this tenure), so run_once must complete cleanly.
         let (_dir, dispatcher) = dispatcher();
         dispatcher.assign_partition(0);
         dispatcher.assign_partition(1);

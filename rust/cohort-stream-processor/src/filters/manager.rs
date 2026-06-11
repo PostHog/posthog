@@ -1,9 +1,7 @@
 //! `FilterCatalog` + atomic swap + refresh loop.
 //!
-//! Mirrors `rust/cohort-event-shuffler/src/filter_team_index.rs`: a lock-free
-//! [`arc_swap::ArcSwap`] snapshot, an `is_loaded` fail-closed gate, and a jittered refresh task.
-//! The refresh task has no liveness deadline — a refresh outage keeps the last good snapshot rather
-//! than killing the service, since staleness is safe.
+//! A lock-free [`arc_swap::ArcSwap`] snapshot with a fail-closed gate and jittered refresh task.
+//! A refresh outage keeps the last good snapshot rather than killing the service.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -81,13 +79,9 @@ pub struct CatalogStats {
 pub struct CatalogHandle {
     catalog: ArcSwap<FilterCatalog>,
     loaded: AtomicBool,
-    /// Wakes [`wait_until_loaded`](Self::wait_until_loaded) waiters on the first successful
-    /// [`store`](Self::store). Notified on every store (cheap, idempotent) rather than just the
-    /// first, so no first-store bookkeeping is needed.
+    /// Wakes [`wait_until_loaded`](Self::wait_until_loaded) waiters on the first successful store.
     loaded_notify: Notify,
-    /// Applied at [`refresh`](Self::refresh) time: cohorts for teams outside this allowlist never
-    /// enter the catalog, so per-team lookups, the `FILTER_CATALOG_TEAMS` gauge, and shadow output
-    /// all reflect the scoped set for free.
+    /// Cohorts for teams outside this allowlist never enter the catalog.
     allowlist: TeamAllowlist,
 }
 
@@ -117,9 +111,8 @@ impl CatalogHandle {
         self.loaded.load(Ordering::Acquire)
     }
 
-    /// Resolve once the first refresh has succeeded; immediate if it already has. The merge-protocol
-    /// follower loops gate on this (D9): before the first load every team reads as absent, and a
-    /// drain/apply against that false-empty view would drop a real team's leaves as drift.
+    /// Resolve once the first refresh has succeeded; immediate if it already has. Before the first
+    /// load every team reads as absent, so consumers must gate on this to avoid false-empty views.
     pub async fn wait_until_loaded(&self) {
         while !self.is_loaded() {
             // Register the waiter *before* re-checking, so a store that lands between the check and
@@ -206,8 +199,7 @@ pub async fn run_refresh_loop(
     }
 }
 
-/// A sleep duration uniformly in `[interval - jitter, interval + jitter]`. Copied from the
-/// shuffler's `filter_team_index::next_interval`.
+/// A sleep duration uniformly in `[interval - jitter, interval + jitter]`.
 fn next_interval(interval: Duration, jitter: Duration) -> Duration {
     if jitter.is_zero() {
         return interval;

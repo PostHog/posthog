@@ -1,8 +1,4 @@
 //! The RocksDB wrapper: one database per process, multi-CF atomic `WriteBatch`, async WAL.
-//!
-//! Bespoke rather than reusing `kafka-deduplicator`'s store: that one shards static block-cache /
-//! write-buffer machinery across many per-partition stores, whereas there is one DB per process
-//! here, so this wrapper owns its resources directly and adds the `cf_person_index` merge operator.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,10 +44,7 @@ pub struct StoreConfig {
     pub write_buffer_bytes: usize,
     pub max_open_files: i32,
     pub create_if_missing: bool,
-    /// Destroy any existing database at `path` before opening, for a guaranteed stale-free start:
-    /// re-acquiring a partition must never serve per-partition state a previous owner left on disk.
-    /// Off by default (preserving state across a reopen); the service sets it from
-    /// [`Config::wipe_store_on_start`](crate::config::Config::wipe_store_on_start).
+    /// Destroy any existing database at `path` before opening.
     pub wipe_on_start: bool,
 }
 
@@ -95,20 +88,15 @@ pub enum StoreError {
     },
 }
 
-/// Handle to the per-process state store. Cheaply cloneable (`Arc<DB>`), so each partition worker
-/// can hold its own clone over one shared database.
+/// Handle to the per-process state store. Cheaply cloneable (`Arc<DB>`).
 #[derive(Clone)]
 pub struct CohortStore {
-    // `SingleThreaded` (vs `MultiThreaded`) avoids a per-`cf_handle` RwLock read + Arc clone, since
-    // the CF set is fixed at open. The DB is still `Sync`, so the `Arc` is shared across workers.
     db: Arc<DBWithThreadMode<SingleThreaded>>,
 }
 
 impl CohortStore {
-    /// Open the three state column families at `config.path`, creating them if missing.
-    ///
-    /// When [`wipe_on_start`](StoreConfig::wipe_on_start) is set and a database already exists at
-    /// `config.path`, it is destroyed first so the process starts from an empty store.
+    /// Open the column families at `config.path`, creating them if missing. If `wipe_on_start` is
+    /// set and a database exists, it is destroyed first.
     pub fn open(config: &StoreConfig) -> Result<Self, StoreError> {
         let cache = Cache::new_lru_cache(config.block_cache_bytes);
         let db_opts = db_options(config);
@@ -141,13 +129,10 @@ impl CohortStore {
             }
         })?;
 
-        // RocksDB retains `cache` for the DB's lifetime (`OptionsMustOutliveDB`), so dropping the
-        // local here is safe.
         Ok(Self { db: Arc::new(db) })
     }
 
-    /// Read a raw value from any CF. For `cf_person_index` prefer [`CohortStore::get_person_index`],
-    /// which decodes the merge-collapsed set.
+    /// Read a raw value from any CF.
     pub fn get(&self, cf: Cf, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
         let handle = self.cf(cf)?;
         self.db.get_cf(handle, key).map_err(|source| {
@@ -160,9 +145,7 @@ impl CohortStore {
         self.get(Cf::Stage1, &key.encode())
     }
 
-    /// Batch-read several `cf_stage1` values in one call, one entry per input key **in input order**
-    /// (RocksDB's `multi_get` preserves it). A single backend error fails the whole call, so the
-    /// caller skips-and-retries rather than composing from a partial read.
+    /// Batch-read several `cf_stage1` values in one call, preserving input order.
     pub fn multi_get_stage1(&self, keys: &[Stage1Key]) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
         let handle = self.cf(Cf::Stage1)?;
         let encoded: Vec<_> = keys.iter().map(Stage1Key::encode).collect();
@@ -193,8 +176,7 @@ impl CohortStore {
             .unwrap_or_default())
     }
 
-    /// Apply writes across the three CFs in one `WriteBatch`. The single WAL record keeps the batch
-    /// all-or-nothing across CFs even though the WAL is async.
+    /// Apply writes across CFs in one atomic `WriteBatch`.
     pub fn write_batch<F>(&self, build: F) -> Result<(), StoreError>
     where
         F: FnOnce(&mut BatchBuilder<'_>),
@@ -235,17 +217,12 @@ impl CohortStore {
         self.get(Cf::MergeTombstones, &key.encode())
     }
 
-    /// Clear one outbox slot once its transfer is acked — the C2 produce path's "delete after produce"
-    /// step. A standalone batch (not part of the drain) since it runs only after the produce returns.
+    /// Clear one outbox slot once its transfer is acked.
     pub fn clear_pending_transfer(&self, key: &PendingTransferKey) -> Result<(), StoreError> {
         self.write_batch(|batch| batch.delete_pending_transfer(key))
     }
 
-    /// Scan one partition's `cf_pending_transfers` slice, returning `(key, value)` in key order. The
-    /// first iterator API in the crate — C2's startup recovery and periodic redrive re-produce these
-    /// orphaned transfers. Bounded to `[partition_range.0, partition_range.1)` via an upper bound, so
-    /// it reads only the requested partition. A backend or key-decode error fails the whole scan
-    /// (recovery fails loud rather than silently skipping an orphan).
+    /// Scan one partition's `cf_pending_transfers` slice, returning `(key, value)` in key order.
     pub fn scan_pending_transfers(
         &self,
         partition_id: u16,
@@ -275,8 +252,7 @@ impl CohortStore {
         Ok(out)
     }
 
-    /// Reclaim all state for one partition on rebalance. The per-CF `delete_range`s share one batch
-    /// so a crash can't leave one CF's partition state orphaned.
+    /// Reclaim all state for one partition on rebalance.
     pub fn delete_partition(&self, partition_id: u16) -> Result<(), StoreError> {
         let (start, end) = keys::partition_range(partition_id);
         let mut batch = WriteBatch::default();
@@ -287,8 +263,7 @@ impl CohortStore {
         self.commit(batch, OP_DELETE_PARTITION)
     }
 
-    /// Flush all CF memtables to SST, atomic across CFs (`set_atomic_flush`). Checkpoint path and
-    /// tests only, not the hot path.
+    /// Flush all CF memtables to SST. Checkpoint path and tests only.
     pub fn flush(&self) -> Result<(), StoreError> {
         let handles = [
             self.cf(Cf::Stage1)?,
@@ -341,8 +316,7 @@ impl CohortStore {
     }
 }
 
-/// Typed builder for a multi-CF [`WriteBatch`], handed to the [`CohortStore::write_batch`] closure.
-/// Holds the three CF handles up front so the closure can mix writes without re-resolving them.
+/// Typed builder for a multi-CF [`WriteBatch`].
 pub struct BatchBuilder<'db> {
     batch: WriteBatch,
     stage1: &'db ColumnFamily,
@@ -363,17 +337,13 @@ impl BatchBuilder<'_> {
         self.batch.delete_cf(self.stage1, key.encode());
     }
 
-    /// Read-free append/remove on the person's index; the merge operator resolves it at
-    /// compaction/read time.
+    /// Read-free append/remove on the person's index.
     pub fn merge_person_index(&mut self, key: &PersonIndexKey, op: IndexOp) {
         self.batch
             .merge_cf(self.person_index, key.encode(), op.encode());
     }
 
-    /// Whole-key delete of a person's index entry — used by the merge drain to drop P_old's entire
-    /// leaf set in one op rather than a `Remove` per leaf. Sound against the merge operator: a `Delete`
-    /// is a base tombstone, so a later `merge_person_index(Append)` re-creates the set from an empty
-    /// base (`full_merge` with `existing = None`), never resurrecting the deleted entries.
+    /// Whole-key delete of a person's index entry.
     pub fn delete_person_index(&mut self, key: &PersonIndexKey) {
         self.batch.delete_cf(self.person_index, key.encode());
     }
@@ -386,21 +356,19 @@ impl BatchBuilder<'_> {
         self.batch.delete_cf(self.stage2, key.encode());
     }
 
-    // ── merge protocol (TDD §4.5.1) — plain put/delete, no merge operator ──────────
-
     /// Stage the Phase 1 idempotence marker for a drained merge message.
     pub fn put_merge_drain_applied(&mut self, key: &MergeDrainKey, value: &[u8]) {
         self.batch
             .put_cf(self.merge_drains_applied, key.encode(), value);
     }
 
-    /// Stage a packaged merge into the outbox, between the drain `WriteBatch` and the transfer produce.
+    /// Stage a packaged merge into the outbox.
     pub fn put_pending_transfer(&mut self, key: &PendingTransferKey, value: &[u8]) {
         self.batch
             .put_cf(self.pending_transfers, key.encode(), value);
     }
 
-    /// Clear an outbox slot once its transfer is acked (C2 produce path).
+    /// Clear an outbox slot once its transfer is acked.
     pub fn delete_pending_transfer(&mut self, key: &PendingTransferKey) {
         self.batch.delete_cf(self.pending_transfers, key.encode());
     }
@@ -416,8 +384,7 @@ impl BatchBuilder<'_> {
             .put_cf(self.merge_tombstones, key.encode(), value);
     }
 
-    /// Raw put by pre-encoded key bytes. Restricted to [`OpaqueCf`]: `cf_person_index` is merge-only
-    /// and absent from that enum, so a raw put to it cannot compile.
+    /// Raw put by pre-encoded key bytes. Restricted to [`OpaqueCf`].
     pub fn put_raw(&mut self, cf: OpaqueCf, key: &[u8], value: &[u8]) {
         let handle = match cf {
             OpaqueCf::Stage1 => self.stage1,
@@ -431,8 +398,6 @@ fn db_options(config: &StoreConfig) -> Options {
     let mut opts = Options::default();
     opts.create_if_missing(config.create_if_missing);
     opts.create_missing_column_families(true);
-    // Makes a multi-CF checkpoint a consistent point-in-time across CFs. Does NOT affect WriteBatch
-    // atomicity — the WAL already covers that.
     opts.set_atomic_flush(true);
     opts.set_max_open_files(config.max_open_files);
     // Disable mmap to bound virtual memory on shared PVC storage.

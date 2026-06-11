@@ -16,15 +16,8 @@ use crate::stage1::key::LeafStateKey;
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{Stage1State, StateVariant};
 
-/// Whether one leaf is currently a member.
-///
-/// Dispatches on `meta.variant`, **not** the stored state's tag: the op-less [`predicate`] returns
-/// `false` for the bucket variants (no comparator), so a `performed_event_multiple` leaf is routed to
-/// [`daily_predicate`] / [`compressed_predicate`] with the leaf's comparator. Absent state is `false`,
-/// exact against the oracle (each per-condition `SELECT` requires ≥1 row via `GROUP BY person_id`, and
-/// the bucket predicates enforce the matching `count >= 1` floor). A state tag that disagrees with
-/// `meta.variant`, or a bucket leaf with no comparator, counts [`STAGE2_STATE_DECODE_ERROR`] and reads
-/// as a non-member.
+/// Whether one leaf is currently a member. Dispatches on `meta.variant`; absent state is `false`.
+/// A variant/state desync or missing comparator counts as a decode error and reads as non-member.
 pub fn leaf_membership(state: Option<&Stage1State>, meta: &LeafStateMeta) -> bool {
     let Some(state) = state else {
         return false;
@@ -52,9 +45,8 @@ pub fn leaf_membership(state: Option<&Stage1State>, meta: &LeafStateMeta) -> boo
     }
 }
 
-/// Fold a cohort's filter tree into one membership bit over `membership` (`LeafStateKey → member?`).
-/// Each leaf's raw membership is XOR'd with its `negated()` bit. A `CohortRef` leaf reads `false`
-/// and counts [`STAGE2_UNEXPECTED_COHORT_REF`].
+/// Fold a cohort's filter tree into one membership bit. Each leaf's membership is XOR'd with its
+/// `negated()` bit. A `CohortRef` leaf reads `false`.
 pub fn evaluate_tree(node: &FilterNode, membership: &HashMap<LeafStateKey, bool>) -> bool {
     match node {
         FilterNode::Group { op, children } => match op {
@@ -135,8 +127,6 @@ mod tests {
             predicate_op: Some(op),
         }
     }
-
-    // ── leaf_membership ──────────────────────────────────────────────────────
 
     #[test]
     fn leaf_membership_absent_state_is_false() {
@@ -244,8 +234,6 @@ mod tests {
         assert!(!leaf_membership(Some(&state), &meta));
     }
 
-    // ── evaluate_tree ────────────────────────────────────────────────────────
-
     #[test]
     fn evaluate_and_is_the_conjunction() {
         let tree = group(BoolOp::And, vec![person_leaf(lsk(1)), person_leaf(lsk(2))]);
@@ -327,8 +315,6 @@ mod tests {
             "the cohort ref reads false, so OR(false, ref) is false",
         );
     }
-
-    // ── XOR negation ────────────────────────────────────────────────────────────
 
     #[test]
     fn xor_truth_table_for_and_a_neg_b() {

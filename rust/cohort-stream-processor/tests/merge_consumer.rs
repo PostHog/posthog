@@ -1,26 +1,18 @@
-//! End-to-end tests for the cross-partition merge protocol (TDD §4.5.1) against a **real** Kafka
-//! broker: the two follower consumers, the assignment mirror, the keyed transfer / re-key produces,
-//! and the per-topic offset commits, wired exactly like `main.rs`.
+//! End-to-end tests for the cross-partition merge protocol against a **real** Kafka broker: the two
+//! follower consumers, the assignment mirror, the keyed transfer / re-key produces, and the
+//! per-topic offset commits, wired exactly like `main.rs`.
 //!
-//! `#[ignore]`d by default for the same reasons as `tests/events_consumer.rs` (group joins,
-//! committed-offset round-trips, and `incremental_assign` semantics that the in-process
-//! `MockCluster` does not exercise faithfully). All topics are created with the production
-//! partition count (64) because the protocol's partition arithmetic is the thing under test. Run
-//! against a local stack — serially, because concurrent tests trip the broker's partition-per-shard
-//! cap described below — with:
+//! `#[ignore]`d by default (group joins, committed-offset round-trips, and `incremental_assign`
+//! semantics that the in-process `MockCluster` does not exercise faithfully). All topics are created
+//! with the production partition count (64) because the protocol's partition arithmetic is the thing
+//! under test. Run against a local stack serially:
 //!
 //! ```sh
 //! cargo test -p cohort-stream-processor --test merge_consumer -- --ignored --test-threads=1
 //! ```
 //!
-//! The crash-window acceptance criteria (#5/#7) live at the store level in
-//! `tests/merge_protocol.rs` and are deliberately not duplicated here.
-//!
-//! Each test deletes its topics on the way out — even when an assert panics, via
-//! `with_topics_cleanup`: 64-partition topics are expensive on a single-node local broker
-//! (Redpanda caps partitions per shard), and leaking a few runs' worth makes every later
-//! `create_topics` fail with `InvalidPartitions`. If the guard itself never runs (killed process)
-//! or its best-effort delete fails, sweep leftovers with:
+//! Each test deletes its topics on the way out via `with_topics_cleanup`. If that never runs
+//! (killed process), sweep leftovers with:
 //!
 //! ```sh
 //! docker exec posthog-kafka-1 sh -c 'rpk topic list | awk "{print \$1}" \
@@ -76,15 +68,10 @@ use uuid::Uuid;
 
 const TEAM: i32 = 7;
 const HASH: [u8; 16] = *b"0123456789abcdef";
-/// The production shuffler partition count — the merge protocol's partition arithmetic (D1, D14)
-/// is the thing under test, so every co-partitioned topic is created with exactly this count.
 const NUM_PARTITIONS: i32 = COHORT_PARTITION_COUNT as i32;
 const TS: &str = "2026-06-10 12:34:56.789000";
-/// A later same-day timestamp for the post-merge straggler, so its fold is observable as a bucket
-/// increment on P_new.
 const TS_LATER: &str = "2026-06-10 13:34:56.789000";
 const MERGED_AT: i64 = 1_770_000_000_000;
-/// Short cadences so commit ticks fire many times within every wait loop's deadline.
 const COMMIT_INTERVAL: Duration = Duration::from_millis(250);
 const RECV_TIMEOUT: Duration = Duration::from_millis(200);
 
@@ -92,11 +79,8 @@ fn bootstrap_servers() -> String {
     std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
 }
 
-// ── Catalog ─────────────────────────────────────────────────────────────────
-
-/// Two single-leaf cohorts sharing one `$pageview` matcher: cohort 1 is a `performed_event` single
-/// (membership pin), cohort 2 a `performed_event_multiple gte 2` daily (its bucket counts make a
-/// double-apply observable as a doubled sum — the D2 dedup pin).
+/// Two single-leaf cohorts sharing one `$pageview` matcher: cohort 1 is a `performed_event` single,
+/// cohort 2 a `performed_event_multiple gte 2` daily (bucket counts make a double-apply observable).
 fn merge_catalog() -> CatalogHandle {
     let single = json!({
         "type": "behavioral", "value": "performed_event", "key": "$pageview",
@@ -131,8 +115,6 @@ fn merge_catalog() -> CatalogHandle {
     )]))
 }
 
-/// The (single, daily) leaf-state keys — both leaves share `HASH`, so they are told apart by their
-/// resolved state variant (mirrors `tests/merge_protocol.rs`'s `lsk_of`).
 fn behavioral_lsks(catalog: &CatalogHandle) -> (LeafStateKey, LeafStateKey) {
     let snapshot = catalog.load();
     let team = snapshot.team(TeamId(TEAM)).expect("team in catalog");
@@ -148,8 +130,6 @@ fn behavioral_lsks(catalog: &CatalogHandle) -> (LeafStateKey, LeafStateKey) {
         pick(StateVariant::BehavioralDailyBuckets),
     )
 }
-
-// ── Broker plumbing (mirrors tests/events_consumer.rs — test binaries cannot share helpers) ─────
 
 async fn create_topic(topic: &str, partitions: i32) {
     let admin: AdminClient<DefaultClientContext> = ClientConfig::new()
@@ -168,8 +148,6 @@ async fn create_topic(topic: &str, partitions: i32) {
             Err((name, err)) => panic!("failed to create topic {name}: {err:?}"),
         }
     }
-    // Wait until the topic's metadata (every partition, no error) is visible before producing —
-    // a deadline loop, never a bare sleep (see `wait_for`).
     let verifier: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
         .set("group.id", format!("metadata-verifier-{}", Uuid::new_v4()))
@@ -198,8 +176,6 @@ async fn create_topic(topic: &str, partitions: i32) {
     }
 }
 
-/// Best-effort deletion of this run's topics (see the module doc). Failures only leak partitions,
-/// never fail the test.
 async fn delete_topics(topics: &[&str]) {
     let admin: AdminClient<DefaultClientContext> = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -212,9 +188,6 @@ async fn delete_topics(topics: &[&str]) {
 }
 
 /// Run a test body, delete `topics` whether it passed or panicked, then re-propagate any panic.
-/// An assert failure must still clean up: each run creates 3-4 64-partition topics, and leaking
-/// them wedges every later run's `create_topics` with `InvalidPartitions` exactly while iterating
-/// on the failure (the module-doc `rpk` sweep is the manual fallback when even this cannot run).
 async fn with_topics_cleanup<F: Future<Output = ()>>(topics: &[&str], body: F) {
     let result = AssertUnwindSafe(body).catch_unwind().await;
     delete_topics(topics).await;
@@ -223,8 +196,7 @@ async fn with_topics_cleanup<F: Future<Output = ()>>(topics: &[&str], body: F) {
     }
 }
 
-/// Mirrors the service's `Config::build_kafka_config`; the `murmur2_random` partitioner is
-/// load-bearing for every keyed produce under test (D1).
+/// The `murmur2_random` partitioner must match production for keyed co-partitioning.
 fn producer_kafka_config() -> KafkaConfig {
     KafkaConfig {
         kafka_hosts: bootstrap_servers(),
@@ -247,9 +219,6 @@ fn producer_kafka_config() -> KafkaConfig {
     }
 }
 
-/// A raw producer with the pinned `murmur2_random` partitioner — what the shuffler and the future
-/// Node merge producer (C3) use, so test-produced events and merge triggers land exactly where the
-/// protocol's `partition_of` arithmetic expects them.
 fn murmur2_producer() -> FutureProducer {
     ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -259,8 +228,6 @@ fn murmur2_producer() -> FutureProducer {
         .expect("create murmur2 producer")
 }
 
-/// Mirrors `Config::consumer_client_config` the way `tests/events_consumer.rs`'s `build_consumer`
-/// does (a `Config` is only constructible from the environment).
 fn events_client_config(group: &str) -> ClientConfig {
     let mut config = ClientConfig::new();
     config
@@ -274,9 +241,6 @@ fn events_client_config(group: &str) -> ClientConfig {
     config
 }
 
-/// Mirrors `Config::follower_client_config`: hard-coded `auto.offset.reset=earliest`, no
-/// assignment strategy (followers never `subscribe()`), `group.id` only so commits land on an
-/// observable group.
 fn follower_client_config(group: &str) -> ClientConfig {
     let mut config = ClientConfig::new();
     config
@@ -289,8 +253,6 @@ fn follower_client_config(group: &str) -> ClientConfig {
     config
 }
 
-/// Not subscribed, so reading committed offsets is an OffsetFetch RPC, not a group join that would
-/// rebalance the consumers under test.
 fn group_verifier(group: &str) -> StreamConsumer {
     ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -368,9 +330,6 @@ async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i
     messages
 }
 
-/// Poll `condition` until it holds or `deadline` elapses. Every synchronization in this file goes
-/// through a deadline loop like this one — never a bare sleep (the events-consumer migration test's
-/// flake lesson).
 async fn wait_for(what: &str, deadline: Duration, mut condition: impl FnMut() -> bool) {
     let start = Instant::now();
     while !condition() {
@@ -381,8 +340,6 @@ async fn wait_for(what: &str, deadline: Duration, mut condition: impl FnMut() ->
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
-
-// ── Domain helpers ──────────────────────────────────────────────────────────
 
 fn part(person: Uuid) -> u16 {
     partition_of(TeamId(TEAM), &person, COHORT_PARTITION_COUNT) as u16
@@ -436,9 +393,7 @@ fn envelope(person: Uuid, ts: &str, source_offset: i64) -> Vec<u8> {
     .expect("serialize envelope")
 }
 
-/// Produce one `$pageview` for `person`, keyed with the shuffler's `"{team}:{person}"` re-key. The
-/// delivery-report assertion is load-bearing: the seeded state must land on the slice the merge
-/// drain will enumerate, or every test here would silently test nothing.
+/// Produce one `$pageview` for `person`, asserting it lands on the expected partition.
 async fn produce_event(
     producer: &FutureProducer,
     topic: &str,
@@ -472,8 +427,7 @@ fn merge_event(old: Uuid, new: Uuid) -> PersonMergeEvent {
     }
 }
 
-/// Produce one merge trigger keyed by P_old (what the Node merge producer emits in C3), asserting
-/// it lands on P_old's partition.
+/// Produce one merge trigger keyed by P_old, asserting it lands on P_old's partition.
 async fn produce_merge(producer: &FutureProducer, topic: &str, event: &PersonMergeEvent) {
     let key = merge_partition_key(TeamId(event.team_id), &event.old_person_uuid);
     let payload = event.encode();
@@ -494,8 +448,6 @@ async fn produce_merge(producer: &FutureProducer, topic: &str, event: &PersonMer
         "merge trigger must land on P_old's partition",
     );
 }
-
-// ── Store readers ───────────────────────────────────────────────────────────
 
 fn open_store(dir: &TempDir) -> CohortStore {
     CohortStore::open(&StoreConfig {
@@ -551,8 +503,6 @@ fn tombstone_for(store: &CohortStore, person: Uuid) -> Option<Tombstone> {
         .map(|bytes| Tombstone::decode(&bytes).unwrap())
 }
 
-// ── Harness: one full processor instance, wired like main.rs ────────────────
-
 struct Topics {
     events: String,
     merges: String,
@@ -574,7 +524,6 @@ impl Topics {
         create_topic(&self.transfers, NUM_PARTITIONS).await;
     }
 
-    /// The names `with_topics_cleanup` deletes on the way out, pass or panic.
     fn names(&self) -> [&str; 3] {
         [&self.events, &self.merges, &self.transfers]
     }
@@ -596,8 +545,6 @@ impl Groups {
     }
 }
 
-/// The lifecycle handles one instance needs; registered up front because `monitor_background`
-/// consumes the manager.
 fn register_instance(manager: &mut Manager, name: &str) -> [Handle; 3] {
     let options = || ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15));
     [
@@ -625,11 +572,8 @@ impl Instance {
     }
 }
 
-/// One full processor instance, wired exactly like `main.rs`: the events consumer whose rebalance
-/// worker mirrors (un)assignments onto the two follower consumers (D5), real Kafka sinks for the
-/// transfer and the straggler re-key (D1), and per-topic offset trackers (D7). No sweep or redrive
-/// loop — nothing here needs time-driven eviction, and the redrive only matters under produce
-/// failure (covered Kafka-free in `workers/merge_path.rs`).
+/// One full processor instance wired like `main.rs`: events consumer, two follower consumers, real
+/// Kafka sinks for transfer and re-key. No sweep or redrive loop.
 async fn spawn_instance(
     topics: &Topics,
     groups: &Groups,
@@ -668,7 +612,6 @@ async fn spawn_instance(
         merge_deps,
     ));
 
-    // The followers never `subscribe()`; the events group's rebalance mirrors ownership onto them.
     let merges_consumer: Arc<StreamConsumer> = Arc::new(
         follower_client_config(&groups.merges)
             .create()
@@ -744,11 +687,6 @@ async fn spawn_instance(
     }
 }
 
-// ── 1. Partitioner live-agreement (D1; the C1 doc promise) ──────────────────
-
-/// Every keyed produce path — the raw `murmur2_random` producer (shuffler / future Node merge
-/// producer) and the two production sinks — must land each message on `partition_of(team, person)`
-/// over a spread of pairs covering most of the 64 partitions, on a live broker.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn keyed_produces_agree_with_partition_of_live() {
@@ -761,7 +699,6 @@ async fn keyed_produces_agree_with_partition_of_live() {
         create_topic(&transfer_topic, NUM_PARTITIONS).await;
         create_topic(&events_topic, NUM_PARTITIONS).await;
 
-        // (a) The raw producer, partition taken from the delivery report: 200 (team, person) pairs.
         let producer = murmur2_producer();
         let mut spread = HashSet::new();
         for team in [2i32, 7, 42, 99] {
@@ -797,7 +734,7 @@ async fn keyed_produces_agree_with_partition_of_live() {
             spread.len(),
         );
 
-        // (b) The production transfer sink: keyed by P_new (D1), verified by consuming the topic.
+        // Transfer sink: keyed by P_new, verified by consuming the topic.
         let transfer_sink =
             KafkaTransferSink::new(&producer_kafka_config(), transfer_topic.clone())
                 .await
@@ -832,7 +769,7 @@ async fn keyed_produces_agree_with_partition_of_live() {
             );
         }
 
-        // (c) The production re-key sink: keyed by the (already rewritten) target person (D1).
+        // Re-key sink: keyed by the (already rewritten) target person.
         let event_sink = KafkaStreamEventSink::new(&producer_kafka_config(), events_topic.clone())
             .await
             .expect("create re-key sink");
@@ -871,11 +808,6 @@ async fn keyed_produces_agree_with_partition_of_live() {
     .await;
 }
 
-// ── 2. End-to-end cross-partition merge (acceptance #2) ─────────────────────
-
-/// Seed P_old via events → merge trigger on the merges topic → transfer observed on the transfer
-/// topic at `partition_of(team, P_new)` → merged state on P_new's slice → membership change on the
-/// shadow topic → both follower groups' offsets commit.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
@@ -923,7 +855,7 @@ async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
         let mut alloc = PersonAlloc::new();
         let (p_old, p_new) = alloc.cross_partition_pair();
 
-        // Seed P_old: two pageviews → single enters on the 1st, daily (gte 2) on the 2nd.
+        // Seed P_old: two pageviews.
         let producer = murmur2_producer();
         produce_event(&producer, &topics.events, p_old, TS, 0).await;
         produce_event(&producer, &topics.events, p_old, TS, 1).await;
@@ -934,8 +866,6 @@ async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
 
         produce_merge(&producer, &topics.merges, &merge_event(p_old, p_new)).await;
 
-        // The merge offset commits only after drain + transfer-produce ack; the transfer offset only
-        // after the apply WriteBatch (D7) — so these two waits ARE the end-to-end completion signal.
         let merge_verifier = group_verifier(&groups.merges);
         let transfer_verifier = group_verifier(&groups.transfers);
         wait_for(
@@ -951,9 +881,6 @@ async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
         )
         .await;
 
-        // The transfer rode the wire at P_new's partition, carrying both leaves whole. The merge
-        // offset is committed, so no further drain can produce — the wire count is final, and a
-        // doubled produce would be visible here where a truncating consume could not see it.
         assert_eq!(
             topic_message_count(&topics.transfers),
             1,
@@ -989,15 +916,11 @@ async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
             tombstone_for(&instance.store, p_old).expect("tombstone written on P_old's slice");
         assert_eq!(tombstone.new_person, p_new);
 
-        // Membership reached the shadow topic: seeding entered P_old (cohorts 1+2), the apply entered
-        // P_new (cohorts 1+2), and nothing else — the drain deliberately emits no Left for P_old
-        // (Decision 1). Produce-before-commit means the committed merge + transfer offsets imply every
-        // membership produce is acked, so the wire count is final: a fifth message would be a Left
-        // regression that a truncating consume of 4 could miss.
+        // The drain emits no Left for P_old — only the Entered changes from seeding and apply.
         assert_eq!(
             topic_message_count(&shadow_topic),
             4,
-            "exactly four membership changes on the wire (no Left for P_old, Decision 1)",
+            "exactly four membership changes on the wire (no Left for P_old)",
         );
         let changes: Vec<CohortMembershipChange> =
             consume_all(&shadow_topic, 4, Duration::from_secs(30))
@@ -1024,7 +947,7 @@ async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
                 .iter()
                 .any(|change| change.person_id == p_old.to_string()
                     && change.status == MembershipStatus::Left),
-            "the drain emits no Left for P_old (Decision 1)",
+            "the drain emits no Left for P_old",
         );
 
         shutdown.request_shutdown();
@@ -1033,11 +956,6 @@ async fn cross_partition_merge_completes_end_to_end_on_the_wire() {
     .await;
 }
 
-// ── 3. Drain replay idempotence on the wire (acceptance #3/#6) ──────────────
-
-/// The same merge message produced twice: the second delivery short-circuits on
-/// `cf_merge_drains_applied` (its outbox slot already cleared by the first ack), so exactly one
-/// transfer message exists on the wire and P_new's buckets are not double-counted.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn duplicate_merge_message_produces_exactly_one_transfer() {
@@ -1085,8 +1003,6 @@ async fn duplicate_merge_message_produces_exactly_one_transfer() {
         })
         .await;
 
-        // The same merge twice — same key, same partition, offsets 0 and 1. The worker is serial per
-        // partition, so the first copy fully settles before the second is drained.
         let event = merge_event(p_old, p_new);
         produce_merge(&producer, &topics.merges, &event).await;
         produce_merge(&producer, &topics.merges, &event).await;
@@ -1099,11 +1015,10 @@ async fn duplicate_merge_message_produces_exactly_one_transfer() {
         )
         .await;
 
-        // Both copies settled and nothing re-drains after a committed offset, so the count is final.
         assert_eq!(
             topic_message_count(&topics.transfers),
             1,
-            "the replayed drain must not produce a second transfer (acceptance #3/#6)",
+            "the replayed drain must not produce a second transfer",
         );
 
         let transfer_verifier = group_verifier(&groups.transfers);
@@ -1125,11 +1040,6 @@ async fn duplicate_merge_message_produces_exactly_one_transfer() {
     .await;
 }
 
-// ── 4. Straggler re-key end-to-end (acceptance #8) ──────────────────────────
-
-/// A P_old event arriving after the merge hits the tombstone, is re-produced re-keyed (person
-/// rewritten to P_new, first-origin `redirected_from` stamped, hop counted) onto
-/// `cohort_stream_events` at P_new's partition, and folds into P_new's state exactly once.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn post_merge_straggler_re_keys_to_p_new_and_folds() {
@@ -1169,8 +1079,7 @@ async fn post_merge_straggler_re_keys_to_p_new_and_folds() {
         let mut alloc = PersonAlloc::new();
         let (p_old, p_new) = alloc.cross_partition_pair();
 
-        // The full merge first: seed → merge → applied on P_new (committed merge offset ⟹ the
-        // tombstone is durable on P_old's slice).
+        // Complete the merge first so the tombstone is durable on P_old's slice.
         let producer = murmur2_producer();
         produce_event(&producer, &topics.events, p_old, TS, 0).await;
         produce_event(&producer, &topics.events, p_old, TS, 1).await;
@@ -1195,10 +1104,6 @@ async fn post_merge_straggler_re_keys_to_p_new_and_folds() {
         )
         .await;
 
-        // The re-keyed event is on the wire: 2 seeds + 1 straggler + 1 re-key — and nothing more. The
-        // fold into P_new settled, so a doubled re-key produce is already visible in the wire count;
-        // it is the only detector, since `redirect_dedup` would absorb the duplicate downstream and a
-        // truncating consume of 4 could not see a fifth message.
         assert_eq!(
             topic_message_count(&topics.events),
             4,
@@ -1233,17 +1138,13 @@ async fn post_merge_straggler_re_keys_to_p_new_and_folds() {
             Some(p_old.to_string().as_str()),
             "first-origin marker stamped",
         );
-        assert_eq!(
-            event.redirect_hops, 1,
-            "one cross-partition hop counted (D13)"
-        );
+        assert_eq!(event.redirect_hops, 1, "one cross-partition hop counted");
         assert_eq!(
             (event.source_partition, event.source_offset),
             (0, 100),
             "original source coordinates preserved for redirect_dedup",
         );
 
-        // The re-key wrote nothing locally: P_old's slice stays drained.
         assert_eq!(single_matches(&instance.store, single_lsk, p_old), None);
         assert_eq!(daily_total(&instance.store, daily_lsk, p_old), None);
 
@@ -1253,12 +1154,8 @@ async fn post_merge_straggler_re_keys_to_p_new_and_folds() {
     .await;
 }
 
-// ── 5. Follower offset re-establishment (pins Offset::Stored) ───────────────
-
-/// The mirror's contract on a never-`subscribe()`d follower: assign → consume → commit → unassign →
-/// re-assign at `Offset::Stored` resumes from the *committed* offset — rewinding past the
-/// in-session fetch position (the D5 redelivery property), not skipping to the tail. The TPLs
-/// mirror `partitions::follower::stored_tpl`/`bare_tpl` (pub(crate), not importable here).
+/// Re-assign at `Offset::Stored` resumes from the committed offset, not the in-session fetch
+/// position.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn follower_re_establishes_consumption_from_the_committed_offset() {
@@ -1317,8 +1214,7 @@ async fn follower_re_establishes_consumption_from_the_committed_offset() {
             "earliest fallback replays from 0"
         );
 
-        // Commit "processed through offset 2" (next-offset convention, like `commit_offsets`). The
-        // fetch position is already at 5 — the gap [3, 5) is the gate-dropped window D5 worries about.
+        // Commit offset 3 (processed through offset 2). The fetch position is already at 5.
         let mut commit_tpl = TopicPartitionList::new();
         commit_tpl
             .add_partition_offset(&topic, 0, Offset::Offset(3))
@@ -1355,23 +1251,6 @@ async fn follower_re_establishes_consumption_from_the_committed_offset() {
     .await;
 }
 
-// ── 6. Rebalance keystone (D5) ───────────────────────────────────────────────
-
-/// A second instance joins mid-merge-stream; cooperative-sticky migrates ~half the partitions and
-/// the mirror moves the follower assignments with them. The post-migration batch is produced only
-/// **after** the split settles (the `events_consumer.rs` migration test's flake lesson: a fast
-/// broker otherwise lets the first owner consume-and-commit the batch before the partitions move).
-///
-/// Deterministic invariants asserted, valid under any interleaving of the migration with the
-/// in-flight batch:
-/// - every post-settle merge completes: P_old drained everywhere, P_new's merged state in exactly
-///   one store with the exact seeded count (a skip reads `None`, a double-apply reads `4`);
-/// - the two directed cross-instance pairs land where the split says they must (A→B and B→A
-///   transfers both traverse the wire);
-/// - no batch-1 state, wherever it survived the migration, is ever double-counted (the replay tail
-///   is absorbed by the source-coords markers, D2);
-/// - both follower groups' commits eventually cover every message on their topics — no merge or
-///   transfer is permanently skipped or held.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
@@ -1381,7 +1260,6 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
     with_topics_cleanup(&topics.names(), async {
         topics.create().await;
 
-        // A fresh, identical catalog per pod (same conditionHash → same leaf-state keys).
         let catalog_a = merge_catalog();
         let catalog_b = merge_catalog();
         let (_, daily_lsk) = behavioral_lsks(&catalog_a);
@@ -1429,8 +1307,7 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
             }
         };
 
-        // Batch 1, against A alone: seed and trigger, but do NOT wait for the merges to finish — B
-        // joins while they are in flight ("mid-merge-stream").
+        // Batch 1: seed and trigger against A alone, B joins while merges are in flight.
         let batch1: Vec<(Uuid, Uuid)> = (0..4).map(|_| alloc.cross_partition_pair()).collect();
         for (p_old, _) in &batch1 {
             seed(&producer, &topics.events, *p_old).await;
@@ -1455,8 +1332,7 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
         )
         .await;
 
-        // Settle: a disjoint full split, stable across a re-check (cooperative-sticky runs two
-        // rounds — revoke from A, then assign to B).
+        // Settle: a disjoint full split, stable across a re-check.
         let (a_owned, b_owned) = {
             let deadline = Duration::from_secs(60);
             let start = Instant::now();
@@ -1482,8 +1358,7 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
             }
         };
 
-        // Batch 2, produced only now: two directed cross-instance pairs (P_old on A's side with P_new
-        // on B's, and the reverse — both transfer directions traverse the wire), plus generic pairs.
+        // Batch 2: two directed cross-instance pairs (A→B and B→A), plus generic pairs.
         let pair_ab = (
             alloc.next_on(|p| a_owned.contains(&(p as i32))),
             alloc.next_on(|p| b_owned.contains(&(p as i32))),
@@ -1526,8 +1401,6 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
         )
         .await;
 
-        // Coverage: once every merge offset is committed no further drain (or re-drain) can run, so
-        // the transfer-topic message count is final; its group's commits must then cover all of it.
         let total_merges = (batch1.len() + batch2.len()) as i64;
         let merge_verifier = group_verifier(&groups.merges);
         let transfer_verifier = group_verifier(&groups.transfers);
@@ -1537,12 +1410,7 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
             || committed_sum(&merge_verifier, &topics.merges) == total_merges,
         )
         .await;
-        // Per-merge transfer coverage is pinned for batch 2 only: its seeds were verified in the
-        // owner's store after the split settled, so every batch-2 drain had leaves and must have
-        // produced a transfer. Batch 1 gets no such pin — a merge whose P_old partition migrated to B
-        // before A's merge follower drained it re-drains against B's cold store, and the empty drain
-        // legitimately skips the produce (D10). An aggregate count over both batches would therefore
-        // either flake on that correct run or, made `>=`, let a lost merge hide behind a replay copy.
+        // Batch 2 transfers are deterministic; batch 1 may have empty re-drains after migration.
         let total_transfers = topic_message_count(&topics.transfers);
         let transfer_pairs: HashSet<(Uuid, Uuid)> = consume_all(
             &topics.transfers,
@@ -1612,9 +1480,7 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
             "the B-drained transfer applied on A",
         );
 
-        // Batch 1 raced the migration, so where its state survived is timing-dependent (the moved
-        // partitions' cold rebuild) — but a surviving count must be exact: a doubled sum would mean a
-        // replayed transfer slipped past the source-coords dedup (D2).
+        // Batch 1 raced the migration, but a surviving count must be exact (no double-apply).
         for (_, p_new) in &batch1 {
             for store in [&a.store, &b.store] {
                 if let Some(total) = daily_total(store, daily_lsk, *p_new) {
@@ -1626,7 +1492,6 @@ async fn cooperative_migration_mid_merge_stream_loses_no_merge() {
             }
         }
 
-        // Every batch-2 entry reached the (captured) shadow output on one pod or the other.
         let entered: HashSet<String> = sink_a
             .changes()
             .into_iter()

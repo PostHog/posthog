@@ -1,16 +1,12 @@
 //! `LeafStateKey` derivation and `Stage1Key`.
 //!
-//! The save-time `conditionHash` encodes only the event matcher (`value`, `key`, `event_filters`),
-//! never the window/threshold/operator, so two leaves matching the same event with different
-//! windows (e.g. "≥ 3 in 7d" vs "≥ 5 in 30d") collide on it. State is therefore keyed by a derived
-//! [`LeafStateKey`] over the full per-leaf predicate configuration.
+//! The `conditionHash` encodes only the event matcher, not the window/threshold, so two leaves
+//! matching the same event with different windows collide on it. State is therefore keyed by a
+//! [`LeafStateKey`] hashing the full predicate configuration.
 //!
-//! [`LeafStateKey::for_behavioral`] is a cross-runtime contract a future Python port and the
-//! save-time normalizer must reproduce **byte-for-byte**:
-//!
-//! 1. Fields are hashed in the order written below, with **no length delimiters**.
-//! 2. Integer fields are little-endian, `0` for absent; optional strings use `""` for absent.
-//! 3. `negation` is **excluded** — the state is invariant to it; the output is inverted at Stage 2.
+//! [`LeafStateKey::for_behavioral`] is a cross-runtime contract (Python must reproduce byte-for-byte):
+//! fields hashed in order with no length delimiters, integers LE (`0` for absent), strings `""` for
+//! absent, `negation` excluded.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -18,26 +14,19 @@ use uuid::Uuid;
 
 use crate::filters::tree::BehavioralLeafConfig;
 
-/// 16-byte key that discriminates Stage 1 state per cohort leaf. For person-property leaves it
-/// equals `condition_hash`; for behavioral leaves it is the SHA-256 over the full predicate config.
-///
-/// The `Serialize`/`Deserialize` form is not a cross-runtime contract — only the hash *input* in
-/// [`LeafStateKey::for_behavioral`] is.
+/// 16-byte key discriminating Stage 1 state per cohort leaf. For person-property leaves it equals
+/// `condition_hash`; for behavioral leaves it is SHA-256 over the full predicate config.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct LeafStateKey(pub [u8; 16]);
 
 impl LeafStateKey {
-    /// Person-property leaves reuse `condition_hash` unchanged — the bytecode already encodes key,
-    /// value, and operator.
+    /// Person-property leaves reuse `condition_hash` unchanged.
     pub fn for_person_property(condition_hash: &[u8; 16]) -> Self {
         Self(*condition_hash)
     }
 
-    /// Hash the full predicate config per the cross-runtime contract at the module level — do not
-    /// reorder fields or insert separators without updating the Python port.
-    // Drift guard: the Python change-detector `_extract_leaf_state_keys`
-    // (posthog/models/cohort/dependencies.py) mirrors THIS field set to detect window/operator
-    // edits at save time. Add any new field there too, or such an edit silently orphans state.
+    /// Hash the full predicate config. Do not reorder fields or insert separators without updating
+    /// the Python port (`_extract_leaf_state_keys` in `posthog/models/cohort/dependencies.py`).
     pub fn for_behavioral(leaf: &BehavioralLeafConfig) -> Self {
         let mut h = Sha256::new();
         h.update(leaf.condition_hash);
@@ -61,8 +50,7 @@ impl LeafStateKey {
     }
 }
 
-/// Stage 1 state-storage key. The partition prefix enables per-partition `delete_range` on
-/// rebalance; the byte encoding belongs to the RocksDB store.
+/// Stage 1 state-storage key. Partition prefix enables per-partition `delete_range` on rebalance.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Stage1Key {
     pub partition_id: u16,

@@ -1,27 +1,19 @@
 //! Per-leaf Stage 1 state, its persisted wrapper, and the value codec.
-//!
-//! The internal `#[serde(tag = "v")]` discriminator makes adding the `performed_event_multiple`
-//! bucket variants a purely additive change to the on-disk form.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Which state representation a leaf uses; recorded per [`crate::stage1::key::LeafStateKey`] so the
-/// worker can pick the apply path without decoding stored state first.
+/// Which state representation a leaf uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StateVariant {
     /// `performed_event`: a single "has any matching event in window" bit.
     BehavioralSingle,
-    /// `performed_event_multiple` with a `1..=180`-day window: dense per-calendar-day counts in the
-    /// team timezone, with a count comparator (the leaf's [`PredicateOp`]) on their sum.
-    ///
-    /// [`PredicateOp`]: crate::stage1::pick_state::PredicateOp
+    /// `performed_event_multiple` with a `1..=180`-day window: dense per-calendar-day counts.
     BehavioralDailyBuckets,
     /// `performed_event_multiple` with a window over 180 days: sparse run-length per-calendar-day
-    /// counts in the team timezone (the compressed analog of [`Self::BehavioralDailyBuckets`]), with
-    /// the same count comparator on their sum.
+    /// counts.
     BehavioralCompressedHistory,
     /// A person-property filter: a last-write-wins boolean.
     PersonProperty,
@@ -111,37 +103,22 @@ impl Stage1State {
 
 /// Per-source-partition last-applied offsets: `source_partition → last_applied_offset`.
 ///
-/// The shuffler re-keys events by `hash(team_id, person_id)`, so one person's events span multiple
-/// source partitions. A single scalar pair would only dedup replays *within* one source partition;
-/// a non-idempotent fold (`buckets[i] += 1`) would then double-count on a Kafka replay arriving from
-/// a *different* source partition. One high-water mark per source partition closes that window (L11).
-///
-/// `BTreeMap` (not `HashMap`/`SmallVec`) so the serialized form has deterministic, sorted keys and
-/// the shadow diff stays byte-stable; the container is private behind the newtype so a later perf
-/// swap is a one-file change. Bounded by the source topic's partition count
-/// (`clickhouse_events_json` = 512), realistically a handful per person — **no eviction**, since
-/// evicting an entry would re-open the very replay window this closes. Even a person whose events
-/// fan across all 512 source partitions caps this map at 512 entries (~12 KB serialized), so
-/// unbounded-in-principle is bounded-and-small in practice; a time-based "drop partitions unseen for
-/// N days" policy is intentionally *not* offered because it would re-open the window for a late
-/// redelivery from a dropped partition.
+/// One high-water mark per source partition prevents double-counting on cross-partition Kafka
+/// replays. `BTreeMap` for deterministic sorted serialization. Bounded by the source topic's
+/// partition count; no eviction (evicting would re-open the replay window).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct AppliedOffsets(BTreeMap<i32, i64>);
 
 impl AppliedOffsets {
-    /// `true` ⇒ this `(source_partition, source_offset)` was already folded into the key's state, so
-    /// a non-idempotent fold must **skip** it. An absent partition key means "never seen" — not a
-    /// replay — so offset `0` is a valid first offset (seen-ness is key presence, not a sentinel
-    /// value).
+    /// `true` if this `(source_partition, source_offset)` was already applied.
     pub fn is_replay(&self, source_partition: i32, source_offset: i64) -> bool {
         self.0
             .get(&source_partition)
             .is_some_and(|&last| source_offset <= last)
     }
 
-    /// Advance the high-water mark for `source_partition` to cover `source_offset`. Monotonic per
-    /// partition: a lower offset for an already-recorded partition never regresses it.
+    /// Advance the high-water mark for `source_partition`. Monotonic per partition.
     pub fn record(&mut self, source_partition: i32, source_offset: i64) {
         self.0
             .entry(source_partition)
@@ -149,9 +126,7 @@ impl AppliedOffsets {
             .or_insert(source_offset);
     }
 
-    /// Fold another map's high-water marks into this one, per-partition max. Used only to compose a
-    /// [`StatefulRecord::redirect_dedup`] entry from an ancestor's offsets at merge time — never on the
-    /// event hot path, so the per-key allocation is acceptable.
+    /// Fold another map's high-water marks into this one, per-partition max.
     pub fn merge_max(&mut self, other: &Self) {
         for (&partition, &offset) in &other.0 {
             self.record(partition, offset);
@@ -165,16 +140,9 @@ impl AppliedOffsets {
 pub struct StatefulRecord {
     pub state: Stage1State,
     pub applied_offsets: AppliedOffsets,
-    /// Per-ancestor replay-dedup for post-merge straggler events redirected from a now-merged-away
-    /// person (TDD §4.5.1). Keyed by the *origin* — the first person in a merge chain — each entry
-    /// holds the offsets already folded from that ancestor's pre-merge events. Consulted/advanced
-    /// **only** for an event carrying a `redirected_from` marker ([`StatefulRecord::is_replay_for`] /
-    /// [`record_for`](StatefulRecord::record_for)); a normal event always uses
-    /// [`applied_offsets`](StatefulRecord::applied_offsets). Empty for every non-merged person, and
-    /// `skip_serializing_if` keeps it off the wire then, so the on-disk form is byte-identical to the
-    /// pre-merge record — no shadow-diff churn and no L11-style deploy break. Per-ancestor keying (not
-    /// a single union) is load-bearing under chained merges. Bounded by a person's merge-chain
-    /// ancestry (never GC'd, but tiny); serde-default so master-era bytes decode to an empty map.
+    /// Per-ancestor replay-dedup for post-merge straggler events redirected from a merged-away
+    /// person. Keyed by origin person so chained merges stay independent. Empty for non-merged
+    /// persons; `skip_serializing_if` keeps it off the wire.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub redirect_dedup: BTreeMap<Uuid, AppliedOffsets>,
 }
@@ -186,8 +154,7 @@ pub struct StatefulRecord {
 pub struct StateCodecError(#[from] serde_json::Error);
 
 impl StatefulRecord {
-    /// A record with no redirect-dedup ancestry — the shape every non-merged person carries. Merge
-    /// composition builds the field directly.
+    /// A record with no redirect-dedup ancestry.
     pub fn new(state: Stage1State, applied_offsets: AppliedOffsets) -> Self {
         Self {
             state,
@@ -196,9 +163,8 @@ impl StatefulRecord {
         }
     }
 
-    /// Origin-aware replay check: `None` ⇒ the main [`applied_offsets`](Self::applied_offsets); `Some`
-    /// ⇒ the ancestor's `redirect_dedup` entry (absent ⇒ never a replay). Keeps the main map
-    /// authoritative for fresh events even when an ancestor entry exists.
+    /// Origin-aware replay check: `None` uses the main offsets, `Some` uses the ancestor's
+    /// `redirect_dedup` entry.
     pub fn is_replay_for(
         &self,
         origin: Option<&Uuid>,
@@ -214,9 +180,7 @@ impl StatefulRecord {
         )
     }
 
-    /// Origin-aware offset advance, routed like [`is_replay_for`](Self::is_replay_for): the main map
-    /// for a normal event, the ancestor's `redirect_dedup` entry (created on demand) for a redirected
-    /// one.
+    /// Origin-aware offset advance, routed like [`is_replay_for`](Self::is_replay_for).
     pub fn record_for(&mut self, origin: Option<&Uuid>, source_partition: i32, source_offset: i64) {
         dedup_record(
             &mut self.applied_offsets,
@@ -227,20 +191,16 @@ impl StatefulRecord {
         );
     }
 
-    /// Infallible for these plain structs — `serde_json` only errors on a refusing `Serialize` or
-    /// non-string map keys, neither of which occurs here.
     pub fn encode(&self) -> Vec<u8> {
         serde_json::to_vec(self).expect("StatefulRecord is plain data and always serializes")
     }
 
-    /// Garbage bytes and unknown `"v"` tags both yield an [`Err`] (forward-compat), never a panic.
     pub fn decode(bytes: &[u8]) -> Result<Self, StateCodecError> {
         Ok(serde_json::from_slice(bytes)?)
     }
 }
 
-/// Origin-aware replay check over a moved-out dedup pair — shared by the event path (which moves the
-/// maps out of the prior record to keep its no-clone fold) and [`StatefulRecord::is_replay_for`].
+/// Origin-aware replay check over a moved-out dedup pair.
 pub(crate) fn dedup_is_replay(
     main: &AppliedOffsets,
     redirect: &BTreeMap<Uuid, AppliedOffsets>,
@@ -256,8 +216,7 @@ pub(crate) fn dedup_is_replay(
     }
 }
 
-/// Origin-aware offset advance over a moved-out dedup pair — the recording counterpart to
-/// [`dedup_is_replay`].
+/// Origin-aware offset advance over a moved-out dedup pair.
 pub(crate) fn dedup_record(
     main: &mut AppliedOffsets,
     redirect: &mut BTreeMap<Uuid, AppliedOffsets>,

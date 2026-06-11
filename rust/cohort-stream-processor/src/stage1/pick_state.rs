@@ -1,8 +1,7 @@
 //! Choosing a leaf's [`StateVariant`] and eviction window from its config.
 //!
-//! Time intervals are fixed-seconds, not calendar: [`TimeInterval::seconds`] reproduces
-//! `INTERVAL_TO_SECONDS` exactly (`month = 30d`, `year = 365d`) as the cross-runtime windowing
-//! contract. Calendar month/year arithmetic would diverge from the existing pipeline.
+//! Time intervals are fixed-seconds (`month = 30d`, `year = 365d`) matching the cross-runtime
+//! windowing contract.
 
 use chrono_tz::Tz;
 
@@ -35,9 +34,7 @@ impl TimeInterval {
         }
     }
 
-    /// The fixed number of whole days in this interval (`seconds / 86_400`): `day = 1`, `week = 7`,
-    /// `month = 30`, `year = 365`, and `0` for sub-day `hour`/`minute`. Gives the D8 year/day
-    /// equivalence (`365 day` ≡ `1 year`) for free.
+    /// Whole days in this interval (`seconds / 86_400`): `0` for sub-day intervals.
     pub fn to_days(self) -> u32 {
         (self.seconds() / 86_400) as u32
     }
@@ -56,46 +53,23 @@ impl TimeInterval {
     }
 }
 
-/// How a [`StateVariant::BehavioralSingle`] leaf's eviction deadline is derived.
+/// How a `BehavioralSingle` leaf's eviction deadline is derived.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvictionWindow {
-    /// A whole-day window (`day`/`week`/`month`/`year`): D9 calendar eviction. The deadline is
-    /// tz-midnight of `day(newest_event) + days + 1` — the same boundary
-    /// [`daily_eviction_deadline`](crate::stage1::daily::daily_eviction_deadline) computes — so two
-    /// events on the same calendar day share one eviction midnight regardless of time of day.
+    /// A whole-day window: evicts at tz-midnight of `day(newest_event) + days + 1`.
     RelativeDays { days: u32 },
-    /// A sub-day window (`hour`/`minute`): instant-granular. The existing pipeline's
-    /// `relative_date_parse("-Nh")` is not day-floored, so neither is this — the deadline is
-    /// `newest_event + seconds`.
+    /// A sub-day window (`hour`/`minute`): deadline is `newest_event + seconds`.
     RelativeSeconds { seconds: i64 },
-    /// A fixed explicit date range `[from, to_ms]`. `to_ms` is retained for documentation/parity but
-    /// is **not** an eviction deadline: a `performed_event` over an explicit range is a fixed
-    /// historical question, so once matched the person is a member permanently — see
-    /// [`earliest_eviction_at_ms`](Self::earliest_eviction_at_ms). [`None`] when `to` is unparseable.
+    /// A fixed explicit date range. Once matched, membership is permanent (never evicted).
     Explicit { to_ms: Option<i64> },
 }
 
 impl EvictionWindow {
-    /// The earliest epoch-ms at which state seeded by the newest matching event may be evicted.
-    /// Pass the *newest* matching event time so a late (out-of-order) event cannot pull the
-    /// deadline earlier, and the team's `tz` so a whole-day window evicts at local midnight (D9).
-    ///
-    /// A whole-day window holds the member through the end of the last in-window calendar day, so its
-    /// deadline is tz-midnight of `day(newest_event) + days + 1` — identical to the daily-bucket
-    /// variant, so a `performed_event` and a `performed_event_multiple` over the same window evict
-    /// together. A sub-day window stays instant-granular (the old pipeline does not day-floor `-Nh`).
-    ///
-    /// An explicit window never evicts ([`i64::MAX`]): re-evaluating an explicit `[from, to]` range
-    /// always finds the matched event still inside it, so membership is permanent. Returning `to_ms`
-    /// here instead would have the sweep emit a spurious `Left` at `to`, diverging unboundedly from
-    /// the existing pipeline. The sweep filters out the `i64::MAX` deadline, so such a leaf is never
-    /// scheduled.
+    /// The earliest epoch-ms at which this state may be evicted, given the newest matching event
+    /// time and the team's timezone.
     pub fn earliest_eviction_at_ms(self, newest_event_ms: i64, tz: Tz) -> i64 {
         match self {
             Self::RelativeDays { days } => {
-                // Computed in i64 so a far-future event can't overflow the day index; a leave-day past
-                // i32::MAX falls back to never-evict (i64::MAX) — a missed eviction beats a premature
-                // `Left`.
                 let leave_day = i64::from(day_idx_in_tz(newest_event_ms, tz)) + i64::from(days) + 1;
                 match i32::try_from(leave_day) {
                     Ok(day) => start_of_day_ms_in_tz(day, tz),
@@ -110,9 +84,7 @@ impl EvictionWindow {
     }
 }
 
-/// The count comparator a `performed_event_multiple` leaf applies to its window's matching-event
-/// count. Held on the leaf's [`LeafStateMeta`](crate::filters::reverse_index::LeafStateMeta), not in
-/// the stored state.
+/// Count comparator for a `performed_event_multiple` leaf's window sum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PredicateOp {
     Gte(u32),
@@ -123,9 +95,8 @@ pub enum PredicateOp {
 }
 
 impl PredicateOp {
-    /// Resolve a leaf's `(operator, operator_value)` to a comparator, mirroring the existing
-    /// pipeline's `VALID_OPERATORS` map (`hogql_cohort_query.py:986`): default `eq` when absent,
-    /// `exact` aliased to `eq`. A negative or absent `operator_value` clamps to `0`.
+    /// Resolve a leaf's `(operator, operator_value)` to a comparator. Defaults to `eq`; `exact`
+    /// aliases `eq`. Negative or absent `operator_value` clamps to `0`.
     pub fn from_leaf(operator: Option<&str>, operator_value: Option<i32>) -> Self {
         let value = operator_value.unwrap_or(0).max(0) as u32;
         match operator {
@@ -150,17 +121,14 @@ impl PredicateOp {
     }
 }
 
-/// Why a behavioral leaf has no supported state representation; the classifier drops + counts it so
-/// it never reaches the worker.
+/// Why a behavioral leaf has no supported state representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum UnsupportedVariant {
-    /// A `performed_event_multiple` with a sub-day window (`hour`/`minute`). Unsupported: a sub-day
-    /// bucket state would diverge from the existing calendar-day-granular pipeline.
+    /// A `performed_event_multiple` with a sub-day window (`hour`/`minute`).
     #[error("performed_event_multiple sub-day window is unsupported")]
     HourlyDeferred,
     #[error("performed_event leaf has no resolvable window")]
     MissingWindow,
-    /// Handled defensively so the match is total — the classifier drops these earlier.
     #[error("behavioral value does not contribute realtime bytecode")]
     NonRealtimeValue,
 }
@@ -173,10 +141,6 @@ pub fn pick_state_variant(
         BehavioralValue::PerformedEvent => {
             Ok((StateVariant::BehavioralSingle, Some(eviction_window(leaf)?)))
         }
-        // `None` eviction window: the bucket variants derive their deadline from the stored counts,
-        // not a relative window. `day,1` (2 buckets) is daily — the existing pipeline is calendar-day
-        // granular, so daily is the parity-faithful representation of a 1-day window. A window over
-        // 180 days is the same calendar-day semantics in sparse run-length storage (compressed).
         BehavioralValue::PerformedEventMultiple => match effective_window_days(leaf) {
             0 => Err(UnsupportedVariant::HourlyDeferred),
             1..=180 => Ok((StateVariant::BehavioralDailyBuckets, None)),
@@ -190,10 +154,7 @@ pub fn pick_state_variant(
     }
 }
 
-/// An `explicit_datetime[_to]` leaf uses the explicit end bound; otherwise a relative
-/// `time_value × time_interval` window, split by interval kind: a whole-day window evicts at
-/// calendar midnight (D9), a sub-day window stays instant-granular. A leaf with neither is
-/// unsupported.
+/// Derive the eviction window from a leaf's datetime/interval config.
 fn eviction_window(leaf: &BehavioralLeafConfig) -> Result<EvictionWindow, UnsupportedVariant> {
     if leaf.explicit_datetime.is_some() || leaf.explicit_datetime_to.is_some() {
         let to_ms = leaf
@@ -210,14 +171,10 @@ fn eviction_window(leaf: &BehavioralLeafConfig) -> Result<EvictionWindow, Unsupp
     // A negative or absent time_value clamps to 0 rather than going negative.
     let time_value = leaf.time_value.unwrap_or(0).max(0);
     if interval.to_days() == 0 {
-        // Sub-day (hour/minute): instant-granular, matching the old pipeline's non-day-floored
-        // `relative_date_parse("-Nh")`.
         Ok(EvictionWindow::RelativeSeconds {
             seconds: i64::from(time_value).saturating_mul(interval.seconds()),
         })
     } else {
-        // Whole-day (day/week/month/year): the same `time_value × to_days()` day count
-        // `effective_window_days` routes the bucket variants on, so week/month/year → 7/30/365.
         Ok(EvictionWindow::RelativeDays {
             days: u32::try_from(time_value)
                 .unwrap_or(0)
@@ -226,12 +183,8 @@ fn eviction_window(leaf: &BehavioralLeafConfig) -> Result<EvictionWindow, Unsupp
     }
 }
 
-/// The whole-day window for a `performed_event_multiple` leaf: `time_value × interval.to_days()`,
-/// mirroring [`eviction_window`]'s relative branch. Returns `0` for a sub-day, unrecognized, or
-/// `time_interval`-less window (all of which route to [`UnsupportedVariant::HourlyDeferred`]).
-///
-/// `pub(crate)` so the catalog freeze recovers a daily leaf's `window_days` from the same function
-/// the picker routed on — the two cannot drift.
+/// The whole-day window for a `performed_event_multiple` leaf: `time_value × interval.to_days()`.
+/// Returns `0` for sub-day or unrecognized intervals.
 pub(crate) fn effective_window_days(leaf: &BehavioralLeafConfig) -> u32 {
     let Some(interval) = leaf
         .time_interval

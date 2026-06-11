@@ -1,11 +1,11 @@
-//! Assignment mirroring for the merge-protocol follower consumers (TDD §4.5.1).
+//! Assignment mirroring for the merge-protocol follower consumers.
 //!
 //! The two follower consumers (`person_merge_events`, `cohort_merge_state_transfer`) never
 //! `subscribe()`: the `cohort_stream_events` group's rebalance is the single source of partition
 //! ownership, and the rebalance worker mirrors every Assign/Revoke onto them through
 //! [`PartitionMirror`] — `incremental_assign` at [`Offset::Stored`] and `incremental_unassign`,
-//! both **unconditional** (D5). The topics are co-partitioned (asserted at startup, D14), so the
-//! events topic's partition numbers index all three.
+//! both unconditional. The topics are co-partitioned, so the events topic's partition numbers
+//! index all three.
 //!
 //! Why unconditional, including the rapid revoke→assign path: between the sync revoke and the async
 //! unassign the followers keep fetching, and the dispatcher's owned-gate drops those messages while
@@ -20,12 +20,10 @@ use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::{Offset, TopicPartitionList};
 use tracing::warn;
 
-/// The rebalance worker's seam onto the follower consumers: mirror an events-group (un)assignment.
-/// A trait so the rebalance worker is unit-testable with a recording fake; the production impl is
-/// [`MergeFollowers`].
+/// Mirror an events-group (un)assignment onto the follower consumers.
+/// Trait-based so the rebalance worker is unit-testable; production impl is [`MergeFollowers`].
 pub trait PartitionMirror: Send + Sync {
-    /// Mirror newly-assigned partitions onto every follower, resuming from each group's committed
-    /// offset.
+    /// Mirror newly-assigned partitions onto every follower.
     fn assign(&self, partitions: &[i32]);
     /// Mirror revoked partitions off every follower.
     fn unassign(&self, partitions: &[i32]);
@@ -37,16 +35,10 @@ struct Follower {
     topic: String,
 }
 
-/// The production [`PartitionMirror`]: drives `incremental_assign`/`incremental_unassign` on both
-/// follower consumers. Errors are warned and skipped, never panicked or retried — the rebalance
-/// worker must keep draining. A missed assign degrades to visible group lag on the follower's
-/// consumer group (the owned-gate still drops misdelivered messages unmarked, so Kafka redelivers
-/// them to the true owner). A missed unassign is not universally that benign: were it to leave the
-/// partition assigned, the next mirrored re-assign would hit the intersecting-partition error,
-/// also warn-and-continue, and keep the in-session fetch position — skipping past the gate-dropped
-/// window instead of rewinding to the stored offset. That compound path is practically
-/// unreachable: every realistic unassign failure is either "partition wasn't assigned" (no fetch
-/// position to preserve) or a fatally-dead consumer (whose fetches and commits died with it).
+/// Production [`PartitionMirror`]: drives `incremental_assign`/`incremental_unassign` on both
+/// follower consumers. Errors are warned and skipped — the rebalance worker must keep draining.
+/// A missed assign degrades to visible group lag; a missed unassign is practically unreachable
+/// (either "partition wasn't assigned" or a fatally-dead consumer).
 pub struct MergeFollowers {
     merges: Follower,
     transfers: Follower,
@@ -106,14 +98,10 @@ impl PartitionMirror for MergeFollowers {
     }
 }
 
-/// The TPL for a follower `incremental_assign`: every partition at [`Offset::Stored`], so
-/// consumption resumes from the group's committed offset — and, when the broker has pruned the
-/// `Empty` group's commits, falls back to the hard-coded `auto.offset.reset=earliest` rather than
-/// skipping the tail. Pure (no consumer, no I/O) so the mapping is unit-testable.
+/// Build the TPL for a follower `incremental_assign`: every partition at [`Offset::Stored`].
 pub(crate) fn stored_tpl(topic: &str, partitions: &[i32]) -> TopicPartitionList {
     let mut tpl = TopicPartitionList::new();
     for &partition in partitions {
-        // `add_partition_offset` only errors on an invalid sentinel; `Stored` is always valid.
         if let Err(err) = tpl.add_partition_offset(topic, partition, Offset::Stored) {
             warn!(topic, partition, error = %err, "skipping partition in follower assign list");
         }
@@ -121,8 +109,7 @@ pub(crate) fn stored_tpl(topic: &str, partitions: &[i32]) -> TopicPartitionList 
     tpl
 }
 
-/// The TPL for a follower `incremental_unassign`: offsets are irrelevant on removal, so partitions
-/// carry the default sentinel.
+/// Build the TPL for a follower `incremental_unassign`.
 pub(crate) fn bare_tpl(topic: &str, partitions: &[i32]) -> TopicPartitionList {
     let mut tpl = TopicPartitionList::new();
     for &partition in partitions {

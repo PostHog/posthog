@@ -2,54 +2,31 @@
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
-// ── Filter catalog ─────────────────────────────────────────────────────────────
 /// Teams with ≥1 realtime cohort in the current catalog snapshot (gauge).
 pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
-/// Leaves dropped during parse, labelled by `reason` (counter). Rebuild-driven (re-dropped every
-/// refresh), so graph its rate, not its level.
+/// Leaves dropped during parse, labelled by `reason` (counter).
 pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_total";
 /// Cohorts skipped because their filter tree failed to parse (counter).
 pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_parse_errors_total";
-/// Teams whose `posthog_team.timezone` did not parse as an IANA zone and fell back to UTC (counter).
-/// Label-free on purpose — the raw timezone string goes only to the `warn!`, never a metric label.
+/// Teams whose timezone did not parse as an IANA zone and fell back to UTC (counter).
 pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
 
-// ── Stage 2 eligibility ──────────────────────────────────────────────────────────
 /// Cohorts classified by composition eligibility at freeze, labelled by `class` (counter).
-/// Rebuild-driven (every cohort is re-classified each refresh), so graph its rate, not its level.
-/// `class` is one of `single_leaf`, `stage2_composable`, or `excluded_<reason>`
-/// (`excluded_not_multi_leaf`, `excluded_top_level_negation`, `excluded_empty_group`,
-/// `excluded_cycle_detected`, `excluded_unresolved_ref`, `excluded_has_cohort_ref`,
-/// `excluded_has_dropped_leaf`). `excluded_has_cohort_ref` is now narrowed to ref cohorts whose
-/// targets all resolve and that are not in a cycle — the exact set that flips to composable once
-/// cascade transport lands, so it doubles as that slice's sizing metric.
 pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
-/// Cohorts excluded because they sit in a cohort-reference cycle — an SCC of size > 1 or a self-loop
-/// — found by Tarjan SCC at filter freeze (counter). Rebuild-driven (re-counted each refresh), so
-/// graph its rate, not its level. **Label-free on purpose**: the TDD specifies a `cohort_id` label,
-/// but repo precedent keeps unbounded ids out of metric labels (cf. [`FILTER_CATALOG_TZ_FALLBACK`]) —
-/// the offending ids go to the freeze `warn!` instead.
+/// Cohorts excluded because they sit in a cohort-reference cycle (counter).
 pub const COHORT_IN_CYCLE_TOTAL: &str = "cohort_in_cycle_total";
 
-// ── Stage 2 composition ────────────────────────────────────────────────────────
-/// `(cohort, person)` pairs re-evaluated by event-driven Stage 2 composition (counter); pairs with
-/// [`STAGE2_TRANSITIONS`], the subset that flipped.
+/// `(cohort, person)` pairs re-evaluated by Stage 2 composition (counter).
 pub const STAGE2_COHORTS_EVALUATED: &str = "stage2_cohorts_evaluated_total";
-/// Composable-cohort membership flips emitted by Stage 2, labelled by `kind` (`entered`|`left`)
-/// (counter).
+/// Composable-cohort membership flips, labelled by `kind` (`entered`|`left`) (counter).
 pub const STAGE2_TRANSITIONS: &str = "stage2_transitions_total";
-/// Values that failed to decode during a Stage 2 read — a corrupt `cf_stage1`/`cf_stage2` record, or a
-/// leaf whose stored variant disagreed with its catalog meta (counter). The leaf reads as a
-/// non-member; surfaced, never panicked.
+/// Stage 2 decode failures (counter). The leaf reads as a non-member.
 pub const STAGE2_STATE_DECODE_ERROR: &str = "stage2_state_decode_error_total";
-/// Cohort-reference leaves reached while composing a `Stage2Composable` cohort (counter). Composable
-/// cohorts are cohort-ref-free, so a non-zero rate signals a classification regression; the ref reads
-/// as `false`.
+/// Cohort-reference leaves reached during composable evaluation (counter). Non-zero signals a bug.
 pub const STAGE2_UNEXPECTED_COHORT_REF: &str = "stage2_unexpected_cohort_ref_total";
 
-// ── Store ──────────────────────────────────────────────────────────────────────
 /// RocksDB batch commits, labelled by `op` (counter).
 pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
 /// Latency of a committed RocksDB write, labelled by `op` (histogram, seconds).
@@ -57,58 +34,40 @@ pub const STORE_WRITE_DURATION_SECONDS: &str = "store_write_duration_seconds";
 /// RocksDB operations that returned an error, labelled by `op` (counter).
 pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
 /// Malformed inputs the `cf_person_index` merge operator skipped, labelled by `kind` (counter).
-/// Skipped rather than panicked because a panic on a compaction thread is FFI UB.
 pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
 
-// ── HogVM executor ─────────────────────────────────────────────────────────────
-/// Cohort bytecode invoked a symbol with no registered Rust native, labelled by `name` (counter).
-/// Non-zero means a cohort may be silently evaluating to `false`.
+/// Cohort bytecode invoked a symbol with no registered native, labelled by `name` (counter).
 pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
 /// Any other VM/program failure during cohort evaluation, coerced to `false` (counter).
 pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
-/// `properties`/`person_properties` JSON parse failure, labelled by `field` (counter). The event is
-/// skipped, matching Node (consumer.ts:200).
+/// `properties`/`person_properties` JSON parse failure, labelled by `field` (counter).
 pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";
 
-// ── Partition routing ──────────────────────────────────────────────────────────
 /// Partitions with a live worker channel registered on the router (gauge).
 pub const PARTITIONS_ACTIVE: &str = "partitions_active";
-/// Messages dropped while routing because the target partition had no live worker, labelled by
-/// `reason` (counter). Usually a partition revoked mid-rebalance.
+/// Messages dropped while routing (no live worker), labelled by `reason` (counter).
 pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
 /// Sub-batches queued in a partition worker's channel, labelled by `partition` (gauge).
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
 
-// ── Rebalance handling ─────────────────────────────────────────────────────────
-/// Non-empty rebalance callbacks observed, labelled by `event_type` (`assign`|`revoke`) (counter).
-/// One per callback; pairs with the per-partition [`PARTITIONS_ASSIGNED_TOTAL`] /
-/// [`PARTITIONS_REVOKED_TOTAL`].
+/// Non-empty rebalance callbacks, labelled by `event_type` (`assign`|`revoke`) (counter).
 pub const REBALANCES_TOTAL: &str = "rebalances_total";
 /// Partitions assigned to this consumer across all rebalances (counter).
 pub const PARTITIONS_ASSIGNED_TOTAL: &str = "partitions_assigned_total";
 /// Partitions revoked from this consumer across all rebalances (counter).
 pub const PARTITIONS_REVOKED_TOTAL: &str = "partitions_revoked_total";
-/// Empty rebalance callbacks short-circuited, labelled by `event_type` (counter). Cooperative-sticky
-/// fires these whenever group membership changes without moving this consumer's partitions.
+/// Empty rebalance callbacks short-circuited, labelled by `event_type` (counter).
 pub const REBALANCE_EMPTY_SKIPPED_TOTAL: &str = "rebalance_empty_skipped_total";
-/// Per-partition revoke drain (worker join) latency (histogram, seconds). The drain produces and
-/// acks the partition's tail before it is reclaimed.
+/// Per-partition revoke drain latency (histogram, seconds).
 pub const REVOKE_DRAIN_DURATION_SECONDS: &str = "revoke_drain_duration_seconds";
-/// Per-partition RocksDB state slices reclaimed on revoke (counter). Pairs with
-/// [`PARTITIONS_REVOKED_TOTAL`]; the gap is revokes that re-acquired before cleanup ran.
+/// Per-partition RocksDB state slices reclaimed on revoke (counter).
 pub const PARTITION_STATE_DELETED_TOTAL: &str = "partition_state_deleted_total";
-/// Revoke cleanups skipped because the partition was re-acquired before the wipe ran — the rapid
-/// revoke→assign race (counter). Labelled by `phase`: `entry` (re-acquired before the drain started)
-/// or `post_join` (re-acquired during the worker join, so the slice is preserved for the new tenure).
+/// Revoke cleanups skipped because the partition was re-acquired, labelled by `phase` (counter).
 pub const REBALANCE_CLEANUP_SKIPPED_TOTAL: &str = "rebalance_cleanup_skipped_total";
 
-// ── Stage 1 worker ─────────────────────────────────────────────────────────────
-/// Events fully processed; with [`STAGE1_EVENTS_SKIPPED`] accounts for every dequeued event
-/// (counter).
+/// Events fully processed (counter).
 pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
-/// Events skipped whole, labelled by `reason` (counter). `store_error` is also counted in
-/// `store_errors_total`; counting it here keeps `consumed == processed + Σskipped + re_keyed`
-/// exact (the `re_keyed` leg is ack-lagged — see [`MERGE_TOMBSTONE_REDIRECTS_TOTAL`]).
+/// Events skipped whole, labelled by `reason` (counter).
 pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";

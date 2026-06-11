@@ -1,22 +1,10 @@
-//! Wire and column-family value types for the cross-partition merge protocol (TDD §4.5 / §4.5.1).
+//! Wire and column-family value types for the cross-partition merge protocol.
 //!
-//! Two Kafka payloads and three RocksDB values:
-//!
-//! - [`PersonMergeEvent`] — the `KAFKA_PERSON_MERGE_EVENTS` trigger (produced by the person-merge
-//!   service in C3), keyed by `hash(team_id, old_person_uuid)` so it lands on P_old's worker.
-//! - [`MergeStateTransfer`] — the internal `cohort_merge_state_transfer` payload P_old's worker
-//!   produces after a cross-partition drain, carrying P_old's per-leaf [`StatefulRecord`]s **whole**
-//!   so `redirect_dedup` chains transfer for free and the apply step re-reads nothing.
-//! - [`PendingTransfer`] — the `cf_pending_transfers` outbox value (a staged transfer + the merge
-//!   message's Kafka coordinates, so C2's redrive knows which offset to commit after the produce).
-//! - [`Tombstone`] — the `cf_merge_tombstones` value (P_new + the merge instant), redirecting a
-//!   post-merge straggler for P_old.
-//! - [`DrainStamp`] / [`ApplyStamp`] — the `cf_merge_drains_applied` / `cf_merge_applied` idempotence
-//!   markers; the **key's presence** is what short-circuits a replay, so the value is informational
-//!   (the merge instant, deterministic and replay-stable — no wall clock).
-//!
-//! The internal topic is only ever produced and consumed by this service, so the wire shape is our
-//! own; the fixture tests below pin it.
+//! - [`PersonMergeEvent`] -- the merge trigger, keyed by P_old.
+//! - [`MergeStateTransfer`] -- P_old's packaged per-leaf state, keyed by P_new.
+//! - [`PendingTransfer`] -- `cf_pending_transfers` outbox value.
+//! - [`Tombstone`] -- `cf_merge_tombstones` value for straggler redirect.
+//! - [`DrainStamp`] / [`ApplyStamp`] -- idempotence markers (key presence is the guard).
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -24,10 +12,9 @@ use uuid::Uuid;
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::StatefulRecord;
 
-/// The current schema version stamped on a freshly-produced [`PersonMergeEvent`] (TDD §4.5).
 pub const MERGE_EVENT_SCHEMA_VERSION: u32 = 1;
 
-/// `KAFKA_PERSON_MERGE_EVENTS` payload (TDD §4.5): a committed `P_old → P_new` person merge.
+/// A committed `P_old -> P_new` person merge event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersonMergeEvent {
     pub team_id: i32,
@@ -37,11 +24,10 @@ pub struct PersonMergeEvent {
     pub schema_version: u32,
 }
 
-/// One leaf of a [`MergeStateTransfer`]: its [`LeafStateKey`] (hex, for human-readable wire +
-/// debuggability) and P_old's whole [`StatefulRecord`] for that leaf.
+/// One leaf of a [`MergeStateTransfer`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransferLeaf {
-    /// 16-byte `LeafStateKey` as 32 lowercase hex chars.
+    /// 16-byte `LeafStateKey` as 32 lowercase hex chars (human-readable on the wire).
     pub leaf_state_key: String,
     pub record: StatefulRecord,
 }
@@ -54,21 +40,15 @@ impl TransferLeaf {
         }
     }
 
-    /// Decode the hex `leaf_state_key`, or [`None`] if it is not exactly 32 hex chars (malformed wire
-    /// — the apply path skips the leaf rather than panicking).
+    /// Decode the hex `leaf_state_key`, or `None` if malformed.
     pub fn decode_leaf_state_key(&self) -> Option<LeafStateKey> {
         hex_decode(&self.leaf_state_key).map(LeafStateKey)
     }
 }
 
-/// Internal `cohort_merge_state_transfer` payload (TDD §4.5.1): P_old's packaged state, keyed by
-/// `hash(team_id, new_person_uuid)` so it lands on P_new's worker. `source_partition`/`source_offset`
-/// are the triggering merge message's Kafka coordinates, and they — not the transfer message's own —
-/// key `cf_merge_applied` on the apply side: duplicate copies of one merge's transfer (outbox redrive
-/// racing the inline retry, an `AlreadyDrained` re-produce, a crash between the produce ack and the
-/// outbox clear) each land at fresh transfer-topic coordinates by design, but all carry the same
-/// source pair — identical across copies and globally unique per merge — so only the source pair
-/// makes the second copy a no-op instead of a bucket double-count.
+/// P_old's packaged state for cross-partition transfer, keyed by P_new.
+/// `source_partition`/`source_offset` are the original merge message's coordinates (used for
+/// idempotence on the apply side, since duplicate transfers arrive at fresh topic offsets).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MergeStateTransfer {
     pub team_id: i32,
@@ -80,9 +60,8 @@ pub struct MergeStateTransfer {
     pub leaves: Vec<TransferLeaf>,
 }
 
-/// `cf_pending_transfers` value (TDD §4.5.1): a staged [`MergeStateTransfer`] plus the merge message's
-/// Kafka coordinates. The outbox survives a crash between the drain `WriteBatch` and the transfer
-/// produce; C2 re-produces it and commits `merge_msg_*` afterwards.
+/// Staged transfer in `cf_pending_transfers`. Survives a crash between the drain batch and the
+/// produce; the redrive re-produces it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PendingTransfer {
     pub transfer: MergeStateTransfer,
@@ -90,32 +69,26 @@ pub struct PendingTransfer {
     pub merge_msg_offset: i64,
 }
 
-/// `cf_merge_tombstones` value (TDD §4.5.1): the person a merged-away `P_old`'s late events redirect
-/// to, plus the merge instant (for the sweep's eventual tombstone eviction).
+/// Tombstone value: the person a merged-away P_old's late events redirect to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tombstone {
     pub new_person: Uuid,
     pub merged_at_ms: i64,
 }
 
-/// `cf_merge_drains_applied` value (TDD §4.5.1): the merge instant the drain ran at. Informational —
-/// the key's presence is the idempotence guard. Deterministic (`merged_at_ms`), so a replay re-stamps
-/// the same value.
+/// Drain idempotence marker value (informational; key presence is the guard).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DrainStamp {
     pub drained_at_ms: i64,
 }
 
-/// `cf_merge_applied` value (TDD §4.5.1): the merge instant the apply ran at — same role as
-/// [`DrainStamp`].
+/// Apply idempotence marker value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplyStamp {
     pub applied_at_ms: i64,
 }
 
-/// Plain-data JSON codecs for the column-family values, mirroring [`StatefulRecord`]'s shape: an
-/// infallible `encode` (these structs always serialize) and a fallible `decode` that surfaces a
-/// corrupt value rather than panicking.
+/// JSON codecs: infallible `encode`, fallible `decode`.
 macro_rules! json_codec {
     ($ty:ty) => {
         impl $ty {
@@ -139,7 +112,7 @@ json_codec!(Tombstone);
 json_codec!(DrainStamp);
 json_codec!(ApplyStamp);
 
-/// Encode 16 bytes as 32 lowercase hex chars (no `hex` crate in the workspace).
+/// Encode 16 bytes as 32 lowercase hex chars.
 fn hex_encode(bytes: &[u8; 16]) -> String {
     let mut out = String::with_capacity(32);
     for &byte in bytes {
@@ -150,7 +123,7 @@ fn hex_encode(bytes: &[u8; 16]) -> String {
     out
 }
 
-/// Decode exactly 32 hex chars into 16 bytes; [`None`] on a wrong length or a non-hex char.
+/// Decode exactly 32 hex chars into 16 bytes, or `None` on invalid input.
 fn hex_decode(s: &str) -> Option<[u8; 16]> {
     let bytes = s.as_bytes();
     if bytes.len() != 32 {
@@ -215,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn person_merge_event_pins_the_tdd_4_5_shape() {
+    fn person_merge_event_shape_is_pinned() {
         let event = PersonMergeEvent {
             team_id: 42,
             old_person_uuid: uuid(0xAAAA),
@@ -237,13 +210,11 @@ mod tests {
                 "team_id",
             ],
         );
-        // UUIDs serialize as hyphenated strings (the uuid serde form).
         assert_eq!(
             object["old_person_uuid"],
             serde_json::json!(uuid(0xAAAA).to_string())
         );
         assert_eq!(object["schema_version"], serde_json::json!(1));
-        // Round-trips through the wire bytes.
         assert_eq!(PersonMergeEvent::decode(&event.encode()).unwrap(), event);
     }
 
