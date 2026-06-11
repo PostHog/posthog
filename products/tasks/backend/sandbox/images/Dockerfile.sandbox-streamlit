@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:f9fa7f851e38bfb19c9de3afbc4b86ae7176ea7aaf94535c31df5458d5849457
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -15,11 +15,10 @@ RUN useradd --create-home --shell /bin/bash streamlit
 
 WORKDIR /app
 
-# aiohttp pinned to >=3.10.11 for the 3.9.x header-injection CVE fix.
-# TODO: Can we bump these versions?
+# aiohttp must stay >=3.10.11 for the 3.9.x header-injection CVE fix.
 RUN pip install --no-cache-dir \
     streamlit==1.31.0 \
-    "aiohttp>=3.10.11,<4" \
+    aiohttp==3.14.1 \
     numpy==1.26.4 \
     pandas==2.2.2 \
     polars==0.20.31 \
@@ -39,19 +38,14 @@ RUN pip install --no-cache-dir \
 
 # Streamlit reads config from $HOME/.streamlit, so the config lives under the
 # streamlit user's home.
-RUN mkdir -p /home/streamlit/.streamlit && \
-    # TODO: this should be a file that we COPY ... really
-    printf '[server]\nport = 8501\nheadless = true\nenableCORS = false\nenableXsrfProtection = false\n\n[client]\ntoolbarMode = "minimal"\nshowSidebarNavigation = false\n\n[browser]\ngatherUsageStats = false\n\n[theme]\nbase = "light"\n' > /home/streamlit/.streamlit/config.toml && \
-    chown -R streamlit:streamlit /home/streamlit/.streamlit
+COPY --chown=streamlit:streamlit products/tasks/backend/sandbox/images/streamlit_config.toml /home/streamlit/.streamlit/config.toml
 
 COPY products/tasks/backend/sandbox/images/streamlit_auth_proxy.py /usr/local/bin/streamlit_auth_proxy.py
 
 # In-sandbox shim. The shim talks to the local proxy on 127.0.0.1:8181, which
 # mediates the actual HogQL hop to PostHog using a token loaded from disk at
 # proxy startup. The user code never sees a bearer token.
-RUN mkdir -p /usr/local/lib/python3.11/site-packages/posthog_apps && \
-    # TODO: This should be in COPY too - so it's reviewable
-    printf 'import requests as _requests\nimport pandas as _pd\n\n_BRIDGE_URL = "http://127.0.0.1:8181/_bridge/query"\n\n\ndef query(hogql: str) -> _pd.DataFrame:\n    """Run a HogQL query against PostHog from inside a Streamlit sandbox."""\n    resp = _requests.post(_BRIDGE_URL, json={"query": hogql}, timeout=60)\n    if resp.status_code != 200:\n        try:\n            err = resp.json().get("error", resp.text)\n        except Exception:\n            err = resp.text\n        raise RuntimeError("HogQL query failed: " + str(err))\n    data = resp.json()\n    columns = data.get("columns", [])\n    results = data.get("results", [])\n    return _pd.DataFrame(results, columns=columns)\n' > /usr/local/lib/python3.11/site-packages/posthog_apps/__init__.py
+COPY products/tasks/backend/sandbox/images/posthog_apps /usr/local/lib/python3.11/site-packages/posthog_apps
 
 # Modal tunnels port 8080 (the auth proxy). Port 8181 is bound to 127.0.0.1
 # only and is NOT exposed externally — it serves the bridge endpoint used by
