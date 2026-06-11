@@ -232,9 +232,6 @@ where
     .await
 }
 
-/// Like `send_keyed_iter_to_kafka_with_encoding`, but for payloads the caller
-/// has already serialized — the bytes go to the wire as-is (after envelope
-/// encoding), letting callers use non-JSON wire formats.
 pub async fn send_keyed_payloads_to_kafka_with_encoding<C: ClientContext>(
     kafka_producer: &FutureProducer<C>,
     topic: &str,
