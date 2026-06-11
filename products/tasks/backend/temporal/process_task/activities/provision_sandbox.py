@@ -17,7 +17,7 @@ from products.tasks.backend.services.connection_token import (
     get_sandbox_jwt_public_key,
 )
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
-from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
+from products.tasks.backend.temporal.metrics import StepTimer, increment_sandbox_created, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
@@ -393,6 +393,8 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
 
         with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot):
             sandbox = Sandbox.create(config)
+
+        increment_sandbox_created("vm" if use_vm_sandbox else "gvisor")
 
         credentials = sandbox.get_connect_credentials()
 
