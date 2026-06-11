@@ -1690,12 +1690,8 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # update_metadata responds with the list, which re-populates both caches with fresh rows
-        cached = cache.get(cache_key)
-        self.assertNotEqual(cached, [{"stale": True}])
-        self.assertEqual(cached[0]["name_singular"], "org")
-        stale_cached = cache.get(stale_cache_key)
-        self.assertNotEqual(stale_cached, [{"stale": True}])
-        self.assertEqual(stale_cached[0]["name_singular"], "org")
+        self.assertEqual(cache.get(cache_key)[0]["name_singular"], "org")
+        self.assertEqual(cache.get(stale_cache_key)[0]["name_singular"], "org")
 
     def test_destroy_invalidates_cache(self):
         GroupTypeMapping.objects.create(
