@@ -57,10 +57,9 @@ function RetentionChartDemo({ cohorts, mode }: { cohorts: RetentionCohortLike[];
         maxCohorts: CHART_COLORS.length,
     })
     return (
-        // Fixed pixel size, not width:100% — the chart sizes its canvas off a ResizeObserver, which
-        // measures 0 for a percentage width at mount in the headless snapshot runner and draws nothing.
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ display: 'flex', flexDirection: 'column', width: 640, height: 320 }}>
+        // Fixed pixel size, not w-full — the chart sizes its canvas off a ResizeObserver, which measures 0
+        // for a percentage width at mount in the headless snapshot runner and draws nothing.
+        <div className="flex flex-col w-[640px] h-[320px]">
             {mode === 'bar' ? (
                 <TimeSeriesBarChart
                     series={model.series}
