@@ -33,10 +33,14 @@ export interface TraceReviewFilters {
 const ALLOWED_ORDER_BY_VALUES = new Set(['updated_at', '-updated_at', 'created_at', '-created_at'])
 
 function cleanFilters(values: Record<string, unknown>): TraceReviewFilters {
-    const pageValue = values.page ?? values.review_page
-    const searchValue = values.search ?? values.review_search
-    const definitionValue = values.definition_id ?? values.review_definition_id
-    const orderByValue = values.order_by ?? values.review_order_by
+    // Prefer the namespaced review_* params over the bare legacy aliases (which the
+    // Scorers sub-tab also writes to this shared URL) — bare is only a fallback for
+    // old bookmarks. Without this, a stale bare `search` would override a freshly
+    // edited `review_search` on the next urlToAction pass. Matches the queues logic.
+    const pageValue = values.review_page ?? values.page
+    const searchValue = values.review_search ?? values.search
+    const definitionValue = values.review_definition_id ?? values.definition_id
+    const orderByValue = values.review_order_by ?? values.order_by
     const orderBy =
         typeof orderByValue === 'string' && ALLOWED_ORDER_BY_VALUES.has(orderByValue) ? orderByValue : '-updated_at'
 
