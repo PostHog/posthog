@@ -46,28 +46,23 @@ if (!shaReportPath) {
 
 const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'))
 
-// The base build runs last, so the plain report filename holds the base branch's
-// measurement — that's the comparison baseline, like the compressed-size check's.
-// The embedded sha guards against the plain file being this PR's own report (the
-// base build didn't run the check, e.g. a base branch that predates it).
+// The base build runs last (see the write-side comment in check-eager-graph.mjs),
+// so the plain report filename holds the base branch's measurement — the comparison
+// baseline, like the compressed-size check's. The embedded sha guards against the
+// plain file being this PR's own report (the base build didn't run the check, e.g.
+// a base branch that predates it).
 const baseReport = (() => {
-    const baseSha = event.pull_request?.base?.sha
-    const candidates = [
-        baseSha ? path.join(frontendDir, `eager-graph-report-${baseSha}.json`) : null,
-        path.join(frontendDir, 'eager-graph-report.json'),
-    ].filter(Boolean)
-    for (const candidate of candidates) {
-        if (!fs.existsSync(candidate)) {
-            continue
+    const candidate = path.join(frontendDir, 'eager-graph-report.json')
+    if (!fs.existsSync(candidate)) {
+        return null
+    }
+    try {
+        const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'))
+        if (parsed.sha && report.sha && parsed.sha !== report.sha) {
+            return parsed
         }
-        try {
-            const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'))
-            if (parsed.sha && report.sha && parsed.sha !== report.sha) {
-                return parsed
-            }
-        } catch {
-            continue
-        }
+    } catch {
+        return null
     }
     return null
 })()
@@ -96,8 +91,12 @@ function formatDelta(bytes, baselineBytes) {
         return 'no change'
     }
     const sign = delta > 0 ? '+' : '-'
+    const magnitude = `${delta > 0 ? '🔺' : '🟢'} ${sign}${formatBytes(Math.abs(delta))}`
+    if (baselineBytes === 0) {
+        return `${magnitude} (new)`
+    }
     const percent = ((Math.abs(delta) / baselineBytes) * 100).toFixed(1)
-    return `${delta > 0 ? '🔺' : '🟢'} ${sign}${formatBytes(Math.abs(delta))} (${sign}${percent}%)`
+    return `${magnitude} (${sign}${percent}%)`
 }
 
 function budgetBar(bytes, budgetBytes) {
