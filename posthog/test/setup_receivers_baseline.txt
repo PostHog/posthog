@@ -77,7 +77,6 @@ post_delete:products.feature_flags.backend.local_evaluation.feature_flag_changed
 post_delete:products.feature_flags.backend.models.feature_flag.refresh_flag_cache_on_updates
 post_delete:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_delete:products.surveys.backend.models.survey_changed
-post_delete:products.tasks.backend.models._unfile_task_on_hard_delete
 post_init:posthog.storage.team_llm_gateway_policy_signal_handlers._snapshot_loaded_state
 post_save:ee.models.license.license_saved
 post_save:ee.vercel.integration.sync_experiment_experimentation_item
@@ -156,7 +155,6 @@ post_save:products.product_analytics.backend.models.insight_caching_state.sync_i
 post_save:products.product_analytics.backend.models.insight_caching_state.sync_sharing_configuration
 post_save:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_save:products.surveys.backend.models.survey_changed
-post_save:products.tasks.backend.models._unfile_task_on_soft_delete
 post_save:products.tasks.backend.models.track_task_run_completion
 post_save:products.workflows.backend.models.hog_flow.hog_flow.action_saved_for_hog_flows
 post_save:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_saved
