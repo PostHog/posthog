@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { alphabet } from 'lib/utils/strings'
 
 import { ProfileBubbles as ProfileBubblesComponent, ProfileBubblesProps } from './ProfileBubbles'

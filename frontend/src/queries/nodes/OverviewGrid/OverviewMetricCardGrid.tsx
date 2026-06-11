@@ -8,7 +8,7 @@ import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { formatItem, NO_BASELINE_CHANGE_SENTINEL, OverviewItem, SamplingNotice, SamplingRate } from './OverviewGrid'

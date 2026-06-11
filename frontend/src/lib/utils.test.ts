@@ -33,7 +33,6 @@ import {
     isURL,
     numericOperatorMap,
     parseTagsFilter,
-    range,
     reverseColonDelimitedDuration,
     selectorOperatorMap,
     shortTimeZone,
@@ -861,16 +860,6 @@ describe('lib/utils', () => {
         })
         it('1 year to 365 days', () => {
             expect(calculateDays(1, TimeUnitType.Year)).toEqual(365)
-        })
-    })
-
-    describe('range', () => {
-        it('creates simple range', () => {
-            expect(range(4)).toEqual([0, 1, 2, 3])
-        })
-
-        it('creates offset range', () => {
-            expect(range(1, 5)).toEqual([1, 2, 3, 4])
         })
     })
 

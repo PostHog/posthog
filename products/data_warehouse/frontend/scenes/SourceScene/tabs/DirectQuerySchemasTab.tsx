@@ -13,7 +13,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { groupBy } from 'lib/utils'
+import { groupBy } from 'lib/utils/arrays'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { pluralize } from 'lib/utils/strings'
 

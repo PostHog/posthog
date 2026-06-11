@@ -1,4 +1,4 @@
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { uuid } from 'lib/utils/dom'
 
 import { ErrorTrackingQueryResponse, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'

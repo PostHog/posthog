@@ -8,7 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 

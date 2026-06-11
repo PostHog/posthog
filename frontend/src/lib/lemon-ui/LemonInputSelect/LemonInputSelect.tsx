@@ -15,7 +15,7 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
