@@ -6,7 +6,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 
-import { formatDuration } from './TraceFlameChart'
+import { formatDuration } from './TraceWaterfallView'
 
 interface CompareRow {
     service_name: string

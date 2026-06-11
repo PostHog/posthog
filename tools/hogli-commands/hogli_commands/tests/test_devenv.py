@@ -150,6 +150,16 @@ class TestSandboxWrapper:
         assert result["shell"] == "bin/dev-sandbox ./bin/start-frontend"
         assert "sandbox" not in result
 
+    def test_excluded_proc_left_unwrapped(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX_EXCLUDE", "temporal-worker, other-proc")
+        generator = MprocsGenerator(MockRegistry({}))
+        excluded = generator._add_sandbox_wrapper({"shell": "./run-worker", "sandbox": True}, "temporal-worker")
+        assert excluded["shell"] == "./run-worker"
+        assert "sandbox" not in excluded
+        wrapped = generator._add_sandbox_wrapper({"shell": "./bin/start-backend", "sandbox": True}, "backend")
+        assert wrapped["shell"] == "bin/dev-sandbox ./bin/start-backend"
+
     def test_docker_gate_runs_outside_sandbox(self, monkeypatch: Any) -> None:
         monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
         result = self._wrap({"shell": "bin/wait-for-docker && ./bin/start-backend", "sandbox": True})
