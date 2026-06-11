@@ -59,7 +59,7 @@ class FunnelsExtractor:
             analytics_props={"source": EventSource.ALERT},
         )
 
-        breakdowns = _steps_per_breakdown(calculation_result.result)
+        breakdowns = _steps_per_breakdown(calculation_result.result, alert)
         series = [
             ComparableSeries(
                 label=_breakdown_label(steps),
@@ -76,11 +76,16 @@ class FunnelsExtractor:
         )
 
 
-def _steps_per_breakdown(result: Any) -> list[list[dict[str, Any]]]:
+def _steps_per_breakdown(result: Any, alert: AlertConfiguration) -> list[list[dict[str, Any]]]:
     """Normalize the funnel result into a list of step-lists (one per breakdown value).
 
     A non-breakdown funnel returns ``list[step]``; a breakdown funnel returns ``list[list[step]]``.
     """
+    # ``None`` means the query layer swallowed an error — raise (not AlertExtractionError) to avoid
+    # a misfire, matching the trends/SQL extractors. An empty/wrong-shaped result is a config-level
+    # "no data" case routed to the errored-alert path.
+    if result is None:
+        raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
     if not result or not isinstance(result, list):
         raise AlertExtractionError("Funnel alert query returned no steps.")
     if isinstance(result[0], list):

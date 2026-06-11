@@ -38,60 +38,58 @@ def _extract(
         return FunnelsExtractor().extract(_alert(config, condition_type), MagicMock(), _query(viz))
 
 
-def test_conversion_from_start_last_step():
-    # 100 → 40 → overall conversion = 40/100 = 40%
+def _config(metric: str = "conversion_from_start", funnel_step: int | None = None) -> dict:
+    return {"type": "FunnelsAlertConfig", "metric": metric, "funnel_step": funnel_step}
+
+
+@pytest.mark.parametrize(
+    "counts,config,expected",
+    [
+        ((100, 40), None, 40.0),  # from_start, last step: 40/100
+        ((100, 50, 30), _config("conversion_from_previous", 2), 60.0),  # step-over-step: 30/50
+        ((200, 50, 10), _config("conversion_from_start", 1), 25.0),  # from_start at step 1: 50/200
+        ((0, 0), None, 0.0),  # zero base → 0 rate
+    ],
+)
+def test_conversion_rate(counts, config, expected):
+    result = _extract(_steps(*counts), config=config)
+    assert result.series[0].points[0].value == expected
+
+
+def test_result_is_unframed_single_series():
     result = _extract(_steps(100, 40))
-    assert result.series[0].points[0].value == 40.0
-    assert result.subject == "The funnel conversion rate" and result.framed is False and result.is_breakdown is False
+    assert result.subject == "The funnel conversion rate"
+    assert result.framed is False
+    assert result.is_breakdown is False
 
 
-def test_conversion_from_previous_middle_step():
-    # 100 → 50 → 30; step 2 from_previous = 30/50 = 60%
-    result = _extract(
-        _steps(100, 50, 30),
-        config={"type": "FunnelsAlertConfig", "metric": "conversion_from_previous", "funnel_step": 2},
-    )
-    assert result.series[0].points[0].value == 60.0
-
-
-def test_conversion_from_start_explicit_step():
-    # 200 → 50 → 10; step 1 from_start = 50/200 = 25%
-    result = _extract(
-        _steps(200, 50, 10),
-        config={"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": 1},
-    )
-    assert result.series[0].points[0].value == 25.0
-
-
-def test_zero_base_is_zero_rate():
-    result = _extract(_steps(0, 0))
-    assert result.series[0].points[0].value == 0.0
-
-
-def test_step_out_of_range_raises():
-    with pytest.raises(AlertExtractionError, match="out of range"):
-        _extract(
-            _steps(100, 40), config={"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": 5}
-        )
-
-
-def test_conversion_from_previous_at_step_zero_raises():
-    with pytest.raises(AlertExtractionError, match="undefined at the first step"):
-        _extract(
+@pytest.mark.parametrize(
+    "result,config,viz,condition_type,match",
+    [
+        (_steps(100, 40), _config("conversion_from_start", 5), None, AlertConditionType.ABSOLUTE_VALUE, "out of range"),
+        (
             _steps(100, 40),
-            config={"type": "FunnelsAlertConfig", "metric": "conversion_from_previous", "funnel_step": 0},
-        )
+            _config("conversion_from_previous", 0),
+            None,
+            AlertConditionType.ABSOLUTE_VALUE,
+            "undefined at the first step",
+        ),
+        (_steps(100, 40), None, "time_to_convert", AlertConditionType.ABSOLUTE_VALUE, "steps funnel"),
+        (_steps(100, 40), None, None, AlertConditionType.RELATIVE_INCREASE, "absolute value conditions"),
+        (_steps(100, 40), None, None, AlertConditionType.RELATIVE_DECREASE, "absolute value conditions"),
+        ([], None, None, AlertConditionType.ABSOLUTE_VALUE, "no steps"),
+    ],
+)
+def test_extract_raises_extraction_error(result, config, viz, condition_type, match):
+    with pytest.raises(AlertExtractionError, match=match):
+        _extract(result, config=config, viz=viz, condition_type=condition_type)
 
 
-def test_non_steps_viz_raises():
-    with pytest.raises(AlertExtractionError, match="steps funnel"):
-        _extract(_steps(100, 40), viz="time_to_convert")
-
-
-@pytest.mark.parametrize("condition_type", [AlertConditionType.RELATIVE_INCREASE, AlertConditionType.RELATIVE_DECREASE])
-def test_relative_condition_raises(condition_type):
-    with pytest.raises(AlertExtractionError, match="absolute value conditions"):
-        _extract(_steps(100, 40), condition_type=condition_type)
+def test_none_result_raises_runtime_error():
+    # A None result means the query layer swallowed an error — surface it as RuntimeError (not
+    # AlertExtractionError) so it routes to the harder failure path, matching the other extractors.
+    with pytest.raises(RuntimeError, match="No results found"):
+        _extract(None)
 
 
 def test_breakdown_yields_one_series_per_value():
@@ -103,8 +101,3 @@ def test_breakdown_yields_one_series_per_value():
     assert len(result.series) == 2
     assert result.series[0].label == "US" and result.series[0].points[0].value == 40.0
     assert result.series[1].label == "DE" and result.series[1].points[0].value == 25.0
-
-
-def test_empty_result_raises():
-    with pytest.raises(AlertExtractionError, match="no steps"):
-        _extract([])
