@@ -763,9 +763,8 @@ class TestEventsPredicatePushdownTransformUnit:
 
 
 class TestEventsSubexprHoister(BaseTest):
-    """The hoister records which source columns the pre-filtering subquery must project for an events query's outer
-    expressions, rewriting only blob references onto the subquery (other references keep their original type and
-    resolve against the subquery alias by name). It runs on the lowered AST (property value reads are
+    """The hoister rewrites an events query's outer column references into references to the pre-filtering subquery,
+    recording which source columns the subquery must project. It runs on the lowered AST (property value reads are
     `JSONFieldAccess`, whose blob column gets projected while the extraction stays outer); a lazy-join or other
     non-events reference is simply left in the outer query."""
 
@@ -807,12 +806,11 @@ class TestEventsSubexprHoister(BaseTest):
         assert hoister.blocked is False
 
     def test_direct_column_is_projected_under_its_database_name(self):
-        # A direct column is hoisted under its database name, but the outer occurrence keeps its original type and
-        # resolves against the subquery alias by name; the printer derives its nullability from the real events
-        # column, so a non-nullable value stays unwrapped and usable as a join key.
+        # A direct column is hoisted under its database name and the outer occurrence reads the subquery column;
+        # the printer resolves its nullability through the subquery column type, so it stays a usable join key.
         hoister, rewritten, subquery_ref = self._run("SELECT event FROM events")
         assert "event" in hoister.projections
-        assert self._references_subquery(rewritten[0], subquery_ref) is False
+        assert self._references_subquery(rewritten[0], subquery_ref) is True
 
     def test_property_read_projects_its_blob_column(self):
         # A property read projects the raw blob column under its database name; the extraction stays outer.
