@@ -67,6 +67,7 @@ the row lists both.
 | convertkit       | HTTP                        | requests                                                        | ✅                          |
 | convex           | HTTP                        | requests                                                        | ✅                          |
 | copper           | HTTP                        | requests                                                        | ✅                          |
+| crunchbase       | HTTP                        | requests                                                        | ✅                          |
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog          | HTTP                        | requests                                                        | ✅                          |
 | doit             | HTTP                        | requests                                                        | ✅                          |
@@ -215,7 +216,6 @@ doesn't conflict with concurrent PRs.
 - cosmosdb
 - coupa
 - criteo
-- crunchbase
 - culture_amp
 - databricks
 - db2
