@@ -456,12 +456,52 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "exclusiveMinimum": 0,
                     "maximum": 200000,
                 },
+                # Per-session sandbox sizing (custom-tool + coding sandboxes).
+                # Mirror `SpecLimitsSchema` in services/agent-shared spec.ts.
+                "max_memory_mb": {
+                    "default": 512,
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                },
+                "max_cpu_cores": {"default": 0.25, "type": "number", "exclusiveMinimum": 0},
             },
-            "required": ["max_turns", "max_tool_calls", "max_wall_seconds"],
+            "required": ["max_turns", "max_tool_calls", "max_wall_seconds", "max_memory_mb", "max_cpu_cores"],
             "additionalProperties": False,
         },
         "entrypoint": {"default": "agent.md", "type": "string"},
         "reasoning": {"type": "string", "enum": ["minimal", "low", "medium", "high", "xhigh"]},
+        # Optional in-sandbox coding config. Mirror `SandboxConfigSchema` in
+        # services/agent-shared/src/spec/spec.ts. Optional on the spec (no
+        # default) so it stays out of the root `required` list; the `coding-*`
+        # trust profiles provision a tier-2 coding sandbox. See
+        # docs/agent-platform/plans/agent-sandbox-tiers.md.
+        "sandbox": {
+            "type": "object",
+            "properties": {
+                "trust_profile": {
+                    "type": "string",
+                    "enum": ["frozen", "coding-readonly", "coding-write", "coding-pr"],
+                    "default": "frozen",
+                },
+                "loop_location": {
+                    "type": "string",
+                    "enum": ["in_sandbox", "in_process"],
+                    "default": "in_sandbox",
+                },
+                "workspace": {
+                    "type": "object",
+                    "properties": {
+                        "repo": {"type": "string"},
+                        "ref": {"type": "string", "default": "main"},
+                    },
+                    "required": ["ref"],
+                    "additionalProperties": False,
+                },
+            },
+            "required": ["trust_profile", "loop_location"],
+            "additionalProperties": False,
+        },
     },
     "required": [
         "model",

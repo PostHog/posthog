@@ -94,6 +94,7 @@ export const TypedSpecSchema = z
         reasoning: z.string().optional(),
         framework_prompt: z.unknown().optional(),
         resume: z.unknown().optional(),
+        sandbox: z.unknown().optional(),
     })
     .strict()
 
