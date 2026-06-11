@@ -17,7 +17,7 @@ function toolMessage(rawOutput: unknown, innerInput?: Record<string, unknown>): 
 }
 
 describe('CreateNotebookWidget', () => {
-    it.each(['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve'])(
+    it.each(['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve', 'notebook-edit'])(
         'resolves %s to the notebook widget',
         (key) => {
             expect(mcpToolRegistry.lookup(key)?.Renderer).toBe(CreateNotebookWidget)

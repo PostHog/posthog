@@ -53,8 +53,9 @@ export const mcpToolRegistry: McpToolRegistry = new MapBackedRegistry()
 // Custom adapters are registered here as they land. The skeleton ships with the fallback only.
 
 // --- Data tools: notebooks ---
-// All three enabled notebook tools return the same REST notebook payload.
-for (const key of ['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve']) {
+// The generated CRUD tools and the handwritten notebook-edit (the collab-safe content editor)
+// all return the same REST notebook payload.
+for (const key of ['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve', 'notebook-edit']) {
     mcpToolRegistry.register({
         key,
         displayName: 'Notebook',
