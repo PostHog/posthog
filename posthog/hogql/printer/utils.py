@@ -210,7 +210,7 @@ def prepare_ast_for_printing(
             node = lower_property_access(node, context)
 
         # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
-        # dialect-neutral JSONFieldAccess form. Its pre-filtering subquery projects only source columns (raw blobs and
+        # dialect-neutral PropertyAccess form. Its pre-filtering subquery projects only source columns (raw blobs and
         # bare events columns); outer blob references are re-typed onto the subquery, so the resolution pass substitutes
         # physical columns only inside the subquery body — where the real events table is in scope — and outer
         # references print as JSON extracts over the projected blob.

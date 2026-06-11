@@ -767,7 +767,7 @@ class TestEventsSubexprHoister(BaseTest):
     """The hoister records which source columns the pre-filtering subquery must project for an events query's outer
     expressions, rewriting only blob references onto the subquery (other references keep their original type and
     resolve against the subquery alias by name). It runs on the lowered AST (property value reads are
-    `JSONFieldAccess`, whose blob column gets projected while the extraction stays outer); a lazy-join or other
+    `PropertyAccess`, whose blob column gets projected while the extraction stays outer); a lazy-join or other
     non-events reference is simply left in the outer query."""
 
     def setUp(self):
@@ -1847,7 +1847,7 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
         assert len(with_pushdown or []) == 2  # only u1's two events have the tier property
 
     def test_exec_property_type_reads_projected_blob(self):
-        # An outer `properties.tier` value read (lowered to a JSONFieldAccess, distinct path from the JSONHas
+        # An outer `properties.tier` value read (lowered to a PropertyAccess, distinct path from the JSONHas
         # call form above) extracts from the `properties` blob the subquery projects.
         self._create_data()
         select = f"SELECT properties.tier AS t, session.$session_duration AS d FROM events WHERE {self._RANGE} LIMIT 50"

@@ -8,13 +8,13 @@ read once, filtered and `LIMIT`-bounded, before the joins fan out:
     FROM (SELECT <needed cols> FROM events WHERE <pushable p> LIMIT n) AS events <JOIN…> WHERE <residual p>
 
 It runs *after* logical lowering and *before* the ClickHouse physical passes (see `prepare_ast_for_printing`), so it
-operates on the dialect-neutral logical form: property reads are `JSONFieldAccess`, not yet materialized columns. Two
+operates on the dialect-neutral logical form: property reads are `PropertyAccess`, not yet materialized columns. Two
 pieces move events work into the subquery:
 
 1. The pushable predicates (`EventsPredicatePushdownExtractor`) move into the subquery WHERE verbatim — they already
    reference the real events table, so the physical pass optimizes them (materialized columns, skip indexes) in place.
 2. Everything the *outer* query still references is handled by `EventsSubexprHoister`: each events column the outer
-   expressions read — a bare column, or the raw blob behind a `JSONFieldAccess` property read — is projected into the
+   expressions read — a bare column, or the raw blob behind a `PropertyAccess` property read — is projected into the
    subquery under its database column name. All computation over those columns (JSON extraction, casts, join keys)
    stays in the outer query. Pushdown itself never inspects physical columns or special-cases particular functions.
    A blob reference is rewritten to read the projected column, which hides the events table from the physical pass:
@@ -27,8 +27,8 @@ result-equivalent.
 Two things are built by hand here, on purpose:
 
 - **The subquery's types.** `_build_subquery` constructs the subquery's `SelectQueryType` directly rather than calling
-  `resolve_types`. It has to: `resolve_types` runs before lowering, has no handling for `JSONFieldAccess`, and clones
-  with `clear_types=True` — so re-resolving a subquery that already holds lowered `JSONFieldAccess` predicates would
+  `resolve_types`. It has to: `resolve_types` runs before lowering, has no handling for `PropertyAccess`, and clones
+  with `clear_types=True` — so re-resolving a subquery that already holds lowered `PropertyAccess` predicates would
   wipe their types and break nullability and printing downstream. Teaching the resolver about lowered nodes would cross
   a layering boundary, so the types are assembled here instead.
 - **Outer reference types.** A rewritten blob reference is re-typed onto the subquery, so the physical pass cannot
@@ -107,7 +107,7 @@ class SelectAliasInliner(CloningVisitor):
 class EventsSubexprHoister(CloningVisitor):
     """Collects every reference to the target events table into a column projected by the pre-filtering subquery.
 
-    Only source columns are projected — a bare events column, or the raw blob behind a `JSONFieldAccess` property
+    Only source columns are projected — a bare events column, or the raw blob behind a `PropertyAccess` property
     read — each under its real database column name, so two projections can never collide. Computation over those
     columns (JSON extraction, function calls, join-key casts) stays in the outer query / join ON, applied to the
     projected columns. Pushdown itself never inspects physical columns, mimics the events schema, or special-cases
@@ -259,7 +259,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     """Pushes events WHERE/PREWHERE predicates into a pre-filtering subquery:
     `FROM events` -> `FROM (SELECT <needed cols> FROM events WHERE <predicates>) AS events`.
 
-    Runs after logical lowering (so property reads are JSONFieldAccess) and before the ClickHouse physical passes,
+    Runs after logical lowering (so property reads are PropertyAccess) and before the ClickHouse physical passes,
     applying bottom-up so nested `FROM events` subqueries benefit too."""
 
     # Join types across which moving an events PREDICATE is result-safe (they preserve the events/left side). This is
