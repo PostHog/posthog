@@ -75,7 +75,12 @@ export async function GET(request: Request): Promise<Response> {
         return renderError(`Token exchange failed: ${err instanceof Error ? err.message : String(err)}`)
     }
 
-    return NextResponse.redirect(new URL(flow.returnTo, url.origin).toString(), { status: 302 })
+    // Resolve the return URL against the configured public console URL, NOT the
+    // request origin: server-side `request.url` is the pod's internal bind
+    // (0.0.0.0:3040 in the deploy), which would bounce the browser somewhere
+    // unreachable. `consoleBaseUrl` is the same value that backs the OAuth
+    // redirect_uri. `flow.returnTo` is already validated to be a relative path.
+    return NextResponse.redirect(new URL(flow.returnTo, getConfig().consoleBaseUrl).toString(), { status: 302 })
 }
 
 async function fetchProfile(accessToken: string): Promise<AllowlistCheckProfile | null> {
