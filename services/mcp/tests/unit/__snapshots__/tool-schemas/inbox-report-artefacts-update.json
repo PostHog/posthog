@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "content": {
-            "description": "The new artefact payload as a JSON object or array."
+            "description": "The new artefact payload as a JSON object or array, matching the artefact type's schema."
         },
         "id": {
             "description": "A UUID string identifying this signal report artefact.",

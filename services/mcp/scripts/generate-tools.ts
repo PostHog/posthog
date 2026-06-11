@@ -808,6 +808,10 @@ function buildResponseFilter(config: ToolConfig): {
 
 function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar = 'result'): string {
     const baseUrl = config.url_prefix ?? category.url_prefix
+    // agent_note wraps the final returned expression so the note rides the same object the
+    // agent reads — point-of-use guidance without growing the tool description.
+    const noteLiteral = config.agent_note ? JSON.stringify(config.agent_note) : null
+    const noted = (expr: string): string => (noteLiteral ? `withAgentNote(${expr}, ${noteLiteral})` : expr)
 
     if (config.list && config.enrich_url) {
         const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
@@ -818,27 +822,27 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
                 `enrich_url '{params.${field}}' is not supported on list tools — list items are enriched from the response array`
             )
         }
-        return [
-            `        return await withPostHogUrl(context, {`,
+        const enriched = [
+            `await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
             `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
             `        }, '${baseUrl}')`,
-            ``,
         ].join('\n')
+        return `        return ${noted(enriched)}\n`
     }
 
     if (config.list) {
-        return `        return await withPostHogUrl(context, ${resultVar}, '${baseUrl}')\n`
+        return `        return ${noted(`await withPostHogUrl(context, ${resultVar}, '${baseUrl}')`)}\n`
     }
 
     if (config.enrich_url) {
         const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}\`)\n`
+        return `        return ${noted(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}\`)`)}\n`
     }
 
-    return `        return ${resultVar}\n`
+    return `        return ${noted(resultVar)}\n`
 }
 
 // ------------------------------------------------------------------
@@ -862,6 +866,8 @@ function generateToolCode(
     responseType: string | undefined
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
+    needsWithAgentNote: boolean
+    hasAgentNote: boolean
     responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
 } {
     const schemaName = `${toPascalCase(toolName)}Schema`
@@ -1014,6 +1020,13 @@ function generateToolCode(
         resultType = responseType ?? 'unknown'
     }
 
+    // agent_note wraps whatever the enrichment produced (or the bare result).
+    const hasAgentNote = !!config.agent_note
+    const needsWithAgentNote = hasAgentNote && !!responseType
+    if (needsWithAgentNote) {
+        resultType = `WithAgentNote<${resultType}>`
+    }
+
     const appKey = config.ui_app ?? null
 
     const enrichUsesParams = !!config.enrich_url && parseEnrichUrl(config.enrich_url).source === 'params'
@@ -1047,6 +1060,8 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         responseType,
         needsWithPostHogUrl,
         hasEnrichment,
+        needsWithAgentNote,
+        hasAgentNote,
         responseFilterImport: responseFilter.helperImport,
     }
 }
@@ -1068,6 +1083,8 @@ function generateCustomSchemaToolCode(
     responseType: string | undefined
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
+    needsWithAgentNote: boolean
+    hasAgentNote: boolean
     responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
 } {
     const pathParamNames = extractPathParams(resolved.path)
@@ -1131,10 +1148,14 @@ function generateCustomSchemaToolCode(
         }
     }
 
+    const hasAgentNote = !!config.agent_note
+    const needsWithAgentNote = hasAgentNote && !!responseType
+    const customResultType = needsWithAgentNote ? `WithAgentNote<${responseType}>` : (responseType ?? 'unknown')
+
     const code = `
 const ${schemaName} = ${baseSchemaExpr}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${responseType ?? 'unknown'}> => ({
+const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${customResultType}> => ({
     name: '${toolName}',
     schema: ${schemaName},
     handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
@@ -1151,6 +1172,8 @@ ${handlerBody}    },
         responseType,
         needsWithPostHogUrl: false,
         hasEnrichment: false,
+        needsWithAgentNote,
+        hasAgentNote,
         responseFilterImport: responseFilter.helperImport,
     }
 }
@@ -1232,6 +1255,9 @@ function generateCategoryFile(
 
     let hasEnrichment = false
 
+    let hasWithAgentNote = false
+    let hasAgentNote = false
+
     const responseFilterImports = new Set<string>()
 
     for (const [name, config, resolved] of enabledTools) {
@@ -1265,6 +1291,12 @@ function generateCategoryFile(
         }
         if (result.hasEnrichment) {
             hasEnrichment = true
+        }
+        if (result.needsWithAgentNote) {
+            hasWithAgentNote = true
+        }
+        if (result.hasAgentNote) {
+            hasAgentNote = true
         }
         if (result.responseFilterImport) {
             responseFilterImports.add(result.responseFilterImport)
@@ -1385,8 +1417,14 @@ function generateCategoryFile(
     if (hasWithPostHogUrl) {
         toolUtilsTypeImports.push('WithPostHogUrl')
     }
+    if (hasWithAgentNote) {
+        toolUtilsTypeImports.push('WithAgentNote')
+    }
     if (hasEnrichment) {
         toolUtilsValueImports.push('withPostHogUrl')
+    }
+    if (hasAgentNote) {
+        toolUtilsValueImports.push('withAgentNote')
     }
     for (const imp of responseFilterImports) {
         toolUtilsValueImports.push(imp)

@@ -34,7 +34,13 @@ import {
     SignalsSourceConfigsUpdateBody,
     SignalsSourceConfigsUpdateParams,
 } from '@/generated/signals/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const InboxReportArtefactsCreateSchema = SignalsReportArtefactsCreateParams.omit({ project_id: true }).extend(
@@ -191,7 +197,10 @@ const inboxReportTasksCreate = (): ToolBase<
 
 const InboxReportsRetrieveSchema = SignalsReportsRetrieveParams.omit({ project_id: true })
 
-const inboxReportsRetrieve = (): ToolBase<typeof InboxReportsRetrieveSchema, WithPostHogUrl<Schemas.SignalReport>> => ({
+const inboxReportsRetrieve = (): ToolBase<
+    typeof InboxReportsRetrieveSchema,
+    WithAgentNote<WithPostHogUrl<Schemas.SignalReport>>
+> => ({
     name: 'inbox-reports-retrieve',
     schema: InboxReportsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof InboxReportsRetrieveSchema>) => {
@@ -200,7 +209,10 @@ const inboxReportsRetrieve = (): ToolBase<typeof InboxReportsRetrieveSchema, Wit
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, result, `/inbox/${result.id}`),
+            "If this report prompts you to do work: first associate your task with the report (inbox-report-tasks-create, once), then log the work as artefacts as you go via inbox-report-artefacts-create — notes, code references, diffs, and commits pushed outside git_signed_commit (signed pushes are recorded automatically). See those tools' descriptions for content shapes."
+        )
     },
 })
 
