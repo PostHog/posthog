@@ -186,6 +186,13 @@ def streamlit_apps_flag_enabled(distinct_id: str, organization_id: str) -> bool:
     )
 
 
+class StreamlitAppVersionsResponseSerializer(serializers.Serializer):
+    results = StreamlitAppVersionSerializer(
+        many=True,
+        help_text="The app's versions, most recent first (capped at 50).",
+    )
+
+
 class StreamlitAppSourceVersionSerializer(serializers.Serializer):
     source = serializers.CharField(
         help_text=(

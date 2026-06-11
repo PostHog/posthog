@@ -9,11 +9,10 @@ import {
     StreamlitAppsDestroyParams,
     StreamlitAppsListQueryParams,
     StreamlitAppsRetrieveParams,
-    StreamlitAppsStartCreateBody,
     StreamlitAppsStartCreateParams,
     StreamlitAppsStatusRetrieveParams,
-    StreamlitAppsStopCreateBody,
     StreamlitAppsStopCreateParams,
+    StreamlitAppsVersionsRetrieveParams,
 } from '@/generated/streamlit_apps/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -142,65 +141,51 @@ const streamlitAppsStatus = (): ToolBase<typeof StreamlitAppsStatusSchema, Schem
     },
 })
 
-const StreamlitAppsStartSchema = StreamlitAppsStartCreateParams.omit({ project_id: true }).extend(
-    StreamlitAppsStartCreateBody.shape
-)
+const StreamlitAppsStartSchema = StreamlitAppsStartCreateParams.omit({ project_id: true })
 
 const streamlitAppsStart = (): ToolBase<typeof StreamlitAppsStartSchema, WithPostHogUrl<Schemas.StreamlitApp>> => ({
     name: 'streamlit-apps-start',
     schema: StreamlitAppsStartSchema,
     handler: async (context: Context, params: z.infer<typeof StreamlitAppsStartSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.cpu_cores !== undefined) {
-            body['cpu_cores'] = params.cpu_cores
-        }
-        if (params.memory_gb !== undefined) {
-            body['memory_gb'] = params.memory_gb
-        }
         const result = await context.api.request<Schemas.StreamlitApp>({
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/streamlit_apps/${encodeURIComponent(String(params.short_id))}/start/`,
-            body,
         })
         return await withPostHogUrl(context, result, `/streamlit-apps/${result.short_id}`)
     },
 })
 
-const StreamlitAppsStopSchema = StreamlitAppsStopCreateParams.omit({ project_id: true }).extend(
-    StreamlitAppsStopCreateBody.shape
-)
+const StreamlitAppsStopSchema = StreamlitAppsStopCreateParams.omit({ project_id: true })
 
 const streamlitAppsStop = (): ToolBase<typeof StreamlitAppsStopSchema, WithPostHogUrl<Schemas.StreamlitApp>> => ({
     name: 'streamlit-apps-stop',
     schema: StreamlitAppsStopSchema,
     handler: async (context: Context, params: z.infer<typeof StreamlitAppsStopSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.cpu_cores !== undefined) {
-            body['cpu_cores'] = params.cpu_cores
-        }
-        if (params.memory_gb !== undefined) {
-            body['memory_gb'] = params.memory_gb
-        }
         const result = await context.api.request<Schemas.StreamlitApp>({
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/streamlit_apps/${encodeURIComponent(String(params.short_id))}/stop/`,
-            body,
         })
         return await withPostHogUrl(context, result, `/streamlit-apps/${result.short_id}`)
+    },
+})
+
+const StreamlitAppsVersionsSchema = StreamlitAppsVersionsRetrieveParams.omit({ project_id: true })
+
+const streamlitAppsVersions = (): ToolBase<
+    typeof StreamlitAppsVersionsSchema,
+    WithPostHogUrl<Schemas.StreamlitAppVersionsResponse>
+> => ({
+    name: 'streamlit-apps-versions',
+    schema: StreamlitAppsVersionsSchema,
+    handler: async (context: Context, params: z.infer<typeof StreamlitAppsVersionsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.StreamlitAppVersionsResponse>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/streamlit_apps/${encodeURIComponent(String(params.short_id))}/versions/`,
+        })
+        return await withPostHogUrl(context, result, '/streamlit-apps')
     },
 })
 
@@ -227,5 +212,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'streamlit-apps-status': streamlitAppsStatus,
     'streamlit-apps-start': streamlitAppsStart,
     'streamlit-apps-stop': streamlitAppsStop,
+    'streamlit-apps-versions': streamlitAppsVersions,
     'streamlit-apps-delete': streamlitAppsDelete,
 }

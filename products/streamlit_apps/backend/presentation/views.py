@@ -34,6 +34,7 @@ from products.streamlit_apps.backend.presentation.serializers import (
     StreamlitAppSerializer,
     StreamlitAppSourceVersionSerializer,
     StreamlitAppVersionSerializer,
+    StreamlitAppVersionsResponseSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -120,7 +121,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             detail=Detail(name=instance.name),
         )
 
-    @extend_schema(responses={200: StreamlitAppVersionSerializer(many=True)})
+    @extend_schema(responses={200: StreamlitAppVersionsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="versions")
     def versions(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -295,7 +296,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(payload)
         return Response(cached)
 
-    @extend_schema(responses={200: StreamlitAppSerializer, 202: StreamlitAppSerializer})
+    @extend_schema(request=None, responses={200: StreamlitAppSerializer, 202: StreamlitAppSerializer})
     @action(methods=["POST"], detail=True, url_path="start", throttle_classes=[ClickHouseBurstRateThrottle])
     def start(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -320,7 +321,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_202_ACCEPTED,
         )
 
-    @extend_schema(responses={200: StreamlitAppSerializer})
+    @extend_schema(request=None, responses={200: StreamlitAppSerializer})
     @action(methods=["POST"], detail=True, url_path="stop")
     def stop(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -379,6 +380,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
+    @extend_schema(request=None, responses={202: StreamlitAppSerializer})
     @action(methods=["POST"], detail=True, url_path="restart", throttle_classes=[ClickHouseBurstRateThrottle])
     def restart(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()

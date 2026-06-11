@@ -94,15 +94,6 @@ export const StreamlitAppsStartCreateParams = /* @__PURE__ */ zod.object({
     short_id: zod.string(),
 })
 
-export const streamlitAppsStartCreateBodyNameMax = 255
-
-export const StreamlitAppsStartCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(streamlitAppsStartCreateBodyNameMax),
-    description: zod.string().optional(),
-    cpu_cores: zod.number().optional(),
-    memory_gb: zod.number().optional(),
-})
-
 export const StreamlitAppsStatusRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -121,11 +112,11 @@ export const StreamlitAppsStopCreateParams = /* @__PURE__ */ zod.object({
     short_id: zod.string(),
 })
 
-export const streamlitAppsStopCreateBodyNameMax = 255
-
-export const StreamlitAppsStopCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(streamlitAppsStopCreateBodyNameMax),
-    description: zod.string().optional(),
-    cpu_cores: zod.number().optional(),
-    memory_gb: zod.number().optional(),
+export const StreamlitAppsVersionsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    short_id: zod.string(),
 })

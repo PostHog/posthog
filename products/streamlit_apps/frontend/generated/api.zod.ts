@@ -65,33 +65,6 @@ export const StreamlitAppsCreateVersionFromSourceCreateBody = /* @__PURE__ */ zo
         ),
 })
 
-export const streamlitAppsRestartCreateBodyNameMax = 255
-
-export const StreamlitAppsRestartCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(streamlitAppsRestartCreateBodyNameMax),
-    description: zod.string().optional(),
-    cpu_cores: zod.number().optional(),
-    memory_gb: zod.number().optional(),
-})
-
-export const streamlitAppsStartCreateBodyNameMax = 255
-
-export const StreamlitAppsStartCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(streamlitAppsStartCreateBodyNameMax),
-    description: zod.string().optional(),
-    cpu_cores: zod.number().optional(),
-    memory_gb: zod.number().optional(),
-})
-
-export const streamlitAppsStopCreateBodyNameMax = 255
-
-export const StreamlitAppsStopCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(streamlitAppsStopCreateBodyNameMax),
-    description: zod.string().optional(),
-    cpu_cores: zod.number().optional(),
-    memory_gb: zod.number().optional(),
-})
-
 export const streamlitAppsUploadVersionCreateBodyNameMax = 255
 
 export const StreamlitAppsUploadVersionCreateBody = /* @__PURE__ */ zod.object({

@@ -10,14 +10,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedStreamlitAppMinimalListApi,
-    PaginatedStreamlitAppVersionListApi,
     PatchedStreamlitAppApi,
     StreamlitAppApi,
     StreamlitAppSandboxApi,
     StreamlitAppSourceVersionApi,
     StreamlitAppVersionApi,
+    StreamlitAppVersionsResponseApi,
     StreamlitAppsListParams,
-    StreamlitAppsVersionsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -211,14 +210,11 @@ export const getStreamlitAppsRestartCreateUrl = (projectId: string, shortId: str
 export const streamlitAppsRestartCreate = async (
     projectId: string,
     shortId: string,
-    streamlitAppApi: NonReadonly<StreamlitAppApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getStreamlitAppsRestartCreateUrl(projectId, shortId), {
+): Promise<StreamlitAppApi> => {
+    return apiMutator<StreamlitAppApi>(getStreamlitAppsRestartCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(streamlitAppApi),
     })
 }
 
@@ -229,14 +225,11 @@ export const getStreamlitAppsStartCreateUrl = (projectId: string, shortId: strin
 export const streamlitAppsStartCreate = async (
     projectId: string,
     shortId: string,
-    streamlitAppApi: NonReadonly<StreamlitAppApi>,
     options?: RequestInit
 ): Promise<StreamlitAppApi> => {
     return apiMutator<StreamlitAppApi>(getStreamlitAppsStartCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(streamlitAppApi),
     })
 }
 
@@ -262,14 +255,11 @@ export const getStreamlitAppsStopCreateUrl = (projectId: string, shortId: string
 export const streamlitAppsStopCreate = async (
     projectId: string,
     shortId: string,
-    streamlitAppApi: NonReadonly<StreamlitAppApi>,
     options?: RequestInit
 ): Promise<StreamlitAppApi> => {
     return apiMutator<StreamlitAppApi>(getStreamlitAppsStopCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(streamlitAppApi),
     })
 }
 
@@ -291,37 +281,17 @@ export const streamlitAppsUploadVersionCreate = async (
     })
 }
 
-export const getStreamlitAppsVersionsListUrl = (
-    projectId: string,
-    shortId: string,
-    params?: StreamlitAppsVersionsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/streamlit_apps/${shortId}/versions/?${stringifiedParams}`
-        : `/api/environments/${projectId}/streamlit_apps/${shortId}/versions/`
+export const getStreamlitAppsVersionsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/environments/${projectId}/streamlit_apps/${shortId}/versions/`
 }
 
-export const streamlitAppsVersionsList = async (
+export const streamlitAppsVersionsRetrieve = async (
     projectId: string,
     shortId: string,
-    params?: StreamlitAppsVersionsListParams,
     options?: RequestInit
-): Promise<PaginatedStreamlitAppVersionListApi> => {
-    return apiMutator<PaginatedStreamlitAppVersionListApi>(
-        getStreamlitAppsVersionsListUrl(projectId, shortId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<StreamlitAppVersionsResponseApi> => {
+    return apiMutator<StreamlitAppVersionsResponseApi>(getStreamlitAppsVersionsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
 }

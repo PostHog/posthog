@@ -27152,26 +27152,6 @@ export namespace Schemas {
       results: StreamlitAppMinimal[];
     }
 
-    export interface StreamlitAppVersion {
-      readonly id: string;
-      readonly version_number: number;
-      readonly zip_file: string;
-      readonly zip_hash: string;
-      /** @nullable */
-      readonly snapshot_id: string | null;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-    }
-
-    export interface PaginatedStreamlitAppVersionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: StreamlitAppVersion[];
-    }
-
     /**
      * * `starting` - Starting
      * * `completed` - Completed
@@ -33559,6 +33539,17 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** @nullable */
       readonly status?: string | null;
+    }
+
+    export interface StreamlitAppVersion {
+      readonly id: string;
+      readonly version_number: number;
+      readonly zip_file: string;
+      readonly zip_hash: string;
+      /** @nullable */
+      readonly snapshot_id: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
     }
 
     /**
@@ -41237,6 +41228,11 @@ export namespace Schemas {
       requirements?: string;
     }
 
+    export interface StreamlitAppVersionsResponse {
+      /** The app's versions, most recent first (capped at 50). */
+      results: StreamlitAppVersion[];
+    }
+
     export interface SummaryBullet {
       text: string;
       line_refs: string;
@@ -48389,17 +48385,6 @@ export namespace Schemas {
     };
 
     export type StreamlitAppsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type StreamlitAppsVersionsListParams = {
     /**
      * Number of results to return per page.
      */

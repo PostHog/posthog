@@ -164,27 +164,12 @@ export interface StreamlitAppSourceVersionApi {
     requirements?: string
 }
 
-export interface PaginatedStreamlitAppVersionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+export interface StreamlitAppVersionsResponseApi {
+    /** The app's versions, most recent first (capped at 50). */
     results: StreamlitAppVersionApi[]
 }
 
 export type StreamlitAppsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type StreamlitAppsVersionsListParams = {
     /**
      * Number of results to return per page.
      */
