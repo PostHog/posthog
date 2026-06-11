@@ -30,14 +30,15 @@ def get_widget_feature_enabled(widget_type: str, team: Team) -> bool | None:
 
     Recorded at widget-add time so we can tell whether the user saw real data or the
     setup/custom view. Returns None when the widget declares no availability
-    requirements or none are recognized.
+    requirements or any requirement is unrecognized.
     """
     spec = get_widget_spec(widget_type)
     if spec is None or not spec.availability_requirements:
         return None
 
     results = [is_widget_availability_requirement_met(req, team) for req in spec.availability_requirements]
-    known = [result for result in results if result is not None]
-    if not known:
+    # An unrecognized requirement is "unknown", not "met" — we can't confirm the feature is on, so
+    # don't silently drop it and risk emitting feature_enabled=True. Report the whole widget as unknown.
+    if any(result is None for result in results):
         return None
-    return all(known)
+    return all(results)

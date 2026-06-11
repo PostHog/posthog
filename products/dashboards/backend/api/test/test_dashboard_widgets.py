@@ -7,6 +7,7 @@ from unittest.mock import ANY, patch
 from django.test import override_settings
 
 from drf_spectacular.generators import SchemaGenerator
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
@@ -724,53 +725,36 @@ class TestDashboardWidgets(APIBaseTest):
         assert len(widget_added_calls) == 1
         assert widget_added_calls[0][0][2]["widget_type"] == "session_replay_list"
 
+    @parameterized.expand(
+        [
+            ("session_replay_off", "session_replay_list", "session_recording_opt_in", False),
+            ("session_replay_on", "session_replay_list", "session_recording_opt_in", True),
+            ("error_tracking_off", "error_tracking_list", "autocapture_exceptions_opt_in", False),
+            ("error_tracking_on", "error_tracking_list", "autocapture_exceptions_opt_in", True),
+        ]
+    )
     @override_settings(IN_UNIT_TESTING=True)
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_dashboard_widget_added_records_feature_enabled_false_when_feature_off(
-        self, mock_report_user_action
+    def test_dashboard_widget_added_records_feature_enabled(
+        self, _name: str, widget_type: str, team_field: str, expected: bool, mock_report_user_action
     ) -> None:
-        self.team.session_recording_opt_in = False
-        self.team.autocapture_exceptions_opt_in = False
+        setattr(self.team, team_field, expected)
         self.team.save()
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
 
-        for widget_type in ("session_replay_list", "error_tracking_list"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
-                {"widgets": [{"widget_type": widget_type, "config": {"limit": 5}}]},
-            )
-            assert response.status_code == status.HTTP_201_CREATED
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": widget_type, "config": {"limit": 5}}]},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
 
         widget_added_calls = [
             call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
         ]
-        by_type = {call[0][2]["widget_type"]: call[0][2] for call in widget_added_calls}
-        assert by_type["session_replay_list"]["feature_enabled"] is False
-        assert by_type["error_tracking_list"]["feature_enabled"] is False
-
-    @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_dashboard_widget_added_records_feature_enabled_true_when_feature_on(self, mock_report_user_action) -> None:
-        self.team.session_recording_opt_in = True
-        self.team.autocapture_exceptions_opt_in = True
-        self.team.save()
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        mock_report_user_action.reset_mock()
-
-        for widget_type in ("session_replay_list", "error_tracking_list"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
-                {"widgets": [{"widget_type": widget_type, "config": {"limit": 5}}]},
-            )
-            assert response.status_code == status.HTTP_201_CREATED
-
-        widget_added_calls = [
-            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
-        ]
-        by_type = {call[0][2]["widget_type"]: call[0][2] for call in widget_added_calls}
-        assert by_type["session_replay_list"]["feature_enabled"] is True
-        assert by_type["error_tracking_list"]["feature_enabled"] is True
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == widget_type
+        assert widget_added_calls[0][0][2]["feature_enabled"] is expected
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_batch_create_widget_tiles(self) -> None:
