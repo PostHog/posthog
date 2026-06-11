@@ -359,3 +359,22 @@ async fn test_remote_config_oversized_numeric_id_returns_404() {
 
     assert_eq!(response.status(), 404);
 }
+
+#[tokio::test]
+async fn test_remote_config_head_returns_200() {
+    let config = Config::default_test_config();
+    let _context = TestContext::new(Some(&config)).await;
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    // Django serves HEAD on this action as 200 (method handled before auth), so no
+    // credential is needed.
+    let response = reqwest::Client::new()
+        .head(format!(
+            "http://{}/api/projects/1/feature_flags/x/remote_config",
+            server.addr
+        ))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+}

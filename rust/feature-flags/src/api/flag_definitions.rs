@@ -333,7 +333,7 @@ async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<Str
 }
 
 /// Handles non-GET HTTP methods (HEAD, OPTIONS, and unsupported methods)
-fn handle_non_get_method(method: &Method) -> Response {
+pub(crate) fn handle_non_get_method(method: &Method) -> Response {
     match *method {
         Method::HEAD => (
             StatusCode::OK,

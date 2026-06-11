@@ -10,7 +10,7 @@
 //! `flag_definitions`.
 
 use crate::{
-    api::{auth, errors::FlagError},
+    api::{auth, errors::FlagError, flag_definitions},
     database::get_connection_with_metrics,
     flags::{flag_payload_decryptor::REDACTED_PAYLOAD_VALUE, flag_service::FlagService},
     router::State as AppState,
@@ -43,8 +43,11 @@ pub async fn remote_config(
     method: Method,
     headers: HeaderMap,
 ) -> Result<Response, FlagError> {
+    // Match the sibling endpoint: Django serves HEAD as 200 and answers OPTIONS with an
+    // Allow header (DRF maps HEAD to the GET action), so probes and the phase 2 diff don't
+    // diverge on method.
     if method != Method::GET {
-        return Ok(StatusCode::METHOD_NOT_ALLOWED.into_response());
+        return Ok(flag_definitions::handle_non_get_method(&method));
     }
 
     let (should_decrypt, team_id) = match authenticate(&state, project_id, &headers).await? {
