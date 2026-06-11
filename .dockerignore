@@ -4,6 +4,7 @@
 !.kearc
 !bin
 !common/hogvm
+!common/hogql_parser
 !common/esbuilder
 !common/migration_utils
 !common/mosaic
@@ -72,6 +73,11 @@ common/*/*/node_modules
 common/*/node_modules
 common/*/*/dist
 common/*/dist
+# Local hogql-parser build artifacts (pip/setuptools/WASM) must not leak into image builds
+common/hogql_parser/build
+common/hogql_parser/build_wasm
+common/hogql_parser/*.egg-info
+common/hogql_parser/*.so
 packages/quill/**/node_modules
 packages/quill/**/dist
 products/**/node_modules

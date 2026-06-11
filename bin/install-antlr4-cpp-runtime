@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Builds the ANTLR C++ runtime as a static, position-independent library and installs
+# headers + libantlr4-runtime.a system-wide. With only the static library present,
+# `pip install ./common/hogql_parser` links it into the extension, producing a
+# self-contained module that needs no ANTLR shared library at runtime.
+set -euo pipefail
+
+version="${ANTLR_CPP_RUNTIME_VERSION:-4.13.1}"
+expected_md5="${ANTLR_CPP_RUNTIME_MD5:-c875c148991aacd043f733827644a76f}"
+workdir="$(mktemp -d)"
+trap 'rm -rf "$workdir"' EXIT
+
+archive="$workdir/antlr4-cpp-runtime.zip"
+curl --fail --location "https://www.antlr.org/download/antlr4-cpp-runtime-${version}-source.zip" --output "$archive" ||
+    curl --fail --location "https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-${version}-source.zip" --output "$archive"
+
+echo "$expected_md5  $archive" | md5sum --check -
+
+unzip -q "$archive" -d "$workdir/source"
+cmake -S "$workdir/source" -B "$workdir/build" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DANTLR_BUILD_SHARED=OFF \
+    -DANTLR_BUILD_STATIC=ON \
+    -DANTLR_BUILD_CPP_TESTS=OFF \
+    -DBUILD_TESTING=OFF \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake --build "$workdir/build" --parallel "$(nproc)"
+DESTDIR="$workdir/install" cmake --install "$workdir/build"
+
+mkdir -p /usr/include /usr/lib
+cp -r "$workdir/install/usr/local/include/antlr4-runtime" /usr/include/
+find "$workdir/install" -name 'libantlr4-runtime.a' -exec cp {} /usr/lib/ \;
+test -f /usr/lib/libantlr4-runtime.a

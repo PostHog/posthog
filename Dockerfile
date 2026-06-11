@@ -133,6 +133,59 @@ RUN cd /code/common/plugin_transpiler && \
 #
 # ---------------------------------------------------------
 #
+# Build the hogql-parser wheel from this checkout. The image must run the parser code of the
+# commit it packages — the PyPI pin in pyproject.toml stays for dev/CI convenience, but deploy
+# correctness must not depend on registry state. ANTLR is linked statically (see
+# bin/install-antlr4-cpp-runtime), so the wheel is self-contained and the runtime image
+# needs no extra shared libraries.
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS hogql-parser-build
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "build-essential" \
+    "ca-certificates" \
+    "cmake" \
+    "curl" \
+    "pkg-config" \
+    "unzip" \
+    "uuid-dev" \
+    && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY bin/install-antlr4-cpp-runtime bin/install-antlr4-cpp-runtime
+RUN bin/install-antlr4-cpp-runtime
+
+COPY common/hogql_parser common/hogql_parser/
+RUN pip wheel --no-deps --wheel-dir /wheels ./common/hogql_parser
+
+# Prove the wheel is loadable and self-contained before it reaches posthog-build: a dynamic
+# antlr4-runtime dependency or unresolved symbol here would only fail at runtime in the final
+# image. Module init imports posthog.hogql.errors, which doesn't exist in this stage — stub it;
+# Python dlopens extensions with RTLD_NOW, so the import still resolves every linked symbol.
+RUN <<'SMOKE'
+set -euo pipefail
+pip install --no-deps /wheels/*.whl
+so="$(python -c "import glob, sysconfig; print(glob.glob(sysconfig.get_paths()['platlib'] + '/hogql_parser*.so')[0])")"
+if ldd "$so" | grep antlr4-runtime; then
+    echo "hogql_parser extension dynamically links antlr4-runtime — expected static linking" >&2
+    exit 1
+fi
+ldd "$so" | (! grep "not found")
+python - <<'EOF'
+import sys, types
+for name in ("posthog", "posthog.hogql", "posthog.hogql.errors"):
+    sys.modules[name] = types.ModuleType(name)
+import hogql_parser
+print("hogql_parser loaded from", hogql_parser.__file__)
+EOF
+SMOKE
+
+
+#
+# ---------------------------------------------------------
+#
 FROM ghcr.io/astral-sh/uv:0.11.14 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
@@ -167,6 +220,12 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
+
+# Replace the PyPI-pinned hogql-parser with the wheel built from this checkout (see the
+# hogql-parser-build stage). --reinstall covers the case where the pinned version number
+# matches this source but the content differs.
+RUN --mount=type=bind,from=hogql-parser-build,source=/wheels,target=/wheels \
+    uv pip install --python /python-runtime/bin/python --reinstall --no-deps /wheels/*.whl
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime

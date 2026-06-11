@@ -10,6 +10,32 @@
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM ghcr.io/astral-sh/uv:0.11.14 AS uv
 
+# Build the hogql-parser wheel from this checkout — same rationale and recipe as the
+# hogql-parser-build stage in the main Dockerfile: the image must run the parser code of
+# the commit it packages, independent of PyPI state. ANTLR is linked statically, so the
+# wheel is self-contained.
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS hogql-parser-build
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "build-essential" \
+    "ca-certificates" \
+    "cmake" \
+    "curl" \
+    "pkg-config" \
+    "unzip" \
+    "uuid-dev" \
+    && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY bin/install-antlr4-cpp-runtime bin/install-antlr4-cpp-runtime
+RUN bin/install-antlr4-cpp-runtime
+
+COPY common/hogql_parser common/hogql_parser/
+RUN pip wheel --no-deps --wheel-dir /wheels ./common/hogql_parser
+
 FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -44,6 +70,10 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
     uv sync --locked --no-dev --no-install-project --group sentiment --no-binary-package lxml --no-binary-package xmlsec
+
+# Replace the PyPI-pinned hogql-parser with the wheel built from this checkout.
+RUN --mount=type=bind,from=hogql-parser-build,source=/wheels,target=/wheels \
+    uv pip install --python /python-runtime/bin/python --reinstall --no-deps /wheels/*.whl
 
 # Copy project files
 COPY manage.py manage.py

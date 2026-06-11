@@ -1,5 +1,12 @@
 # Developing `hogql-parser`
 
+## How the parser ships
+
+There are two distribution paths, and they serve different purposes:
+
+- **Production images build the parser from this checkout.** The `hogql-parser-build` stage in `Dockerfile` (and `Dockerfile.llm-analytics`) compiles a wheel from `common/hogql_parser` with a statically linked ANTLR runtime (`bin/install-antlr4-cpp-runtime`) and installs it over the `uv sync`-ed environment. A deployed image always runs the parser code of the commit it was built from — PyPI state never affects deploys.
+- **PyPI/npm packages are for development and CI convenience.** `pyproject.toml` pins `hogql-parser==X.Y.Z` so local dev and CI get prebuilt wheels. Backend CI builds the parser from source instead whenever `common/hogql_parser/` differs from master, so PRs are tested against their own parser code. The `Release hogql-parser` workflows publish to PyPI/npm and bump the pins when you change the parser — bump the version in `setup.py` and `package.json` so they trigger.
+
 ## Mandatory reading
 
 If you're new to Python C/C++ extensions, there are some things you must have in mind. The [Python/C API Reference Manual](https://docs.python.org/3/c-api/index.html) is worth a read as a whole.

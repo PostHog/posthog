@@ -41,7 +41,7 @@
     },
     "scripts": {
         "build:compile": "emmake cmake --build build_wasm --config Release && cmake --install build_wasm",
-        "build:make": "emcmake cmake -S . -B build_wasm -DCMAKE_BUILD_TYPE=Release && npm run build:compile || echo 'Warning: hogql-parser build failed, skipping'",
-        "build": "emcmake cmake -S . -B build_wasm -G Ninja -DCMAKE_BUILD_TYPE=Release && npm run build:compile || echo 'Warning: hogql-parser build failed, skipping'"
+        "build:make": "emcmake cmake -S . -B build_wasm -DCMAKE_BUILD_TYPE=Release && npm run build:compile",
+        "build": "emcmake cmake -S . -B build_wasm -G Ninja -DCMAKE_BUILD_TYPE=Release && npm run build:compile"
     }
 }

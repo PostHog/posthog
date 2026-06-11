@@ -1,3 +1,9 @@
+[build-system]
+# Pinned so builds don't depend on whatever setuptools happens to be ambient —
+# matches the version the release workflow uses for the sdist.
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
 [tool.black]
 line-length = 120
 target-version = ['py310']
