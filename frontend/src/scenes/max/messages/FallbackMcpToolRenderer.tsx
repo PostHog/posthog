@@ -6,16 +6,28 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import type { McpToolRendererProps } from '../mcpToolRegistry'
 import { MessageTemplate } from './MessageTemplate'
 
+/**
+ * Extracts displayable text from one ACP tool-call content block. ACP nests the real ContentBlock
+ * under a `{ type: 'content', content: { type: 'text', text } }` envelope, so unwrap that first;
+ * flat `{ type: 'text', text }` blocks are read directly. Non-text blocks fall back to pretty JSON.
+ */
+export function contentBlockText(block: unknown): string {
+    if (!block || typeof block !== 'object') {
+        return JSON.stringify(block, null, 2)
+    }
+    const inner =
+        (block as { type?: unknown }).type === 'content' && 'content' in block
+            ? (block as { content: unknown }).content
+            : block
+    if (inner && typeof inner === 'object' && 'text' in inner) {
+        return String((inner as { text: unknown }).text)
+    }
+    return JSON.stringify(block, null, 2)
+}
+
 /** Pretty-prints accumulated ACP `content[]` — text frames inline, everything else as JSON. */
-function renderContentBlocks(content: unknown[]): string {
-    return content
-        .map((block) => {
-            if (block && typeof block === 'object' && 'text' in block) {
-                return String((block as { text: unknown }).text)
-            }
-            return JSON.stringify(block, null, 2)
-        })
-        .join('\n')
+export function renderContentBlocks(content: unknown[]): string {
+    return content.map(contentBlockText).join('\n')
 }
 
 function statusBadge(status: McpToolRendererProps['message']['status']): JSX.Element {
