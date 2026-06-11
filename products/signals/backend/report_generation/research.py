@@ -105,6 +105,15 @@ class PriorityAssessment(BaseModel):
         ),
     )
     priority: Priority = Field(description="Priority (P0-P4)")
+    dollar_value: float | None = Field(
+        default=None,
+        description=(
+            "Peak estimate (USD) of the real dollar value of merging the fix/change this report leads to. "
+            "Reason internally about a plausible value range first; set this to the most likely point "
+            "within that range (the peak of your belief distribution). Should align with the assigned "
+            "priority. Nullable for backward compatibility only — prefer a best-effort peak over null."
+        ),
+    )
 
     @field_validator("explanation")
     @classmethod
@@ -457,6 +466,18 @@ def build_priority_prompt(
 {previous_priority_context}
 
 Base your priority on **evidence from your research** — quantified user impact, error frequency, or scope of affected code paths — not just the signal descriptions.
+
+## Dollar value estimation
+
+`dollar_value` is internal — do not elaborate on it in `explanation` (users see that field).
+
+Put a **real dollar value** (in USD) on merging the fix or change this report leads to. Treat this as the concrete monetary realization of the priority you just assigned: priority captures both how important and how urgent the change is, and dollar value is downstream of both. A higher-priority report should generally carry a higher dollar value — if your estimate contradicts the priority (e.g. a high estimate on a P4, or a near-zero estimate on a P0), revisit your reasoning before settling on it.
+
+Before setting `dollar_value`, **reason internally about a plausible USD range** where the real value is likely to land given your uncertainty. Then set `dollar_value` to the **peak of that belief distribution** — the single most likely outcome within the range, not the midpoint or a conservative floor.
+
+- **Trace the causal path** from merging the change to business outcomes. Be explicit with yourself about each link: merge → behavior change → user/revenue/cost outcome. Only count value you can actually justify from the evidence; if a link is speculative, discount it heavily.
+- **Quantify from the data you gathered** — affected user counts, conversion or retention deltas, error frequency, request volume, revenue per user, or engineering time saved. Convert these into dollars using the most defensible figures available; state assumptions in your internal reasoning, not in `explanation`.
+- **Factor in value over time.** Some fixes deliver a one-off gain; others compound or recur (e.g. an ongoing error suppressed every day, a conversion lift that persists). Reason about an appropriate horizon and apply **decay** where the value erodes (the issue would likely be fixed another way, traffic shifts, the feature is deprecated). Prefer a present-value-style estimate over a naive perpetual sum.
 
 Respond with a JSON object matching this schema:
 

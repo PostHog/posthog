@@ -269,10 +269,12 @@ export const experimentsLogic = kea<experimentsLogicType>([
         experiments: [
             { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as ExperimentsResult,
             {
-                loadExperiments: async () => {
+                loadExperiments: async (_: void, breakpoint) => {
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments?${toParams(values.paramsFromFilters)}`
                     )
+                    // Discard stale responses that resolve after a newer search has fired
+                    breakpoint()
                     return {
                         ...response,
                         offset: values.paramsFromFilters.offset,
@@ -370,12 +372,14 @@ export const experimentsLogic = kea<experimentsLogicType>([
         featureFlagModalFeatureFlags: [
             { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
             {
-                loadFeatureFlagModalFeatureFlags: async () => {
+                loadFeatureFlagModalFeatureFlags: async (_: void, breakpoint) => {
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments/eligible_feature_flags/?${toParams({
                             ...values.featureFlagModalParamsFromFilters,
                         })}`
                     )
+                    // Discard stale responses that resolve after a newer search has fired
+                    breakpoint()
                     return response
                 },
             },
