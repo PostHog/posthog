@@ -307,7 +307,7 @@ describe('TaxonomicFilter', () => {
             let switchButton: HTMLElement | undefined
             await waitFor(() => {
                 switchButton = inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-all'))
-                expect(switchButton).toBeDefined()
+                expect(switchButton).toBeTruthy()
             })
             expect(switchButton).toHaveTextContent(/See results from other categories/i)
 
@@ -331,7 +331,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'xyznonexistent')
 
             await waitFor(() => {
-                expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeDefined()
+                expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
             })
             expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
         })
