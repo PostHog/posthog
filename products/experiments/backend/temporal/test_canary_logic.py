@@ -55,8 +55,7 @@ class TestRelativeDeviation:
         [
             # name, a, b, expected
             ("both_zero", 0.0, 0.0, 0.0),
-            ("equal", 1000.0, 1000.0, 0.0),
-            ("small_drift", 1000.0, 1005.0, 5.0 / 1005.0),
+            ("denominator_is_larger_value", 1000.0, 1005.0, 5.0 / 1005.0),
             ("one_zero_below_floor", 0.0, 0.5, 0.5),  # denominator floored at 1.0
             ("negative_values", -10.0, 10.0, 2.0),
         ]

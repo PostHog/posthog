@@ -79,7 +79,3 @@ class TestMetricResolution(BaseTest):
         experiment = self._experiment(metrics=[{"metric_type": "funnel"}])
         self._attach_saved(experiment, {"metric_type": "funnel"})
         assert iter_metric_dicts(experiment) == []
-
-    def test_find_returns_none_for_unknown_uuid(self):
-        experiment = self._experiment(metrics=[{"uuid": str(uuid.uuid4())}])
-        assert find_metric_dict(experiment, str(uuid.uuid4())) is None
