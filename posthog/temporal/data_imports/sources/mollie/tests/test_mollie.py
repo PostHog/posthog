@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
+
 from posthog.temporal.data_imports.sources.mollie.mollie import (
     MollieResumeConfig,
     get_rows,
@@ -30,6 +32,14 @@ def _response(embedded_key: str, items: list[dict[str, Any]], next_url: str | No
     return resp
 
 
+def _error_response(status_code: int) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.status_code = status_code
+    resp.ok = status_code < 400
+    resp.raise_for_status.side_effect = requests.HTTPError(f"status {status_code}")
+    return resp
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
@@ -50,8 +60,8 @@ class TestValidateCredentials:
         assert validate_credentials("live_key") is expected
 
     @mock.patch("posthog.temporal.data_imports.sources.mollie.mollie.make_tracked_session")
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
+    def test_validate_credentials_swallows_network_errors(self, mock_session):
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
         assert validate_credentials("live_key") is False
 
 
@@ -102,6 +112,33 @@ class TestGetRows:
 
         assert batches == []
         manager.save_state.assert_not_called()
+
+    @pytest.mark.parametrize("retryable_status", [429, 500, 503])
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.mollie.mollie.make_tracked_session")
+    def test_retryable_status_triggers_retry_then_succeeds(self, mock_session, _mock_sleep, retryable_status):
+        # tenacity's backoff sleep is patched out so the retry resolves instantly.
+        mock_session.return_value.get.side_effect = [
+            _error_response(retryable_status),
+            _response("payments", [{"id": "tr_1"}]),
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("live_key", "payments", mock.MagicMock(), manager))
+
+        assert [item["id"] for batch in batches for item in batch] == ["tr_1"]
+        assert mock_session.return_value.get.call_count == 2
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.mollie.mollie.make_tracked_session")
+    def test_non_retryable_4xx_raises_immediately(self, mock_session, _mock_sleep):
+        mock_session.return_value.get.side_effect = [_error_response(403)]
+
+        manager = _make_manager()
+        with pytest.raises(requests.HTTPError):
+            list(get_rows("live_key", "payments", mock.MagicMock(), manager))
+
+        assert mock_session.return_value.get.call_count == 1
 
     @mock.patch("posthog.temporal.data_imports.sources.mollie.mollie.make_tracked_session")
     def test_missing_embedded_block_yields_nothing(self, mock_session):

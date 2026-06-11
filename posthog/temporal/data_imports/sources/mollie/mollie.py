@@ -46,7 +46,7 @@ def validate_credentials(api_key: str) -> bool:
             timeout=10,
         )
         return response.status_code != 401
-    except Exception:
+    except requests.RequestException:
         return False
 
 
