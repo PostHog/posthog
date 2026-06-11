@@ -343,6 +343,8 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                 _pr_row(12, "carol", "open", 1, _ago(30), head_sha="sha12"),
                 # open bot -> not stuck
                 _pr_row(13, "dependabot[bot]", "open", 0, _ago(30), head_sha="sha13"),
+                # open allowlisted bot (no [bot] suffix) -> is_bot, not stuck
+                _pr_row(16, "renovate", "open", 0, _ago(30), head_sha="sha16"),
                 # merged within the default 30d window -> in the list, not open
                 _pr_row(14, "alice", "closed", 0, _ago(40), merged_at=_ago(5), head_sha="sha14"),
                 # merged long ago -> outside the window, excluded from the list
@@ -361,9 +363,9 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
     def test_ci_cards_counts(self) -> None:
         self._seed()
         cards = api.get_ci_cards(team=self.team)
-        assert cards.open_prs == 4  # 10, 11, 12, 13
+        assert cards.open_prs == 5  # 10, 11, 12, 13, 16
         assert cards.repos == 1  # all PostHog/posthog
-        assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 bot)
+        assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 and 16 bots)
         assert cards.failing_ci == 1  # only 10 has a failing latest run
 
     def test_pull_request_list_window_and_rollup(self) -> None:
@@ -371,10 +373,11 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         result = api.list_pull_requests(team=self.team)
         assert result.truncated is False
         by_number = {item.number: item for item in result.items}
-        assert set(by_number) == {10, 11, 12, 13, 14}  # 15 merged before the window
+        assert set(by_number) == {10, 11, 12, 13, 14, 16}  # 15 merged before the window
         assert by_number[10].ci.failing == 1
         assert by_number[11].ci.passing == 1
-        assert by_number[13].author.is_bot is True
+        assert by_number[13].author.is_bot is True  # '[bot]' suffix branch
+        assert by_number[16].author.is_bot is True  # KNOWN_BOT_HANDLES allowlist branch
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()

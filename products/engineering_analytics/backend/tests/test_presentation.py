@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
@@ -136,8 +137,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_requires_authentication(self) -> None:
+    @parameterized.expand(["ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"])
+    def test_requires_authentication(self, action: str) -> None:
         self.client.logout()
-        response = self.client.get(self._url("pr_lifecycle"))
+        response = self.client.get(self._url(action))
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
