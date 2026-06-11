@@ -423,6 +423,8 @@ export const productRedirects: Record<
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
+    '/mcp-analytics': (_params, searchParams, hashParams) =>
+        combineUrl(urls.mcpAnalyticsDashboard(), searchParams, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
     '/prompt-management/skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.skills(), searchParams, hashParams).url,

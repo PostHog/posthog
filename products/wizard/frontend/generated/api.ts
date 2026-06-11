@@ -12,6 +12,7 @@ import type {
     PaginatedWizardSessionDTOListApi,
     UpsertWizardSessionRequestApi,
     WizardSessionDTOApi,
+    WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
     WizardSessionsStreamRetrieveParams,
 } from './api.schemas'
@@ -79,6 +80,36 @@ export const wizardSessionsRetrieve = async (
     options?: RequestInit
 ): Promise<WizardSessionDTOApi> => {
     return apiMutator<WizardSessionDTOApi>(getWizardSessionsRetrieveUrl(projectId, sessionId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardSessionsLatestRetrieveUrl = (projectId: string, params: WizardSessionsLatestRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/wizard/sessions/latest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/wizard/sessions/latest/`
+}
+
+/**
+ * Return the single most-recent wizard session for a workflow (and optional skill), or 204 if none exists. Unlike `list`, this is a point lookup the app shell uses to decide whether to open the live SSE stream — it never returns a collection, and 'no run' is a 204 rather than a 404 so clients don't conflate it with a missing endpoint.
+ */
+export const wizardSessionsLatestRetrieve = async (
+    projectId: string,
+    params: WizardSessionsLatestRetrieveParams,
+    options?: RequestInit
+): Promise<WizardSessionDTOApi | void> => {
+    return apiMutator<WizardSessionDTOApi | void>(getWizardSessionsLatestRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
