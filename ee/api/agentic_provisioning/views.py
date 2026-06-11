@@ -775,21 +775,18 @@ def _require_email_code(
 
 
 def _enforce_email_code_rate_limit(request_id: str, email: str) -> Response | None:
-    """Cap codes sent per recipient address so the endpoint can't be used to bomb an inbox.
-
-    Fixed-window counter like _enforce_partner_rate_limit; the same 2x burst caveat
-    across a window boundary applies.
-    """
+    """Cap codes sent per recipient address so the endpoint can't be used to bomb an inbox."""
     window_index = int(time.time()) // EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS
     cache_key = f"{EMAIL_CODE_RATE_LIMIT_PREFIX}{email.lower()}:{window_index}"
 
     try:
         cache.add(cache_key, 0, timeout=EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS)
         count = cache.incr(cache_key)
-    except (ValueError, ConnectionError, TimeoutError) as e:
+    except Exception as e:
+        # Fail open: a cache outage shouldn't take down the linking flow, and
+        # touching the cache again here would just re-raise.
         logger.warning("email_code_rate_limit_cache_error", error=str(e))
-        cache.add(cache_key, 1, timeout=EMAIL_CODE_RATE_LIMIT_WINDOW_SECONDS)
-        count = 1
+        return None
 
     if count > EMAIL_CODE_RATE_LIMIT_MAX_SENDS:
         _capture_provisioning_event("account_request", "email_code_rate_limited", limit=EMAIL_CODE_RATE_LIMIT_MAX_SENDS)
@@ -2415,12 +2412,11 @@ def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Res
     try:
         cache.add(cache_key, 0, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
         count = cache.incr(cache_key)
-    except (ValueError, ConnectionError, TimeoutError) as e:
+    except Exception as e:
+        # Fail open: redis client errors aren't builtins (the old narrow except missed
+        # them), and touching the cache again here would just re-raise during an outage.
         logger.warning("partner_rate_limit_cache_error", endpoint=endpoint, partner_id=str(partner.id), error=str(e))
-        # cache.add preserves any counter a concurrent request already initialized,
-        # so a transient cache error doesn't reset the window for a partner at the limit.
-        cache.add(cache_key, 1, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
-        count = 1
+        return None
 
     if count > limit:
         event_name = PARTNER_RATE_LIMIT_EVENT_NAMES.get(endpoint, endpoint)

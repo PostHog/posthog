@@ -1037,3 +1037,11 @@ class TestEmailCodeLinking(ProvisioningTestBase):
         assert res.json()["error"]["code"] == "rate_limited"
         assert res["Retry-After"]
         assert mock_send.delay.call_count == 3
+
+    @patch("ee.api.agentic_provisioning.views.send_provisioning_email_code")
+    def test_rate_limit_fails_open_on_cache_outage(self, mock_send):
+        with patch("ee.api.agentic_provisioning.views.cache.incr", side_effect=RuntimeError("redis down")):
+            res = self._post(self._payload())
+        assert res.status_code == 200
+        assert res.json()["type"] == "requires_otp"
+        assert mock_send.delay.call_count == 1
