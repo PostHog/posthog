@@ -650,8 +650,9 @@ export const InfiniteListRow = ({
 }
 
 function InfiniteListEmptyState(): JSX.Element {
-    const { searchQuery, taxonomicGroupTypes, includeStaleEvents } = useValues(taxonomicFilterLogic)
-    const { setIncludeStaleEvents } = useActions(taxonomicFilterLogic)
+    const { searchQuery, taxonomicGroupTypes, includeStaleEvents, hasResultsInOtherGroups } =
+        useValues(taxonomicFilterLogic)
+    const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
 
     const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
         useValues(infiniteListLogic)
@@ -701,6 +702,16 @@ function InfiniteListEmptyState(): JSX.Element {
                             onClick={() => setIncludeStaleEvents(true)}
                         >
                             Include stale events
+                        </LemonButton>
+                    )}
+                    {!emptySearchQuery && hasResultsInOtherGroups && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            data-attr="taxonomic-switch-to-all"
+                            onClick={() => setActiveTab(TaxonomicFilterGroupType.SuggestedFilters)}
+                        >
+                            See results in other categories
                         </LemonButton>
                     )}
                 </>
