@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 
-import { IconFilter, IconSearch, IconSort, IconTriangleDown, IconTriangleUp, IconX } from '@posthog/icons'
+import { IconCheck, IconFilter, IconSort, IconTriangleDown, IconTriangleUp } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterHeadless, useTaxonomicFilterContext } from 'lib/components/TaxonomicFilter/headless'
-import { MenuFilterCombobox, MenuFilterEntry } from 'lib/components/TaxonomicFilter/menu'
+import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -14,24 +14,36 @@ import {
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 // products/ can't resolve bare @posthog/quill (no vite alias) — go through the barrel
-import { Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
-import { cn } from 'lib/utils/css-classes'
+import {
+    DropdownMenuCheckboxItem,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+} from 'lib/ui/quill'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssueAssignee, QuickFilterContext } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { AssigneeDropdown } from 'products/error_tracking/frontend/components/Assignee/AssigneeDropdown'
+import { assigneeSelectLogic } from 'products/error_tracking/frontend/components/Assignee/assigneeSelectLogic'
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
 import {
     TAXONOMIC_FILTER_LOGIC_KEY,
     TAXONOMIC_GROUP_TYPES,
 } from 'products/error_tracking/frontend/components/IssueFilters/consts'
 import {
+    FilterChip,
     InternalUsersChip,
     IssueFilterChips,
     QuickFilterChips,
     UniversalFilterGroup,
 } from 'products/error_tracking/frontend/components/IssueFilters/FilterGroup'
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
+import { STATUS_OPTIONS, statusOptionLabel } from 'products/error_tracking/frontend/components/IssueFilters/Status'
 import {
     ErrorTrackingQueryOrderBy,
     ORDER_BY_OPTIONS,
@@ -45,7 +57,7 @@ const QUICK_FILTER_CONTEXT = QuickFilterContext.ErrorTrackingIssueFilters
 
 const PLACEHOLDER = 'Search issues, or filter by property...'
 
-// No HogQL in this variant — it lives behind the rebuild's dropdown menu, which C skips
+// No HogQL in this bar — keeps the "+" menu to filters and search
 const GROUP_TYPES = TAXONOMIC_GROUP_TYPES.filter((type) => type !== TaxonomicFilterGroupType.HogQLExpression)
 
 // Synthetic group for the "Search issues matching …" action row
@@ -56,11 +68,13 @@ const SEARCH_GROUP = {
 } as unknown as TaxonomicFilterGroup
 
 /**
- * Variant C — the rebuild's packaged combobox panel (`menu/`):
- * input + category select + preview pane, hosted in a popover. The bar's
- * search slot is a trigger; the panel owns the typing field. The list's
- * first row is a "Search issues matching …" action (auto-highlighted, so
- * plain Enter still means "search"), with taxonomic matches below it.
+ * Filter bar fronting the rebuilt taxonomic filter (`menu/`): one filter
+ * button on the left that opens the multi-level dropdown (New filter… /
+ * Pinned, plus issue-specific Status, Assignee, and internal-users
+ * entries), with the combobox panel behind "New filter…". The bar itself
+ * holds no typing field — just filter chips. The combobox list's first row
+ * is a "Search issues matching …" action (auto-highlighted, so plain Enter
+ * means "search"); a committed search shows as a chip in the bar.
  */
 export function IssuesFiltersC(): JSX.Element {
     const { filterGroup } = useValues(issueFiltersLogic)
@@ -82,6 +96,7 @@ const Separator = (): JSX.Element => <div className="w-px h-5 bg-border shrink-0
 
 const OmniBar = (): JSX.Element => {
     const { searchQuery } = useValues(issueFiltersLogic)
+    const { setSearchQuery } = useActions(issueFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     return (
@@ -90,7 +105,13 @@ const OmniBar = (): JSX.Element => {
             bindRootProps={false}
             taxonomicGroupTypes={GROUP_TYPES}
             initialSearchQuery={searchQuery}
-            onChange={(group, value, item) => addGroupFilter(group, value, item)}
+            onChange={(group, value, item) => {
+                if (group.type === SEARCH_GROUP.type) {
+                    setSearchQuery(String((item as { name?: string })?.name ?? ''))
+                } else {
+                    addGroupFilter(group, value, item)
+                }
+            }}
             excludedProperties={{ [TaxonomicFilterGroupType.ErrorTrackingIssues]: ['assignee'] }}
         >
             <OmniBarInner />
@@ -99,34 +120,9 @@ const OmniBar = (): JSX.Element => {
 }
 
 const OmniBarInner = (): JSX.Element => {
-    const [visible, setVisible] = useState<boolean>(false)
-    const { searchQuery: panelQuery, setSearchQuery: setPanelQuery, selectItem } = useTaxonomicFilterContext()
+    const { searchQuery: panelQuery } = useTaxonomicFilterContext()
     const { searchQuery } = useValues(issueFiltersLogic)
     const { setSearchQuery } = useActions(issueFiltersLogic)
-
-    // Whatever closed the panel (Esc, outside click, a commit), its input
-    // falls back to the search that is actually applied to the list.
-    useEffect(() => {
-        if (!visible) {
-            setPanelQuery(searchQuery)
-        }
-    }, [visible, searchQuery, setPanelQuery])
-
-    useEffect(() => {
-        const onKeyDown = (event: KeyboardEvent): void => {
-            if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) {
-                return
-            }
-            const target = event.target as HTMLElement | null
-            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-                return
-            }
-            event.preventDefault()
-            setVisible(true)
-        }
-        window.addEventListener('keydown', onKeyDown)
-        return () => window.removeEventListener('keydown', onKeyDown)
-    }, [])
 
     const trimmed = panelQuery.trim()
     const leadingEntries = useMemo<MenuFilterEntry[]>(() => {
@@ -143,85 +139,115 @@ const OmniBarInner = (): JSX.Element => {
         ]
     }, [trimmed])
 
-    const onCommit = (entry: MenuFilterEntry): void => {
-        if (entry.group.type === SEARCH_GROUP.type) {
-            setSearchQuery(entry.name)
-        } else {
-            const value = entry.group.getValue?.(entry.item) ?? null
-            selectItem(entry.group, value, entry.item)
-        }
-        setVisible(false)
-    }
-
     return (
-        <div
-            className={cn(
-                'flex items-center min-h-11 pr-1.5 rounded-lg border bg-[var(--color-bg-fill-input)] shadow-sm transition-colors',
-                visible && 'border-[var(--color-border-bold)]'
-            )}
-        >
+        <div className="flex items-center min-h-11 pr-1.5 rounded-lg border bg-[var(--color-bg-fill-input)] shadow-sm">
             <div className="flex items-center gap-0.5 pl-1.5 shrink-0">
                 <ListReloadButton />
                 <ErrorFilters.DateRange size="small" type="tertiary" />
-                <ErrorFilters.SettingsMenu
-                    icon={<IconFilter />}
-                    quickFilterContext={QUICK_FILTER_CONTEXT}
-                    logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
+                <TaxonomicFilterMenu
+                    placeholder={PLACEHOLDER}
+                    comboboxLeadingEntries={leadingEntries}
+                    hideRecent
+                    extraMenuItems={({ close }) => <IssueFilterMenuItems close={close} />}
+                    trigger={({ open }) => (
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            icon={<IconFilter />}
+                            active={open}
+                            tooltip="Search and filter issues"
+                        />
+                    )}
                 />
             </div>
             <Separator />
-            <IconSearch className="ml-1 text-lg text-muted shrink-0" />
             <div className="flex-1 min-w-0 flex items-center flex-wrap gap-1 px-1">
                 <IssueFilterChips />
                 <InternalUsersChip />
                 <QuickFilterChips context={QUICK_FILTER_CONTEXT} logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY} />
                 <UniversalFilterGroup taxonomicGroupTypes={TAXONOMIC_GROUP_TYPES} />
-                <Popover open={visible} onOpenChange={setVisible}>
-                    <PopoverTrigger
-                        render={
-                            <button
-                                type="button"
-                                className="flex flex-1 min-w-[160px] items-center h-8 px-1 rounded text-left text-sm bg-transparent border-0 cursor-pointer hover:bg-fill-button-tertiary-hover"
-                            >
-                                {searchQuery ? (
-                                    <span className="truncate">{searchQuery}</span>
-                                ) : (
-                                    <span className="text-muted truncate">{PLACEHOLDER}</span>
-                                )}
-                            </button>
-                        }
-                    />
-                    <PopoverContent
-                        align="start"
-                        side="bottom"
-                        sideOffset={4}
-                        className="p-0 gap-0 overflow-hidden flex flex-col w-[calc(100vw-2rem)] md:w-[720px] h-[400px]"
-                    >
-                        <MenuFilterCombobox
-                            drillTo="all"
-                            title="Search issues"
-                            placeholder={PLACEHOLDER}
-                            leadingEntries={leadingEntries}
-                            onCommit={onCommit}
-                            onBack={() => setVisible(false)}
-                        />
-                    </PopoverContent>
-                </Popover>
+                {searchQuery && <FilterChip onClear={() => setSearchQuery('')}>Search: "{searchQuery}"</FilterChip>}
             </div>
-            {searchQuery && (
-                <LemonButton size="xsmall" icon={<IconX />} tooltip="Clear search" onClick={() => setSearchQuery('')} />
-            )}
-            {!visible && (
-                <kbd className="hidden md:inline-flex items-center justify-center shrink-0 rounded border px-1.5 h-5 mr-1 text-xs text-muted font-mono">
-                    /
-                </kbd>
-            )}
             <Separator />
             <div className="flex items-center gap-0.5 shrink-0">
                 <SortFieldButton />
                 <SortDirectionButton />
             </div>
         </div>
+    )
+}
+
+const IssueFilterMenuItems = ({ close }: { close: () => void }): JSX.Element => {
+    const { status, assignee } = useValues(issueQueryOptionsLogic)
+    const { setStatus, setAssignee } = useActions(issueQueryOptionsLogic)
+    const { filterTestAccounts } = useValues(issueFiltersLogic)
+    const { setFilterTestAccounts } = useActions(issueFiltersLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { setLocalDefault } = useActions(filterTestAccountsDefaultsLogic)
+
+    const hasTestAccountFilters = (currentTeam?.test_account_filters || []).length > 0
+
+    return (
+        <>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Status</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                    {STATUS_OPTIONS.map((option) => (
+                        <DropdownMenuItem key={option} onClick={() => setStatus(option)}>
+                            {statusOptionLabel(option)}
+                            {(status ?? 'active') === option && <IconCheck className="ml-auto size-3.5" />}
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Assignee</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="p-0">
+                    <AssigneeSubmenu
+                        assignee={assignee ?? null}
+                        onChange={(value) => {
+                            setAssignee(value)
+                            close()
+                        }}
+                    />
+                </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuCheckboxItem
+                checked={hasTestAccountFilters ? filterTestAccounts : false}
+                disabled={!hasTestAccountFilters}
+                onCheckedChange={(checked: boolean) => {
+                    setFilterTestAccounts(checked)
+                    setLocalDefault(checked)
+                }}
+            >
+                Filter out internal and test users
+            </DropdownMenuCheckboxItem>
+        </>
+    )
+}
+
+const AssigneeSubmenu = ({
+    assignee,
+    onChange,
+}: {
+    assignee: ErrorTrackingIssueAssignee | null
+    onChange: (assignee: ErrorTrackingIssueAssignee | null) => void
+}): JSX.Element => {
+    const { ensureAssigneeTypesLoaded, setSearch } = useActions(assigneeSelectLogic)
+
+    useEffect(() => {
+        ensureAssigneeTypesLoaded()
+    }, [ensureAssigneeTypesLoaded])
+
+    return (
+        <AssigneeDropdown
+            assignee={assignee}
+            onChange={(value) => {
+                setSearch('')
+                onChange(value)
+            }}
+        />
     )
 }
 

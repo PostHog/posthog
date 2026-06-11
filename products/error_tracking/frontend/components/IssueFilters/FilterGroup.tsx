@@ -224,7 +224,7 @@ export const UniversalFilterGroup = ({
     )
 }
 
-const FilterChip = ({ onClear, children }: PropsWithChildren<{ onClear: () => void }>): JSX.Element => (
+export const FilterChip = ({ onClear, children }: PropsWithChildren<{ onClear: () => void }>): JSX.Element => (
     <div className="UniversalFilterButton UniversalFilterButton--closeable inline-flex items-center">
         <span className="UniversalFilterButton-content flex flex-1 items-center truncate gap-1">{children}</span>
         <PopoverReferenceContext.Provider value={null}>

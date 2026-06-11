@@ -124,6 +124,17 @@ export interface TaxonomicFilterMenuProps {
      * filter icon arrives on the dropdown menu.
      */
     defaultOpenState?: 'menu' | 'combobox'
+    /**
+     * Consumer menu items appended after the built-in entries (New filter… /
+     * Recent / Pinned / DWH / HogQL). Bring your own `DropdownMenuSeparator`.
+     * The render-prop form receives `close` for content that doesn't
+     * auto-dismiss the menu (e.g. custom submenu bodies).
+     */
+    extraMenuItems?: import('react').ReactNode | ((api: { close: () => void }) => import('react').ReactNode)
+    /** Forwarded to the main combobox's `leadingEntries` — consumer rows pinned above results. */
+    comboboxLeadingEntries?: MenuFilterEntry[]
+    /** Hide the "Recent" dropdown entry (recents still lead the combobox's All surface). */
+    hideRecent?: boolean
 }
 
 export interface TriggerState {
@@ -190,6 +201,9 @@ export function TaxonomicFilterMenu({
     triggerAccessory,
     triggerVariant = 'button',
     defaultOpenState,
+    extraMenuItems,
+    comboboxLeadingEntries,
+    hideRecent = false,
 }: TaxonomicFilterMenuProps): JSX.Element {
     const { groups, selectItem, inputProps, searchQuery, setSearchQuery, selectingKeyOnly, excludedOperators } =
         useTaxonomicFilterContext()
@@ -684,6 +698,7 @@ export function TaxonomicFilterMenu({
                             // (fixed order: recents, then pinned).
                             recentEntries={recentEntries}
                             pinnedEntries={pinnedEntries}
+                            leadingEntries={comboboxLeadingEntries}
                             placeholder={placeholder ?? inputProps.placeholder}
                             // Only override the default "Choose filter"
                             // header when on the All chip — drilled views
@@ -760,14 +775,13 @@ export function TaxonomicFilterMenu({
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
-                {recentEntries.length > 0 && (
-                    <>
-                        {!useInputTrigger && <DropdownMenuSeparator />}
-                        <DropdownMenuItem onClick={() => selectMenuOption('recent', () => openCombobox('recent'))}>
-                            Recent
-                            <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
-                        </DropdownMenuItem>
-                    </>
+                {!useInputTrigger &&
+                    ((!hideRecent && recentEntries.length > 0) || pinnedEntries.length > 0) && <DropdownMenuSeparator />}
+                {!hideRecent && recentEntries.length > 0 && (
+                    <DropdownMenuItem onClick={() => selectMenuOption('recent', () => openCombobox('recent'))}>
+                        Recent
+                        <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
+                    </DropdownMenuItem>
                 )}
                 {pinnedEntries.length > 0 && (
                     <DropdownMenuItem onClick={() => selectMenuOption('pinned', () => openCombobox('pinned'))}>
@@ -794,6 +808,7 @@ export function TaxonomicFilterMenu({
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
+                {typeof extraMenuItems === 'function' ? extraMenuItems({ close: closeAll }) : extraMenuItems}
             </DropdownMenuContent>
         </DropdownMenu>
     )

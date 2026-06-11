@@ -33,10 +33,8 @@ import {
     errorTrackingSceneLogic,
 } from './errorTrackingSceneLogic'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
-import { IssuesFilters } from './tabs/issues/IssuesFilters'
-import { IssuesList, ListReloadButton, insightProps } from './tabs/issues/IssuesList'
+import { IssuesList, insightProps } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
-import { IssuesFiltersB } from './tabs/issues/variants/IssuesFiltersB'
 import { IssuesFiltersC } from './tabs/issues/variants/IssuesFiltersC'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
@@ -52,12 +50,6 @@ export const scene: SceneExport = {
     logic: errorTrackingSceneLogic,
 }
 
-const ISSUE_VARIANT_TABS: { key: ErrorTrackingSceneActiveTab; label: string; filters: JSX.Element }[] = [
-    { key: 'issues', label: 'Issues (A)', filters: <IssuesFilters reload={<ListReloadButton />} /> },
-    { key: 'issues-b', label: 'Issues (B)', filters: <IssuesFiltersB /> },
-    { key: 'issues-c', label: 'Issues (C)', filters: <IssuesFiltersC /> },
-]
-
 const IssuesTab = ({ filters }: { filters: JSX.Element }): JSX.Element => {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { query } = useValues(errorTrackingSceneLogic)
@@ -72,7 +64,10 @@ const IssuesTab = ({ filters }: { filters: JSX.Element }): JSX.Element => {
                 <ErrorTrackingIssueFilteringTool />
                 {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
                 {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
-                <SceneStickyBar showBorderBottom={false} className="mb-4">
+                {/* The sceneInset tab content already pads 16px all around. Keep py-2 so the
+                    stuck bar has background buffer, and offset it with margins so the resting
+                    gaps stay at 16px (top: 16 - 8 + 8, bottom: 8 + 8). */}
+                <SceneStickyBar showBorderBottom={false} className="py-2 -mt-2 mb-2">
                     {filters}
                 </SceneStickyBar>
                 <IssuesList />
@@ -103,11 +98,11 @@ export function ErrorTrackingScene(): JSX.Element {
     })
 
     const tabs: LemonTab<ErrorTrackingSceneActiveTab>[] = [
-        ...ISSUE_VARIANT_TABS.map(({ key, label, filters }) => ({
-            key,
-            label,
-            content: <IssuesTab filters={filters} />,
-        })),
+        {
+            key: 'issues',
+            label: 'Issues',
+            content: <IssuesTab filters={<IssuesFiltersC />} />,
+        },
         {
             key: 'insights',
             label: 'Insights',
