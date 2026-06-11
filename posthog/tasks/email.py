@@ -618,6 +618,17 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     if not is_email_available(with_absolute_urls=True):
         return
 
+    # UTC date, not date.today() — the daily catch-up cron is anchored to this key
+    # resetting at midnight UTC, and date.today() follows the OS timezone.
+    today = timezone.now().date().strftime("%Y-%m-%d")
+    campaign_key = f"external_data_failure_digest_{team_id}_{today}"
+
+    # Every job in a failure burst schedules its own delayed digest task; the first
+    # one to send wins. Bail before the recipient/permission queries and render —
+    # the per-recipient MessagingRecord lock in _send_email stays the real gate.
+    if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
+        return
+
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
@@ -627,11 +638,6 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
         return
-
-    # UTC date, not date.today() — the daily catch-up cron is anchored to this key
-    # resetting at midnight UTC, and date.today() follows the OS timezone.
-    today = timezone.now().date().strftime("%Y-%m-%d")
-    campaign_key = f"external_data_failure_digest_{team_id}_{today}"
 
     paused_count = sum(1 for schema in schemas if schema["paused"])
     subject = (

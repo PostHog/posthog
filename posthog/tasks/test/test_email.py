@@ -15,6 +15,7 @@ from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.tasks.email import (
@@ -591,6 +592,32 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
         assert "failing" in MockEmailMessage.call_args.kwargs["subject"]
 
+    def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        with freeze_time("2024-05-15 10:00:00"):
+            record, _ = MessagingRecord.objects.get_or_create(
+                raw_email="someone@posthog.com",
+                campaign_key=f"external_data_failure_digest_{self.team.pk}_2024-05-15",
+            )
+            record.sent_at = timezone.now()
+            record.save()
+
+            send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Charge",
+                        "source_type": "Stripe",
+                        "error": "boom",
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+                    }
+                ],
+            )
+
+        assert len(mocked_email_messages) == 0
+
     def test_send_external_data_failure_digest_all_paused_subject(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -625,7 +652,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
             }
         ]
-        send_external_data_failure_digest(self.team.pk, items)
+        with freeze_time("2024-05-15 10:00:00"):
+            send_external_data_failure_digest(self.team.pk, items)
 
         # Should only be sent to user2
         assert mocked_email_messages[0].to == [
@@ -634,8 +662,15 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
-        send_external_data_failure_digest(self.team.pk, items)
-        # should be sent to both
+
+        # Same day: the team-level daily guard blocks a second email entirely.
+        with freeze_time("2024-05-15 18:00:00"):
+            send_external_data_failure_digest(self.team.pk, items)
+        assert len(mocked_email_messages) == 1
+
+        # Next day: sent again, now to both users.
+        with freeze_time("2024-05-16 10:00:00"):
+            send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages[1].to) == 2
 
     def test_send_external_data_failure_digest_task_builds_digest(self, MockEmailMessage: MagicMock) -> None:
