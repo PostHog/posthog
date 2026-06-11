@@ -473,7 +473,7 @@ class DeelSourceConfig(config.Config):
 
 @config.config
 class DelightedSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
