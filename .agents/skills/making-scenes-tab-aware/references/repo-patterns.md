@@ -47,9 +47,9 @@ Files:
 
 Why it matters:
 
-- Strong example of inactive-tab URL updates
-- Drives URL state through `urlToAction` (from `kea-router`) and `trackedActionToUrl`, so an inactive tab updates its own URL state without taking over the active browser location
-- Includes tests that assert inactive-tab URL isolation
+- Reads route and search params with `urlToAction` (from `kea-router`) and writes them back with `router.actions.replace`, giving the scene direct control over its URL without a wrapper
+- Mounts a per-tab child `sqlEditorLogic({ tabId })` through `cache`, a useful pattern for scoping a heavy child logic to the tab
+- Has tests that drive the router and assert the resulting URL params
 
 ### `workflowsSceneLogic` and `messageTemplateSceneLogic`
 
