@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+
 import { ExperimentStatsMethod } from '~/types'
 
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
@@ -106,6 +108,10 @@ export function TableHeader({ axisRange, statsMethod, sequentialTestingEnabled }
                         <div className="p-3" />
                     )}
                 </th>
+            </tr>
+            {/* TODO: temporary table loader for UX review — revert before merge */}
+            <tr className="relative">
+                <LemonTableLoader loading={true} tag="th" placement="bottom" />
             </tr>
         </thead>
     )
