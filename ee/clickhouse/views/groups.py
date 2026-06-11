@@ -37,6 +37,7 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
     GroupTypeMapping,
     delete_group_type_mapping,
+    get_group_types_for_project,
     invalidate_group_types_cache,
     update_group_type_mapping_fields,
 )
@@ -114,9 +115,25 @@ class GroupTypeSerializer(serializers.ModelSerializer, UserAccessControlSerializ
         read_only_fields = ["group_type", "group_type_index"]
 
 
-class GroupsTypesViewSet(
-    TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
-):
+def _group_type_row_to_response(row: dict[str, Any]) -> dict[str, Any]:
+    """Shape a get_group_types_for_project row like GroupTypeSerializer output.
+
+    Cache entries written before the personhog converter aligned with the ORM
+    .values() shape carry the dashboard id under "detail_dashboard_id" — read
+    both keys until those entries age out.
+    """
+    return {
+        "group_type": row["group_type"],
+        "group_type_index": row["group_type_index"],
+        "name_singular": row.get("name_singular"),
+        "name_plural": row.get("name_plural"),
+        "detail_dashboard": row.get("detail_dashboard", row.get("detail_dashboard_id")),
+        "default_columns": row.get("default_columns"),
+        "created_at": row.get("created_at"),
+    }
+
+
+class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")  # nosemgrep: no-direct-persons-db-orm
@@ -127,6 +144,13 @@ class GroupsTypesViewSet(
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(project_id=self.team.project_id)
+
+    @extend_schema(responses={200: GroupTypeSerializer(many=True)})
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # Served from the cached, personhog-routed helper instead of the persons DB —
+        # this endpoint is hit on nearly every app load via groupsModel.
+        rows = get_group_types_for_project(self.team.project_id)
+        return response.Response([_group_type_row_to_response(row) for row in rows])
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
@@ -265,8 +289,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         return group
 
     def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMappingResult:
-        from posthog.models.group_type_mapping import get_group_types_for_project
-
         for m in get_group_types_for_project(self.team.project_id):
             if m["group_type_index"] == group_type_index:
                 return GroupTypeMappingResult(group_type=m["group_type"], group_type_index=m["group_type_index"])
