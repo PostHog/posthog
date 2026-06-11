@@ -177,7 +177,9 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     onChange={(value) => setStateFilter(value as PRStateFilter)}
                     options={[
                         { value: 'open', label: 'Open' },
+                        { value: 'draft', label: 'Draft' },
                         { value: 'merged', label: 'Merged' },
+                        { value: 'closed', label: 'Closed' },
                         { value: 'all', label: 'All' },
                     ]}
                 />

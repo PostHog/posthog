@@ -137,9 +137,14 @@ describe('engineeringAnalyticsLogic', () => {
             makePr({ number: 1, state: 'open', authorHandle: 'alice', runs: 2, failing: 1 }),
             makePr({ number: 2, state: 'merged', authorHandle: 'bob', repoName: 'posthog-js' }),
             makePr({ number: 3, state: 'open', authorHandle: 'bob', title: 'chore: bump' }),
+            makePr({ number: 4, state: 'open', isDraft: true }),
+            makePr({ number: 5, state: 'closed' }),
         ]
-        expect(filterPullRequests(rows, DEFAULT_FILTERS)).toHaveLength(2)
+        // The open lens includes drafts; Draft and Closed are narrower cuts.
+        expect(filterPullRequests(rows, DEFAULT_FILTERS)).toHaveLength(3)
         expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'merged' })).toHaveLength(1)
+        expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'draft' }).map((row) => row.number)).toEqual([4])
+        expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'closed' }).map((row) => row.number)).toEqual([5])
         expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'all', author: 'bob' })).toHaveLength(2)
         expect(filterPullRequests(rows, { ...DEFAULT_FILTERS, state: 'all', repo: 'posthog/posthog-js' })).toHaveLength(
             1
@@ -223,6 +228,21 @@ describe('engineeringAnalyticsLogic', () => {
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
         expect(logic.values.loadFailed).toBe(false)
+    })
+
+    it('reloads workflow health when the date range changes', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d' })
+
+        logic.actions.setWorkflowDateRange('-90d', null)
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
+
+        logic.actions.setWorkflowDateRange('2026-01-01', '2026-03-01')
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
     })
 
     it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {

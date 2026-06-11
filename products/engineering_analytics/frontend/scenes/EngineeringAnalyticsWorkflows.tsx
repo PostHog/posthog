@@ -1,15 +1,30 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
+import { dateFilterToText, dateMapping, humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { githubWorkflowUrl } from '../lib/github'
 import { WorkflowHealthRow, engineeringAnalyticsLogic, workflowTrendSeries } from './engineeringAnalyticsLogic'
+
+// The endpoint caps the window at 366 days, so "All time" and week/month snaps are out.
+const WORKFLOW_DATE_OPTIONS = dateMapping.filter(({ key }) =>
+    [
+        'Custom',
+        'Last 24 hours',
+        'Last 7 days',
+        'Last 14 days',
+        'Last 30 days',
+        'Last 90 days',
+        'Last 180 days',
+        'Year to date',
+    ].includes(key)
+)
 
 function formatSeconds(seconds: number | null): string {
     return seconds == null ? '—' : humanFriendlyDuration(seconds)
@@ -34,11 +49,15 @@ function successRateClass(rate: number | null): string {
 }
 
 export function EngineeringAnalyticsWorkflows(): JSX.Element {
-    const { workflowHealth, workflowHealthLoading, loadFailed } = useValues(engineeringAnalyticsLogic)
+    const { workflowHealth, workflowHealthLoading, loadFailed, workflowDateFrom, workflowDateTo } =
+        useValues(engineeringAnalyticsLogic)
+    const { setWorkflowDateRange } = useActions(engineeringAnalyticsLogic)
 
     if (loadFailed) {
         return <ConnectGitHubSource />
     }
+
+    const windowLabel = dateFilterToText(workflowDateFrom, workflowDateTo, 'Last 30 days') ?? 'Last 30 days'
 
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
@@ -130,6 +149,14 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-2">
+                <DateFilter
+                    dateFrom={workflowDateFrom}
+                    dateTo={workflowDateTo}
+                    onChange={setWorkflowDateRange}
+                    dateOptions={WORKFLOW_DATE_OPTIONS}
+                />
+            </div>
             <LemonTable
                 data-attr="engineering-analytics-workflow-table"
                 size="small"
@@ -139,12 +166,12 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                 loading={workflowHealthLoading}
                 useURLForSorting={false}
                 pagination={{ pageSize: 50 }}
-                emptyState="No workflow runs in the last 30 days."
+                emptyState="No workflow runs in this window."
                 nouns={['workflow', 'workflows']}
             />
             <div className="text-xs text-tertiary">
                 Success rate and durations are computed over completed runs only — a run that hasn't settled is
-                excluded, not counted as a failure. Window: last 30 days.
+                excluded, not counted as a failure. Window: {windowLabel}.
             </div>
         </div>
     )

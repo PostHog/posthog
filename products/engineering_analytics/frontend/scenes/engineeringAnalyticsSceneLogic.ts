@@ -10,7 +10,7 @@ export type EngineeringAnalyticsTab = 'pull-requests' | 'workflows'
 
 export const TAB_DESCRIPTIONS: Record<EngineeringAnalyticsTab, string> = {
     'pull-requests': 'Pull requests and their CI status across connected repos.',
-    workflows: 'Run volume, success rate, and duration per workflow over the last 30 days.',
+    workflows: 'Run volume, success rate, and duration per workflow over the selected window.',
 }
 
 const SCENE_KEY_TO_TAB: Record<string, EngineeringAnalyticsTab> = {

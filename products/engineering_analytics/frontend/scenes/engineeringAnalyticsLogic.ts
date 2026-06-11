@@ -21,13 +21,17 @@ export const PR_TABLE_LIMIT = 1000
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export type PRState = 'open' | 'closed' | 'merged'
-export type PRStateFilter = 'open' | 'merged' | 'all'
+/** 'draft' is a lens over open PRs; the other values mirror PRState. */
+export type PRStateFilter = PRState | 'draft' | 'all'
 export type CIStatusFilter = CIStatus | 'all'
 /** The stat cards double as quick views over the open backlog. */
 export type CardFilter = 'open' | 'failing' | 'stuck'
 
 /** Mirrors the ci_cards "stuck" rule: open, non-draft, non-bot, older than 7 days. */
 export const STUCK_AFTER_DAYS = 7
+
+/** Mirrors the workflow_health endpoint's default window. */
+export const DEFAULT_WORKFLOW_DATE_FROM = '-30d'
 
 export interface PullRequestRow {
     number: number
@@ -120,6 +124,16 @@ export function isStuck(row: PullRequestRow, stuckCutoffMs: number): boolean {
     return row.state === 'open' && !row.isDraft && !row.isBot && Date.parse(row.createdAt) < stuckCutoffMs
 }
 
+function matchesStateFilter(row: PullRequestRow, state: PRStateFilter): boolean {
+    if (state === 'all') {
+        return true
+    }
+    if (state === 'draft') {
+        return row.state === 'open' && row.isDraft
+    }
+    return row.state === state
+}
+
 export function filterPullRequests(
     rows: PullRequestRow[],
     filters: PullRequestFilters,
@@ -130,10 +144,7 @@ export function filterPullRequests(
     // over up to 1000 rows, so the row loop should not allocate dayjs instances.
     const stuckCutoffMs = filters.stuckOnly ? now.subtract(STUCK_AFTER_DAYS, 'day').valueOf() : 0
     return rows.filter((row) => {
-        if (filters.state === 'open' && row.state !== 'open') {
-            return false
-        }
-        if (filters.state === 'merged' && row.state !== 'merged') {
+        if (!matchesStateFilter(row, filters.state)) {
             return false
         }
         if (filters.stuckOnly && !isStuck(row, stuckCutoffMs)) {
@@ -177,12 +188,13 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setCiStatusFilter: (ciStatus: CIStatusFilter) => ({ ciStatus }),
             setSearch: (search: string) => ({ search }),
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
+            setWorkflowDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             resetFilters: true,
             refresh: true,
         }),
 
-        loaders(() => ({
+        loaders(({ values }) => ({
             cards: [
                 null as CardsData | null,
                 {
@@ -230,7 +242,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 [] as WorkflowHealthRow[],
                 {
                     loadWorkflowHealth: async (): Promise<WorkflowHealthRow[]> => {
-                        const items = await engineeringAnalyticsWorkflowHealth(projectId())
+                        const items = await engineeringAnalyticsWorkflowHealth(projectId(), {
+                            date_from: values.workflowDateFrom ?? undefined,
+                            date_to: values.workflowDateTo ?? undefined,
+                        })
                         return items.map(
                             (it): WorkflowHealthRow => ({
                                 repoOwner: it.repo.owner,
@@ -272,6 +287,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FILTERS.search,
                 { setSearch: (_, { search }) => search, resetFilters: () => DEFAULT_FILTERS.search },
             ],
+            workflowDateFrom: [
+                DEFAULT_WORKFLOW_DATE_FROM as string | null,
+                { setWorkflowDateRange: (_, { dateFrom }) => dateFrom },
+            ],
+            workflowDateTo: [null as string | null, { setWorkflowDateRange: (_, { dateTo }) => dateTo }],
             // Leaving the open backlog (e.g. switching to Merged) exits the stuck lens — stuck implies open.
             stuckOnly: [
                 DEFAULT_FILTERS.stuckOnly,
@@ -350,6 +370,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             refresh: () => {
                 actions.loadCards()
                 actions.loadPullRequests()
+                actions.loadWorkflowHealth()
+            },
+            setWorkflowDateRange: () => {
                 actions.loadWorkflowHealth()
             },
             applyCardFilter: ({ card }) => {
