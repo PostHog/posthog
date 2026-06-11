@@ -124,8 +124,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         max_execution_time: int | None = None,
         extra_having_predicates: list[ast.Expr] | None = None,
         session_ids_to_exclude: list[str] | None = None,
+        apply_date_window_to_session_ids: bool = False,
         **_,
     ):
+        self._apply_date_window_to_session_ids = apply_date_window_to_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
         # otherwise we'll end up with a lot of duplicated test account filters in the query
         expanded_query = query.model_copy(deep=True)
@@ -314,11 +316,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         # explicitly selected sessions must not be silently date-windowed, e.g. by the default date range.
         # when a comment filter is active, session_ids may be derived from the comment search
-        # (see session_recording_api), so the user's date range must still apply
+        # (see session_recording_api), so the user's date range must still apply.
+        # internal callers that use the date range as a search bound (e.g. bulk_delete,
+        # the session_recording_id prepend check) opt back in via apply_date_window_to_session_ids
         has_explicit_session_ids = (
             isinstance(self._query.session_ids, list)
             and len(self._query.session_ids) > 0
             and not self._query.comment_text
+            and not self._apply_date_window_to_session_ids
         )
         if has_explicit_session_ids:
             # bound at the longest valid retention period ("5y") to keep partition pruning
