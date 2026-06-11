@@ -21,6 +21,16 @@ DUCKGRES_APPLY_TABLE = "sourcebatchduckgresapply"
 
 DUCKGRES_ADVISORY_LOCK_NAMESPACE = 0x44475300  # "DGS\0" in hex
 
+# Structured classification key written into duckgres status error_response by
+# every terminal-retire writer. Consumers (the backfill reconciler) dispatch on
+# this, not on error-message prose.
+RETIRE_KIND_SUPERSEDED_BY_REPLACE = "superseded_by_replace"
+
+# A batch belongs to the live sync stream (vs a synthetic duckgres-backfill
+# run). Single source of truth for the SQL side; the Python twin is
+# processor._is_backfill_batch.
+LIVE_BATCH_SQL_PREDICATE = "(b.metadata->>'duckgres_backfill') IS NULL"
+
 # Shared CTE prelude for eligibility queries (note the trailing comma — callers
 # append their own CTEs/SELECT). Expects a %(team_ids)s bigint[] parameter
 # (NULL = no team filter).
@@ -124,7 +134,7 @@ class DuckgresBatchQueue:
                         AND NOT (
                             %(blocked_schema_ids)s::varchar[] IS NOT NULL
                             AND b.schema_id = ANY(%(blocked_schema_ids)s)
-                            AND (b.metadata->>'duckgres_backfill') IS NULL
+                            AND {LIVE_BATCH_SQL_PREDICATE}
                         )
                         AND ds.job_state = 'succeeded'
                         AND (
@@ -266,7 +276,7 @@ class DuckgresBatchQueue:
                     v.batch_id,
                     'failed',
                     0,
-                    jsonb_build_object('error', 'superseded by newer replace run ' || v.superseded_by)
+                    jsonb_build_object('error', 'superseded by newer replace run ' || v.superseded_by, 'kind', '{RETIRE_KIND_SUPERSEDED_BY_REPLACE}')
                 FROM victims v
                 """,
                 {"team_ids": team_ids},
@@ -298,7 +308,7 @@ class DuckgresBatchQueue:
                         (
                             %(blocked_schema_ids)s::varchar[] IS NOT NULL
                             AND b.schema_id = ANY(%(blocked_schema_ids)s)
-                            AND (b.metadata->>'duckgres_backfill') IS NULL
+                            AND {LIVE_BATCH_SQL_PREDICATE}
                         ) AS is_blocked
                     FROM {BATCH_TABLE} b
                     JOIN {DELTA_STATUS_VIEW} ds ON b.id = ds.batch_id

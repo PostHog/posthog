@@ -46,6 +46,7 @@ from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import DuckgresSinkSchemaState
+from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import RETIRE_KIND_SUPERSEDED_BY_REPLACE
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     PARTITION_PRUNING_INTERVAL,
@@ -67,6 +68,10 @@ MAX_CONCURRENT_BACKFILLS_PER_ORG = 1  # best-effort across pods (see _plan_pendi
 REASON_SUPERSEDED_BY_REPLACE = "superseded by newer replace run"  # written by supersede_replaced_runs
 REASON_COVERED_BY_SNAPSHOT = "covered by duckgres backfill snapshot"
 REASON_RETIRED_BY_REPLAN = "retired by backfill replan"
+
+# Structured kinds for this module's own terminal-retire writers.
+RETIRE_KIND_COVERED_BY_SNAPSHOT = "covered_by_backfill_snapshot"
+RETIRE_KIND_RETIRED_BY_REPLAN = "retired_by_backfill_replan"
 
 BACKFILL_SCHEMAS_GAUGE = Gauge(
     "duckgres_backfill_schemas",
@@ -332,7 +337,7 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
 
     failed = conn.execute(
         f"""
-        SELECT dgs.error_response->>'error'
+        SELECT dgs.error_response->>'error', dgs.error_response->>'kind'
         FROM v_latest_source_batch_duckgres_status dgs
         JOIN {BATCH_TABLE} b ON b.id = dgs.batch_id
         WHERE b.run_uuid = %s AND dgs.job_state = 'failed'
@@ -343,7 +348,13 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
 
     if failed is not None:
         reason = failed[0] or ""
-        if reason.startswith(REASON_SUPERSEDED_BY_REPLACE):
+        kind = failed[1]
+        # Structured dispatch; the prefix fallback covers status rows written
+        # before 'kind' existed.
+        superseded_by_replace = kind == RETIRE_KIND_SUPERSEDED_BY_REPLACE or (
+            kind is None and reason.startswith(REASON_SUPERSEDED_BY_REPLACE)
+        )
+        if superseded_by_replace:
             DuckgresSinkSchemaState.objects.filter(id=state.id, state=DuckgresSinkSchemaState.State.BACKFILLING).update(
                 state=DuckgresSinkSchemaState.State.PRIMED, updated_at=timezone.now()
             )
@@ -411,7 +422,7 @@ def replan_backfill(schema_id: str) -> None:
             conn.execute(
                 f"""
                 INSERT INTO sourcebatchduckgresstatus (batch_id, job_state, attempt, error_response)
-                SELECT b.id, 'failed', 0, jsonb_build_object('error', %(reason)s)
+                SELECT b.id, 'failed', 0, jsonb_build_object('error', %(reason)s, 'kind', %(kind)s)
                 FROM {BATCH_TABLE} b
                 LEFT JOIN sourcebatchduckgresapply a
                     ON a.team_id = b.team_id AND a.schema_id = b.schema_id
@@ -420,7 +431,7 @@ def replan_backfill(schema_id: str) -> None:
                     AND b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                     AND a.id IS NULL
                 """,
-                {"run_uuid": old_run, "reason": REASON_RETIRED_BY_REPLAN},
+                {"run_uuid": old_run, "reason": REASON_RETIRED_BY_REPLAN, "kind": RETIRE_KIND_RETIRED_BY_REPLAN},
             )
     DuckgresSinkSchemaState.objects.filter(id=state.id).update(
         state=DuckgresSinkSchemaState.State.PENDING_BACKFILL,
@@ -545,7 +556,7 @@ def _retire_schema_runs(
     cursor = conn.execute(
         f"""
         INSERT INTO sourcebatchduckgresstatus (batch_id, job_state, attempt, error_response)
-        SELECT b.id, 'failed', 0, jsonb_build_object('error', %(reason)s)
+        SELECT b.id, 'failed', 0, jsonb_build_object('error', %(reason)s, 'kind', %(kind)s)
         FROM {BATCH_TABLE} b
         LEFT JOIN v_latest_source_batch_duckgres_status dgs ON b.id = dgs.batch_id
         LEFT JOIN sourcebatchduckgresapply a
@@ -557,7 +568,7 @@ def _retire_schema_runs(
             AND (b.is_final_batch = true OR a.id IS NULL)
             AND (dgs.batch_id IS NULL OR dgs.job_state = 'waiting_retry')
         """,
-        {"team_id": team_id, "schema_id": schema_id, "reason": reason},
+        {"team_id": team_id, "schema_id": schema_id, "reason": reason, "kind": RETIRE_KIND_COVERED_BY_SNAPSHOT},
     )
     return cursor.rowcount or 0
 
