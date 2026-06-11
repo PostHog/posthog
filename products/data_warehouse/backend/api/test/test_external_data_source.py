@@ -31,6 +31,7 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM
 from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 from posthog.temporal.data_imports.sources.stripe.constants import (
@@ -446,6 +447,77 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_sync_external_data_job_workflow.call_count == 1
         assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": True}
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
+
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_webhook_reconcile_raising_does_not_500(self, _mock_workflow_exists):
+        # Webhook reconcile runs as a deferred post-commit hook in the bulk path, AFTER the
+        # atomic block. If it raised there it would 500 the request with the rows already
+        # committed. Guard that a raising reconcile is swallowed and the response stays 200.
+        from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+        from posthog.temporal.data_imports.sources.common.schema import SourceSchema as _SourceSchema
+
+        from products.data_warehouse.backend.external_data_source.webhooks import WebhookHogFunctionCreateResult
+
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        mock_hog_function = MagicMock()
+        mock_hog_function.id = uuid.uuid4()
+        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock_hog_function,
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+        mock_webhook_schemas = [
+            _SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True),
+        ]
+
+        with (
+            patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.sync_webhook_events",
+                side_effect=ValueError("Missing Stripe API key"),
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+                return_value=mock_webhook_schemas,
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+                return_value=WebhookCreationResult(success=True),
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={
+                    "schemas": [
+                        {
+                            "id": str(schema.id),
+                            "sync_type": "webhook",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                        }
+                    ]
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -3309,6 +3381,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "detected_primary_keys": ["id"],
                     "permission_error": None,
+                    "rls_warning": None,
                 }
             ]
 
@@ -3378,6 +3451,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "detected_primary_keys": ["id"],
                     "permission_error": None,
+                    "rls_warning": None,
                 }
             ]
 
@@ -4010,6 +4084,114 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "new_password"
         mock_validate_credentials.assert_called_once()
 
+    @parameterized.expand([("with_password", {"password": "new_password"}, 200), ("without_password", {}, 400)])
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_host_change_with_stored_connection_string(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # A stored `connection_string` (never re-suppliable via the edit form) must not block a host
+        # change, while `password` stays gated: re-entering it succeeds, omitting it is still rejected.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_host_conn_string",
+            job_inputs={
+                "source_type": "Postgres",
+                "connection_string": "postgresql://dbuser:original_password@db.example.com:5432/mydb",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"host": "new-host.example.com", **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        source.refresh_from_db()
+        # Preserved by the merge regardless of outcome — connection-string-based sources rely on this.
+        assert (
+            source.job_inputs["connection_string"] == "postgresql://dbuser:original_password@db.example.com:5432/mydb"
+        )
+        if expected_status == 200:
+            assert source.job_inputs["host"] == "new-host.example.com"
+            assert source.job_inputs["password"] == "new_password"
+            mock_validate_credentials.assert_called_once()
+        else:
+            assert source.job_inputs["host"] == "db.example.com"
+            assert source.job_inputs["password"] == "original_password"
+            mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_freshdesk_subdomain_change_without_api_key_is_rejected(self, mock_validate_credentials):
+        # Freshdesk's connection target is `subdomain`, not `host`. Changing it without re-supplying
+        # the API key must be rejected so the stored key can't be redirected to another tenant.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Freshdesk",
+            created_by=self.user,
+            prefix="test_freshdesk_subdomain",
+            job_inputs={"source_type": "Freshdesk", "subdomain": "acme", "api_key": "original_key"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"subdomain": "attacker"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["subdomain"] == "acme"
+        assert source.job_inputs["api_key"] == "original_key"
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_freshdesk_subdomain_change_with_api_key_succeeds(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Freshdesk",
+            created_by=self.user,
+            prefix="test_freshdesk_subdomain_creds",
+            job_inputs={"source_type": "Freshdesk", "subdomain": "acme", "api_key": "original_key"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"subdomain": "newco", "api_key": "new_key"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["subdomain"] == "newco"
+        assert source.job_inputs["api_key"] == "new_key"
+        mock_validate_credentials.assert_called_once()
+
     def _servicenow_source(self) -> ExternalDataSource:
         # ServiceNow's connection target is `instance_url` (not a top-level `host`) and its
         # secret lives nested inside the `auth_method` container.
@@ -4252,6 +4434,62 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200, response.json()
         source.refresh_from_db()
         assert source.job_inputs["auth_api_key"] == "sk_existing"
+        mock_validate_credentials.assert_called_once()
+
+    def _okta_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Okta",
+            created_by=self.user,
+            prefix="okta_src",
+            job_inputs={"okta_domain": "company.okta.com", "api_key": "existing_token"},
+        )
+
+    @parameterized.expand([("without_token", {}, 400), ("with_token", {"api_key": "new_token"}, 200)])
+    @patch(
+        "posthog.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_okta_source_domain_change_requires_token(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # `okta_domain` is the connection target for Okta. Retargeting it without re-supplying the API
+        # token would send the preserved token to a host the editor chose, so the change is rejected.
+        source = self._okta_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"okta_domain": "attacker.example.com", **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        source.refresh_from_db()
+        expected_domain = "attacker.example.com" if expected_status == 200 else "company.okta.com"
+        assert source.job_inputs["okta_domain"] == expected_domain
+        assert source.job_inputs["api_key"] == ("new_token" if expected_status == 200 else "existing_token")
+        # The credential probe only runs once the re-entry gate has passed.
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_okta_source_same_domain_keeps_token(self, mock_validate_credentials):
+        # Re-saving the source without changing the domain must not force the user to re-enter the token.
+        source = self._okta_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"okta_domain": "company.okta.com"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["api_key"] == "existing_token"
         mock_validate_credentials.assert_called_once()
 
     @patch(
@@ -5551,35 +5789,48 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert payload is not None
 
-    def test_create_custom_source_rejected_when_team_ineligible(self):
+    @parameterized.expand(
+        [
+            # name, seed sources soft-deleted?, seed for a different team?, expect the limit error
+            ("active_sources_at_limit", False, False, True),
+            ("soft_deleted_excluded", True, False, False),
+            ("other_team_excluded", False, True, False),
+        ]
+    )
+    def test_create_custom_source_per_team_limit(self, _name, deleted, other_team, expect_blocked):
+        seed_team_id = self.team.pk
+        if other_team:
+            seed_team_id = Team.objects.create(organization=self.organization, name="other team").pk
+
+        for i in range(MAX_CUSTOM_SOURCES_PER_TEAM):
+            ExternalDataSource.objects.create(
+                team_id=seed_team_id,
+                source_id=str(uuid.uuid4()),
+                connection_id=str(uuid.uuid4()),
+                destination_id=str(uuid.uuid4()),
+                source_type="Custom",
+                prefix=f"custom_{i}_",
+                job_inputs={"manifest_json": "{}"},
+                deleted=deleted,
+            )
+
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Custom",
-                "prefix": "custom_",
+                "prefix": "custom_new_",
                 "payload": {"manifest_json": "{}"},
             },
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["message"] == "Custom REST source is not available for this team."
 
-    def test_create_custom_source_allowed_when_team_eligible(self):
-        with patch(
-            "products.data_warehouse.backend.api.external_data_source.is_custom_source_available_for_team",
-            return_value=True,
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.pk}/external_data_sources/",
-                data={
-                    "source_type": "Custom",
-                    "prefix": "custom_",
-                    "payload": {"manifest_json": "{}"},
-                },
-            )
-        # Past the team gate, the request fails later on the (empty) manifest rather
-        # than on availability — i.e. the eligibility check no longer blocks it.
+        # Every case 400s; only the at-limit case is blocked *by the per-team limit* — the
+        # excluded cases stay under the limit and fail later on the (empty) manifest instead.
+        limit_message = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["message"] != "Custom REST source is not available for this team."
+        if expect_blocked:
+            assert response.json()["message"] == limit_message
+        else:
+            assert response.json()["message"] != limit_message
 
     def test_revenue_analytics_config_created_automatically(self):
         """Test that revenue analytics config is created automatically when external data source is created."""
@@ -6734,6 +6985,63 @@ class TestWebhookInfo(APIBaseTest):
         assert data["external_status"]["exists"] is True
         assert data["external_status"]["status"] == "enabled"
         assert data["external_status"]["enabled_events"] == ["charge.created", "charge.updated"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events")
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    def test_webhook_info_reports_missing_events(self, mock_get_info, mock_desired):
+        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+
+        mock_get_info.return_value = ExternalWebhookInfo(
+            exists=True,
+            status="enabled",
+            enabled_events=["charge.created"],
+        )
+        mock_desired.return_value = ["charge.created", "customer.created", "customer.updated"]
+
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["missing_events"] == ["customer.created", "customer.updated"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events")
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    def test_webhook_info_no_missing_events_when_in_sync(self, mock_get_info, mock_desired):
+        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+
+        mock_get_info.return_value = ExternalWebhookInfo(
+            exists=True,
+            status="enabled",
+            enabled_events=["charge.created", "customer.created"],
+        )
+        mock_desired.return_value = ["charge.created", "customer.created"]
+
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["missing_events"] == []
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events")
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
+    def test_webhook_info_wildcard_endpoint_has_no_missing_events(self, mock_get_info, mock_desired):
+        from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
+
+        mock_get_info.return_value = ExternalWebhookInfo(exists=True, status="enabled", enabled_events=["*"])
+        mock_desired.return_value = ["charge.created", "customer.created"]
+
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["missing_events"] == []
 
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
     def test_webhook_info_external_not_found(self, mock_get_info):

@@ -93,6 +93,18 @@ class PendingBatch:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class FailedRunRef:
+    """Identity of a run with a ``failed`` queue batch, used by the reconcile sweep to fail its ExternalDataJob."""
+
+    run_uuid: str
+    job_id: str
+    team_id: int
+    schema_id: str
+    workflow_run_id: str | None
+    reason: str | None
+
+
 class BatchQueue:
     """
     Async interface to the Postgres batch queue tables. Each method runs
@@ -195,6 +207,12 @@ class BatchQueue:
         batches that are unprocessed (NULL status) or ``waiting_retry`` with
         backoff met are treated as siblings that will be returned alongside
         in the same poll and processed sequentially by the consumer.
+
+        In-flight schema gating: a batch is also excluded if its
+        ``(team_id, schema_id)`` already has an ``executing`` batch (i.e. the
+        per-schema advisory lock is held by the pod processing it). This keeps a
+        schema's other queued runs from consuming the ``LIMIT`` window ahead of
+        the advisory-lock filter and starving other schemas' claimable work.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -244,6 +262,15 @@ class BatchQueue:
                             JOIN {STATUS_VIEW} s2 ON b2.id = s2.batch_id
                             WHERE b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND s2.job_state = 'failed'
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_busy
+                            JOIN {STATUS_VIEW} s_busy ON b_busy.id = s_busy.batch_id
+                            WHERE b_busy.team_id = b.team_id
+                                AND b_busy.schema_id = b.schema_id
+                                AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND s_busy.job_state = 'executing'
                         )
                     ORDER BY b.created_at ASC, b.batch_index ASC
                     LIMIT %(limit)s
@@ -356,6 +383,55 @@ class BatchQueue:
             },
         )
         return cursor.rowcount or 0
+
+    @staticmethod
+    async def get_failed_runs(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int,
+        lookback_seconds: int,
+        limit: int,
+    ) -> list[FailedRunRef]:
+        """Return one ref per run with a ``failed`` batch older than ``grace_seconds``, within ``lookback_seconds``.
+
+        Ordered by latest failure first so fresh failures still land in the window when
+        already-reconciled runs outnumber ``limit`` within the lookback.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                SELECT run_uuid, job_id, team_id, schema_id, metadata, error_response
+                FROM (
+                    SELECT DISTINCT ON (b.run_uuid)
+                        b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response,
+                        s.created_at AS failed_at
+                    FROM {BATCH_TABLE} b
+                    JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    WHERE
+                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND s.job_state = 'failed'
+                        AND s.created_at <= now() - make_interval(secs => %(grace)s)
+                        AND s.created_at >= now() - make_interval(secs => %(lookback)s)
+                    ORDER BY b.run_uuid, s.created_at DESC
+                ) failed_runs
+                ORDER BY failed_at DESC
+                LIMIT %(limit)s
+                """,
+                {"grace": grace_seconds, "lookback": lookback_seconds, "limit": limit},
+            )
+            rows = await cur.fetchall()
+
+        return [
+            FailedRunRef(
+                run_uuid=row["run_uuid"],
+                job_id=row["job_id"],
+                team_id=row["team_id"],
+                schema_id=row["schema_id"],
+                workflow_run_id=(row["metadata"] or {}).get("workflow_run_id"),
+                reason=(row["error_response"] or {}).get("error"),
+            )
+            for row in rows
+        ]
 
     @staticmethod
     async def unlock_for_batches(

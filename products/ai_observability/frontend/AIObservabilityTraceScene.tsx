@@ -61,7 +61,6 @@ import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
-import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { ClustersTabContent } from './components/ClustersTabContent'
@@ -418,17 +417,17 @@ export const scene: SceneExport = {
     logic: aiObservabilityTraceLogic,
 }
 
-export function AIObservabilityTraceScene({ tabId }: { tabId?: string }): JSX.Element {
-    const traceLogic = aiObservabilityTraceLogic({ tabId })
+export function AIObservabilityTraceScene(): JSX.Element {
+    const traceLogic = aiObservabilityTraceLogic()
     const { traceId, query, searchQuery } = useValues(traceLogic)
-    const logicProps = { traceId, query, cachedResults: null, searchQuery, tabId }
+    const logicProps = { traceId, query, cachedResults: null, searchQuery }
     const traceDataLogic = aiObservabilityTraceDataLogic(logicProps)
 
     useAttachedLogic(traceDataLogic, traceLogic)
 
     return (
         <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
-            <BindLogic logic={aiObservabilityTraceLogic} props={{ tabId }}>
+            <BindLogic logic={aiObservabilityTraceLogic} props={{}}>
                 <BindLogic logic={aiObservabilityTraceDataLogic} props={logicProps}>
                     <TraceSceneWrapper />
                 </BindLogic>
@@ -507,7 +506,6 @@ function TraceSceneWrapper(): JSX.Element {
                             actions={showTraceNavigation ? <TraceNavigation /> : undefined}
                             noBorder
                         />
-                        <AIObservabilityRenameBanner />
                         <div className="flex items-start justify-between">
                             <TraceMetadata
                                 trace={trace}

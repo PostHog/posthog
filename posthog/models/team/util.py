@@ -25,10 +25,9 @@ actions_that_require_current_team = [
 
 def delete_bulky_postgres_data(team_ids: list[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
-
-    from posthog.models.cohort import Cohort
     from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
+    from products.cohorts.backend.models.cohort import Cohort
     from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
@@ -222,8 +221,8 @@ def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int])
     Falls back to ORM _raw_delete when personhog is not available.
     Routes per-team for consistent gate/metrics/fallback behavior.
     """
-    from posthog.models.cohort import Cohort
-    from posthog.models.cohort.util import delete_cohort_members_bulk
+    from products.cohorts.backend.models.cohort import Cohort
+    from products.cohorts.backend.models.util import delete_cohort_members_bulk
 
     for team_id in team_ids:
         team_cohort_ids = list(Cohort.objects.filter(team_id=team_id, id__in=cohort_ids).values_list("id", flat=True))

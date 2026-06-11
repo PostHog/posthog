@@ -3712,6 +3712,7 @@ export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsQueryCreateBodyQueryOneServiceNamesDefault = []
 export const logsQueryCreateBodyQueryOneFilterGroupDefault = []
 export const logsQueryCreateBodyQueryOneLimitDefault = 100
+export const logsQueryCreateBodyQueryOneExcludeAttributesDefault = false
 
 export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -3801,6 +3802,12 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Property filters for the query.'),
             limit: zod.number().default(logsQueryCreateBodyQueryOneLimitDefault).describe('Max results (1-1000).'),
             after: zod.string().optional().describe('Pagination cursor from previous response.'),
+            excludeAttributes: zod
+                .boolean()
+                .default(logsQueryCreateBodyQueryOneExcludeAttributesDefault)
+                .describe(
+                    'Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false.'
+                ),
         })
         .describe('The logs query to execute.'),
 })

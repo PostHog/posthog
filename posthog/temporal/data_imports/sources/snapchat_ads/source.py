@@ -33,6 +33,16 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SNAPCHATADS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Snapchat's Marketing API surfaces these as requests HTTPError "<code> Client Error".
+        # They're all permanent for a given config — a deleted/inaccessible ad account (404),
+        # revoked auth (401), or insufficient permissions (403) — so retrying cannot recover.
+        return {
+            "401 Client Error": "Snapchat Ads authentication failed. Please reconnect your Snapchat account.",
+            "403 Client Error": "Snapchat Ads access forbidden. Please check your account permissions.",
+            "404 Client Error": "Snapchat Ads resource not found. Please check that the ad account still exists and is accessible.",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

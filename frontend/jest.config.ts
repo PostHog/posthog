@@ -13,6 +13,9 @@ const esmModules = [
     '@medv',
     'monaco-editor',
     '@posthog/hedgehog-mode',
+    // @marsidev/react-turnstile ships ESM-only; the auth flow variant registry pulls it
+    // into test module graphs (including Exporter via the shared login ERROR_MESSAGES export).
+    '@marsidev/react-turnstile',
     'escape-string-regexp',
     '@tiptap',
     '@mathjax',
@@ -247,7 +250,7 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/', '/products/visual_review/cli/'],
+    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/', '/products/[^/]+/frontend/e2e/', '/products/visual_review/cli/'],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],

@@ -1,6 +1,6 @@
 import json
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 from unittest.mock import patch
@@ -21,6 +21,7 @@ from posthog.models.user import User
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.views import _capture_provisioning_event
 
 HMAC_PARTNER_SECRET = "test_hmac_partner_secret"
 
@@ -64,6 +65,17 @@ class TestAccountRequests(ProvisioningTestBase):
         user = User.objects.get(email="newuser@example.com")
         assert user.organization is not None
         assert user.team is not None
+
+    def test_new_user_auth_code_cached_with_issued_at(self):
+        payload = self._account_request_payload()
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        code = res.json()["oauth"]["code"]
+        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
+        assert code_data is not None
+        # Without issued_at the code exchange fails closed once the app is ever session-revoked,
+        # which would block every new user. See _exchange_authorization_code's revoke guard.
+        assert "issued_at" in code_data
+        datetime.fromisoformat(code_data["issued_at"])
 
     def test_existing_user_returns_oauth_type_with_code(self):
         User.objects.create_and_join(
@@ -282,7 +294,21 @@ class TestAccountRequests(ProvisioningTestBase):
         assert len(new_user_calls) == 1
         kwargs = new_user_calls[0].kwargs
         assert kwargs["team_id"] == team.id
-        assert "partner_id" in kwargs
+        # Stripe HMAC path has no OAuthApplication partner, so there's no client to attribute.
+        assert kwargs["partner"] is None
+
+    @patch("ee.api.agentic_provisioning.views.report_user_signed_up")
+    def test_new_user_emits_signup_event(self, mock_signup):
+        payload = self._account_request_payload(email="signupevent@example.com")
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
+
+        assert mock_signup.call_count == 1
+        kwargs = mock_signup.call_args.kwargs
+        assert kwargs["backend_processor"] == "AgenticProvisioning"
+        assert kwargs["is_organization_first_user"] is True
+        # Stripe HMAC path has no OAuthApplication, so no client name.
+        assert kwargs["social_provider"] == ""
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
@@ -357,6 +383,28 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert pending["partner_id"] == str(self.pkce_partner.id)
         assert pending["scopes"] == ["query:read"]
 
+    def test_pkce_partner_within_ceiling_creates_pending_auth(self):
+        self.pkce_partner.scopes = ["query:read", "insight:read"]
+        self.pkce_partner.save()
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload(scopes=["query:read"])
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+        assert res.json()["type"] == "requires_auth"
+
+    def test_pkce_partner_outside_ceiling_returns_invalid_scope(self):
+        self.pkce_partner.scopes = ["query:read"]
+        self.pkce_partner.save()
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload(scopes=["query:read", "insight:write"])
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_scope"
+
     def test_pkce_partner_new_user_still_gets_direct_code(self):
         payload = self._account_request_payload(email="brand_new@example.com")
         res = self._post_as_pkce_partner(payload)
@@ -364,6 +412,30 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         data = res.json()
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
+
+    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_pkce_partner_new_user_capture_attributes_client(self, mock_capture_event):
+        payload = self._account_request_payload(email="attributed@example.com")
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+
+        new_user_calls = [
+            call for call in mock_capture_event.call_args_list if call.args[:2] == ("account_request", "new_user")
+        ]
+        assert len(new_user_calls) == 1
+        assert new_user_calls[0].kwargs["partner"] == self.pkce_partner
+
+    @patch("ee.api.agentic_provisioning.views.report_user_signed_up")
+    def test_pkce_partner_new_user_emits_signup_event_with_client(self, mock_signup):
+        payload = self._account_request_payload(email="pkce_signup@example.com")
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+
+        assert mock_signup.call_count == 1
+        kwargs = mock_signup.call_args.kwargs
+        assert kwargs["backend_processor"] == "AgenticProvisioning"
+        assert kwargs["is_organization_first_user"] is True
+        assert kwargs["social_provider"] == self.pkce_partner.name
 
     def test_pkce_partner_with_skip_consent_existing_user_gets_direct_code(self):
         self.pkce_partner.provisioning_skip_existing_user_consent = True
@@ -680,3 +752,43 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
         data = res.json()
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
+
+
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
+class TestCaptureProvisioningEvent(ProvisioningTestBase):
+    def _make_partner(self, partner_type: str = "test_partner") -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id=f"attribution-test-{partner_type or 'untyped'}",
+            name="Attribution Test Client",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            provisioning_partner_type=partner_type,
+        )
+
+    @parameterized.expand(
+        [
+            ("typed_partner", "test_partner", True, "test_partner"),
+            ("untyped_partner", "", True, None),
+            ("no_partner", None, False, None),
+        ]
+    )
+    @patch("ee.api.agentic_provisioning.views.posthoganalytics.capture")
+    def test_partner_attribution(self, _name, partner_type, expects_client, expected_partner_type, mock_capture):
+        partner = None if partner_type is None else self._make_partner(partner_type=partner_type)
+        _capture_provisioning_event("account_request", "new_user", partner=partner, team_id=42)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        if expects_client:
+            assert partner is not None
+            assert props["client_name"] == "Attribution Test Client"
+            assert props["partner_id"] == str(partner.id)
+        else:
+            assert "client_name" not in props
+            assert "partner_id" not in props
+        if expected_partner_type is None:
+            assert "partner_type" not in props
+        else:
+            assert props["partner_type"] == expected_partner_type

@@ -2,12 +2,17 @@ import { CompatMessage } from '../../types'
 import { AVAILABLE_TOOLS_ROLE } from '../../utils'
 import { loadRecipes } from './registry'
 import { NO_MATCH, RecipePipeline } from './runtime/pipeline'
+import { Recipe } from './spec/recipe'
 
 export class RecipeNormalizer {
-    private readonly pipeline: RecipePipeline
+    private pipeline: RecipePipeline
 
-    constructor() {
-        this.pipeline = new RecipePipeline(loadRecipes())
+    constructor(recipes: Recipe[] = loadRecipes()) {
+        this.pipeline = new RecipePipeline(recipes)
+    }
+
+    setRecipes(recipes: Recipe[]): void {
+        this.pipeline = new RecipePipeline(recipes)
     }
 
     normalizeMessage(input: unknown, defaultRole: string): CompatMessage[] {

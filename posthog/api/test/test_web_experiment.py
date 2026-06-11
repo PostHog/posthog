@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
@@ -99,6 +99,7 @@ class TestWebExperiment(APIBaseTest):
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
                 "has_description": False,
+                "has_conclusion_comment": False,
                 "variant_count": 2,
                 "created_at": web_experiment.created_at,
                 "creation_mode": "new",
@@ -116,8 +117,8 @@ class TestWebExperiment(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
         completed_web_exp_id = response_data["id"]
         completed_web_exp = WebExperiment.objects.get(id=completed_web_exp_id)
-        completed_web_exp.start_date = datetime.now().utcnow() - timedelta(days=2)
-        completed_web_exp.end_date = datetime.now().utcnow()
+        completed_web_exp.start_date = datetime.now(UTC) - timedelta(days=2)
+        completed_web_exp.end_date = datetime.now(UTC)
         completed_web_exp.save()
         list_response = self.client.get(f"/api/web_experiments?token={self.team.api_token}")
         assert list_response.status_code == status.HTTP_200_OK, list_response

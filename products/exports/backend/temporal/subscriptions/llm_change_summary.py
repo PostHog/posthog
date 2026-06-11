@@ -16,17 +16,18 @@ from prometheus_client import Counter
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.utils import get_instance_region
-
-from products.ai_observability.backend.models.llm_prompt import normalize_prompt_to_string
-from products.exports.backend.temporal.subscriptions.prompt_sanitization import (
+from posthog.security.llm_prompt_sanitization import (
     INSIGHT_DESCRIPTION_MAX_LEN,
     INSIGHT_NAME_MAX_LEN,
     SUBSCRIPTION_TITLE_MAX_LEN,
     sanitize_core_memory_text,
     sanitize_user_text,
 )
+from posthog.utils import get_instance_region
+
+from products.ai_observability.backend.models.llm_prompt import normalize_prompt_to_string
 from products.product_analytics.backend.api.insight_suggestions import get_query_specific_instructions
 
 logger = structlog.get_logger(__name__)
@@ -421,7 +422,7 @@ def generate_change_summary(
     if team is not None:
         posthog_properties["$ai_billable"] = True
         posthog_properties["team_id"] = team.id
-        extra_capture_kwargs["posthog_groups"] = {"project": str(team.id)}
+        extra_capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
 
     result = client.chat.completions.create(  # type: ignore[call-overload]
         model="gpt-4.1-mini",

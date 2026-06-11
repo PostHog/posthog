@@ -1,8 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -60,36 +58,54 @@ const S3_BATCH_EXPORT = fixture('test-s3-id', 'S3 Export', {
     },
 })
 
+const AWS_S3_BATCH_EXPORT = fixture('test-aws-s3-id', 'AWS S3 Export', {
+    type: 'AwsS3',
+    config: {
+        bucket_name: 'test-bucket',
+        region: 'us-east-1',
+        prefix: 'posthog-events/',
+        aws_access_key_id: 'AKIAIOSFODNN7EXAMPLE',
+        aws_secret_access_key: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+        exclude_events: [],
+        include_events: [],
+        compression: 'zstd',
+        encryption: null,
+        kms_key_id: null,
+        file_format: 'Parquet',
+        max_file_size_mb: null,
+    },
+})
+
+const S3_COMPATIBLE_BATCH_EXPORT = fixture('test-s3-compatible-id', 'S3-compatible Export', {
+    type: 'S3Compatible',
+    config: {
+        bucket_name: 'test-bucket',
+        region: 'auto',
+        prefix: 'posthog-events/',
+        aws_access_key_id: 'AKIAIOSFODNN7EXAMPLE',
+        aws_secret_access_key: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+        exclude_events: [],
+        include_events: [],
+        compression: 'zstd',
+        endpoint_url: 'https://test-minio-host:9000',
+        use_virtual_style_addressing: false,
+        file_format: 'Parquet',
+        max_file_size_mb: null,
+    },
+})
+
+// BigQuery exports are integration-backed: the config carries `integration` and the
+// credentials live on the integration, not in the config.
 const BIGQUERY_BATCH_EXPORT = fixture('test-bq-id', 'BigQuery Export', {
     type: 'BigQuery',
+    integration: 7,
     config: {
-        project_id: 'test_project',
-        private_key: 'test-key',
-        private_key_id: 'key-id',
-        client_email: 'test@test.iam.gserviceaccount.com',
-        token_uri: 'https://oauth2.googleapis.com/token',
         dataset_id: 'test_dataset',
         table_id: 'events',
         exclude_events: [],
         include_events: [],
         use_json_type: false,
     },
-})
-
-// Integration-backed BigQuery: carries `integration` and omits the service-account fields,
-// so its wire shape differs from the legacy JSON-key-file variant above.
-const BIGQUERY_INTEGRATION_BATCH_EXPORT = fixture('test-bq-integration-id', 'BigQuery Integration Export', {
-    type: 'BigQuery',
-    integration: 7,
-    // Integration-backed config legitimately omits the service-account fields that
-    // BatchExportServiceBigQuery['config'] declares, so the cast keeps the fixture honest.
-    config: {
-        dataset_id: 'test_dataset',
-        table_id: 'events',
-        exclude_events: [],
-        include_events: [],
-        use_json_type: false,
-    } as any,
 })
 
 const POSTGRES_BATCH_EXPORT = fixture('fixture-postgres', 'Postgres Export', {
@@ -268,8 +284,9 @@ const AZUREBLOB_BATCH_EXPORT = fixture('fixture-azureblob', 'Azure Blob Export',
 // Single map keyed by id; used to register GET + PATCH mocks dynamically below.
 const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     S3_BATCH_EXPORT,
+    AWS_S3_BATCH_EXPORT,
+    S3_COMPATIBLE_BATCH_EXPORT,
     BIGQUERY_BATCH_EXPORT,
-    BIGQUERY_INTEGRATION_BATCH_EXPORT,
     POSTGRES_BATCH_EXPORT,
     SNOWFLAKE_PASSWORD_BATCH_EXPORT,
     SNOWFLAKE_KEYPAIR_BATCH_EXPORT,
@@ -375,8 +392,6 @@ describe('batchExportConfigFormLogic', () => {
     })
 
     describe('required fields validation', () => {
-        // Expected required fields are hardcoded so this suite is decoupled from the implementation
-        // and runs unchanged before and after the destination-registry refactor.
         const GENERAL_REQUIRED_FIELDS = ['interval', 'name', 'model']
         it.each([
             {
@@ -385,6 +400,29 @@ describe('batchExportConfigFormLogic', () => {
                     'bucket_name',
                     'region',
                     'prefix',
+                    'aws_access_key_id',
+                    'aws_secret_access_key',
+                    'file_format',
+                ],
+            },
+            {
+                service: 'AwsS3' as const,
+                fields: [
+                    'bucket_name',
+                    'region',
+                    'prefix',
+                    'aws_access_key_id',
+                    'aws_secret_access_key',
+                    'file_format',
+                ],
+            },
+            {
+                service: 'S3Compatible' as const,
+                fields: [
+                    'bucket_name',
+                    'region',
+                    'prefix',
+                    'endpoint_url',
                     'aws_access_key_id',
                     'aws_secret_access_key',
                     'file_format',
@@ -402,7 +440,7 @@ describe('batchExportConfigFormLogic', () => {
                 service: 'Snowflake' as const,
                 fields: ['account', 'database', 'warehouse', 'user', 'password', 'schema', 'table_name'],
             },
-            { service: 'BigQuery' as const, fields: ['json_config_file', 'dataset_id', 'table_id'] },
+            { service: 'BigQuery' as const, fields: ['integration_id', 'dataset_id', 'table_id'] },
             { service: 'HTTP' as const, fields: ['url', 'token'] },
             {
                 service: 'Databricks' as const,
@@ -522,48 +560,42 @@ describe('batchExportConfigFormLogic', () => {
         })
     })
 
-    describe('BigQuery uploads parsed JSON config', () => {
-        // Selecting json_config_file reads it via FileReader, parses JSON, and lifts the
-        // service-account fields into the form. We stub FileReader to make the test hermetic.
-        let originalFileReader: any
-        let fileReaderResult: string
-        beforeEach(() => {
-            originalFileReader = (global as any).FileReader
-            ;(global as any).FileReader = jest.fn().mockImplementation(() => ({
-                readAsText() {
-                    setTimeout(() => this.onload({ target: { result: fileReaderResult } }), 0)
+    describe('Redshift COPY → INSERT drops the staging copy_inputs', () => {
+        // Loading a COPY export flattens copy_inputs into redshift_* form fields. Switching the
+        // mode to INSERT must null out copy_inputs (matching a native INSERT export) rather than
+        // leaking the original nested staging object back into the payload.
+        it('nulls copy_inputs in the saved config when switching to INSERT', async () => {
+            await initLogic({ service: null, id: REDSHIFT_COPY_IAM_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                mode: 'INSERT',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            const body = patchBodiesById[REDSHIFT_COPY_IAM_BATCH_EXPORT.id]
+            expect(body.destination).toEqual({
+                type: 'Redshift',
+                config: {
+                    user: 'rs-user',
+                    password: 'rs-pass',
+                    host: 'rs-host',
+                    port: 5439,
+                    database: 'rs-db',
+                    schema: 'public',
+                    table_name: 'events',
+                    properties_data_type: 'SUPER',
+                    mode: 'INSERT',
+                    copy_inputs: null,
+                    exclude_events: [],
+                    include_events: [],
                 },
-            }))
-        })
-        afterEach(() => {
-            ;(global as any).FileReader = originalFileReader
-        })
-
-        it('parses uploaded JSON and writes service-account fields into the form', async () => {
-            const config = {
-                project_id: 'parsed-project',
-                private_key: 'parsed-key',
-                private_key_id: 'parsed-key-id',
-                client_email: 'parsed@iam.gserviceaccount.com',
-                token_uri: 'https://oauth2.googleapis.com/token',
-            }
-            fileReaderResult = JSON.stringify(config)
-            await initLogic({ service: 'BigQuery', id: null })
-
-            logic.actions.setConfigurationValue('json_config_file', [new Blob(['{}'], { type: 'application/json' })])
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.configuration).toEqual(expect.objectContaining(config))
-        })
-
-        it('sets a manual error when the uploaded JSON is invalid', async () => {
-            fileReaderResult = 'not json'
-            await initLogic({ service: 'BigQuery', id: null })
-
-            logic.actions.setConfigurationValue('json_config_file', [new Blob(['x'], { type: 'application/json' })])
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.configurationErrors.json_config_file).toBe('The config file is not valid')
+            })
         })
     })
 
@@ -597,6 +629,26 @@ describe('batchExportConfigFormLogic', () => {
                 service: 'S3',
                 expected: {
                     destination: 'S3',
+                    file_format: 'Parquet',
+                    compression: 'zstd',
+                    paused: true,
+                    model: 'events',
+                },
+            },
+            {
+                service: 'AwsS3',
+                expected: {
+                    destination: 'AwsS3',
+                    file_format: 'Parquet',
+                    compression: 'zstd',
+                    paused: true,
+                    model: 'events',
+                },
+            },
+            {
+                service: 'S3Compatible',
+                expected: {
+                    destination: 'S3Compatible',
                     file_format: 'Parquet',
                     compression: 'zstd',
                     paused: true,
@@ -672,6 +724,56 @@ describe('batchExportConfigFormLogic', () => {
                         bucket_name: 'my-bucket',
                         region: 'us-east-1',
                         prefix: 'test/',
+                        aws_access_key_id: 'AKIA',
+                        aws_secret_access_key: 'secret',
+                        file_format: 'Parquet',
+                        compression: 'zstd',
+                    },
+                },
+            },
+            {
+                // AwsS3 must not leak endpoint_url / use_virtual_style_addressing into the payload.
+                name: 'AwsS3',
+                service: 'AwsS3' as const,
+                requiredValues: {
+                    bucket_name: 'my-bucket',
+                    region: 'us-east-1',
+                    prefix: 'test/',
+                    aws_access_key_id: 'AKIA',
+                    aws_secret_access_key: 'secret',
+                },
+                expectedDestination: {
+                    type: 'AwsS3',
+                    config: {
+                        bucket_name: 'my-bucket',
+                        region: 'us-east-1',
+                        prefix: 'test/',
+                        aws_access_key_id: 'AKIA',
+                        aws_secret_access_key: 'secret',
+                        file_format: 'Parquet',
+                        compression: 'zstd',
+                    },
+                },
+            },
+            {
+                // S3Compatible requires endpoint_url and must not leak encryption / kms_key_id.
+                name: 'S3Compatible',
+                service: 'S3Compatible' as const,
+                requiredValues: {
+                    bucket_name: 'my-bucket',
+                    region: 'auto',
+                    prefix: 'test/',
+                    endpoint_url: 'https://my-minio-host:9000',
+                    aws_access_key_id: 'AKIA',
+                    aws_secret_access_key: 'secret',
+                },
+                expectedDestination: {
+                    type: 'S3Compatible',
+                    config: {
+                        bucket_name: 'my-bucket',
+                        region: 'auto',
+                        prefix: 'test/',
+                        endpoint_url: 'https://my-minio-host:9000',
                         aws_access_key_id: 'AKIA',
                         aws_secret_access_key: 'secret',
                         file_format: 'Parquet',
@@ -822,38 +924,8 @@ describe('batchExportConfigFormLogic', () => {
                 },
             },
             {
-                // BigQuery's required-field set depends on BATCH_EXPORTS_BIGQUERY_INTEGRATION.
-                // With the flag off, json_config_file is required but stripped from the payload;
-                // we set parsed fields directly to bypass the file-reader side effect.
-                name: 'BigQuery (integration flag off)',
+                name: 'BigQuery',
                 service: 'BigQuery' as const,
-                requiredValues: {
-                    json_config_file: ['placeholder'],
-                    project_id: 'p',
-                    private_key: 'pk',
-                    private_key_id: 'pki',
-                    client_email: 'ce',
-                    token_uri: 'tu',
-                    dataset_id: 'ds',
-                    table_id: 'events',
-                },
-                expectedDestination: {
-                    type: 'BigQuery',
-                    config: {
-                        project_id: 'p',
-                        private_key: 'pk',
-                        private_key_id: 'pki',
-                        client_email: 'ce',
-                        token_uri: 'tu',
-                        dataset_id: 'ds',
-                        table_id: 'events',
-                    },
-                },
-            },
-            {
-                name: 'BigQuery (integration flag on)',
-                service: 'BigQuery' as const,
-                featureFlags: { [FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]: true } as Record<string, boolean>,
                 requiredValues: {
                     integration_id: 5,
                     dataset_id: 'ds',
@@ -868,41 +940,35 @@ describe('batchExportConfigFormLogic', () => {
                     },
                 },
             },
-        ])(
-            'create $name sends expected payload',
-            async ({ service, requiredValues, expectedDestination, featureFlags }) => {
-                if (featureFlags) {
-                    featureFlagLogic.mount()
-                    featureFlagLogic.actions.setFeatureFlags(Object.keys(featureFlags), featureFlags)
-                }
-                await initLogic({ service, id: null })
+        ])('create $name sends expected payload', async ({ service, requiredValues, expectedDestination }) => {
+            await initLogic({ service, id: null })
 
-                logic.actions.setConfigurationValues({
-                    ...logic.values.configuration,
-                    interval: 'hour',
-                    name: `Test ${service} Export`,
-                    model: 'events',
-                    ...requiredValues,
-                })
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                interval: 'hour',
+                name: `Test ${service} Export`,
+                model: 'events',
+                ...requiredValues,
+            })
 
-                await expectLogic(logic, () => {
-                    logic.actions.submitConfiguration()
-                })
-                    .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
-                    .toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
 
-                expect(lastPostBody).not.toBeNull()
-                expect(lastPostBody!.destination).toEqual(expectedDestination)
-                expect(router.values.location.pathname).toContain(urls.batchExport('new-export-id'))
-            }
-        )
+            expect(lastPostBody).not.toBeNull()
+            expect(lastPostBody!.destination).toEqual(expectedDestination)
+            expect(router.values.location.pathname).toContain(urls.batchExport('new-export-id'))
+        })
     })
 
     describe('round-trip: load and save preserves destination config', () => {
         it.each([
             { name: 'S3', fixture: S3_BATCH_EXPORT },
+            { name: 'AwsS3', fixture: AWS_S3_BATCH_EXPORT },
+            { name: 'S3Compatible', fixture: S3_COMPATIBLE_BATCH_EXPORT },
             { name: 'BigQuery', fixture: BIGQUERY_BATCH_EXPORT },
-            { name: 'BigQuery (integration)', fixture: BIGQUERY_INTEGRATION_BATCH_EXPORT },
             { name: 'Postgres', fixture: POSTGRES_BATCH_EXPORT },
             { name: 'Snowflake (password)', fixture: SNOWFLAKE_PASSWORD_BATCH_EXPORT },
             { name: 'Snowflake (keypair)', fixture: SNOWFLAKE_KEYPAIR_BATCH_EXPORT },

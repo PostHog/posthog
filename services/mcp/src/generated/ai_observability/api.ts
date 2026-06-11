@@ -60,9 +60,9 @@ export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.obje
 
 /**
  * Create a new evaluation run.
-
-This endpoint validates the request and enqueues a Temporal workflow
-to asynchronously execute the evaluation.
+ *
+ * This endpoint validates the request and enqueues a Temporal workflow
+ * to asynchronously execute the evaluation.
  */
 export const EvaluationRunsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -120,6 +120,12 @@ export const EvaluationsCreateParams = /* @__PURE__ */ zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
@@ -166,10 +172,33 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([
@@ -220,6 +249,12 @@ export const EvaluationsPartialUpdateParams = /* @__PURE__ */ zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
+
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -268,10 +303,33 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsPartialUpdateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([
@@ -676,19 +734,19 @@ export const LlmAnalyticsEvaluationReportsRunsListQueryParams = /* @__PURE__ */ 
 
 /**
  *
-Generate an AI-powered summary of evaluation results.
-
-This endpoint analyzes evaluation runs and identifies patterns in passing
-and failing evaluations, providing actionable recommendations.
-
-Data is fetched server-side by evaluation ID to ensure data integrity.
-
-**Use Cases:**
-- Understand why evaluations are passing or failing
-- Identify systematic issues in LLM responses
-- Get recommendations for improving response quality
-- Review patterns across many evaluation runs at once
-
+ * Generate an AI-powered summary of evaluation results.
+ *
+ * This endpoint analyzes evaluation runs and identifies patterns in passing
+ * and failing evaluations, providing actionable recommendations.
+ *
+ * Data is fetched server-side by evaluation ID to ensure data integrity.
+ *
+ * **Use Cases:**
+ * - Understand why evaluations are passing or failing
+ * - Identify systematic issues in LLM responses
+ * - Get recommendations for improving response quality
+ * - Review patterns across many evaluation runs at once
+ *
  */
 export const LlmAnalyticsEvaluationSummaryCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1131,27 +1189,27 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  *
-Generate an AI-powered summary of an LLM trace or event.
-
-This endpoint analyzes the provided trace/event, generates a line-numbered text
-representation, and uses an LLM to create a concise summary with line references.
-
-**Two ways to use this endpoint:**
-
-1. **By ID (recommended):** Pass `trace_id` or `generation_id` with an optional `date_from`/`date_to`.
-   The backend fetches the data automatically. `summarize_type` is inferred.
-2. **By data:** Pass the full trace/event data blob in `data` with `summarize_type`.
-   This is how the frontend uses it.
-
-**Summary Format:**
-- Title (concise, max 10 words)
-- Mermaid flow diagram showing the main flow
-- 3-10 summary bullets with line references
-- "Interesting Notes" section for failures, successes, or unusual patterns
-- Line references in [L45] or [L45-52] format pointing to relevant sections
-
-The response includes the structured summary, the text representation, and metadata.
-
+ * Generate an AI-powered summary of an LLM trace or event.
+ *
+ * This endpoint analyzes the provided trace/event, generates a line-numbered text
+ * representation, and uses an LLM to create a concise summary with line references.
+ *
+ * **Two ways to use this endpoint:**
+ *
+ * 1. **By ID (recommended):** Pass `trace_id` or `generation_id` with an optional `date_from`/`date_to`.
+ *    The backend fetches the data automatically. `summarize_type` is inferred.
+ * 2. **By data:** Pass the full trace/event data blob in `data` with `summarize_type`.
+ *    This is how the frontend uses it.
+ *
+ * **Summary Format:**
+ * - Title (concise, max 10 words)
+ * - Mermaid flow diagram showing the main flow
+ * - 3-10 summary bullets with line references
+ * - "Interesting Notes" section for failures, successes, or unusual patterns
+ * - Line references in [L45] or [L45-52] format pointing to relevant sections
+ *
+ * The response includes the structured summary, the text representation, and metadata.
+ *
  */
 export const LlmAnalyticsSummarizationCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
