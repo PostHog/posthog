@@ -121,8 +121,9 @@ harmless over-estimate, documented):
 
 ## Progress
 
-- [ ] Step 0: branch + this plan file pushed
-- [ ] Step 1: core predicates modules + query_builder
+- [x] Step 0: branch + this plan file pushed
+- [x] Step 1: core predicates modules + query_builder (predicates.py, predicates_psycopg.py, __init__ exports, SelectQueryBuilder.row_filters) — logic verified
+- [ ] Step 1b: tests for predicates + query_builder (deferred to Step 7)
 - [ ] Step 2: model field + migration
 - [ ] Step 3: SourceInputs threading
 - [ ] Step 4: serializer + source validation
