@@ -1,4 +1,4 @@
-import { getGraphColors, getSeriesColorPalette } from 'lib/colors'
+import { getColorVar, getGraphColors, getSeriesColorPalette } from 'lib/colors'
 
 import type { ChartTheme } from '../types'
 
@@ -12,8 +12,9 @@ export function buildTheme(overrides?: Partial<ChartTheme>): ChartTheme {
         axisColor: graphColors.axisLabel ?? undefined,
         gridColor: graphColors.axisLine ?? undefined,
         crosshairColor: graphColors.crosshair ?? undefined,
-        tooltipBackground: graphColors.tooltipBackground ?? undefined,
-        tooltipColor: graphColors.tooltipTitle ?? undefined,
+        // Surface-following popover, not the inverse --color-bg-surface-tooltip — stays dark in dark mode.
+        tooltipBackground: getColorVar('color-bg-surface-popover'),
+        tooltipColor: getColorVar('color-text-primary'),
         tooltipZIndex: 'var(--z-chart-tooltip)',
     }
 
