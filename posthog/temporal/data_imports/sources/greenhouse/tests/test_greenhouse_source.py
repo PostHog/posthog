@@ -38,7 +38,7 @@ class TestGreenhouseSource:
         assert config.name.value == "Greenhouse"
         assert config.label == "Greenhouse"
         assert config.releaseStatus == "alpha"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.iconPath == "/static/services/greenhouse.png"
         assert len(config.fields) == 1
 
