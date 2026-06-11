@@ -45,7 +45,7 @@ export function ClustersView(): JSX.Element {
         propertyFilters,
         shouldFilterTestAccounts,
         propertyFilteredItemIdsLoading,
-        latestRunAgeDays,
+        latestRunTimestamp,
     } = useValues(clustersLogic)
     const { setClusteringLevel, setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded } =
         useActions(clustersLogic)
@@ -80,7 +80,9 @@ export function ClustersView(): JSX.Element {
     const isLoadingData = clusteringRunsLoading || currentRunLoading
 
     // A run exists but the most recent one is older than expected — runs should land ~daily.
-    // Tell the user the data is stale instead of silently presenting an old run as current.
+    // Diff against the wall clock here (not in a memoized selector, which would freeze the
+    // age) so a stale run reads as stale instead of being silently presented as current.
+    const latestRunAgeDays = latestRunTimestamp ? dayjs().diff(dayjs(latestRunTimestamp), 'day') : null
     const showStaleNotice = latestRunAgeDays !== null && latestRunAgeDays >= STALE_RUN_THRESHOLD_DAYS
 
     if (showEmptyState) {

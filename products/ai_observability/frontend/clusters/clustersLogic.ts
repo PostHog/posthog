@@ -466,18 +466,14 @@ export const clustersLogic = kea<clustersLogicType>([
             },
         ],
 
-        // Whole days since the most recent run was emitted, or null when there are no runs
-        // (or the run option carries no timestamp). Runs are ordered newest-first, so the
-        // first option is the latest. Drives the staleness notice in the view.
-        latestRunAgeDays: [
+        // Timestamp of the most recent run, or null when there are no runs (or the run
+        // option carries no timestamp). Runs are ordered newest-first, so the first option
+        // is the latest. The view diffs this against the wall clock at render time — the age
+        // can't be computed here because the selector is memoized on `clusteringRuns` and
+        // would freeze `now()` at first computation, never advancing during the session.
+        latestRunTimestamp: [
             (s) => [s.clusteringRuns],
-            (runs: ClusteringRunOption[]): number | null => {
-                const latest = runs[0]?.timestamp
-                if (!latest) {
-                    return null
-                }
-                return dayjs().diff(dayjs(latest), 'day')
-            },
+            (runs: ClusteringRunOption[]): string | null => runs[0]?.timestamp ?? null,
         ],
 
         // True while the loaded run still belongs to the level the user is currently
