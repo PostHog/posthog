@@ -126,7 +126,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
-                        placeholder="dbo",
+                        placeholder="Leave blank to import all schemas",
                         secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),

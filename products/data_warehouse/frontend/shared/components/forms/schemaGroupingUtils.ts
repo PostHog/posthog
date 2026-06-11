@@ -1,8 +1,6 @@
 import { groupBy } from 'lib/utils'
 
-import { ExternalDataSourceSyncSchema } from '~/types'
-
-export function splitDirectQueryTableName(
+export function splitQualifiedTableName(
     table: string,
     fallbackSchema?: string | null
 ): { schemaName: string; tableName: string } {
@@ -22,19 +20,18 @@ export function splitDirectQueryTableName(
     }
 }
 
-export function groupDirectQueryTablesBySchema(
-    schemas: ExternalDataSourceSyncSchema[],
+export function groupTablesBySchema<T>(
+    schemas: T[],
+    getTableName: (item: T) => string,
     fallbackSchema?: string | null
-): { schemaName: string; tables: ExternalDataSourceSyncSchema[] }[] {
+): { schemaName: string; tables: T[] }[] {
     return Object.entries(
-        groupBy(schemas, (schema) => splitDirectQueryTableName(schema.table, fallbackSchema).schemaName)
+        groupBy(schemas, (schema) => splitQualifiedTableName(getTableName(schema), fallbackSchema).schemaName)
     )
         .sort(([schemaA], [schemaB]) => schemaA.localeCompare(schemaB))
         .map(([schemaName, tables]) => ({ schemaName, tables }))
 }
 
-export function getDefaultExpandedDirectQuerySchemaKeys(
-    groupedSchemas: { schemaName: string; tables: ExternalDataSourceSyncSchema[] }[]
-): string[] {
+export function getDefaultExpandedSchemaKeys<T>(groupedSchemas: { schemaName: string; tables: T[] }[]): string[] {
     return groupedSchemas.map((group) => group.schemaName)
 }
