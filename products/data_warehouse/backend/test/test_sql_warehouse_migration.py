@@ -56,13 +56,13 @@ class TestMultiSchemaCapability:
 
     @parameterized.expand(
         [
-            # Postgres has an optional `schema` (qualifies today); MySQL/unknown never do.
+            # Postgres and MSSQL have an optional `schema` (qualify today); MySQL/unknown never do.
             ("postgres", ExternalDataSourceType.POSTGRES, True),
+            ("mssql", ExternalDataSourceType.MSSQL, True),
             ("mysql", ExternalDataSourceType.MYSQL, False),
             ("unknown type", "NotARealSource", False),
             # Tripwires: these have a *required* `schema` today. If a follow-up makes one optional,
             # this flips True and forces a conscious update — the gate is no longer dormant for it.
-            ("mssql", ExternalDataSourceType.MSSQL, False),
             ("snowflake", ExternalDataSourceType.SNOWFLAKE, False),
             ("redshift", ExternalDataSourceType.REDSHIFT, False),
         ]
