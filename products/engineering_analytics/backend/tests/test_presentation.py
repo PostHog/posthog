@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
@@ -59,6 +59,7 @@ def _workflow_health() -> contracts.WorkflowHealthItem:
         p50_seconds=120.0,
         p95_seconds=600.0,
         last_failure_at=datetime(2026, 1, 20, tzinfo=UTC),
+        daily=[contracts.WorkflowHealthDay(day=date(2026, 1, 20), run_count=10, completed=8, successes=7)],
     )
 
 

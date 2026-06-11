@@ -201,9 +201,22 @@ export interface PullRequestListApi {
     limit: number
 }
 
+export interface WorkflowHealthDayApi {
+    /** UTC calendar day. */
+    day: string
+    /** Runs started that day. */
+    run_count: number
+    /** Runs that completed that day. */
+    completed: number
+    /** Completed runs with conclusion 'success' that day. */
+    successes: number
+}
+
 export interface WorkflowHealthItemApi {
     /** Repository the workflow runs in. */
     repo: RepoRefApi
+    /** Daily run history across the whole window, oldest first, zero-filled. */
+    daily: WorkflowHealthDayApi[]
     /** GitHub Actions workflow name. */
     workflow_name: string
     /** Total runs started in the window. */

@@ -21,7 +21,7 @@ read layer maps them into these types. Reviewers, deploys, and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic.dataclasses import dataclass
@@ -200,6 +200,16 @@ class CICardSummary:
 
 
 @dataclass(frozen=True)
+class WorkflowHealthDay:
+    """One day of a workflow's run history; days without runs are zero-filled."""
+
+    day: date
+    run_count: int
+    completed: int
+    successes: int
+
+
+@dataclass(frozen=True)
 class WorkflowHealthItem:
     """Per-workflow CI health over a window. Rates and percentiles are over
     completed runs only, so they are ``None`` when the window has none.
@@ -212,3 +222,5 @@ class WorkflowHealthItem:
     p50_seconds: float | None
     p95_seconds: float | None
     last_failure_at: datetime | None
+    # Daily run history across the whole window, oldest first, zero-filled.
+    daily: list[WorkflowHealthDay]

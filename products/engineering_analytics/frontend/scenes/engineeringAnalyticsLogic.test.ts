@@ -94,6 +94,7 @@ const PRS: PullRequestListItemApi[] = [
 const WORKFLOWS: WorkflowHealthItemApi[] = [
     {
         repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
+        daily: [{ day: '2026-05-30', run_count: 100, completed: 95, successes: 90 }],
         workflow_name: 'CI',
         run_count: 100,
         success_rate: 0.95,

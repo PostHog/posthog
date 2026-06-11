@@ -248,11 +248,18 @@ class TestEndpointMapping(BaseTest):
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None.
             ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None),
         ]
-        with mock.patch(_RUN_QUERY, return_value=_resp(rows)):
+        # Must be inside the -30d window, which is relative to now.
+        daily_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC).date() - timedelta(days=1), 10, 8, 7)]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(daily_rows)]):
             items = build_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
         assert items[0].workflow_name == "CI" and items[0].success_rate == 0.9
         assert items[0].repo.owner == "PostHog" and items[0].repo.name == "posthog"
+        # The daily series spans the whole window, zero-filled except the day with runs.
+        assert len(items[0].daily) >= 30
+        seeded_day = next(entry for entry in items[0].daily if entry.run_count > 0)
+        assert (seeded_day.completed, seeded_day.successes) == (8, 7)
+        assert all(entry.run_count == 0 for entry in items[1].daily)
         assert items[0].p50_seconds == 120.0 and items[0].p95_seconds == 600.0
         assert items[1].success_rate is None
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
