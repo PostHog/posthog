@@ -212,7 +212,7 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
         sf = await asyncio.to_thread(get_salesforce_client)
         org_to_account_id: dict[str, str] = {}
 
-        for lookup_chunk in batched(all_org_ids, _SFDC_LOOKUP_CHUNK_SIZE):
+        for lookup_chunk in batched(all_org_ids, _SFDC_LOOKUP_CHUNK_SIZE, strict=False):
             # POSTHOG_ORG_ID_FIELD is a trusted constant; simple_salesforce quotes the IN values.
             query = format_soql(
                 f"SELECT Id, {POSTHOG_ORG_ID_FIELD} FROM Account WHERE {POSTHOG_ORG_ID_FIELD} IN {{}}",

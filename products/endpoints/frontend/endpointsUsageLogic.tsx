@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
@@ -22,16 +22,10 @@ export const INITIAL_DATE_FROM = '-7d'
 export const INITIAL_DATE_TO = null as string | null
 export const INITIAL_INTERVAL: IntervalType = 'day'
 
-export interface EndpointsUsageLogicProps {
-    tabId: string
-}
-
 export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointsUsageLogic']),
-    props({} as EndpointsUsageLogicProps),
-    key((props) => props.tabId),
-    connect(({ tabId }: EndpointsUsageLogicProps) => ({
-        values: [endpointsLogic({ tabId }), ['allEndpoints', 'allEndpointsLoading']],
+    connect(() => ({
+        values: [endpointsLogic(), ['allEndpoints', 'allEndpointsLoading']],
     })),
 
     actions({

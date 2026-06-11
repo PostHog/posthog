@@ -142,6 +142,44 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         identifiers = {s["identifier"] for s in results}
         self.assertEqual(identifiers, {"Button", "Card"})
 
+    @parameterized.expand(
+        [
+            ("excluded_by_default", "", {"Card"}),
+            ("included_when_requested", "?include_quarantined=true", {"Button", "Card"}),
+        ]
+    )
+    def test_get_run_snapshots_quarantine_visibility(self, _name, query, expected_identifiers):
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[
+                    SnapshotManifestItem(identifier="Button", content_hash="h1"),
+                    SnapshotManifestItem(identifier="Card", content_hash="h2"),
+                ],
+            ),
+            team_id=self.team.id,
+        )
+        logic.quarantine_identifier(
+            repo_id=self.vr_project.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/{query}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert {s["identifier"] for s in data["results"]} == expected_identifiers
+        assert data["quarantined_count"] == 1
+
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_no_changes(self, mock_delay):
         """Runs with no changes complete immediately without triggering diff task."""

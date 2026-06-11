@@ -18,7 +18,6 @@ from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
@@ -561,12 +560,10 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
-
-            from posthog.models.cohort import Cohort, CohortPeople
-
             # from posthog.models.insight_caching_state import InsightCachingState
             from posthog.models.person import Person
 
+            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
             from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
@@ -2931,12 +2928,6 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
         )
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_teams_outside_oauth_scoped_teams_causes_403(self):
         # TODO: This should filter out the teams to the scoped teams, but it causes a 403 due to a bug in APIScopePermission for list endpoints.
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
@@ -2967,12 +2958,6 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_teams_outside_oauth_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
 

@@ -38,13 +38,12 @@ import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecording
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
-    tabId?: string
 }
 
 export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylistSceneLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistSceneLogic', key]),
     props({} as SessionRecordingsPlaylistLogicProps),
-    key((props) => `${props.tabId ? props.tabId + ':' : ''}${props.shortId}`),
+    key((props) => props.shortId),
     connect(() => ({
         values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeSceneId'], featureFlagLogic, ['featureFlags']],
         actions: [sessionRecordingEventUsageLogic, ['reportRecordingPlaylistCreated']],

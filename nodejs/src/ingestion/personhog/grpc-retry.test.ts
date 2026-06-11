@@ -6,19 +6,23 @@ jest.mock('../../utils/logger')
 
 describe('withRetry', () => {
     it('returns the result on first success', async () => {
-        const result = await withRetry('test', () => Promise.resolve('ok'))
+        const result = await withRetry(() => Promise.resolve('ok'), 'test-client', 'test-method')
         expect(result).toBe('ok')
     })
 
     it('retries on transient error and returns result on success', async () => {
         let callCount = 0
-        const result = await withRetry('test', () => {
-            callCount++
-            if (callCount === 1) {
-                throw new ConnectError('transient', Code.Unavailable)
-            }
-            return Promise.resolve('recovered')
-        })
+        const result = await withRetry(
+            () => {
+                callCount++
+                if (callCount === 1) {
+                    throw new ConnectError('transient', Code.Unavailable)
+                }
+                return Promise.resolve('recovered')
+            },
+            'test-client',
+            'test-method'
+        )
 
         expect(result).toBe('recovered')
         expect(callCount).toBe(2)
@@ -33,13 +37,17 @@ describe('withRetry', () => {
         ['Unknown', Code.Unknown],
     ])('retries on %s', async (_name, code) => {
         let callCount = 0
-        await withRetry('test', () => {
-            callCount++
-            if (callCount <= 1) {
-                throw new ConnectError('transient', code)
-            }
-            return Promise.resolve('ok')
-        })
+        await withRetry(
+            () => {
+                callCount++
+                if (callCount <= 1) {
+                    throw new ConnectError('transient', code)
+                }
+                return Promise.resolve('ok')
+            },
+            'test-client',
+            'test-method'
+        )
         expect(callCount).toBe(2)
     })
 
@@ -57,10 +65,14 @@ describe('withRetry', () => {
     ])('does not retry on %s', async (_name, code) => {
         let callCount = 0
         await expect(
-            withRetry('test', () => {
-                callCount++
-                throw new ConnectError('non-retryable', code)
-            })
+            withRetry(
+                () => {
+                    callCount++
+                    throw new ConnectError('non-retryable', code)
+                },
+                'test-client',
+                'test-method'
+            )
         ).rejects.toThrow(ConnectError)
         expect(callCount).toBe(1)
     })
@@ -68,10 +80,14 @@ describe('withRetry', () => {
     it('does not retry non-ConnectError errors', async () => {
         let callCount = 0
         await expect(
-            withRetry('test', () => {
-                callCount++
-                throw new Error('plain error')
-            })
+            withRetry(
+                () => {
+                    callCount++
+                    throw new Error('plain error')
+                },
+                'test-client',
+                'test-method'
+            )
         ).rejects.toThrow('plain error')
         expect(callCount).toBe(1)
     })
@@ -79,10 +95,14 @@ describe('withRetry', () => {
     it('throws after max retries exhausted', async () => {
         let callCount = 0
         await expect(
-            withRetry('test', () => {
-                callCount++
-                throw new ConnectError('unavailable', Code.Unavailable)
-            })
+            withRetry(
+                () => {
+                    callCount++
+                    throw new ConnectError('unavailable', Code.Unavailable)
+                },
+                'test-client',
+                'test-method'
+            )
         ).rejects.toThrow(ConnectError)
         // 1 initial + 2 retries = 3 total (default maxRetries=2)
         expect(callCount).toBe(3)
@@ -92,11 +112,12 @@ describe('withRetry', () => {
         let callCount = 0
         await expect(
             withRetry(
-                'test',
                 () => {
                     callCount++
                     throw new ConnectError('unavailable', Code.Unavailable)
                 },
+                'test-client',
+                'test-method',
                 4
             )
         ).rejects.toThrow(ConnectError)

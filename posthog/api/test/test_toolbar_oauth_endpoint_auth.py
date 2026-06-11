@@ -13,12 +13,10 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
@@ -49,7 +47,6 @@ def _make_token(user, app, token_str, scope="*", delta_hours=1):
     )
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarEndpointOAuthAuth(APIBaseTest):
     """
     Every toolbar-consumed endpoint should accept OAuth access tokens
@@ -187,7 +184,6 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
         assert response.status_code in (401, 403)
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthBypassesPersonalApiKeyRestriction(APIBaseTest):
     """
     When an organization disables personal API keys for members,
@@ -242,7 +238,6 @@ class TestToolbarOAuthBypassesPersonalApiKeyRestriction(APIBaseTest):
         assert response.status_code == 403, f"Personal API key should still be blocked, got {response.status_code}"
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestUploadedMediaOAuthAuth(APIBaseTest):
     """uploaded_media is tested separately — its only toolbar action is POST (upload)."""
 
@@ -289,7 +284,6 @@ class TestUploadedMediaOAuthAuth(APIBaseTest):
         assert response.status_code in (401, 403)
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestHedgehogConfigOAuthAuth(APIBaseTest):
     """hedgehog_config uses /api/users/@me/ path, not team-scoped, so tested separately."""
 
@@ -340,7 +334,6 @@ class TestHedgehogConfigOAuthAuth(APIBaseTest):
         assert response.status_code in (401, 403)
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
 class TestToolbarOAuthScopesConfig(APIBaseTest):
     """Verify TOOLBAR_OAUTH_SCOPES covers every toolbar endpoint scope."""
 

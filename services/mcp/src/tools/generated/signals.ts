@@ -12,6 +12,7 @@ import {
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
     SignalsScoutProjectProfileGetQueryParams,
+    SignalsScoutRunsEmissionsParams,
     SignalsScoutRunsListQueryParams,
     SignalsScoutRunsRetrieveParams,
     SignalsScoutScratchpadForgetBody,
@@ -343,9 +344,6 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
         if (params.description !== undefined) {
             body['description'] = params.description
         }
-        if (params.weight !== undefined) {
-            body['weight'] = params.weight
-        }
         if (params.confidence !== undefined) {
             body['confidence'] = params.confidence
         }
@@ -372,7 +370,7 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
         }
         const result = await context.api.request<Schemas.EmitFindingResponse>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.id))}/emit-signal/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-signal/`,
             body,
         })
         return result
@@ -400,6 +398,24 @@ const signalsScoutProjectProfileGet = (): ToolBase<
     },
 })
 
+const SignalsScoutRunsEmissionsListSchema = SignalsScoutRunsEmissionsParams.omit({ project_id: true })
+
+const signalsScoutRunsEmissionsList = (): ToolBase<
+    typeof SignalsScoutRunsEmissionsListSchema,
+    WithPostHogUrl<Schemas.SignalScoutEmission[]>
+> => ({
+    name: 'signals-scout-runs-emissions-list',
+    schema: SignalsScoutRunsEmissionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsEmissionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalScoutEmission[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emissions/`,
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
 const SignalsScoutRunsListSchema = SignalsScoutRunsListQueryParams
 
 const signalsScoutRunsList = (): ToolBase<
@@ -416,7 +432,10 @@ const signalsScoutRunsList = (): ToolBase<
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,
+                emitted: params.emitted,
                 limit: params.limit,
+                skill_name: params.skill_name,
+                skill_version: params.skill_version,
                 text: params.text,
             },
         })
@@ -433,7 +452,7 @@ const signalsScoutRunsRetrieve = (): ToolBase<typeof SignalsScoutRunsRetrieveSch
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutRunDetail>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/`,
         })
         return result
     },
@@ -505,6 +524,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
+                content_max_chars: params.content_max_chars,
+                keys_only: params.keys_only,
                 limit: params.limit,
                 text: params.text,
             },
@@ -526,6 +547,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
+    'signals-scout-runs-emissions-list': signalsScoutRunsEmissionsList,
     'signals-scout-runs-list': signalsScoutRunsList,
     'signals-scout-runs-retrieve': signalsScoutRunsRetrieve,
     'signals-scout-scratchpad-forget': signalsScoutScratchpadForget,
