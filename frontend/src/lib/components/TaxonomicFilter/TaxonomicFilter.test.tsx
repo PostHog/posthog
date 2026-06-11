@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { MockResolverInfo } from '~/mocks/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
@@ -1131,8 +1132,8 @@ describe('TaxonomicFilter', () => {
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': mockGetEventDefinitions,
-                    '/api/projects/:team/property_definitions': (req: { url: URL }) => {
-                        const search = req.url.searchParams.get('search') ?? ''
+                    '/api/projects/:team/property_definitions': ({ request }: MockResolverInfo) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
                         const fixture = promotedFixtures[search]
                         const names = fixture ? [...fixture.decoys, fixture.name] : []
                         return [

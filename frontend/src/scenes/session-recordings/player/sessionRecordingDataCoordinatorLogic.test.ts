@@ -250,8 +250,8 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             // response used to leave fullyLoaded false with nothing left to re-trigger the report
             overrideSessionRecordingMocks({
                 postMocks: {
-                    '/api/environments/:team_id/query/:kind': async (req) => {
-                        const body = await req.json()
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
                         const query = body.query?.query || ''
                         if (query.includes('uuid in')) {
                             await new Promise((resolve) => setTimeout(resolve, 100))

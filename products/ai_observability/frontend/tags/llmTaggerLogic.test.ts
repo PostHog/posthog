@@ -376,7 +376,8 @@ describe('llmTaggerLogic', () => {
                     },
                 })
                 const errors = await submitAndGetErrors()
-                expect(errors.tagger_config.tags).toBeUndefined()
+                // A valid form submits successfully, so errors may be cleared entirely
+                expect(errors?.tagger_config?.tags).toBeUndefined()
             })
 
             it('reports error when every tag row is blank', async () => {
@@ -402,9 +403,9 @@ describe('llmTaggerLogic', () => {
                 })
 
                 const errors = await submitAndGetErrors()
-                expect(errors.name).toBeUndefined()
-                expect(errors.tagger_config.prompt).toBeUndefined()
-                expect(errors.tagger_config.tags).toBeUndefined()
+                expect(errors?.name).toBeUndefined()
+                expect(errors?.tagger_config?.prompt).toBeUndefined()
+                expect(errors?.tagger_config?.tags).toBeUndefined()
             })
         })
 
@@ -429,10 +430,10 @@ describe('llmTaggerLogic', () => {
                     tagger_config: { source: 'return []', tags: [] },
                 })
                 const errors = await submitAndGetErrors()
-                expect(errors.name).toBeUndefined()
-                expect(errors.tagger_config.source).toBeUndefined()
-                expect(errors.tagger_config).not.toHaveProperty('prompt')
-                expect(errors.tagger_config).not.toHaveProperty('tags')
+                expect(errors?.name).toBeUndefined()
+                expect(errors?.tagger_config?.source).toBeUndefined()
+                expect(errors?.tagger_config ?? {}).not.toHaveProperty('prompt')
+                expect(errors?.tagger_config ?? {}).not.toHaveProperty('tags')
             })
         })
     })

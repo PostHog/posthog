@@ -270,8 +270,13 @@ export const mockSlackChannels: SlackChannelType[] = [
 ]
 
 export const mockGetEventDefinitions = ({ request }: MockResolverInfo): [number, Record<string, any>] => {
-    const search = new URL(request.url).searchParams.get('search') ?? ''
-    const results = search ? mockEventDefinitions.filter((e) => e.name.includes(search)) : mockEventDefinitions
+    const searchParams = new URL(request.url).searchParams
+    const search = searchParams.get('search') ?? ''
+    // The real endpoint filters excluded_properties server-side
+    const excluded: string[] = JSON.parse(searchParams.get('excluded_properties') ?? '[]')
+    const results = mockEventDefinitions.filter(
+        (e) => (!search || e.name.includes(search)) && !excluded.includes(e.name)
+    )
     return [200, { results, count: results.length }]
 }
 
