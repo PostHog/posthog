@@ -9,10 +9,10 @@
 import * as zod from 'zod'
 
 /**
- * Create, read, update, and resolve toolbar annotations — UI feedback a user
+ * Create, read, update, and resolve toolbar field notes — UI feedback a user
  * points at on their own site, surfaced to coding agents over MCP.
  */
-export const ToolbarAnnotationsListParams = /* @__PURE__ */ zod.object({
+export const FieldNotesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -20,22 +20,22 @@ export const ToolbarAnnotationsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ToolbarAnnotationsListQueryParams = /* @__PURE__ */ zod.object({
-    annotation_status: zod
+export const FieldNotesListQueryParams = /* @__PURE__ */ zod.object({
+    host: zod.string().optional().describe('Filter to field notes made on this hostname (e.g. `app.example.com`).'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    note_status: zod
         .enum(['acknowledged', 'dismissed', 'pending', 'resolved'])
         .optional()
-        .describe('Filter to annotations in this lifecycle state (e.g. `pending` for unaddressed feedback).'),
-    host: zod.string().optional().describe('Filter to annotations made on this hostname (e.g. `app.example.com`).'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+        .describe('Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
- * Create, read, update, and resolve toolbar annotations — UI feedback a user
+ * Create, read, update, and resolve toolbar field notes — UI feedback a user
  * points at on their own site, surfaced to coding agents over MCP.
  */
-export const ToolbarAnnotationsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this toolbar annotation.'),
+export const FieldNotesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this field note.'),
     project_id: zod
         .string()
         .describe(

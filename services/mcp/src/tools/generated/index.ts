@@ -22,6 +22,7 @@ import { GENERATED_TOOLS as engineering_analytics } from './engineering_analytic
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
 import { GENERATED_TOOLS as experiments } from './experiments'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
+import { GENERATED_TOOLS as field_notes } from './field_notes'
 import { GENERATED_TOOLS as health_issues } from './health_issues'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
@@ -38,7 +39,6 @@ import { GENERATED_TOOLS as signals } from './signals'
 import { GENERATED_TOOLS as subscriptions } from './subscriptions'
 import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as tasks } from './tasks'
-import { GENERATED_TOOLS as toolbar_annotations } from './toolbar_annotations'
 import { GENERATED_TOOLS as tracing } from './tracing'
 import { GENERATED_TOOLS as user_interviews } from './user_interviews'
 import { GENERATED_TOOLS as visual_review } from './visual_review'
@@ -67,6 +67,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...error_tracking,
     ...experiments,
     ...feature_flags,
+    ...field_notes,
     ...health_issues,
     ...integrations,
     ...logs,
@@ -83,7 +84,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...subscriptions,
     ...surveys,
     ...tasks,
-    ...toolbar_annotations,
     ...tracing,
     ...user_interviews,
     ...visual_review,

@@ -4,53 +4,53 @@
 #
 # To enable a tool, set enabled: true and add required scopes + annotations.
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
-category: Toolbar annotations
-feature: toolbar_annotations
-url_prefix: /toolbar_annotations
+category: Field notes
+feature: field_notes
+url_prefix: /field_notes
 ui_apps: {}
 tools:
-    toolbar-annotations-create:
-        operation: toolbar_annotations_create
+    field-notes-create:
+        operation: field_notes_create
         enabled: false
-    toolbar-annotations-destroy:
-        operation: toolbar_annotations_destroy
+    field-notes-destroy:
+        operation: field_notes_destroy
         enabled: false
-    toolbar-annotations-get:
-        operation: toolbar_annotations_retrieve
+    field-notes-get:
+        operation: field_notes_retrieve
         enabled: true
         scopes:
-            - toolbar_annotation:read
+            - field_note:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
         enrich_url: '{id}'
-        title: Get toolbar annotation
+        title: Get field note
         description: >
-            Get a single toolbar annotation by id, including the full element context (selector, element chain, inferred
+            Get a single field note by id, including the full element context (selector, element chain, inferred
             selectors, attributes) needed to locate the element in code.
-    toolbar-annotations-list:
-        operation: toolbar_annotations_list
+    field-notes-list:
+        operation: field_notes_list
         enabled: true
         scopes:
-            - toolbar_annotation:read
+            - field_note:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
         enrich_url: '{id}'
         list: true
-        title: List toolbar annotations
+        title: List field notes
         description: >
-            List UI annotations a user made with the PostHog toolbar on their own site. Each annotation is feedback
+            List UI field notes a user made with the PostHog toolbar on their own site. Each field note is feedback
             pointed at a specific page element — comment, CSS selector, page URL, host, and optional screenshot. Filter
-            by `annotation_status` (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by
+            by `note_status` (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by
             `host` to scope to one site. Use this to pick up pending design/UX feedback to act on.
         response:
             include:
                 - id
                 - comment
-                - annotation_status
+                - note_status
                 - resolution
                 - url
                 - host
@@ -60,9 +60,9 @@ tools:
                 - screenshot_url
                 - created_at
                 - created_by
-    toolbar-annotations-partial-update:
-        operation: toolbar_annotations_partial_update
+    field-notes-partial-update:
+        operation: field_notes_partial_update
         enabled: false
-    toolbar-annotations-update:
-        operation: toolbar_annotations_update
+    field-notes-update:
+        operation: field_notes_update
         enabled: false

@@ -38,15 +38,15 @@ import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
-import { annotationsLogic } from '~/toolbar/annotations/annotationsLogic'
-import { AnnotationsOverlay } from '~/toolbar/annotations/AnnotationsOverlay'
-import { AnnotationsToolbarMenu } from '~/toolbar/annotations/AnnotationsToolbarMenu'
 import { AuthConfirmModal } from '~/toolbar/bar/AuthConfirmModal'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
+import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
+import { FieldNotesOverlay } from '~/toolbar/field-notes/FieldNotesOverlay'
+import { FieldNotesToolbarMenu } from '~/toolbar/field-notes/FieldNotesToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
@@ -329,8 +329,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
 
-    const annotationsFlag = useToolbarFeatureFlag('toolbar-annotations')
-    const showAnnotations = inStorybook() || inStorybookTestRunner() || annotationsFlag
+    const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
+    const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
@@ -346,8 +346,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ExperimentsToolbarMenu />
     ) : visibleMenu === 'product-tours' && showProductTours ? (
         <ProductToursToolbarMenu />
-    ) : visibleMenu === 'annotations' && showAnnotations ? (
-        <AnnotationsToolbarMenu />
+    ) : visibleMenu === 'field-notes' && showFieldNotes ? (
+        <FieldNotesToolbarMenu />
     ) : visibleMenu === 'surveys' && showSurveys ? (
         <SurveysToolbarMenu />
     ) : null
@@ -408,9 +408,9 @@ export function Toolbar(): JSX.Element | null {
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
 
-    const annotationsFlag = useToolbarFeatureFlag('toolbar-annotations')
-    const showAnnotations = inStorybook() || inStorybookTestRunner() || annotationsFlag
-    const { hasOpenedAnnotations } = useValues(annotationsLogic)
+    const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
+    const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
+    const { hasOpenedFieldNotes } = useValues(fieldNotesLogic)
 
     useEffect(() => {
         setElement(ref.current)
@@ -451,7 +451,7 @@ export function Toolbar(): JSX.Element | null {
     return (
         <>
             {showToursSidebar && <ProductToursSidebar />}
-            {showAnnotations && <AnnotationsOverlay />}
+            {showFieldNotes && <FieldNotesOverlay />}
             {isSurveyCreating && <SurveySidebar />}
             <ToolbarInfoMenu />
             <div
@@ -461,13 +461,13 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
                     'Toolbar--extra-buttons-1':
-                        1 + (showProductTours ? 1 : 0) + (showAnnotations ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
                     'Toolbar--extra-buttons-2':
-                        1 + (showProductTours ? 1 : 0) + (showAnnotations ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
                     'Toolbar--extra-buttons-3':
-                        1 + (showProductTours ? 1 : 0) + (showAnnotations ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
                     'Toolbar--extra-buttons-4':
-                        1 + (showProductTours ? 1 : 0) + (showAnnotations ? 1 : 0) + (showSurveys ? 1 : 0) === 4,
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 4,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -496,14 +496,14 @@ export function Toolbar(): JSX.Element | null {
                         <ToolbarButton menuId="inspect">
                             <IconSearch />
                         </ToolbarButton>
-                        {/* When the annotations flag is on, annotations takes the heatmap slot + cursor icon */}
-                        {showAnnotations ? (
-                            <ToolbarButton menuId="annotations" title="MCP annotations">
+                        {/* When the field notes flag is on, field notes takes the heatmap slot + cursor icon */}
+                        {showFieldNotes ? (
+                            <ToolbarButton menuId="field-notes" title="Field notes">
                                 {/* Inline font-size because the wrapper breaks the `button > svg` size rule */}
                                 {/* eslint-disable-next-line react/forbid-dom-props */}
                                 <span className="relative flex" style={{ fontSize: '1.5rem' }}>
                                     <IconCursorClick />
-                                    {!hasOpenedAnnotations && (
+                                    {!hasOpenedFieldNotes && (
                                         <span
                                             className="absolute -top-1 -right-1 w-2 h-2 rounded-full"
                                             // eslint-disable-next-line react/forbid-dom-props
@@ -537,8 +537,8 @@ export function Toolbar(): JSX.Element | null {
                                 <IconSpotlight />
                             </ToolbarButton>
                         )}
-                        {/* Heatmaps moves here and takes the app icon when annotations is enabled */}
-                        {showAnnotations && (
+                        {/* Heatmaps moves here and takes the app icon when field notes is enabled */}
+                        {showFieldNotes && (
                             <ToolbarButton menuId="heatmap" title="Heatmaps">
                                 <IconApp />
                             </ToolbarButton>

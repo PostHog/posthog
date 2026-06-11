@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/products-toolbar-annotations",
+    "name": "@posthog/products-field-notes",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     }

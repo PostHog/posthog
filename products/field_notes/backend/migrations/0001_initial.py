@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="ToolbarAnnotation",
+            name="FieldNote",
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True, null=True)),
@@ -32,10 +32,10 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "comment",
-                    models.TextField(help_text="The annotation note the user wrote about the element."),
+                    models.TextField(help_text="The note the user wrote about the element."),
                 ),
                 (
-                    "annotation_status",
+                    "note_status",
                     models.CharField(
                         choices=[
                             ("pending", "Pending"),
@@ -44,7 +44,7 @@ class Migration(migrations.Migration):
                             ("dismissed", "Dismissed"),
                         ],
                         default="pending",
-                        help_text="Lifecycle of the annotation as an agent works through it.",
+                        help_text="Lifecycle of the field note as an agent works through it.",
                         max_length=20,
                     ),
                 ),
@@ -52,18 +52,18 @@ class Migration(migrations.Migration):
                     "resolution",
                     models.TextField(
                         blank=True,
-                        help_text="Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.",
+                        help_text="Optional note left by the agent when acknowledging, resolving, or dismissing the field note.",
                         null=True,
                     ),
                 ),
                 (
                     "url",
-                    models.TextField(help_text="Full URL of the page the annotation was made on."),
+                    models.TextField(help_text="Full URL of the page the field note was made on."),
                 ),
                 (
                     "host",
                     models.CharField(
-                        help_text="Hostname of the page (e.g. app.example.com), used to scope annotations to a site.",
+                        help_text="Hostname of the page (e.g. app.example.com), used to scope field notes to a site.",
                         max_length=255,
                     ),
                 ),
@@ -73,13 +73,13 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "selector",
-                    models.TextField(help_text="CSS selector that locates the annotated element on the page."),
+                    models.TextField(help_text="CSS selector that locates the element on the page."),
                 ),
                 (
                     "element_text",
                     models.TextField(
                         blank=True,
-                        help_text="Visible text of the annotated element, if any.",
+                        help_text="Visible text of the element, if any.",
                         null=True,
                     ),
                 ),
@@ -103,7 +103,7 @@ class Migration(migrations.Migration):
                     "viewport",
                     models.JSONField(
                         blank=True,
-                        help_text="Viewport size when the annotation was made, as {width, height} in pixels.",
+                        help_text="Viewport size when the field note was made, as {width, height} in pixels.",
                         null=True,
                     ),
                 ),
@@ -111,7 +111,7 @@ class Migration(migrations.Migration):
                     "screenshot_url",
                     models.TextField(
                         blank=True,
-                        help_text="URL of an uploaded screenshot captured with the annotation.",
+                        help_text="URL of an uploaded screenshot captured with the field note.",
                         null=True,
                     ),
                 ),
@@ -130,13 +130,13 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "db_table": "posthog_toolbar_annotation",
+                "db_table": "posthog_field_note",
                 "indexes": [
                     models.Index(
-                        fields=["team_id", "annotation_status"],
-                        name="toolbar_annot_team_status_idx",
+                        fields=["team_id", "note_status"],
+                        name="field_note_team_status_idx",
                     ),
-                    models.Index(fields=["team_id", "host"], name="toolbar_annot_team_host_idx"),
+                    models.Index(fields=["team_id", "host"], name="field_note_team_host_idx"),
                 ],
             },
         ),

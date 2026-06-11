@@ -7,16 +7,16 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 
-import { annotationsLogic } from './annotationsLogic'
+import { fieldNotesLogic } from './fieldNotesLogic'
 
-export function AnnotationsToolbarMenu(): JSX.Element {
-    const { annotations, annotationsLoading, isAnnotating, deletingId } = useValues(annotationsLogic)
-    const { startAnnotating, stopAnnotating, deleteAnnotation } = useActions(annotationsLogic)
+export function FieldNotesToolbarMenu(): JSX.Element {
+    const { fieldNotes, fieldNotesLoading, isAnnotating, deletingId } = useValues(fieldNotesLogic)
+    const { startAnnotating, stopAnnotating, deleteFieldNote } = useActions(fieldNotesLogic)
 
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header className="pt-2">
-                <span className="block px-2 pt-3">MCP annotations</span>
+                <span className="block px-2 pt-3">Field notes</span>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="px-2 pb-2 space-y-3">
@@ -25,7 +25,7 @@ export function AnnotationsToolbarMenu(): JSX.Element {
                         and can turn them into changes — then mark them resolved.
                     </p>
                     <p className="text-xs text-muted mt-0 mb-4">
-                        Ask your agent for your <strong>project's MCP annotations</strong> to get the list.
+                        Ask your agent for your <strong>project's Field notes</strong> to get the list.
                     </p>
                     <LemonButton
                         type="primary"
@@ -34,37 +34,37 @@ export function AnnotationsToolbarMenu(): JSX.Element {
                         icon={<IconCursorClick />}
                         onClick={() => (isAnnotating ? stopAnnotating() : startAnnotating())}
                     >
-                        {isAnnotating ? 'Cancel — click an element…' : 'Annotate an element'}
+                        {isAnnotating ? 'Cancel — click an element…' : 'Add a field note'}
                     </LemonButton>
 
                     <div className="space-y-1">
                         <div className="text-xs font-medium text-muted uppercase">Pending</div>
-                        {annotationsLoading ? (
+                        {fieldNotesLoading ? (
                             <div className="flex justify-center py-4">
                                 <Spinner />
                             </div>
-                        ) : annotations.length > 0 ? (
-                            annotations.map((annotation) => (
+                        ) : fieldNotes.length > 0 ? (
+                            fieldNotes.map((note) => (
                                 <div
-                                    key={annotation.id}
+                                    key={note.id}
                                     className="rounded border border-border p-2 text-sm bg-bg-light flex items-start gap-2"
                                 >
                                     <div className="flex-1 min-w-0">
-                                        <div className="truncate">{annotation.comment}</div>
-                                        <div className="text-muted text-xs truncate">{annotation.selector}</div>
+                                        <div className="truncate">{note.comment}</div>
+                                        <div className="text-muted text-xs truncate">{note.selector}</div>
                                     </div>
                                     <LemonButton
                                         size="xsmall"
                                         icon={<IconTrash />}
-                                        tooltip="Delete annotation"
-                                        loading={deletingId === annotation.id}
+                                        tooltip="Delete field note"
+                                        loading={deletingId === note.id}
                                         disabledReason={deletingId ? 'Deleting…' : undefined}
-                                        onClick={() => deleteAnnotation(annotation.id)}
+                                        onClick={() => deleteFieldNote(note.id)}
                                     />
                                 </div>
                             ))
                         ) : (
-                            <p className="text-muted text-sm text-center py-2">No pending annotations</p>
+                            <p className="text-muted text-sm text-center py-2">No pending field notes</p>
                         )}
                     </div>
                 </div>

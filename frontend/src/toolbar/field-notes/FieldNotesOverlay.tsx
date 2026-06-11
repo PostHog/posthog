@@ -5,7 +5,7 @@ import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
 
-import { annotationsLogic } from './annotationsLogic'
+import { fieldNotesLogic } from './fieldNotesLogic'
 
 const COMMENT_BOX_WIDTH = 320
 
@@ -13,10 +13,10 @@ const COMMENT_BOX_WIDTH = 320
 // banner during selection, and the comment box anchored to the selected element. Living
 // here (not in the toolbar menu popup) decouples it from the menu's open/close/blur
 // lifecycle, so selecting an element reliably opens the write box.
-export function AnnotationsOverlay(): JSX.Element | null {
+export function FieldNotesOverlay(): JSX.Element | null {
     const { isAnnotating, hoverElementRect, selectedElementRect, selectedElement, comment, submitResultLoading } =
-        useValues(annotationsLogic)
-    const { stopAnnotating, setComment, submitAnnotation, clearSelection } = useActions(annotationsLogic)
+        useValues(fieldNotesLogic)
+    const { stopAnnotating, setComment, submitFieldNote, clearSelection } = useActions(fieldNotesLogic)
 
     if (!isAnnotating && !selectedElement) {
         return null
@@ -54,7 +54,7 @@ export function AnnotationsOverlay(): JSX.Element | null {
                         pointerEvents: 'auto',
                     }}
                 >
-                    <span>Click an element to annotate</span>
+                    <span>Click an element to add a note</span>
                     <button
                         type="button"
                         onClick={() => stopAnnotating()}
@@ -83,12 +83,12 @@ export function AnnotationsOverlay(): JSX.Element | null {
                     }}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    <div className="text-xs font-semibold uppercase opacity-70">New annotation</div>
+                    <div className="text-xs font-semibold uppercase opacity-70">New field note</div>
                     <LemonTextArea
                         placeholder="What should change about this element? (⌘↵ to save)"
                         value={comment}
                         onChange={setComment}
-                        onPressCmdEnter={() => comment.trim() && !submitResultLoading && submitAnnotation()}
+                        onPressCmdEnter={() => comment.trim() && !submitResultLoading && submitFieldNote()}
                         minRows={3}
                         autoFocus
                     />
@@ -105,7 +105,7 @@ export function AnnotationsOverlay(): JSX.Element | null {
                         <LemonButton
                             type="primary"
                             size="small"
-                            onClick={() => submitAnnotation()}
+                            onClick={() => submitFieldNote()}
                             loading={submitResultLoading}
                             disabledReason={!comment.trim() ? 'Write a comment first' : undefined}
                             className="flex-1"

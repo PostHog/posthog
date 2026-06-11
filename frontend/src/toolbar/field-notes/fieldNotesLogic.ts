@@ -11,7 +11,7 @@ import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
 import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
 
-import type { annotationsLogicType } from './annotationsLogicType'
+import type { fieldNotesLogicType } from './fieldNotesLogicType'
 
 export interface PageContext {
     url: string
@@ -22,7 +22,7 @@ export interface PageContext {
 
 function capturePageContext(): PageContext {
     // Drop the query string and fragment — they can carry one-time tokens (reset, OAuth, session)
-    // that would otherwise be persisted and surfaced to anyone with annotation read access.
+    // that would otherwise be persisted and surfaced to anyone with field note read access.
     return {
         url: `${window.location.origin}${window.location.pathname}`,
         host: window.location.host,
@@ -31,10 +31,10 @@ function capturePageContext(): PageContext {
     }
 }
 
-export interface ToolbarAnnotation {
+export interface FieldNote {
     id: string
     comment: string
-    annotation_status: 'pending' | 'acknowledged' | 'resolved' | 'dismissed'
+    note_status: 'pending' | 'acknowledged' | 'resolved' | 'dismissed'
     resolution: string | null
     url: string
     host: string
@@ -50,16 +50,16 @@ function isToolbarElement(element: HTMLElement): boolean {
     return toolbar?.contains(element) ?? false
 }
 
-export const annotationsLogic = kea<annotationsLogicType>([
-    path(['toolbar', 'annotations', 'annotationsLogic']),
+export const fieldNotesLogic = kea<fieldNotesLogicType>([
+    path(['toolbar', 'field-notes', 'fieldNotesLogic']),
 
     connect(() => ({
         values: [toolbarConfigLogic, ['dataAttributes', 'uiHost']],
     })),
 
     actions({
-        showButtonAnnotations: true,
-        hideButtonAnnotations: true,
+        showButtonFieldNotes: true,
+        hideButtonFieldNotes: true,
         startAnnotating: true,
         stopAnnotating: true,
         setHoverElement: (element: HTMLElement | null) => ({ element }),
@@ -68,20 +68,18 @@ export const annotationsLogic = kea<annotationsLogicType>([
         clearSelection: true,
         setComment: (comment: string) => ({ comment }),
         setScreenshotUrl: (url: string | null) => ({ url }),
-        deleteAnnotation: (id: string) => ({ id }),
+        deleteFieldNote: (id: string) => ({ id }),
         updateRects: true,
     }),
 
     loaders(({ values }) => ({
-        annotations: [
-            [] as ToolbarAnnotation[],
+        fieldNotes: [
+            [] as FieldNote[],
             {
-                loadAnnotations: async () => {
-                    const response = await toolbarFetch(
-                        '/api/projects/@current/toolbar_annotations/?annotation_status=pending'
-                    )
+                loadFieldNotes: async () => {
+                    const response = await toolbarFetch('/api/projects/@current/field_notes/?note_status=pending')
                     if (!response.ok) {
-                        return values.annotations
+                        return values.fieldNotes
                     }
                     const data = await response.json()
                     return data.results ?? data
@@ -91,11 +89,11 @@ export const annotationsLogic = kea<annotationsLogicType>([
     })),
 
     reducers({
-        buttonAnnotationsVisible: [
+        buttonFieldNotesVisible: [
             false,
             {
-                showButtonAnnotations: () => true,
-                hideButtonAnnotations: () => false,
+                showButtonFieldNotes: () => true,
+                hideButtonFieldNotes: () => false,
             },
         ],
         isAnnotating: [
@@ -104,7 +102,7 @@ export const annotationsLogic = kea<annotationsLogicType>([
                 startAnnotating: () => true,
                 stopAnnotating: () => false,
                 selectElement: () => false,
-                hideButtonAnnotations: () => false,
+                hideButtonFieldNotes: () => false,
             },
         ],
         hoverElement: [
@@ -113,7 +111,7 @@ export const annotationsLogic = kea<annotationsLogicType>([
                 setHoverElement: (_, { element }) => element,
                 stopAnnotating: () => null,
                 selectElement: () => null,
-                hideButtonAnnotations: () => null,
+                hideButtonFieldNotes: () => null,
             },
         ],
         selectedElement: [
@@ -122,7 +120,7 @@ export const annotationsLogic = kea<annotationsLogicType>([
                 selectElement: (_, { element }) => element,
                 clearSelection: () => null,
                 // Closing/switching the menu closes the comment box (no cascade: select no longer calls setVisibleMenu).
-                hideButtonAnnotations: () => null,
+                hideButtonFieldNotes: () => null,
             },
         ],
         comment: [
@@ -130,8 +128,8 @@ export const annotationsLogic = kea<annotationsLogicType>([
             {
                 setComment: (_, { comment }) => comment,
                 clearSelection: () => '',
-                hideButtonAnnotations: () => '',
-                submitAnnotationSuccess: () => '',
+                hideButtonFieldNotes: () => '',
+                submitFieldNoteSuccess: () => '',
             },
         ],
         pageContext: [
@@ -139,7 +137,7 @@ export const annotationsLogic = kea<annotationsLogicType>([
             {
                 selectElement: (_, { page }) => page,
                 clearSelection: () => null,
-                hideButtonAnnotations: () => null,
+                hideButtonFieldNotes: () => null,
             },
         ],
         screenshotUrl: [
@@ -148,7 +146,7 @@ export const annotationsLogic = kea<annotationsLogicType>([
                 setScreenshotUrl: (_, { url }) => url,
                 selectElement: () => null,
                 clearSelection: () => null,
-                hideButtonAnnotations: () => null,
+                hideButtonFieldNotes: () => null,
             },
         ],
         rectUpdateCounter: [
@@ -158,20 +156,20 @@ export const annotationsLogic = kea<annotationsLogicType>([
             },
         ],
         // Drives the "new" badge on the toolbar button — dismissed (persistently) once the menu is first opened.
-        hasOpenedAnnotations: [
+        hasOpenedFieldNotes: [
             false,
             { persist: true },
             {
-                showButtonAnnotations: () => true,
+                showButtonFieldNotes: () => true,
             },
         ],
-        // Id of the annotation currently being deleted, to disable its row button (no double-submit).
+        // Id of the field note currently being deleted, to disable its row button (no double-submit).
         deletingId: [
             null as string | null,
             {
-                deleteAnnotation: (_, { id }) => id,
-                loadAnnotationsSuccess: () => null,
-                loadAnnotationsFailure: () => null,
+                deleteFieldNote: (_, { id }) => id,
+                loadFieldNotesSuccess: () => null,
+                loadFieldNotesFailure: () => null,
             },
         ],
     }),
@@ -189,9 +187,9 @@ export const annotationsLogic = kea<annotationsLogicType>([
 
     loaders(({ values, actions }) => ({
         submitResult: [
-            null as ToolbarAnnotation | null,
+            null as FieldNote | null,
             {
-                submitAnnotation: async () => {
+                submitFieldNote: async () => {
                     const { selectedElement, comment, dataAttributes, pageContext, screenshotUrl } = values
                     if (!selectedElement || !comment.trim()) {
                         return null
@@ -214,31 +212,27 @@ export const annotationsLogic = kea<annotationsLogicType>([
                     }
 
                     try {
-                        const response = await toolbarFetch(
-                            '/api/projects/@current/toolbar_annotations/',
-                            'POST',
-                            payload
-                        )
+                        const response = await toolbarFetch('/api/projects/@current/field_notes/', 'POST', payload)
                         if (!response.ok) {
                             const error = await response.json().catch(() => ({}))
-                            toolbarLogger.error('annotations', 'Save failed', {
+                            toolbarLogger.error('field-notes', 'Save failed', {
                                 status: response.status,
                                 detail: error.detail,
                             })
                             lemonToast.error(
-                                `Failed to save annotation (${response.status})${error.detail ? `: ${error.detail}` : ''}`
+                                `Failed to save field note (${response.status})${error.detail ? `: ${error.detail}` : ''}`
                             )
                             return null
                         }
                         const saved = await response.json()
-                        lemonToast.success('Annotation saved')
+                        lemonToast.success('Field note saved')
                         actions.clearSelection()
-                        actions.loadAnnotations()
+                        actions.loadFieldNotes()
                         return saved
                     } catch (e: any) {
-                        toolbarLogger.error('annotations', 'Failed to save annotation')
-                        captureToolbarException(e, 'toolbar_annotation_save')
-                        lemonToast.error('Failed to save annotation')
+                        toolbarLogger.error('field-notes', 'Failed to save field note')
+                        captureToolbarException(e, 'field_note_save')
+                        lemonToast.error('Failed to save field note')
                         return null
                     }
                 },
@@ -247,12 +241,12 @@ export const annotationsLogic = kea<annotationsLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        showButtonAnnotations: () => {
-            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'annotations', enabled: true })
-            actions.loadAnnotations()
+        showButtonFieldNotes: () => {
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'field-notes', enabled: true })
+            actions.loadFieldNotes()
         },
-        hideButtonAnnotations: () => {
-            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'annotations', enabled: false })
+        hideButtonFieldNotes: () => {
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'field-notes', enabled: false })
         },
         // Capture a screenshot in the background while the user types — best-effort, never blocks save.
         selectElement: async ({ element }) => {
@@ -260,16 +254,16 @@ export const annotationsLogic = kea<annotationsLogicType>([
                 const { mediaId } = await captureAndUploadElementScreenshot(element)
                 actions.setScreenshotUrl(joinWithUiHost(values.uiHost, `/uploaded_media/${mediaId}`))
             } catch (e: any) {
-                toolbarLogger.warn('annotations', 'Failed to capture screenshot')
-                captureToolbarException(e, 'toolbar_annotation_screenshot')
+                toolbarLogger.warn('field-notes', 'Failed to capture screenshot')
+                captureToolbarException(e, 'field_note_screenshot')
             }
         },
-        deleteAnnotation: async ({ id }) => {
-            const response = await toolbarFetch(`/api/projects/@current/toolbar_annotations/${id}/`, 'DELETE')
+        deleteFieldNote: async ({ id }) => {
+            const response = await toolbarFetch(`/api/projects/@current/field_notes/${id}/`, 'DELETE')
             if (!response.ok && response.status !== 204) {
-                lemonToast.error(`Failed to delete annotation (${response.status})`)
+                lemonToast.error(`Failed to delete field note (${response.status})`)
             }
-            actions.loadAnnotations()
+            actions.loadFieldNotes()
         },
     })),
 

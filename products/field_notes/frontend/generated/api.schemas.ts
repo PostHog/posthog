@@ -13,9 +13,9 @@
  * * `resolved` - Resolved
  * * `dismissed` - Dismissed
  */
-export type AnnotationStatusEnumApi = (typeof AnnotationStatusEnumApi)[keyof typeof AnnotationStatusEnumApi]
+export type NoteStatusEnumApi = (typeof NoteStatusEnumApi)[keyof typeof NoteStatusEnumApi]
 
-export const AnnotationStatusEnumApi = {
+export const NoteStatusEnumApi = {
     Pending: 'pending',
     Acknowledged: 'acknowledged',
     Resolved: 'resolved',
@@ -80,45 +80,45 @@ export interface UserBasicApi {
 /**
  * Structured element metadata (inferred selectors, attributes, component hints).
  */
-export type ToolbarAnnotationApiElementContext = { [key: string]: unknown }
+export type FieldNoteApiElementContext = { [key: string]: unknown }
 
 /**
- * Viewport size when the annotation was made, as {width, height}.
+ * Viewport size when the field note was made, as {width, height}.
  * @nullable
  */
-export type ToolbarAnnotationApiViewport = {
+export type FieldNoteApiViewport = {
     /** Viewport width in pixels. */
     width?: number
     /** Viewport height in pixels. */
     height?: number
 } | null
 
-export interface ToolbarAnnotationApi {
+export interface FieldNoteApi {
     readonly id: string
     /**
-     * The annotation note the user wrote about the element.
+     * The note the user wrote about the element.
      * @maxLength 5000
      */
     comment: string
-    /** Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.
+    /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
      *
      * * `pending` - Pending
      * * `acknowledged` - Acknowledged
      * * `resolved` - Resolved
      * * `dismissed` - Dismissed */
-    annotation_status?: AnnotationStatusEnumApi
+    note_status?: NoteStatusEnumApi
     /**
-     * Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.
+     * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
      * @nullable
      */
     resolution?: string | null
     /**
-     * Full URL of the page the annotation was made on.
+     * Full URL of the page the field note was made on.
      * @maxLength 2048
      */
     url: string
     /**
-     * Hostname of the page, used to scope annotations to a site.
+     * Hostname of the page, used to scope field notes to a site.
      * @maxLength 255
      */
     host: string
@@ -129,12 +129,12 @@ export interface ToolbarAnnotationApi {
      */
     pathname?: string | null
     /**
-     * CSS selector that locates the annotated element on the page.
+     * CSS selector that locates the element on the page.
      * @maxLength 4096
      */
     selector: string
     /**
-     * Visible text of the annotated element, if any.
+     * Visible text of the element, if any.
      * @maxLength 2048
      * @nullable
      */
@@ -146,14 +146,14 @@ export interface ToolbarAnnotationApi {
      */
     element_chain?: string | null
     /** Structured element metadata (inferred selectors, attributes, component hints). */
-    element_context?: ToolbarAnnotationApiElementContext
+    element_context?: FieldNoteApiElementContext
     /**
-     * Viewport size when the annotation was made, as {width, height}.
+     * Viewport size when the field note was made, as {width, height}.
      * @nullable
      */
-    viewport?: ToolbarAnnotationApiViewport
+    viewport?: FieldNoteApiViewport
     /**
-     * URL of an uploaded screenshot captured with the annotation.
+     * URL of an uploaded screenshot captured with the field_note.
      * @maxLength 2048
      * @nullable
      */
@@ -164,57 +164,57 @@ export interface ToolbarAnnotationApi {
     readonly created_by: UserBasicApi
 }
 
-export interface PaginatedToolbarAnnotationListApi {
+export interface PaginatedFieldNoteListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ToolbarAnnotationApi[]
+    results: FieldNoteApi[]
 }
 
 /**
  * Structured element metadata (inferred selectors, attributes, component hints).
  */
-export type PatchedToolbarAnnotationApiElementContext = { [key: string]: unknown }
+export type PatchedFieldNoteApiElementContext = { [key: string]: unknown }
 
 /**
- * Viewport size when the annotation was made, as {width, height}.
+ * Viewport size when the field note was made, as {width, height}.
  * @nullable
  */
-export type PatchedToolbarAnnotationApiViewport = {
+export type PatchedFieldNoteApiViewport = {
     /** Viewport width in pixels. */
     width?: number
     /** Viewport height in pixels. */
     height?: number
 } | null
 
-export interface PatchedToolbarAnnotationApi {
+export interface PatchedFieldNoteApi {
     readonly id?: string
     /**
-     * The annotation note the user wrote about the element.
+     * The note the user wrote about the element.
      * @maxLength 5000
      */
     comment?: string
-    /** Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.
+    /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
      *
      * * `pending` - Pending
      * * `acknowledged` - Acknowledged
      * * `resolved` - Resolved
      * * `dismissed` - Dismissed */
-    annotation_status?: AnnotationStatusEnumApi
+    note_status?: NoteStatusEnumApi
     /**
-     * Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.
+     * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
      * @nullable
      */
     resolution?: string | null
     /**
-     * Full URL of the page the annotation was made on.
+     * Full URL of the page the field note was made on.
      * @maxLength 2048
      */
     url?: string
     /**
-     * Hostname of the page, used to scope annotations to a site.
+     * Hostname of the page, used to scope field notes to a site.
      * @maxLength 255
      */
     host?: string
@@ -225,12 +225,12 @@ export interface PatchedToolbarAnnotationApi {
      */
     pathname?: string | null
     /**
-     * CSS selector that locates the annotated element on the page.
+     * CSS selector that locates the element on the page.
      * @maxLength 4096
      */
     selector?: string
     /**
-     * Visible text of the annotated element, if any.
+     * Visible text of the element, if any.
      * @maxLength 2048
      * @nullable
      */
@@ -242,14 +242,14 @@ export interface PatchedToolbarAnnotationApi {
      */
     element_chain?: string | null
     /** Structured element metadata (inferred selectors, attributes, component hints). */
-    element_context?: PatchedToolbarAnnotationApiElementContext
+    element_context?: PatchedFieldNoteApiElementContext
     /**
-     * Viewport size when the annotation was made, as {width, height}.
+     * Viewport size when the field note was made, as {width, height}.
      * @nullable
      */
-    viewport?: PatchedToolbarAnnotationApiViewport
+    viewport?: PatchedFieldNoteApiViewport
     /**
-     * URL of an uploaded screenshot captured with the annotation.
+     * URL of an uploaded screenshot captured with the field_note.
      * @maxLength 2048
      * @nullable
      */
@@ -260,13 +260,9 @@ export interface PatchedToolbarAnnotationApi {
     readonly created_by?: UserBasicApi
 }
 
-export type ToolbarAnnotationsListParams = {
+export type FieldNotesListParams = {
     /**
-     * Filter to annotations in this lifecycle state (e.g. `pending` for unaddressed feedback).
-     */
-    annotation_status?: ToolbarAnnotationsListAnnotationStatus
-    /**
-     * Filter to annotations made on this hostname (e.g. `app.example.com`).
+     * Filter to field notes made on this hostname (e.g. `app.example.com`).
      */
     host?: string
     /**
@@ -274,15 +270,18 @@ export type ToolbarAnnotationsListParams = {
      */
     limit?: number
     /**
+     * Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).
+     */
+    note_status?: FieldNotesListNoteStatus
+    /**
      * The initial index from which to return the results.
      */
     offset?: number
 }
 
-export type ToolbarAnnotationsListAnnotationStatus =
-    (typeof ToolbarAnnotationsListAnnotationStatus)[keyof typeof ToolbarAnnotationsListAnnotationStatus]
+export type FieldNotesListNoteStatus = (typeof FieldNotesListNoteStatus)[keyof typeof FieldNotesListNoteStatus]
 
-export const ToolbarAnnotationsListAnnotationStatus = {
+export const FieldNotesListNoteStatus = {
     Acknowledged: 'acknowledged',
     Dismissed: 'dismissed',
     Pending: 'pending',

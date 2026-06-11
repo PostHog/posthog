@@ -97,7 +97,7 @@ APIScopeObject = Literal[
     "ticket",
     "task",
     "tracing",
-    "toolbar_annotation",
+    "field_note",
     "uploaded_media",
     "usage_metric",
     "user",

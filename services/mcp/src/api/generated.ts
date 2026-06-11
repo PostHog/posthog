@@ -7795,22 +7795,6 @@ export namespace Schemas {
       emoji?: string | null;
     }
 
-    /**
-     * * `pending` - Pending
-     * * `acknowledged` - Acknowledged
-     * * `resolved` - Resolved
-     * * `dismissed` - Dismissed
-     */
-    export type AnnotationStatusEnum = typeof AnnotationStatusEnum[keyof typeof AnnotationStatusEnum];
-
-
-    export const AnnotationStatusEnum = {
-      Pending: 'pending',
-      Acknowledged: 'acknowledged',
-      Resolved: 'resolved',
-      Dismissed: 'dismissed',
-    } as const;
-
     export interface AppMetricSeries {
       name: string;
       values: number[];
@@ -18725,6 +18709,109 @@ export namespace Schemas {
     }
 
     /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type FieldNoteElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the field note was made, as {width, height}.
+     * @nullable
+     */
+    export type FieldNoteViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    /**
+     * * `pending` - Pending
+     * * `acknowledged` - Acknowledged
+     * * `resolved` - Resolved
+     * * `dismissed` - Dismissed
+     */
+    export type NoteStatusEnum = typeof NoteStatusEnum[keyof typeof NoteStatusEnum];
+
+
+    export const NoteStatusEnum = {
+      Pending: 'pending',
+      Acknowledged: 'acknowledged',
+      Resolved: 'resolved',
+      Dismissed: 'dismissed',
+    } as const;
+
+    export interface FieldNote {
+      readonly id: string;
+      /**
+         * The note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment: string;
+      /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
+      note_status?: NoteStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the field note was made on.
+         * @maxLength 2048
+         */
+      url: string;
+      /**
+         * Hostname of the page, used to scope field notes to a site.
+         * @maxLength 255
+         */
+      host: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the element on the page.
+         * @maxLength 4096
+         */
+      selector: string;
+      /**
+         * Visible text of the element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: FieldNoteElementContext;
+      /**
+         * Viewport size when the field note was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: FieldNoteViewport;
+      /**
+         * URL of an uploaded screenshot captured with the field_note.
+         * @maxLength 2048
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic;
+    }
+
+    /**
      * * `events` - events
      * * `persons` - persons
      * * `sessions` - sessions
@@ -24967,6 +25054,15 @@ export namespace Schemas {
       results: FeatureFlag[];
     }
 
+    export interface PaginatedFieldNoteList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FieldNote[];
+    }
+
     export interface PaginatedFileSystemList {
       count: number;
       /** @nullable */
@@ -27898,102 +27994,6 @@ export namespace Schemas {
       results: ToleratedHashEntry[];
     }
 
-    /**
-     * Structured element metadata (inferred selectors, attributes, component hints).
-     */
-    export type ToolbarAnnotationElementContext = { [key: string]: unknown };
-
-    /**
-     * Viewport size when the annotation was made, as {width, height}.
-     * @nullable
-     */
-    export type ToolbarAnnotationViewport = {
-      /** Viewport width in pixels. */
-      width?: number;
-      /** Viewport height in pixels. */
-      height?: number;
-    } | null;
-
-    export interface ToolbarAnnotation {
-      readonly id: string;
-      /**
-         * The annotation note the user wrote about the element.
-         * @maxLength 5000
-         */
-      comment: string;
-      /** Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.
-       *
-       * * `pending` - Pending
-       * * `acknowledged` - Acknowledged
-       * * `resolved` - Resolved
-       * * `dismissed` - Dismissed */
-      annotation_status?: AnnotationStatusEnum;
-      /**
-         * Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.
-         * @nullable
-         */
-      resolution?: string | null;
-      /**
-         * Full URL of the page the annotation was made on.
-         * @maxLength 2048
-         */
-      url: string;
-      /**
-         * Hostname of the page, used to scope annotations to a site.
-         * @maxLength 255
-         */
-      host: string;
-      /**
-         * Path portion of the URL.
-         * @maxLength 2048
-         * @nullable
-         */
-      pathname?: string | null;
-      /**
-         * CSS selector that locates the annotated element on the page.
-         * @maxLength 4096
-         */
-      selector: string;
-      /**
-         * Visible text of the annotated element, if any.
-         * @maxLength 2048
-         * @nullable
-         */
-      element_text?: string | null;
-      /**
-         * Serialized autocapture-style element chain from the element up to the document root.
-         * @maxLength 20000
-         * @nullable
-         */
-      element_chain?: string | null;
-      /** Structured element metadata (inferred selectors, attributes, component hints). */
-      element_context?: ToolbarAnnotationElementContext;
-      /**
-         * Viewport size when the annotation was made, as {width, height}.
-         * @nullable
-         */
-      viewport?: ToolbarAnnotationViewport;
-      /**
-         * URL of an uploaded screenshot captured with the annotation.
-         * @maxLength 2048
-         * @nullable
-         */
-      screenshot_url?: string | null;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly created_by: UserBasic;
-    }
-
-    export interface PaginatedToolbarAnnotationList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ToolbarAnnotation[];
-    }
-
     export interface TraceReviewScore {
       readonly id: string;
       /** Stable scorer definition ID. */
@@ -30391,6 +30391,93 @@ export namespace Schemas {
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+    }
+
+    /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type PatchedFieldNoteElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the field note was made, as {width, height}.
+     * @nullable
+     */
+    export type PatchedFieldNoteViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    export interface PatchedFieldNote {
+      readonly id?: string;
+      /**
+         * The note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment?: string;
+      /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
+      note_status?: NoteStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the field note was made on.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Hostname of the page, used to scope field notes to a site.
+         * @maxLength 255
+         */
+      host?: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the element on the page.
+         * @maxLength 4096
+         */
+      selector?: string;
+      /**
+         * Visible text of the element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: PatchedFieldNoteElementContext;
+      /**
+         * Viewport size when the field note was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: PatchedFieldNoteViewport;
+      /**
+         * URL of an uploaded screenshot captured with the field_note.
+         * @maxLength 2048
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      readonly created_by?: UserBasic;
     }
 
     export interface PatchedFileSystem {
@@ -34294,93 +34381,6 @@ export namespace Schemas {
 
     export interface PatchedToolApprovalUpdate {
       approval_state?: ToolApprovalUpdateApprovalStateEnum;
-    }
-
-    /**
-     * Structured element metadata (inferred selectors, attributes, component hints).
-     */
-    export type PatchedToolbarAnnotationElementContext = { [key: string]: unknown };
-
-    /**
-     * Viewport size when the annotation was made, as {width, height}.
-     * @nullable
-     */
-    export type PatchedToolbarAnnotationViewport = {
-      /** Viewport width in pixels. */
-      width?: number;
-      /** Viewport height in pixels. */
-      height?: number;
-    } | null;
-
-    export interface PatchedToolbarAnnotation {
-      readonly id?: string;
-      /**
-         * The annotation note the user wrote about the element.
-         * @maxLength 5000
-         */
-      comment?: string;
-      /** Lifecycle of the annotation: pending, acknowledged, resolved, or dismissed. Ignored on create.
-       *
-       * * `pending` - Pending
-       * * `acknowledged` - Acknowledged
-       * * `resolved` - Resolved
-       * * `dismissed` - Dismissed */
-      annotation_status?: AnnotationStatusEnum;
-      /**
-         * Optional note left by the agent when acknowledging, resolving, or dismissing the annotation.
-         * @nullable
-         */
-      resolution?: string | null;
-      /**
-         * Full URL of the page the annotation was made on.
-         * @maxLength 2048
-         */
-      url?: string;
-      /**
-         * Hostname of the page, used to scope annotations to a site.
-         * @maxLength 255
-         */
-      host?: string;
-      /**
-         * Path portion of the URL.
-         * @maxLength 2048
-         * @nullable
-         */
-      pathname?: string | null;
-      /**
-         * CSS selector that locates the annotated element on the page.
-         * @maxLength 4096
-         */
-      selector?: string;
-      /**
-         * Visible text of the annotated element, if any.
-         * @maxLength 2048
-         * @nullable
-         */
-      element_text?: string | null;
-      /**
-         * Serialized autocapture-style element chain from the element up to the document root.
-         * @maxLength 20000
-         * @nullable
-         */
-      element_chain?: string | null;
-      /** Structured element metadata (inferred selectors, attributes, component hints). */
-      element_context?: PatchedToolbarAnnotationElementContext;
-      /**
-         * Viewport size when the annotation was made, as {width, height}.
-         * @nullable
-         */
-      viewport?: PatchedToolbarAnnotationViewport;
-      /**
-         * URL of an uploaded screenshot captured with the annotation.
-         * @maxLength 2048
-         * @nullable
-         */
-      screenshot_url?: string | null;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      readonly created_by?: UserBasic;
     }
 
     export interface TraceReviewScoreWrite {
@@ -49769,6 +49769,35 @@ export namespace Schemas {
     groups?: string;
     };
 
+    export type FieldNotesListParams = {
+    /**
+     * Filter to field notes made on this hostname (e.g. `app.example.com`).
+     */
+    host?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).
+     */
+    note_status?: FieldNotesListNoteStatus;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type FieldNotesListNoteStatus = typeof FieldNotesListNoteStatus[keyof typeof FieldNotesListNoteStatus];
+
+
+    export const FieldNotesListNoteStatus = {
+      Acknowledged: 'acknowledged',
+      Dismissed: 'dismissed',
+      Pending: 'pending',
+      Resolved: 'resolved',
+    } as const;
+
     export type FileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -53229,35 +53258,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type ToolbarAnnotationsListParams = {
-    /**
-     * Filter to annotations in this lifecycle state (e.g. `pending` for unaddressed feedback).
-     */
-    annotation_status?: ToolbarAnnotationsListAnnotationStatus;
-    /**
-     * Filter to annotations made on this hostname (e.g. `app.example.com`).
-     */
-    host?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ToolbarAnnotationsListAnnotationStatus = typeof ToolbarAnnotationsListAnnotationStatus[keyof typeof ToolbarAnnotationsListAnnotationStatus];
-
-
-    export const ToolbarAnnotationsListAnnotationStatus = {
-      Acknowledged: 'acknowledged',
-      Dismissed: 'dismissed',
-      Pending: 'pending',
-      Resolved: 'resolved',
-    } as const;
 
     export type TracingSpansAttributesRetrieveParams = {
     /**
