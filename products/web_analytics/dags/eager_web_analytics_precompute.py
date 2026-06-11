@@ -92,9 +92,11 @@ BASELINE_WINDOW_DAYS = 31
 
 # How many teams to warm concurrently. Each team's tiles still run sequentially
 # inside `_warm_baseline_for_team`, so this is the number of simultaneous warm
-# queries hitting ClickHouse — keep it small so warming never competes with
-# user-facing traffic for the per-user query cap.
-WARM_TEAM_CONCURRENCY = 5
+# queries hitting ClickHouse. 10 sits comfortably inside the warmer user's
+# concurrency cap (measured ~0 query rejections at this load) while keeping the
+# run from competing with user-facing traffic; raise further only if a full pass
+# still can't finish within the job's max_runtime.
+WARM_TEAM_CONCURRENCY = 10
 
 
 # `context.log` (Dagster's DagsterLogManager) is shared across the warm pool's
