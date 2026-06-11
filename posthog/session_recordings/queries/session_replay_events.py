@@ -1,8 +1,10 @@
 import re
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from django.conf import settings
 from django.core.cache import cache
 
 import pytz
@@ -150,6 +152,8 @@ def _latest_session_event_properties_between(
 PLAYER_SESSION_EVENTS_BUFFER = timedelta(hours=24)
 PLAYER_RELATED_EVENTS_BUFFER = timedelta(minutes=5)
 
+# Column order in both player SQL blocks is contractual: the player decodes rows
+# by array index (see sessionEventsDataLogic.ts) — append, never reorder.
 _PLAYER_SESSION_EVENTS_SQL = """
     SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id
     FROM events
@@ -182,14 +186,19 @@ def get_player_events(
     team: Team,
     start_time: datetime,
     end_time: datetime,
-    person_uuid: Optional[str],
-    distinct_id: Optional[str],
+    person_uuid: str,
 ) -> dict[str, Any]:
     """Events for the replay player: the session's own events plus same-window
-    events with no session id, matched by person when known, else by distinct_id."""
-    from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+    events with no session id, matched by person.
 
-    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
+    ``person_uuid`` is always available: ``SessionRecording.person`` falls back to
+    ``MissingPerson``, whose uuid is the deterministic personless person_id that
+    ingestion stamps on events with no real person — so matching by person_id
+    covers the no-person case too.
+    """
+    from posthog.hogql_queries.hogql_query_runner import (
+        HogQLQueryRunner,  # noqa: PLC0415 — breaks a circular import, matching this file's other HogQLQueryRunner imports
+    )
 
     session_events_query = HogQLQuery(
         query=_PLAYER_SESSION_EVENTS_SQL,
@@ -199,22 +208,29 @@ def get_player_events(
             "session_id": session_id,
         },
     )
+    related_events_query = HogQLQuery(
+        query=_PLAYER_RELATED_EVENTS_SQL_PREFIX + "    AND person_id = {person_id}\n" + _PLAYER_EVENTS_SQL_SUFFIX,
+        values={
+            "date_from": start_time - PLAYER_RELATED_EVENTS_BUFFER,
+            "date_to": end_time + PLAYER_RELATED_EVENTS_BUFFER,
+            "person_id": person_uuid,
+        },
+    )
 
-    related_sql = _PLAYER_RELATED_EVENTS_SQL_PREFIX
-    related_values: dict[str, Any] = {
-        "date_from": start_time - PLAYER_RELATED_EVENTS_BUFFER,
-        "date_to": end_time + PLAYER_RELATED_EVENTS_BUFFER,
-    }
-    if person_uuid:
-        related_sql += "    AND person_id = {person_id}\n"
-        related_values["person_id"] = person_uuid
-    elif distinct_id:
-        related_sql += "    AND distinct_id = {distinct_id}\n"
-        related_values["distinct_id"] = distinct_id
-    related_events_query = HogQLQuery(query=related_sql + _PLAYER_EVENTS_SQL_SUFFIX, values=related_values)
+    def _run(query: HogQLQuery) -> Any:
+        # tags are thread-local, so tag inside the worker
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
+        return HogQLQueryRunner(team=team, query=query).calculate()
 
-    session_result = HogQLQueryRunner(team=team, query=session_events_query).calculate()
-    related_result = HogQLQueryRunner(team=team, query=related_events_query).calculate()
+    # The player previously fired these concurrently from the browser; keep that
+    # concurrency server-side (serial in tests, mirroring timestamp_utils).
+    if settings.IN_UNIT_TESTING:
+        session_result, related_result = _run(session_events_query), _run(related_events_query)
+    else:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            session_future = executor.submit(_run, session_events_query)
+            related_future = executor.submit(_run, related_events_query)
+            session_result, related_result = session_future.result(), related_future.result()
 
     return {
         "session_events": {"columns": session_result.columns, "results": session_result.results or []},

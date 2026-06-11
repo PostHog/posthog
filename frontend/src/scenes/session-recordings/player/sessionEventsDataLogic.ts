@@ -54,6 +54,8 @@ export const sessionEventsDataLogic = kea<sessionEventsDataLogicType>([
 
                     breakpoint()
 
+                    // Rows are decoded by array index - the column order is contractual
+                    // with the player SQL in session_replay_events.py; append, never reorder.
                     return [...response.session_events.results, ...response.related_events.results].map(
                         (event: any): RecordingEventType => {
                             const currentUrl = event[5]

@@ -999,7 +999,6 @@ class SessionRecordingViewSet(
     @action(methods=["GET"], detail=True, url_path="player_events")
     def player_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """The session's events plus related person events for the player timeline, in one round trip."""
-        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         recording = self.get_object()
         if not recording.load_metadata() or not recording.start_time or not recording.end_time:
             raise exceptions.NotFound("Recording not found")
@@ -1009,8 +1008,7 @@ class SessionRecordingViewSet(
             team=self.team,
             start_time=recording.start_time,
             end_time=recording.end_time,
-            person_uuid=str(recording.person.uuid) if recording.person else None,
-            distinct_id=recording.distinct_id,
+            person_uuid=str(recording.person.uuid),
         )
         return Response(payload)
 
