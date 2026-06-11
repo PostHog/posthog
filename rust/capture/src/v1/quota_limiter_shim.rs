@@ -22,6 +22,10 @@ const SCOPED_CHECKS: &[ScopedCheck] = &[
 /// Checks the global limiter first (short-circuit on full batch drop), then
 /// iterates scoped limiters, marking matching events as `Limited` / `Drop`.
 /// Returns `Error::BillingLimitExceeded` when the entire batch is limited.
+///
+/// Callers must ensure at least one event is `Ok` before calling — batches
+/// where every event was already dropped by validation should short-circuit
+/// upstream (see `process_batch`).
 pub async fn apply_quota_limits(
     limiter: &CaptureQuotaLimiter,
     token: &str,
