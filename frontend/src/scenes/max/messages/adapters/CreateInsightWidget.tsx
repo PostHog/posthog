@@ -1,0 +1,21 @@
+import type { McpToolRendererProps } from '../../mcpToolRegistry'
+import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
+import { VisualizationWidget, getArtifactOpenTarget } from '../VisualizationWidget'
+import { extractVisualizationArtifact } from './extractors'
+
+/**
+ * Renders insight create / update / read tool calls through `VisualizationWidget`. Until the
+ * artifact lands (pending / in-progress / malformed output) we fall back to the generic card so
+ * the call still renders something.
+ */
+export function CreateInsightWidget({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
+    const artifact = message.status === 'completed' ? extractVisualizationArtifact(message) : null
+
+    if (!artifact) {
+        return <FallbackMcpToolRenderer message={message} isLastInGroup={isLastInGroup} />
+    }
+
+    const target = getArtifactOpenTarget(artifact.envelope, artifact.content)
+
+    return <VisualizationWidget content={artifact.content} openUrl={target.url} openTooltip={target.tooltip} />
+}
