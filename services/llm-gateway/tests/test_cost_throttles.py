@@ -222,8 +222,7 @@ class TestProductCostThrottle:
 
 
 class TestStaffMultiplier:
-    @pytest.mark.asyncio
-    async def test_staff_user_gets_multiplied_limit_regardless_of_team(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_staff_user_gets_multiplied_limit_regardless_of_team(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "100")
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
@@ -238,8 +237,7 @@ class TestStaffMultiplier:
         assert staff_limit == base_limit * 100
         get_settings.cache_clear()
 
-    @pytest.mark.asyncio
-    async def test_staff_free_plan_limit_is_multiplied(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_staff_free_plan_limit_is_multiplied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "100")
         get_settings.cache_clear()
         from llm_gateway.config import FREE_PLAN_COST_LIMIT
@@ -257,8 +255,7 @@ class TestStaffMultiplier:
         assert limit == FREE_PLAN_COST_LIMIT.burst_limit_usd * 100
         get_settings.cache_clear()
 
-    @pytest.mark.asyncio
-    async def test_staff_bucket_is_stable_across_project_switches(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_staff_bucket_is_stable_across_project_switches(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A staff user switching their active project must keep the same usage bucket,
         as long as the staff and team multipliers resolve to the same value."""
         monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "100")
