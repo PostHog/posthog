@@ -13,6 +13,8 @@ import {
     AgentRevision,
     AgentSession,
     AgentSpecSchema,
+    AnalyticsEvent,
+    AnalyticsSink,
     CodingAcquireOpts,
     CodingSandbox,
     CodingSandboxPool,
@@ -103,6 +105,7 @@ function makeSession(initialUser: string): AgentSession {
 
 interface Harness {
     events: SessionEvent[]
+    analytics: AnalyticsEvent[]
     persists: number
     pending: ConversationMessage[][]
     deps: RunSessionDeps
@@ -110,18 +113,22 @@ interface Harness {
 
 function makeDeps(pool: FakePool, opts: { pending?: ConversationMessage[][]; shutdown?: AbortSignal } = {}): Harness {
     const events: SessionEvent[] = []
+    const analytics: AnalyticsEvent[] = []
     const pendingQueue = [...(opts.pending ?? [])]
     const h: Harness = {
         events,
+        analytics,
         persists: 0,
         pending: pendingQueue,
         deps: {
             codingPool: pool,
             codingGateway: { baseUrl: 'http://gw', apiKey: 'k', projectId: 1 },
             posthogApiBaseUrl: 'http://api',
+            applicationName: 'My coder',
             shutdownSignal: opts.shutdown,
             bus: { publish: async (e: SessionEvent) => void events.push(e) } as unknown as SessionEventBus,
             logs: { write: async () => undefined } as unknown as LogSink,
+            analytics: { write: async (es: AnalyticsEvent[]) => void analytics.push(...es) } as AnalyticsSink,
             inputs: {
                 drainPendingInputs: async () => pendingQueue.shift() ?? [],
                 appendPendingInput: async () => undefined,
@@ -210,6 +217,31 @@ describe('driveCodingSession', () => {
         })
         expect(h.persists).toBe(1)
         expect(pool.released).toContain(session.id)
+
+        // Analytics: a span for the tool, a generation for the turn, a trace at the end.
+        const span = h.analytics.find((e) => e.kind === 'span')
+        expect(span).toMatchObject({
+            kind: 'span',
+            tool_name: 'Bash',
+            tool_call_id: 't1',
+            input: { command: 'ls' },
+            output: 'file.txt',
+            is_error: false,
+        })
+        const generation = h.analytics.find((e) => e.kind === 'generation')
+        expect(generation).toMatchObject({
+            kind: 'generation',
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_tokens: 5,
+            cache_write_tokens: 3,
+            cost_usd: 0.01,
+            stop_reason: 'stop',
+        })
+        // The span hangs off the turn's generation.
+        expect((span as { parent_span_id?: string }).parent_span_id).toBe((generation as { span_id: string }).span_id)
+        const trace = h.analytics.find((e) => e.kind === 'trace')
+        expect(trace).toMatchObject({ kind: 'trace', trace_name: 'My coder', input_state: 'list the files' })
     })
 
     it('handles a multi-turn session via drained pending_inputs', async () => {

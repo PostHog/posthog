@@ -19,6 +19,9 @@
 import {
     AgentRevision,
     AgentSession,
+    AnalyticsEvent,
+    AnalyticsSink,
+    analyticsDistinctId,
     AssistantMessageRecord,
     CodingEvent,
     CodingLaunchConfig,
@@ -26,9 +29,11 @@ import {
     ConversationMessage,
     EMPTY_USAGE_TOTAL,
     generateHarnessKeypair,
+    generationSpanId,
     LogLevel,
     LogSink,
     mintHarnessJwt,
+    NoopAnalyticsSink,
     parseFrame,
     renderLaunchConfig,
     SessionEvent,
@@ -37,6 +42,7 @@ import {
     SessionInputsStore,
     TextContent,
     ToolCall,
+    toolSpanId,
     ToolResultMessage,
 } from '@posthog/agent-shared'
 
@@ -93,6 +99,15 @@ export async function driveCodingSession(
         ])
     }
 
+    // LLM analytics — mirrors the in-process driver: one `$ai_generation` per
+    // turn, one `$ai_span` per tool call, one `$ai_trace` at terminal outcome,
+    // all sharing the session id as trace id and routed to the agent's own
+    // project. The harness calls the model via the gateway, but the driver owns
+    // the trace so the agent's LLM Analytics gets the full picture (spans + the
+    // `$agent_*` props the gateway can't see).
+    const analytics: AnalyticsSink = deps.analytics ?? new NoopAnalyticsSink()
+    const distinctId = analyticsDistinctId(session)
+
     if (!deps.codingPool) {
         await emit('failed', { reason: 'coding_pool_unavailable' })
         return { state: 'failed', reason: 'coding_pool_unavailable', turns: 0 }
@@ -139,9 +154,22 @@ export async function driveCodingSession(
     let turns = 0
     let turnText = ''
     let turnError: string | null = null
-    // Per-turn tool activity, captured for the persisted transcript.
+    let turnStart = Date.now()
+    // Per-turn tool activity, captured for the persisted transcript + analytics.
     let turnToolCalls = new Map<string, { tool?: string; command?: string }>()
-    let turnToolResults: { toolCallId: string; toolName: string; output: string; isError: boolean }[] = []
+    let turnToolStarts = new Map<string, number>()
+    let turnToolResults: {
+        toolCallId: string
+        toolName: string
+        output: string
+        isError: boolean
+        latencyMs: number
+    }[] = []
+    // Per-turn token/cost deltas — emitted on the turn's `$ai_generation`.
+    let turnUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }
+    // Trace-level state for the terminal `$ai_trace`.
+    let traceInput: string | null = null
+    let lastOutput: unknown = null
     let markConnected: () => void = () => undefined
     const connected = new Promise<void>((resolve) => (markConnected = resolve))
 
@@ -167,18 +195,24 @@ export async function driveCodingSession(
                     tool: event.tool ?? prev.tool,
                     command: event.command ?? prev.command,
                 })
+                if (!turnToolStarts.has(event.toolCallId)) {
+                    turnToolStarts.set(event.toolCallId, Date.now())
+                }
                 void emit('tool_call', { tool: event.tool, command: event.command, tool_call_id: event.toolCallId })
                 return
             }
-            case 'tool_result':
+            case 'tool_result': {
+                const start = turnToolStarts.get(event.toolCallId)
                 turnToolResults.push({
                     toolCallId: event.toolCallId,
                     toolName: turnToolCalls.get(event.toolCallId)?.tool ?? 'tool',
                     output: event.output ?? '',
                     isError: !event.ok,
+                    latencyMs: start ? Date.now() - start : 0,
                 })
                 void emit('tool_result', { tool_call_id: event.toolCallId, ok: event.ok })
                 return
+            }
             case 'usage': {
                 const u = (session.usage_total = session.usage_total ?? { ...EMPTY_USAGE_TOTAL })
                 u.tokens_in += event.inputTokens
@@ -186,6 +220,11 @@ export async function driveCodingSession(
                 u.cache_read += event.cacheRead
                 u.cache_write += event.cacheWrite
                 u.cost_total += event.costUsd
+                turnUsage.input += event.inputTokens
+                turnUsage.output += event.outputTokens
+                turnUsage.cacheRead += event.cacheRead
+                turnUsage.cacheWrite += event.cacheWrite
+                turnUsage.cost += event.costUsd
                 return
             }
             case 'permission_request':
@@ -222,6 +261,31 @@ export async function driveCodingSession(
         return logs ? `${reason}\n--- harness logs (tail) ---\n${logs}` : reason
     }
 
+    // One `$ai_trace` per session at terminal outcome — names the trace (agent
+    // name) + input/output state on top of the per-turn generations/spans that
+    // already share this trace id. Skipped on suspend (the session ends for
+    // real on resume).
+    const writeTrace = async (isError: boolean, error?: string): Promise<void> => {
+        await analytics.write([
+            {
+                kind: 'trace',
+                ts: new Date().toISOString(),
+                team_id: session.team_id,
+                application_id: session.application_id,
+                revision_id: rev.id,
+                session_id: session.id,
+                turn: turns,
+                span_id: session.id,
+                distinct_id: distinctId,
+                trace_name: deps.applicationName ?? `agent:${session.application_id}`,
+                input_state: traceInput,
+                output_state: lastOutput,
+                is_error: isError,
+                error,
+            },
+        ])
+    }
+
     try {
         sandbox = await deps.codingPool.acquireForSession({
             sessionId: session.id,
@@ -245,6 +309,7 @@ export async function driveCodingSession(
         const first = lastUserText(session.conversation)
         if (first) {
             queue.push(first)
+            traceInput = first
         }
 
         while (queue.length > 0) {
@@ -258,8 +323,11 @@ export async function driveCodingSession(
             turns += 1
             turnText = ''
             turnError = null
+            turnStart = Date.now()
             turnToolCalls = new Map()
+            turnToolStarts = new Map()
             turnToolResults = []
+            turnUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }
             await emit('turn_started', { turn: turns })
 
             // `/command` user_message is synchronous — it returns when the turn
@@ -307,11 +375,61 @@ export async function driveCodingSession(
             if (turnText) {
                 await emit('assistant_text', { text: turnText })
             }
+            lastOutput = assistantContent
+
+            // One `$ai_generation` for the turn's model call + one `$ai_span`
+            // per tool dispatch, all under this session's trace. Best-effort —
+            // the sink swallows its own failures, never the session.
+            const genSpan = generationSpanId(session.id, turns)
+            const analyticsEvents: AnalyticsEvent[] = turnToolResults.map((tr) => ({
+                kind: 'span',
+                ts: new Date().toISOString(),
+                team_id: session.team_id,
+                application_id: session.application_id,
+                revision_id: rev.id,
+                session_id: session.id,
+                turn: turns,
+                span_id: toolSpanId(session.id, turns, tr.toolCallId),
+                parent_span_id: genSpan,
+                distinct_id: distinctId,
+                tool_name: tr.toolName,
+                tool_call_id: tr.toolCallId,
+                input: { command: turnToolCalls.get(tr.toolCallId)?.command ?? '' },
+                output: tr.output,
+                latency_ms: tr.latencyMs,
+                is_error: tr.isError,
+            }))
+            analyticsEvents.push({
+                kind: 'generation',
+                ts: new Date().toISOString(),
+                team_id: session.team_id,
+                application_id: session.application_id,
+                revision_id: rev.id,
+                session_id: session.id,
+                turn: turns,
+                span_id: genSpan,
+                distinct_id: distinctId,
+                model: launch.model,
+                provider: launch.provider ?? 'posthog-ai-gateway',
+                input: [{ role: 'user', content: userText }],
+                output: assistantContent,
+                input_tokens: turnUsage.input,
+                output_tokens: turnUsage.output,
+                cache_read_tokens: turnUsage.cacheRead,
+                cache_write_tokens: turnUsage.cacheWrite,
+                latency_ms: Date.now() - turnStart,
+                cost_usd: turnUsage.cost,
+                stop_reason: turnError ? 'error' : 'stop',
+                is_error: Boolean(turnError),
+                error: turnError ?? undefined,
+            })
+            await analytics.write(analyticsEvents)
             await deps.onTurnPersist?.(session)
 
             if (turnError) {
                 const reason = await withHarnessLogs(turnError)
                 await emit('failed', { reason })
+                await writeTrace(true, reason)
                 return { state: 'failed', reason, turns }
             }
 
@@ -327,6 +445,7 @@ export async function driveCodingSession(
         }
 
         await emit('completed')
+        await writeTrace(false)
         return { state: 'completed', turns }
     } catch (err) {
         if (deps.shutdownSignal?.aborted) {
@@ -334,6 +453,7 @@ export async function driveCodingSession(
         }
         const reason = await withHarnessLogs(err instanceof Error ? err.message : 'coding_session_error')
         await emit('failed', { reason })
+        await writeTrace(true, reason)
         return { state: 'failed', reason, turns }
     } finally {
         subscription?.close()
