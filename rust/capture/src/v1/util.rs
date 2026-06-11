@@ -98,8 +98,6 @@ pub async fn decompress_payload(
         None => return Ok(bytes),
     };
 
-    // Sniff first byte before moving bytes into a reader — used by the
-    // "deflate" arm to distinguish zlib-wrapped (0x78) from raw deflate.
     let first_byte = bytes.first().copied();
     let reader = tokio::io::BufReader::new(std::io::Cursor::new(bytes));
 
@@ -113,12 +111,9 @@ pub async fn decompress_payload(
             )
             .await
         }
+        // RFC 9110: Content-Encoding "deflate" = zlib (RFC 1950, 0x78 prefix).
+        // Sniff first byte: zlib-wrapped → ZlibDecoder, raw → DeflateDecoder.
         "deflate" if first_byte == Some(0x78) => {
-            // RFC 9110 §8.4.1.2: `Content-Encoding: deflate` is the zlib
-            // format (RFC 1950), which wraps raw deflate with a 2-byte header
-            // starting with 0x78. Many HTTP clients send zlib-wrapped data
-            // (including posthog-rs via flate2::ZlibEncoder). Use ZlibDecoder
-            // for zlib-wrapped payloads — same sniff strategy as nginx.
             read_decompressed(
                 bufread::ZlibDecoder::new(reader),
                 payload_size_limit,
@@ -128,7 +123,6 @@ pub async fn decompress_payload(
             .await
         }
         "deflate" => {
-            // Raw deflate (RFC 1951) — no zlib wrapper.
             read_decompressed(
                 bufread::DeflateDecoder::new(reader),
                 payload_size_limit,
@@ -307,7 +301,11 @@ mod tests {
     async fn decompress_deflate_raw_valid() {
         let original = b"hello deflate world";
         let compressed = Bytes::from(compress_deflate(original));
-        assert_ne!(compressed.first(), Some(&0x78), "raw deflate must not start with zlib magic");
+        assert_ne!(
+            compressed.first(),
+            Some(&0x78),
+            "raw deflate must not start with zlib magic"
+        );
         let result =
             decompress_payload(Some("deflate"), compressed, 4096, TEST_CHUNK_SIZE_KB).await;
         assert_eq!(result.unwrap(), Bytes::from_static(original));
@@ -317,7 +315,11 @@ mod tests {
     async fn decompress_deflate_zlib_wrapped_valid() {
         let original = b"hello zlib-wrapped deflate world";
         let compressed = Bytes::from(compress_zlib(original));
-        assert_eq!(compressed.first(), Some(&0x78), "zlib payload must start with 0x78 magic");
+        assert_eq!(
+            compressed.first(),
+            Some(&0x78),
+            "zlib payload must start with 0x78 magic"
+        );
         let result =
             decompress_payload(Some("deflate"), compressed, 4096, TEST_CHUNK_SIZE_KB).await;
         assert_eq!(result.unwrap(), Bytes::from_static(original));
