@@ -110,7 +110,7 @@ class ResearchAgentRunner(BaseAgentRunner):
         stream_subgraphs: bool = True,
         stream_first_message: bool = True,
         stream_only_assistant_messages: bool = False,
-    ) -> AsyncGenerator[AssistantOutput, None]:
+    ) -> AsyncGenerator[AssistantOutput]:
         if self._user:
             with _tracer.start_as_current_span("posthoganalytics.capture"):
                 await database_sync_to_async(posthoganalytics.capture)(

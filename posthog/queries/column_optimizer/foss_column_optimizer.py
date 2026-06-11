@@ -168,7 +168,7 @@ class FOSSColumnOptimizer:
             }
         )
 
-    def entities_used_in_filter(self) -> Generator[Entity, None, None]:
+    def entities_used_in_filter(self) -> Generator[Entity]:
         yield from self.filter.entities
         yield from cast(list[Entity], self.filter.exclusions)
 

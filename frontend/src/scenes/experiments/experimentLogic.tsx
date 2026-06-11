@@ -166,7 +166,6 @@ export interface ExperimentWarning {
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
     formMode?: FormModes
-    tabId?: string
 }
 
 export type ExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
@@ -555,10 +554,7 @@ export type ExperimentSavedMetric = {
 
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
-    key((props) => {
-        const baseKey = props.experimentId ?? 'new'
-        return `${baseKey}${props.tabId ? `-${props.tabId}` : ''}`
-    }),
+    key((props) => props.experimentId ?? 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
         values: [
@@ -1387,8 +1383,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 const experimentId = response.id
                 refreshTreeItem('experiment', String(experimentId))
                 const navigateToExperiment = (): void => {
-                    const tabId = values.props.tabId
-                    const scene = tabId ? experimentSceneLogic.findMounted({ tabId }) : null
+                    const scene = experimentSceneLogic.findMounted()
                     if (scene) {
                         scene.actions.setSceneState(experimentId, FORM_MODES.update)
                     } else {
@@ -2464,7 +2459,11 @@ export const experimentLogic = kea<experimentLogicType>([
         variants: [
             (s) => [s.experiment],
             (experiment): MultivariateFlagVariant[] => {
-                return experiment?.parameters?.feature_flag_variants || []
+                return (
+                    experiment?.parameters?.feature_flag_variants ??
+                    experiment?.feature_flag?.filters?.multivariate?.variants ??
+                    []
+                )
             },
         ],
         excludedVariants: [
@@ -2600,6 +2599,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 singleVariantShipped: boolean,
                 shippedVariantKey: string | null
             ): ExperimentWarning | null => {
+                // A deleted flag distributes no traffic, so flag-state warnings don't apply.
+                if (experiment.feature_flag?.deleted) {
+                    return null
+                }
+
                 const filters = experiment.feature_flag?.filters
 
                 if (isExperimentRunning) {

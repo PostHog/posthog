@@ -93,8 +93,9 @@ class SignalTeamConfig(UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_team_config",
     )
-    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
+    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P2)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    autostart_base_branches = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -479,7 +480,9 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     timing, error, and chat-log live on the `TaskRun`; emitted findings are
     `Signal` / `SignalReport` rows created by `emit_signal`. This row carries only
     the scout-specific fields that need to be queryable as real columns
-    (`skill_name` for the per-team running-check, `scout_config` for audit lineage).
+    (`skill_name` for the per-team running-check, `scout_config` for audit lineage,
+    and the `emitted_count` / `emitted_finding_ids` emit tally so "did this run
+    surface anything?" is a column lookup, not a prose-`summary` parse).
     """
 
     # See SignalScoutConfig.all_teams for rationale.
@@ -516,6 +519,19 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # emit any findings (and so left no `Signal` row to query against). Empty default
     # so historical rows and mid-run reads return a string, not NULL.
     summary = models.TextField(blank=True, default="", db_default="")
+    # Tally of findings this run actually emitted (preflight-skipped/dry-run emits don't
+    # count). Bumped post-success by `emit_finding`; kept as a real column so a run that
+    # surfaced something is queryable directly (the `emitted` filter on the list endpoint)
+    # instead of parsing the prose `summary`. NOT an idempotency barrier — re-emitting the
+    # same `finding_id` increments it again, just like it emits a second signal.
+    # Nullable (with a 0 `db_default`) so the AddField stays non-blocking on a table that
+    # already has rows — new and historical rows both read 0; NULL is permitted but never
+    # written by the ORM path.
+    emitted_count = models.IntegerField(null=True, default=0, db_default=0)
+    # The `finding_id`s behind `emitted_count`, in emit order — lets a caller tie a run back
+    # to its `Signal` rows (`source_id = run:<run_id>:finding:<finding_id>`) without a
+    # ClickHouse scan. Parallel to `emitted_count` (`len(emitted_finding_ids) == emitted_count`).
+    emitted_finding_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -524,6 +540,68 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
+        ]
+
+
+class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
+    """One persisted row per finding a scout run emitted to the inbox.
+
+    The durable, queryable record of *what* a scout surfaced — written at emit time by
+    `emit_finding`, in the same transaction as the run's `emitted_count` tally bump. It lets a
+    team (and its MCP agents) read a run's findings directly via API/MCP without scanning the
+    ClickHouse signal store or parsing `source_id`. It complements, not replaces, that store:
+    ClickHouse is keyed for embedding/grouping, lags emit by the fire-and-forget Temporal
+    pipeline, and can drop under buffer backpressure — this row reflects the emit
+    deterministically at the moment it fired.
+
+    Parallel to `SignalScoutRun.emitted_finding_ids` (one row per emit, in emit order) and, like
+    that tally, NOT an idempotency barrier: re-emitting the same `finding_id` writes a second
+    row, mirroring the second signal it produces downstream.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale: emit can run with no team scope set
+    # (Temporal activity), so the write path needs the unscoped manager.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # Denormalised tenant boundary, matching `SignalScoutRun`. Canonical via `scout_run.team`,
+    # kept on this row so the `TeamScopedRootMixin` fail-closed manager has a column to filter on.
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_emissions",
+    )
+    # CASCADE: an emission is meaningless without its run; purging the run (or the TaskRun it
+    # bridges, via that row's own CASCADE) takes the per-finding rows with it.
+    scout_run = models.ForeignKey(
+        SignalScoutRun,
+        on_delete=models.CASCADE,
+        related_name="emissions",
+    )
+    # Stable finding id the agent emitted under — baked into `source_id` below and present in the
+    # run's `emitted_finding_ids`.
+    finding_id = models.CharField(max_length=200)
+    # The emitted signal's `description` (the finding prose surfaced to the inbox). Bounded
+    # upstream by `MAX_FINDING_DESCRIPTION_LENGTH` on the emit serializer and the emit_signal
+    # token cap, so it stays well clear of row-size concerns.
+    description = models.TextField()
+    weight = models.FloatField()
+    confidence = models.FloatField()
+    severity = models.CharField(max_length=20, null=True, blank=True)
+    # Slug tags the scout attached to the finding (normalized lowercase kebab-case, capped at
+    # emit). This row is what feeds the per-scout tag-vocabulary feedback loop in the run prompt
+    # (`recent_tag_usage`), so the vocabulary derives from emitted behavior, not a maintained list.
+    tags = models.JSONField(default=list, blank=True)
+    # Deterministic `run:<run_id>:finding:<finding_id>` — the join key back into the signal store
+    # for the full embedding/grouping view of this finding.
+    source_id = models.CharField(max_length=200)
+    emitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal scout emission"
+        verbose_name_plural = "Signal scout emissions"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "scout_run"], name="signal_scout_emission_run_idx"),
         ]
 
 
