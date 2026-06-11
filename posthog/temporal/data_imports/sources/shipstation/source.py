@@ -53,10 +53,10 @@ You can find your API key and API secret in [ShipStation](https://ship.shipstati
                     SourceFieldInputConfig(
                         name="api_key",
                         label="API key",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
-                        secret=False,
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="api_secret",

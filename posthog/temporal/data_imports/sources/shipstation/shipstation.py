@@ -182,8 +182,11 @@ def get_rows(
             break
 
         page += 1
-        # Save state AFTER yielding the page so a crash re-yields the last page
-        # (merge dedupes on primary key) rather than skipping it.
+        # Save state after processing the page (whether or not it had items) so a
+        # resume starts at the next page. Advancing past empty intermediate pages
+        # avoids redundant API calls on resume; for non-empty pages, a crash before
+        # save_state re-yields the page, which is safe because merge dedupes on
+        # primary key.
         resumable_source_manager.save_state(ShipStationResumeConfig(page=page))
 
 

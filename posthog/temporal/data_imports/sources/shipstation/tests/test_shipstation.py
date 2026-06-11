@@ -51,32 +51,29 @@ class TestFormatDateFilter:
 
 
 class TestBuildParams:
-    def test_incremental_orders_filters_and_sorts_on_modify_date(self):
+    @pytest.mark.parametrize(
+        "incremental_field, expected_filter_key, expected_sort_by",
+        [
+            ("modifyDate", "modifyDateStart", "ModifyDate"),
+            ("createDate", "createDateStart", "CreateDate"),
+        ],
+    )
+    def test_incremental_orders_filters_and_sorts_on_cursor(
+        self, incremental_field, expected_filter_key, expected_sort_by
+    ):
         params = _build_params(
             SHIPSTATION_ENDPOINTS["orders"],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5),
-            incremental_field="modifyDate",
+            incremental_field=incremental_field,
             page=1,
         )
 
-        assert params["modifyDateStart"] == "2024-01-02 03:04:05"
-        assert params["sortBy"] == "ModifyDate"
+        assert params[expected_filter_key] == "2024-01-02 03:04:05"
+        assert params["sortBy"] == expected_sort_by
         assert params["sortDir"] == "ASC"
         assert params["pageSize"] == PAGE_SIZE
         assert params["page"] == 1
-
-    def test_incremental_orders_honors_create_date_cursor(self):
-        params = _build_params(
-            SHIPSTATION_ENDPOINTS["orders"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5),
-            incremental_field="createDate",
-            page=1,
-        )
-
-        assert params["createDateStart"] == "2024-01-02 03:04:05"
-        assert params["sortBy"] == "CreateDate"
 
     def test_full_refresh_orders_still_sorts_for_stable_pages(self):
         params = _build_params(

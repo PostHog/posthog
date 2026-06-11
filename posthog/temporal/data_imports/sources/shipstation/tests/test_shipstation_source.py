@@ -33,11 +33,10 @@ class TestShipStationSource:
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_key", "api_secret"]
 
-    def test_api_secret_field_is_secret_password(self):
+    @pytest.mark.parametrize("field_name", ["api_key", "api_secret"])
+    def test_credential_field_is_secret_password(self, field_name):
         config = self.source.get_source_config
-        secret_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_secret"
-        )
+        secret_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == field_name)
         assert secret_field.type == SourceFieldInputConfigType.PASSWORD
         assert secret_field.secret is True
         assert secret_field.required is True
