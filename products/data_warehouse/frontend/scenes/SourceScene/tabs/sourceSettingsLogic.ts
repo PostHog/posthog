@@ -299,6 +299,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             payload,
         }),
         updateSchemaFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
+        migrateGoogleServiceAccountAuth: true,
+        setMigratingGoogleServiceAccountAuth: (migrating: boolean) => ({ migrating }),
         pausePolling: true,
         resumePolling: true,
     }),
@@ -481,6 +483,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 submitSourceConfigRequest: () => true,
                 submitSourceConfigSuccess: () => false,
                 submitSourceConfigFailure: () => false,
+            },
+        ],
+        migratingGoogleServiceAccountAuth: [
+            false as boolean,
+            {
+                migrateGoogleServiceAccountAuth: () => true,
+                setMigratingGoogleServiceAccountAuth: (_, { migrating }) => migrating,
             },
         ],
         cdcStatusError: [
@@ -900,6 +909,17 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     lemonToast.error(e.message || "Can't start sync at this time")
                 } finally {
                     actions.setSyncingNow(false)
+                }
+            },
+            migrateGoogleServiceAccountToIntegrations: async () => {
+                try {
+                    const updatedSource = await api.externalDataSources.migrateGoogleServiceAccountToIntegrations(values.sourceId)
+                    actions.loadSourceSuccess(updatedSource)
+                    lemonToast.success('Migrated to a Google credential')
+                } catch (e: any) {
+                    lemonToast.error(e.message || "Can't migrate credentials at this time")
+                } finally {
+                    actions.setMigratingBigQueryAuth(false)
                 }
             },
             reloadSchema: async ({ schema }) => {

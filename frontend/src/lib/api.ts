@@ -5527,7 +5527,7 @@ const api = {
         async reload(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
-        async migrateBigQueryAuth(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
+        async migrateGoogleServiceAccountToIntegrations(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest()
                 .externalDataSource(sourceId)
                 .withAction('migrate_google_service_account_to_integrations')

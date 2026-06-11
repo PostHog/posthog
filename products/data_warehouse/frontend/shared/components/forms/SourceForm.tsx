@@ -234,18 +234,20 @@ export const sourceFieldToElement = (
 
     if (field.type === 'oauth') {
         return (
-            <LemonField key={field.name} name={field.name} label={field.label}>
-                {({ value, onChange }) => (
-                    <SourceIntegrationChoice
-                        key={field.name}
-                        sourceConfig={sourceConfig}
-                        value={value}
-                        onChange={onChange}
-                        integration={field.kind}
-                        schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
-                    />
-                )}
-            </LemonField>
+            <div key={field.name} id={`source-field-${field.name}`}>
+                <LemonField name={field.name} label={field.label}>
+                    {({ value, onChange }) => (
+                        <SourceIntegrationChoice
+                            key={field.name}
+                            sourceConfig={sourceConfig}
+                            value={value}
+                            onChange={onChange}
+                            integration={field.kind}
+                            schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                        />
+                    )}
+                </LemonField>
+            </div>
         )
     }
 
