@@ -21,18 +21,18 @@ Source: Recharge Payments — subscription management for e-commerce.
 
 ## Endpoints
 
-| Schema            | Path               | Primary key | Partition key | Incremental | Notes                                                                             |
-| ----------------- | ------------------ | ----------- | ------------- | ----------- | --------------------------------------------------------------------------------- |
-| `customers`       | `/customers`       | `id`        | `created_at`  | ✅          |                                                                                   |
-| `subscriptions`   | `/subscriptions`   | `id`        | `created_at`  | ✅          |                                                                                   |
-| `orders`          | `/orders`          | `id`        | `created_at`  | ✅          |                                                                                   |
-| `charges`         | `/charges`         | `id`        | `created_at`  | ✅          | 90-day retention for `processed_at` filtering (we use `updated_at`/`created_at`). |
-| `addresses`       | `/addresses`       | `id`        | `created_at`  | ✅          |                                                                                   |
-| `discounts`       | `/discounts`       | `id`        | `created_at`  | ✅          |                                                                                   |
-| `onetimes`        | `/onetimes`        | `id`        | `created_at`  | ✅          |                                                                                   |
-| `products`        | `/products`        | `id`        | `created_at`  | ✅          |                                                                                   |
-| `payment_methods` | `/payment_methods` | `id`        | `created_at`  | ✅          | Requires Recharge Pro / Custom plan.                                              |
-| `collections`     | `/collections`     | `id`        | `created_at`  | ➖ full     | Server-side timestamp filter not reliably documented — full refresh.              |
+| Schema            | Path               | Primary key | Partition key | Incremental | Notes                                                                              |
+| ----------------- | ------------------ | ----------- | ------------- | ----------- | ---------------------------------------------------------------------------------- |
+| `customers`       | `/customers`       | `id`        | `created_at`  | ✅          |                                                                                    |
+| `subscriptions`   | `/subscriptions`   | `id`        | `created_at`  | ✅          |                                                                                    |
+| `orders`          | `/orders`          | `id`        | `created_at`  | ✅          |                                                                                    |
+| `charges`         | `/charges`         | `id`        | `created_at`  | ✅          | 90-day retention for `processed_at` filtering (we use `updated_at`/`created_at`).  |
+| `addresses`       | `/addresses`       | `id`        | `created_at`  | ✅          |                                                                                    |
+| `discounts`       | `/discounts`       | `id`        | `created_at`  | ✅          |                                                                                    |
+| `onetimes`        | `/onetimes`        | `id`        | `created_at`  | ✅          |                                                                                    |
+| `products`        | `/products`        | `id`        | `created_at`  | ➖ full     | 2021-11 list endpoint takes only cursor + `limit`/`ids` — no `sort_by` or `*_min`. |
+| `payment_methods` | `/payment_methods` | `id`        | `created_at`  | ✅          | Requires Recharge Pro / Custom plan.                                               |
+| `collections`     | `/collections`     | `id`        | `created_at`  | ➖ full     | Server-side timestamp filter not reliably documented — full refresh.               |
 
 ## Possible future work
 

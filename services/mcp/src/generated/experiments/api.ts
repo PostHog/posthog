@@ -121,6 +121,12 @@ export const ExperimentsListParams = /* @__PURE__ */ zod.object({
 export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state. Defaults to non-archived experiments only.'),
     created_by_id: zod.number().optional().describe('Filter to experiments created by the given user ID.'),
+    event: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.'
+        ),
     feature_flag_id: zod.number().optional().describe('Filter to experiments linked to the given feature flag ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -161,7 +167,6 @@ export const experimentsCreateBodyNameMax = 400
 export const experimentsCreateBodyDescriptionMax = 3000
 
 export const experimentsCreateBodyArchivedDefault = false
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -242,7 +247,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         feature_flag_key: zod
             .string()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -326,10 +331,22 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                    ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
                                 kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(experimentsCreateBodyExposureCriteriaOneExposureConfigOneKindDefault),
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+                                    ),
                                 properties: zod
                                     .array(
                                         zod.object({
@@ -1396,7 +1413,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -2451,7 +2468,6 @@ export const experimentsPartialUpdateBodyNameMax = 400
 
 export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -2530,7 +2546,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -2611,11 +2627,21 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                    ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
                                 kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(
-                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOneKindDefault
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
                                     ),
                                 properties: zod
                                     .array(
@@ -3683,7 +3709,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -4767,7 +4793,6 @@ export const experimentsDuplicateCreateBodyNameMax = 400
 export const experimentsDuplicateCreateBodyDescriptionMax = 3000
 
 export const experimentsDuplicateCreateBodyArchivedDefault = false
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -4848,7 +4873,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
         feature_flag_key: zod
             .string()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -4932,11 +4957,21 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                    ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
                                 kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(
-                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneKindDefault
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
                                     ),
                                 properties: zod
                                     .array(
@@ -6004,7 +6039,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([

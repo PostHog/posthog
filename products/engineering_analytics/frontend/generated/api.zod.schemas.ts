@@ -42,12 +42,12 @@ export const RepoRefApi = zod.object({
 export type RepoRefApi = zod.input<typeof RepoRefApi>
 export type RepoRefApiOutput = zod.output<typeof RepoRefApi>
 
-export const EngineeringAnalyticsPRStateEnumApi = zod
+export const State387EnumApi = zod
     .enum(['open', 'closed', 'merged'])
     .describe('\* `open` - OPEN\n\* `closed` - CLOSED\n\* `merged` - MERGED')
 
-export type EngineeringAnalyticsPRStateEnumApi = zod.input<typeof EngineeringAnalyticsPRStateEnumApi>
-export type EngineeringAnalyticsPRStateEnumApiOutput = zod.output<typeof EngineeringAnalyticsPRStateEnumApi>
+export type State387EnumApi = zod.input<typeof State387EnumApi>
+export type State387EnumApiOutput = zod.output<typeof State387EnumApi>
 
 export const PullRequestApi = zod.object({
     author: zod

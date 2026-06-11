@@ -43,10 +43,9 @@ export interface RepoRefApi {
  * `closed` - CLOSED
  * `merged` - MERGED
  */
-export type EngineeringAnalyticsPRStateEnumApi =
-    (typeof EngineeringAnalyticsPRStateEnumApi)[keyof typeof EngineeringAnalyticsPRStateEnumApi]
+export type State387EnumApi = (typeof State387EnumApi)[keyof typeof State387EnumApi]
 
-export const EngineeringAnalyticsPRStateEnumApi = {
+export const State387EnumApi = {
     Open: 'open',
     Closed: 'closed',
     Merged: 'merged',
@@ -68,7 +67,7 @@ export interface PullRequestApi {
   * `open` - OPEN
   * `closed` - CLOSED
   * `merged` - MERGED */
-    state: EngineeringAnalyticsPRStateEnumApi
+    state: State387EnumApi
     /** True if the pull request is a draft. */
     is_draft: boolean
     /** When the pull request was opened. */
@@ -173,7 +172,7 @@ export interface PullRequestListItemApi {
   * `open` - OPEN
   * `closed` - CLOSED
   * `merged` - MERGED */
-    state: EngineeringAnalyticsPRStateEnumApi
+    state: State387EnumApi
     /** True if the pull request is a draft. */
     is_draft: boolean
     /** When the pull request was opened. */

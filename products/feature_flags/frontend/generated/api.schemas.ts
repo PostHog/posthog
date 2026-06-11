@@ -105,6 +105,15 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface FeatureFlagExperimentSetMetadataApi {
+    /** ID of the experiment linked to this flag. */
+    id: number
+    /** Name of the experiment linked to this flag. */
+    name: string
+    /** Whether the experiment is currently running (started and not yet stopped). A running experiment blocks deletion of the linked flag. */
+    is_running: boolean
+}
+
 /**
  * * `feature_flags` - feature_flags
  * `experiments` - experiments
@@ -151,8 +160,6 @@ export const BucketingIdentifierEnumApi = {
 
 export type FeatureFlagApiFilters = { [key: string]: unknown }
 
-export type FeatureFlagApiExperimentSetMetadataItem = { [key: string]: unknown }
-
 export type FeatureFlagApiSurveys = { [key: string]: unknown }
 
 export type FeatureFlagApiFeatures = { [key: string]: unknown }
@@ -178,7 +185,7 @@ export interface FeatureFlagApi {
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set: readonly number[]
-    readonly experiment_set_metadata: readonly FeatureFlagApiExperimentSetMetadataItem[]
+    readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataApi[]
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
     rollback_conditions?: unknown
@@ -672,6 +679,11 @@ export interface FeatureFlagCreateRequestSchemaApi {
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
     evaluation_contexts?: string[]
+    /**
+     * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
+     * @nullable
+     */
+    is_remote_configuration?: boolean | null
 }
 
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
@@ -687,6 +699,11 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
     evaluation_contexts?: string[]
+    /**
+     * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
+     * @nullable
+     */
+    is_remote_configuration?: boolean | null
 }
 
 export interface ChangeApi {
@@ -1098,13 +1115,6 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
-export type LocalEvaluationResponseApiGroupTypeMapping = { [key: string]: string }
-
-/**
- * Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).
- */
-export type LocalEvaluationResponseApiCohorts = { [key: string]: unknown }
-
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
 export interface MinimalFeatureFlagApi {
@@ -1136,13 +1146,6 @@ export interface MinimalFeatureFlagApi {
   * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
-}
-
-export interface LocalEvaluationResponseApi {
-    flags: MinimalFeatureFlagApi[]
-    group_type_mapping: LocalEvaluationResponseApiGroupTypeMapping
-    /** Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters). */
-    cohorts: LocalEvaluationResponseApiCohorts
 }
 
 export interface MyFlagsResponseApi {
@@ -1423,14 +1426,6 @@ export type FeatureFlagsEvaluationReasonsRetrieveParams = {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string
-}
-
-export type FeatureFlagsLocalEvaluationRetrieveParams = {
-    /**
-     * Include cohorts in response
-     * @nullable
-     */
-    send_cohorts?: boolean | null
 }
 
 export type FeatureFlagsMyFlagsRetrieveParams = {

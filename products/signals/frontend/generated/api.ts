@@ -16,6 +16,7 @@ import type {
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
+    PatchedSignalScoutConfigApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
@@ -24,6 +25,8 @@ import type {
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportStateRequestApi,
+    SignalScoutConfigApi,
+    SignalScoutEmissionApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
@@ -197,6 +200,46 @@ export const signalsReportsStateCreate = async (
     })
 }
 
+export const getSignalsScoutConfigListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/`
+}
+
+/**
+ * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout.
+ * @summary List scout configs
+ */
+export const signalsScoutConfigList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi[]> => {
+    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutConfigUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/`
+}
+
+/**
+ * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * @summary Update a scout config
+ */
+export const signalsScoutConfigUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSignalScoutConfigApi?: NonReadonly<PatchedSignalScoutConfigApi>,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi> => {
+    return apiMutator<SignalScoutConfigApi>(getSignalsScoutConfigUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSignalScoutConfigApi),
+    })
+}
+
 export const getSignalsScoutProjectProfileGetUrl = (
     projectId: string,
     params?: SignalsScoutProjectProfileGetParams
@@ -248,7 +291,7 @@ export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsSc
 }
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const signalsScoutRunsList = async (
@@ -262,8 +305,8 @@ export const signalsScoutRunsList = async (
     })
 }
 
-export const getSignalsScoutRunsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/scout/runs/${id}/`
+export const getSignalsScoutRunsRetrieveUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/`
 }
 
 /**
@@ -272,17 +315,36 @@ export const getSignalsScoutRunsRetrieveUrl = (projectId: string, id: string) =>
  */
 export const signalsScoutRunsRetrieve = async (
     projectId: string,
-    id: string,
+    runId: string,
     options?: RequestInit
 ): Promise<SignalScoutRunDetailApi> => {
-    return apiMutator<SignalScoutRunDetailApi>(getSignalsScoutRunsRetrieveUrl(projectId, id), {
+    return apiMutator<SignalScoutRunDetailApi>(getSignalsScoutRunsRetrieveUrl(projectId, runId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsScoutEmitSignalUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/scout/runs/${id}/emit-signal/`
+export const getSignalsScoutRunsEmissionsUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emissions/`
+}
+
+/**
+ * Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and the deterministic `source_id` that joins back to the underlying signal. Lets a team and its agents see *what* a run surfaced without parsing `emitted_finding_ids` or scanning the signal store. Strictly team-scoped — a run UUID belonging to another team returns 404.
+ * @summary List a run's emitted findings
+ */
+export const signalsScoutRunsEmissions = async (
+    projectId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<SignalScoutEmissionApi[]> => {
+    return apiMutator<SignalScoutEmissionApi[]>(getSignalsScoutRunsEmissionsUrl(projectId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutEmitSignalUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emit-signal/`
 }
 
 /**
@@ -291,11 +353,11 @@ export const getSignalsScoutEmitSignalUrl = (projectId: string, id: string) => {
  */
 export const signalsScoutEmitSignal = async (
     projectId: string,
-    id: string,
+    runId: string,
     emitFindingRequestApi: EmitFindingRequestApi,
     options?: RequestInit
 ): Promise<EmitFindingResponseApi> => {
-    return apiMutator<EmitFindingResponseApi>(getSignalsScoutEmitSignalUrl(projectId, id), {
+    return apiMutator<EmitFindingResponseApi>(getSignalsScoutEmitSignalUrl(projectId, runId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -320,7 +382,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`.
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (

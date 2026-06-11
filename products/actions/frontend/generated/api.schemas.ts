@@ -682,13 +682,17 @@ export interface BulkUpdateTagsResponseApi {
 export type ActionsListParams = {
     format?: ActionsListFormat
     /**
-     * Number of results to return per page.
+     * Maximum number of actions to return. Omit to return all.
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
+     * Number of actions to skip before returning results.
      */
     offset?: number
+    /**
+     * Case-insensitive substring match on the action name.
+     */
+    search?: string
 }
 
 export type ActionsListFormat = (typeof ActionsListFormat)[keyof typeof ActionsListFormat]

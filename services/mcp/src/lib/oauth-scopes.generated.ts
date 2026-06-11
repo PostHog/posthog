@@ -107,8 +107,6 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'link:write',
     'live_debugger:read',
     'live_debugger:write',
-    'ai_gateway:read',
-    'ai_gateway:write',
     'llm_analytics:read',
     'llm_analytics:write',
     'llm_prompt:read',

@@ -21,7 +21,6 @@ import type {
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
-    DashboardsAnalyzeRefreshResultCreateParams,
     DashboardsBulkUpdateTagsCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
@@ -38,7 +37,6 @@ import type {
     DashboardsRetrieveParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunWidgetsRetrieveParams,
-    DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
     DashboardsUpdateTextTileCreateParams,
@@ -51,10 +49,10 @@ import type {
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
-    PatchedDashboardApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
+    PatchedPatchedDashboardOpenApiApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
@@ -412,7 +410,7 @@ export const getDashboardsPartialUpdateUrl = (
 export const dashboardsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDashboardApi?: NonReadonly<PatchedDashboardApi>,
+    patchedPatchedDashboardOpenApiApi?: PatchedPatchedDashboardOpenApiApi,
     params?: DashboardsPartialUpdateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -420,7 +418,7 @@ export const dashboardsPartialUpdate = async (
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDashboardApi),
+        body: JSON.stringify(patchedPatchedDashboardOpenApiApi),
     })
 }
 
@@ -452,45 +450,6 @@ export const dashboardsDestroy = async (
     return apiMutator<unknown>(getDashboardsDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getDashboardsAnalyzeRefreshResultCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsAnalyzeRefreshResultCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/`
-}
-
-/**
- * Generate AI analysis comparing before/after dashboard refresh.
-Expects cache_key in request body pointing to the stored 'before' state.
- */
-export const dashboardsAnalyzeRefreshResultCreate = async (
-    projectId: string,
-    id: number,
-    dashboardApi?: NonReadonly<DashboardApi>,
-    params?: DashboardsAnalyzeRefreshResultCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsAnalyzeRefreshResultCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
     })
 }
 
@@ -783,45 +742,6 @@ export const dashboardsRunWidgetsRetrieve = async (
     })
 }
 
-export const getDashboardsSnapshotCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsSnapshotCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboards/${id}/snapshot/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboards/${id}/snapshot/`
-}
-
-/**
- * Snapshot the current dashboard state (from cache) for AI analysis.
-Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
- */
-export const dashboardsSnapshotCreate = async (
-    projectId: string,
-    id: number,
-    dashboardApi?: NonReadonly<DashboardApi>,
-    params?: DashboardsSnapshotCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsSnapshotCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
-    })
-}
-
 export const getDashboardsStreamTilesRetrieveUrl = (
     projectId: string,
     id: number,
@@ -1076,7 +996,7 @@ export const getDashboardsWidgetCatalogRetrieveUrl = (
 }
 
 /**
- * List registered dashboard widget types and config hints for agents.
+ * List registered dashboard widget types and per-type config_schema documentation for agents.
  */
 export const dashboardsWidgetCatalogRetrieve = async (
     projectId: string,

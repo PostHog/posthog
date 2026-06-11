@@ -854,10 +854,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             )
 
-        # Hide weekends — exclude Saturday (6) and Sunday (7) events
-        if self.query.trendsFilter and self.query.trendsFilter.hideWeekends:
-            filters.append(parse_expr("toDayOfWeek(timestamp) <= 5"))
-
         if len(filters) == 0:
             return ast.Constant(value=True)
 

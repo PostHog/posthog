@@ -226,7 +226,7 @@ function MRR(): JSX.Element | null {
             <span className="text-secondary">MRR:</span>{' '}
             {revenueDataLoading ? (
                 <LemonSkeleton className="h-4 w-24" />
-            ) : revenueData?.mrr ? (
+            ) : revenueData?.mrr != null ? (
                 <div className="flex gap-2 items-center">
                     {formatCurrency(revenueData.mrr, baseCurrency)}
                     <DataSourceIcon source="revenue-analytics" />
@@ -251,7 +251,7 @@ function LifetimeValue(): JSX.Element | null {
             <span className="text-secondary">Lifetime value:</span>{' '}
             {revenueDataLoading ? (
                 <LemonSkeleton className="h-4 w-24" />
-            ) : revenueData?.lifetimeValue ? (
+            ) : revenueData?.lifetimeValue != null ? (
                 <div className="flex gap-2 items-center">
                     {formatCurrency(revenueData.lifetimeValue, baseCurrency)}
                     <DataSourceIcon source="revenue-analytics" />

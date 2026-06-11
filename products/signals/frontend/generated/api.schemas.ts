@@ -142,6 +142,66 @@ export interface SignalReportStateRequestApi {
 }
 
 /**
+ * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+when it discovers a scout skill; this serializer lets agents tune the row.
+ */
+export interface SignalScoutConfigApi {
+    readonly id: string
+    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+    readonly skill_name: string
+    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+    readonly description: string
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /**
+     * When the coordinator last dispatched this scout. Null if it has never run.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    readonly created_at: string
+}
+
+/**
+ * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+when it discovers a scout skill; this serializer lets agents tune the row.
+ */
+export interface PatchedSignalScoutConfigApi {
+    readonly id?: string
+    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+    readonly skill_name?: string
+    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+    readonly description?: string
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /**
+     * When the coordinator last dispatched this scout. Null if it has never run.
+     * @nullable
+     */
+    readonly last_run_at?: string | null
+    readonly created_at?: string
+}
+
+/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {
@@ -728,6 +788,20 @@ export interface SignalScoutRunSummaryApi {
     task_url?: string | null
     /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
     summary: string
+    /**
+     * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Concise derived reason the run didn't complete cleanly — the first line of `error` (bounded), or a status-derived fallback. Null unless the run terminated failed/cancelled. Read this to see at a glance *why* a run emitted nothing without pulling full stack traces.
+     * @nullable
+     */
+    failure_reason?: string | null
+    /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
+    emitted_count: number
+    /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
+    emitted_finding_ids: string[]
 }
 
 /**
@@ -768,21 +842,20 @@ export interface SignalScoutRunDetailApi {
     task_url?: string | null
     /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
     summary: string
-}
-
-/**
- * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
- */
-export interface EvidenceEntryApi {
-    /** Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...). */
-    source_product: string
-    /** One-sentence prose about why this evidence supports the finding. */
-    summary: string
     /**
-     * Optional ID of the cited entity (issue id, recording id, log query id).
+     * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
      * @nullable
      */
-    entity_id?: string | null
+    error?: string | null
+    /**
+     * Concise derived reason the run didn't complete cleanly — the first line of `error` (bounded), or a status-derived fallback. Null unless the run terminated failed/cancelled. Read this to see at a glance *why* a run emitted nothing without pulling full stack traces.
+     * @nullable
+     */
+    failure_reason?: string | null
+    /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
+    emitted_count: number
+    /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
+    emitted_finding_ids: string[]
 }
 
 /**
@@ -802,6 +875,63 @@ export const AutonomyPriorityEnumApi = {
     P4: 'P4',
 } as const
 
+/**
+ * One finding a scout run emitted to the inbox — the persisted, queryable record of
+*what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
+back into the underlying signal store.
+ */
+export interface SignalScoutEmissionApi {
+    readonly id: string
+    /** UUID of the `SignalScoutRun` that emitted this finding. */
+    run_id: string
+    /** Stable id the finding was emitted under; matches an entry in the run's `emitted_finding_ids`. */
+    finding_id: string
+    /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
+    description: string
+    /**
+     * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+     * @minimum 0
+     * @maximum 1
+     */
+    weight: number
+    /**
+     * Agent's confidence the finding is real in [0, 1].
+     * @minimum 0
+     * @maximum 1
+     */
+    confidence: number
+    /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
+
+  * `P0` - P0
+  * `P1` - P1
+  * `P2` - P2
+  * `P3` - P3
+  * `P4` - P4 */
+    severity: AutonomyPriorityEnumApi | null
+    /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). Empty list when the run set none. */
+    tags: string[]
+    /** Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store. */
+    source_id: string
+    /** ISO-8601 timestamp the finding was emitted. */
+    emitted_at: string
+}
+
+/**
+ * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
+ */
+export interface EvidenceEntryApi {
+    /** Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...). */
+    source_product: string
+    /** One-sentence prose about why this evidence supports the finding. */
+    summary: string
+    /**
+     * Optional ID of the cited entity (issue id, recording id, log query id).
+     * @nullable
+     */
+    entity_id?: string | null
+}
+
 export interface TimeRangeApi {
     /** ISO-8601 inclusive lower bound for the finding's window. */
     date_from: string
@@ -818,12 +948,6 @@ export interface EmitFindingRequestApi {
      * @maxLength 50000
      */
     description: string
-    /**
-     * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
-     * @minimum 0
-     * @maximum 1
-     */
-    weight: number
     /**
      * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
      * @minimum 0
@@ -850,6 +974,11 @@ export interface EmitFindingRequestApi {
     severity?: AutonomyPriorityEnumApi | null
     /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
     dedupe_keys?: string[]
+    /**
+     * Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row.
+     * @maxItems 10
+     */
+    tags?: string[]
     /** Optional time window the finding refers to. */
     time_range?: TimeRangeApi | null
     /**
@@ -859,6 +988,7 @@ export interface EmitFindingRequestApi {
     mcp_trace_id?: string | null
     /**
      * Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.
+     * @maxLength 100
      * @nullable
      */
     finding_id?: string | null
@@ -882,7 +1012,7 @@ export interface EmitFindingResponseApi {
 export interface ScratchpadEntryApi {
     /** Agent-chosen semantic key, unique per team. */
     key: string
-    /** Prose content for prompt injection. */
+    /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
     content: string
     /**
      * ISO-8601 creation timestamp.
@@ -1128,11 +1258,26 @@ export type SignalsScoutRunsListParams = {
      */
     date_to?: string
     /**
+     * Filter by emit outcome. `true` returns only runs that emitted at least one finding (`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both.
+     * @nullable
+     */
+    emitted?: boolean | null
+    /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
      * @maximum 100
      */
     limit?: number
+    /**
+     * Exact-match filter on the scout skill (e.g. `signals-scout-errors`). Narrows the run dump to a single scout — the primary scoping path when a specialist dedupes against its own past runs. Omit to span every scout on the team.
+     * @minLength 1
+     */
+    skill_name?: string
+    /**
+     * Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.
+     * @minimum 1
+     */
+    skill_version?: number
     /**
      * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
      * @minLength 1
@@ -1141,6 +1286,15 @@ export type SignalsScoutRunsListParams = {
 }
 
 export type SignalsScoutScratchpadSearchParams = {
+    /**
+     * Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`.
+     * @minimum 0
+     */
+    content_max_chars?: number
+    /**
+     * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
+     */
+    keys_only?: boolean
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1

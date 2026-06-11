@@ -68,18 +68,53 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * @summary Update a scout config
+ */
+export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
+
+export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
+        emit: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.'
+            ),
+        run_interval_minutes: zod
+            .number()
+            .min(signalsScoutConfigUpdateBodyRunIntervalMinutesMin)
+            .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
+            .optional()
+            .describe(
+                'Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.'
+            ),
+    })
+    .describe(
+        'Per-(team, skill) scout config: schedule, enablement, and emit posture.\n\nOne row per `signals-scout-\*` skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.'
+    )
+
+/**
  * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
  * @summary Emit a finding for a run
  */
 export const signalsScoutEmitSignalBodyDescriptionMax = 50000
 
-export const signalsScoutEmitSignalBodyWeightMin = 0
-export const signalsScoutEmitSignalBodyWeightMax = 1
-
 export const signalsScoutEmitSignalBodyConfidenceMin = 0
 export const signalsScoutEmitSignalBodyConfidenceMax = 1
 
 export const signalsScoutEmitSignalBodyEvidenceMax = 20
+
+export const signalsScoutEmitSignalBodyTagsItemMax = 50
+
+export const signalsScoutEmitSignalBodyTagsMax = 10
+
+export const signalsScoutEmitSignalBodyFindingIdMax = 100
 
 export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
     .object({
@@ -87,11 +122,6 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             .string()
             .max(signalsScoutEmitSignalBodyDescriptionMax)
             .describe("Canonical evidence-bundle prose. Becomes the signal's `description`."),
-        weight: zod
-            .number()
-            .min(signalsScoutEmitSignalBodyWeightMin)
-            .max(signalsScoutEmitSignalBodyWeightMax)
-            .describe("Agent's weight for the signal in [0, 1]. Drives ranking in the inbox."),
         confidence: zod
             .number()
             .min(signalsScoutEmitSignalBodyConfidenceMin)
@@ -134,6 +164,13 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).'),
+        tags: zod
+            .array(zod.string().max(signalsScoutEmitSignalBodyTagsItemMax))
+            .max(signalsScoutEmitSignalBodyTagsMax)
+            .optional()
+            .describe(
+                "Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row."
+            ),
         time_range: zod
             .union([
                 zod.object({
@@ -147,6 +184,7 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
         mcp_trace_id: zod.string().nullish().describe('Optional MCP trace id for cross-system debugging.'),
         finding_id: zod
             .string()
+            .max(signalsScoutEmitSignalBodyFindingIdMax)
             .nullish()
             .describe(
                 "Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal."

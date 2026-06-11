@@ -19,9 +19,11 @@ from posthog.scopes import (
     UNPRIVILEGED_SCOPES,
     downgrade_scopes_to_read_only,
     effective_ceiling,
+    filter_to_unprivileged_scopes,
     get_oauth_scopes_supported,
     get_scope_descriptions,
     narrow_scopes_to_ceiling,
+    scopes_outside_ceiling,
     scopes_within_ceiling,
 )
 
@@ -271,6 +273,28 @@ class TestScopesWithinCeiling(SimpleTestCase):
         assert effective_ceiling(["query:read", "insight:read"]) == frozenset({"query:read", "insight:read"})
 
 
+class TestScopesOutsideCeiling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("subset_within_ceiling_none_rejected", ["query:read"], ["query:read", "insight:read"], []),
+            ("isolates_offender_from_grantable", ["query:read", "insight:write"], ["query:read"], ["insight:write"]),
+            ("privileged_rejected_without_ceiling", ["llm_gateway:read"], [], ["llm_gateway:read"]),
+            ("wildcard_rejected_under_explicit_ceiling", ["query:read", "*"], ["query:read"], ["*"]),
+            ("oidc_never_rejected", ["openid", "insight:write"], ["query:read"], ["insight:write"]),
+        ]
+    )
+    def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
+        assert scopes_outside_ceiling(requested, app_scopes) == expected
+
+    def test_inverse_of_within_ceiling(self) -> None:
+        # The two helpers must never disagree: empty offender list iff within ceiling.
+        cases = [(["query:read", "insight:write"], ["query:read"]), (["query:read"], []), (["*"], [])]
+        for requested, app_scopes in cases:
+            within = scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+            outside = scopes_outside_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+            assert within is (outside == [])
+
+
 class TestNarrowScopesToCeiling(SimpleTestCase):
     @parameterized.expand(
         [
@@ -298,3 +322,29 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
         self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str] | None
     ) -> None:
         assert narrow_scopes_to_ceiling(requested, app_scopes) == expected
+
+
+class TestFilterToUnprivilegedScopes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("keeps_unprivileged", ["insight:read", "dashboard:write"], ["insight:read", "dashboard:write"]),
+            ("drops_privileged", ["llm_gateway:read", "insight:read"], ["insight:read"]),
+            ("drops_unknown_string", ["not_a_real_scope:write", "query:read"], ["query:read"]),
+            (
+                "dedupes_preserving_order",
+                ["insight:read", "query:read", "insight:read"],
+                ["insight:read", "query:read"],
+            ),
+            ("empty_in_empty_out", [], []),
+            ("all_dropped_yields_empty", ["llm_gateway:read", "garbage"], []),
+        ]
+    )
+    def test_resolution(self, _name: str, given: list[str], expected: list[str]) -> None:
+        assert filter_to_unprivileged_scopes(given) == expected
+
+    def test_non_string_entries_dropped(self) -> None:
+        # Callers pass raw partner JSON (CIMD `com.posthog.scopes`), which may hold non-strings.
+        assert filter_to_unprivileged_scopes(["insight:read", 123, None, {"x": 1}, "query:read"]) == [
+            "insight:read",
+            "query:read",
+        ]

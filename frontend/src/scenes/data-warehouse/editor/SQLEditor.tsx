@@ -325,6 +325,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         AccessControlLevel.Editor
     )
 
+    const saveAsEndpointAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Endpoint,
+        AccessControlLevel.Editor
+    )
+
     const secondarySaveMenuItems = useMemo(
         () =>
             saveAsMenuItems.secondary.map((item) => ({
@@ -342,9 +347,21 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
                     saveAsView()
                 },
-                accessDisabledReason: item.action === 'view' ? saveAsViewAccessDisabledReason : undefined,
+                accessDisabledReason:
+                    item.action === 'view'
+                        ? saveAsViewAccessDisabledReason
+                        : item.action === 'endpoint'
+                          ? saveAsEndpointAccessDisabledReason
+                          : undefined,
             })),
-        [saveAsEndpoint, saveAsInsight, saveAsMenuItems.secondary, saveAsView, saveAsViewAccessDisabledReason]
+        [
+            saveAsEndpoint,
+            saveAsInsight,
+            saveAsMenuItems.secondary,
+            saveAsView,
+            saveAsViewAccessDisabledReason,
+            saveAsEndpointAccessDisabledReason,
+        ]
     )
 
     const onPrimarySaveClick = (): void => {
@@ -499,7 +516,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                                 ? [
                                                                       {
                                                                           label: 'Save as endpoint...',
-                                                                          disabledReason: saveAsDisabledReason,
+                                                                          disabledReason:
+                                                                              saveAsDisabledReason ??
+                                                                              saveAsEndpointAccessDisabledReason,
                                                                           onClick: () => saveAsEndpoint(),
                                                                       },
                                                                   ]
@@ -558,7 +577,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                             ? [
                                                                   {
                                                                       label: 'Save as endpoint...',
-                                                                      disabledReason: saveAsDisabledReason,
+                                                                      disabledReason:
+                                                                          saveAsDisabledReason ??
+                                                                          saveAsEndpointAccessDisabledReason,
                                                                       onClick: () => saveAsEndpoint(),
                                                                   },
                                                               ]
@@ -586,7 +607,12 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 type="primary"
                                 size="small"
                                 onClick={onPrimarySaveClick}
-                                disabledReason={saveAsDisabledReason}
+                                disabledReason={
+                                    saveAsDisabledReason ??
+                                    (saveAsMenuItems.primary.action === 'endpoint'
+                                        ? saveAsEndpointAccessDisabledReason
+                                        : undefined)
+                                }
                                 sideAction={{
                                     icon: <IconChevronDown />,
                                     'data-attr': 'sql-editor-save-options-button',
