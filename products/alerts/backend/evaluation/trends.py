@@ -55,13 +55,15 @@ class TrendsExtractor:
         config = TrendsAlertConfig.model_validate(alert.config)
         condition = AlertCondition.model_validate(alert.condition)
         # Dispatcher short-circuits when threshold/bounds are missing, so both are present here.
+        if alert.threshold is None:
+            raise ValueError("TrendsExtractor requires a threshold — dispatcher invariant violated")
         threshold = InsightThreshold.model_validate(alert.threshold.configuration)
         if threshold.bounds is None:
             raise ValueError("TrendsExtractor requires threshold bounds — dispatcher invariant violated")
 
         is_non_time_series = _is_non_time_series_trend(query)
         has_breakdown = _has_breakdown(query)
-        check_current_interval = config.check_ongoing_interval
+        check_current_interval = bool(config.check_ongoing_interval)
         lookback_intervals = lookback_intervals_for(condition)
         interval_type = None if is_non_time_series else query.interval
 

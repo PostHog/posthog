@@ -51,14 +51,14 @@ def test_absolute_within_bounds_no_breach():
 
 def test_absolute_below_lower_breaches():
     result = evaluate_threshold(_single(5.0), ABSOLUTE, _threshold(lower=10))
-    assert len(result.breaches) == 1
+    assert result.breaches is not None and len(result.breaches) == 1
     assert "less than lower threshold" in result.breaches[0]
     assert result.value == 5.0
 
 
 def test_absolute_above_upper_breaches():
     result = evaluate_threshold(_single(150.0), ABSOLUTE, _threshold(upper=100))
-    assert len(result.breaches) == 1
+    assert result.breaches is not None and len(result.breaches) == 1
     assert "more than upper threshold" in result.breaches[0]
 
 
@@ -90,7 +90,7 @@ def test_breakdown_breaches_if_any_series_breaches():
         ComparableSeries(label="de", points=[SeriesPoint(None, 5.0)], current_index=0),
     ]
     result = evaluate_threshold(_result(series, is_breakdown=True), ABSOLUTE, _threshold(lower=10))
-    assert len(result.breaches) == 1
+    assert result.breaches is not None and len(result.breaches) == 1
     assert "de" in result.breaches[0]
     assert result.value == 5.0
 
@@ -144,7 +144,7 @@ def test_empty_result_sentinel_absolute_compares_zero():
         ]
     )
     breach = evaluate_threshold(empty, ABSOLUTE, _threshold(lower=10))
-    assert len(breach.breaches) == 1 and breach.value == 0.0
+    assert breach.breaches is not None and len(breach.breaches) == 1 and breach.value == 0.0
     no_breach = evaluate_threshold(empty, ABSOLUTE, _threshold(lower=-5))
     assert no_breach.breaches == [] and no_breach.value == 0.0
 
@@ -159,7 +159,7 @@ def test_empty_result_sentinel_relative_computes_zero_and_can_breach():
         ]
     )
     breach = evaluate_threshold(empty, INCREASE, _threshold(lower=5))
-    assert len(breach.breaches) == 1 and breach.value == 0.0
+    assert breach.breaches is not None and len(breach.breaches) == 1 and breach.value == 0.0
     assert evaluate_threshold(empty, DECREASE, _threshold(lower=5)).value == 0.0
 
 
@@ -175,7 +175,7 @@ def test_relative_increase_absolute_delta():
     ]
     result = evaluate_threshold(_result(series), INCREASE, _threshold(upper=5))
     assert result.value == 10.0
-    assert "increased" in result.breaches[0]
+    assert result.breaches is not None and "increased" in result.breaches[0]
 
 
 def test_relative_increase_current_interval_anchor_last():
@@ -190,7 +190,7 @@ def test_relative_increase_current_interval_anchor_last():
     ]
     result = evaluate_threshold(_result(series), INCREASE, _threshold(upper=5))
     assert result.value == 15.0
-    assert "current" in result.breaches[0]
+    assert result.breaches is not None and "current" in result.breaches[0]
 
 
 def test_relative_decrease_absolute_delta():
@@ -202,7 +202,7 @@ def test_relative_decrease_absolute_delta():
     ]
     result = evaluate_threshold(_result(series), DECREASE, _threshold(upper=5))
     assert result.value == 12.0
-    assert "decreased" in result.breaches[0]
+    assert result.breaches is not None and "decreased" in result.breaches[0]
 
 
 def test_relative_increase_percentage():
@@ -239,6 +239,7 @@ def test_missing_current_point_skips_series():
 def test_framed_message_includes_series_and_interval():
     series = [ComparableSeries(label="US", points=[SeriesPoint(None, 5.0)], current_index=0)]
     result = evaluate_threshold(_result(series, interval_type=IntervalType.DAY), ABSOLUTE, _threshold(lower=10))
+    assert result.breaches is not None
     assert result.breaches[0] == "The insight value (US) for previous day (5.0) is less than lower threshold (10.0)"
 
 
@@ -247,5 +248,6 @@ def test_unframed_message_uses_subject_without_interval_framing():
     result = evaluate_threshold(
         _result(series, subject="The SQL insight value", framed=False), ABSOLUTE, _threshold(lower=10)
     )
+    assert result.breaches is not None
     assert result.breaches[0] == "The SQL insight value (5.0) is less than lower threshold (10.0)"
     assert "interval" not in result.breaches[0]
