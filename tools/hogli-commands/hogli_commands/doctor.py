@@ -7,6 +7,7 @@ import enum
 import time
 import shutil
 import signal
+import hashlib
 import platform
 import importlib
 import subprocess
@@ -17,7 +18,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
+import yaml
 import click
+from hogli.manifest import REPO_ROOT, get_manifest
 
 from . import hints
 
@@ -142,8 +145,6 @@ def doctor_disk(
     specific categories. Use --dry-run to preview what would be removed and
     --yes to skip prompts.
     """
-
-    from hogli.manifest import REPO_ROOT
 
     click.echo("🔍 PostHog Disk Space Cleanup\n")
 
@@ -996,8 +997,6 @@ class DevProcess:
 def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
     """Find and kill orphaned PostHog dev processes left behind after an unclean shutdown."""
 
-    from hogli.manifest import REPO_ROOT
-
     def _record() -> None:
         if not dry_run:
             hints.record_check_run("doctor:zombies")
@@ -1770,8 +1769,6 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
 @click.command(name="doctor", help="Quick health check for your dev environment")
 def doctor() -> None:
     """Run non-destructive checks and print a status summary."""
-    from hogli.manifest import REPO_ROOT
-
     click.echo("\nhogli doctor\n")
 
     results = _run_checks(REPO_ROOT)
@@ -1948,6 +1945,97 @@ def _checks_info(repo_root: Path) -> list[tuple[str, str]]:
     return pairs
 
 
+def _generated_config_path(repo_root: Path) -> Path:
+    """Resolve the generated mprocs config phrocs renders, read-only.
+
+    Mirrors ``hogli``'s lookup (the ``HOGLI_MPROCS_PATH`` override, else
+    ``.posthog/.generated/mprocs.yaml`` at the repo root) without the worktree
+    symlink-creating fallback — a diagnostic must not mutate the workspace.
+    """
+    override = os.environ.get("HOGLI_MPROCS_PATH")
+    if override:
+        return Path(override)
+    return repo_root / ".posthog" / ".generated" / "mprocs.yaml"
+
+
+def _phrocs_socket_path(repo_root: Path) -> Path:
+    """Replicate phrocs' per-workspace IPC socket path (ipc.SocketPathFor):
+    ``/tmp/phrocs-<first 4 bytes of sha256(real absolute cwd)>.sock``.
+    """
+    real = os.path.realpath(repo_root)
+    digest = hashlib.sha256(real.encode()).digest()[:4].hex()
+    return Path(f"/tmp/phrocs-{digest}.sock")
+
+
+def _config_procs(config: Path) -> str:
+    """Summarize a generated mprocs config's proc set; a parse failure is itself
+    the diagnosis, since phrocs can't render an unparseable config."""
+    try:
+        data = yaml.safe_load(config.read_text())
+    except (OSError, yaml.YAMLError) as exc:
+        return f"unparseable: {str(exc)[:60]}"
+    procs = data.get("procs") if isinstance(data, dict) else None
+    if not isinstance(procs, dict):
+        return "no procs"
+    return f"{len(procs)} procs"
+
+
+def _tail(path: Path, lines: int) -> list[str]:
+    """Last ``lines`` lines of a text file, or [] if it can't be read."""
+    try:
+        content = path.read_text(errors="replace")
+    except OSError:
+        return []
+    return content.splitlines()[-lines:]
+
+
+def _iso_mtime(path: Path) -> str:
+    return datetime.fromtimestamp(path.stat().st_mtime, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _phrocs_runtime_pairs(repo_root: Path) -> list[tuple[str, str]]:
+    """Opt-in (``--verbose``) phrocs/start runtime state — the layer past the
+    binary that explains a blank or broken ``hogli start`` TUI: the generated
+    config phrocs renders, its IPC socket, and the terminal it draws into.
+    """
+    config = _generated_config_path(repo_root)
+    pairs: list[tuple[str, str]] = []
+
+    if config.exists():
+        pairs.append(("generated_config", f"{config} ({_config_procs(config)}, {_iso_mtime(config)})"))
+    else:
+        pairs.append(("generated_config", f"MISSING ({config}) — run `hogli dev:generate`"))
+
+    log = config.parent / "logs" / "phrocs.log"
+    pairs.append(("phrocs_log", f"{log} ({_iso_mtime(log)})" if log.exists() else f"absent ({log})"))
+
+    socket = _phrocs_socket_path(repo_root)
+    pairs.append(
+        ("ipc_socket", f"present ({socket}) — stale if no phrocs running" if socket.exists() else f"none ({socket})")
+    )
+
+    pairs.append(("stdout_tty", "yes" if sys.stdout.isatty() else "no — phrocs opens /dev/tty as a fallback"))
+    try:
+        size = os.get_terminal_size()
+        pairs.append(("terminal_size", f"{size.columns}x{size.lines}"))
+    except OSError:
+        pairs.append(("terminal_size", "unavailable (no controlling terminal)"))
+
+    return pairs
+
+
+def _phrocs_runtime_block(repo_root: Path) -> list[str]:
+    """The full verbose ``phrocs runtime`` section body: state pairs plus a tail
+    of phrocs' own log (the highest-signal evidence when it started then died)."""
+    block = _format_kv_block(_phrocs_runtime_pairs(repo_root))
+    tail = _tail(_generated_config_path(repo_root).parent / "logs" / "phrocs.log", 15)
+    if tail:
+        block.append("")
+        block.append("phrocs.log (last 15 lines):")
+        block.extend(f"  {line}" for line in tail)
+    return block
+
+
 class _ManifestLike(Protocol):
     """The slice of ``hogli.manifest.Manifest`` the import probe relies on."""
 
@@ -2043,6 +2131,12 @@ def _build_report(repo_root: Path, manifest: _ManifestLike) -> str:
         lines.append(f"== {title} ==")
         lines.extend(_format_kv_block(pairs))
 
+    # phrocs is the headline failure mode (blank `hogli start`), so group its
+    # runtime state right after the toolchain/health sections.
+    lines.append("")
+    lines.append("== phrocs runtime ==")
+    lines.extend(_phrocs_runtime_block(repo_root))
+
     lines.append("")
     lines.append("== Command imports ==")
     if not failures:
@@ -2059,10 +2153,8 @@ def _build_report(repo_root: Path, manifest: _ManifestLike) -> str:
     help="Dump a paste-ready dev-environment diagnostics report for devex triage",
 )
 def doctor_report() -> None:
-    """Collect environment, toolchain, health-check, and command-import diagnostics
-    into a single copy-paste block to share with the devex team."""
-    from hogli.manifest import REPO_ROOT, get_manifest
-
+    """Collect environment, toolchain, health-check, command-import, and phrocs
+    runtime diagnostics into a single copy-paste block to share with the devex team."""
     click.echo("\nGathering diagnostics…\n")
     report = _build_report(REPO_ROOT, get_manifest())
 

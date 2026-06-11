@@ -1,3 +1,6 @@
+import os
+import hashlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -5,12 +8,17 @@ import pytest
 from hogli_commands.doctor import (
     _binary_arches,
     _collect_import_targets,
+    _config_procs,
     _format_kv_block,
+    _generated_config_path,
     _get_process_cwds,
     _is_excluded,
     _normalize_arch,
     _phrocs_info,
+    _phrocs_runtime_pairs,
+    _phrocs_socket_path,
     _probe_command_imports,
+    _tail,
 )
 
 
@@ -259,3 +267,63 @@ def test_phrocs_info_flags_broken_binary(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     _, value = _phrocs_info()
     assert "--version failed" in value
+
+
+def test_generated_config_path_honors_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOGLI_MPROCS_PATH", "/custom/mprocs.yaml")
+    assert _generated_config_path(tmp_path) == Path("/custom/mprocs.yaml")
+
+
+def test_generated_config_path_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("HOGLI_MPROCS_PATH", raising=False)
+    assert _generated_config_path(tmp_path) == tmp_path / ".posthog" / ".generated" / "mprocs.yaml"
+
+
+def test_phrocs_socket_path_matches_phrocs_formula(tmp_path: Path) -> None:
+    real = os.path.realpath(tmp_path)
+    expected = "/tmp/phrocs-" + hashlib.sha256(real.encode()).digest()[:4].hex() + ".sock"
+    socket = _phrocs_socket_path(tmp_path)
+    assert str(socket) == expected
+    assert socket == _phrocs_socket_path(tmp_path)  # stable
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        pytest.param("procs:\n  a: {}\n  b: {}\n", "2 procs", id="counts-procs"),
+        pytest.param("_posthog: {}\n", "no procs", id="no-procs-key"),
+        pytest.param("procs: not-a-mapping\n", "no procs", id="procs-not-mapping"),
+        pytest.param("procs:\n  - [unbalanced\n", "unparseable", id="malformed-yaml"),
+    ],
+)
+def test_config_procs(tmp_path: Path, content: str, expected: str) -> None:
+    config = tmp_path / "mprocs.yaml"
+    config.write_text(content)
+    assert _config_procs(config).startswith(expected)
+
+
+def test_tail_returns_last_lines(tmp_path: Path) -> None:
+    log = tmp_path / "phrocs.log"
+    log.write_text("\n".join(f"line {i}" for i in range(20)))
+    assert _tail(log, 3) == ["line 17", "line 18", "line 19"]
+
+
+def test_tail_missing_file_is_empty(tmp_path: Path) -> None:
+    assert _tail(tmp_path / "nope.log", 5) == []
+
+
+def test_phrocs_runtime_pairs_reports_state(tmp_path: Path) -> None:
+    config = tmp_path / ".posthog" / ".generated" / "mprocs.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("procs:\n  backend: {}\n  frontend: {}\n  capture: {}\n")
+
+    pairs = dict(_phrocs_runtime_pairs(tmp_path))
+    assert set(pairs) == {"generated_config", "phrocs_log", "ipc_socket", "stdout_tty", "terminal_size"}
+    assert "3 procs" in pairs["generated_config"]
+    assert "absent" in pairs["phrocs_log"]
+
+
+def test_phrocs_runtime_pairs_flags_missing_config(tmp_path: Path) -> None:
+    pairs = dict(_phrocs_runtime_pairs(tmp_path))
+    assert "MISSING" in pairs["generated_config"]
+    assert "hogli dev:generate" in pairs["generated_config"]
