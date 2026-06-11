@@ -262,6 +262,90 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
+    describe('streamed tool input', () => {
+        it('folds rawInput arriving on a later update into a non-exec tool call', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't1',
+                    toolName: 'ToolSearch',
+                    title: 'ToolSearch',
+                    rawInput: {},
+                    status: 'pending',
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 't1',
+                    rawInput: { query: 'find recordings', max_results: 10 },
+                    status: 'completed',
+                }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const invocation = logic.values.toolInvocations.get('t1')
+            expect(invocation?.input).toEqual({ query: 'find recordings', max_results: 10 })
+            expect(invocation?.resolvedKey).toEqual('ToolSearch')
+        })
+
+        it('re-resolves the registry key when an exec command streams in after an empty tool_call', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't2',
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    rawInput: {},
+                    status: 'pending',
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 't2',
+                    rawInput: { command: 'call insight-create {"name":"Signups"}' },
+                    status: 'in_progress',
+                }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const invocation = logic.values.toolInvocations.get('t2')
+            expect(invocation?.resolvedKey).toEqual('insight-create')
+            expect(invocation?.innerToolName).toEqual('insight-create')
+            expect(invocation?.innerInput).toEqual({ name: 'Signups' })
+        })
+
+        it('keeps the resolved input when a later update carries none', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't3',
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    rawInput: { command: 'call execute-sql {"query":"select 1"}' },
+                    status: 'in_progress',
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 't3',
+                    status: 'completed',
+                    rawOutput: { rows: 1 },
+                }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const invocation = logic.values.toolInvocations.get('t3')
+            expect(invocation?.resolvedKey).toEqual('execute-sql')
+            expect(invocation?.innerInput).toEqual({ query: 'select 1' })
+        })
+    })
+
     describe('pushHumanMessage', () => {
         it('appends a human_message item ordered before subsequently ingested assistant frames', async () => {
             await expectLogic(logic, () => {

@@ -654,6 +654,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     const errorMessage =
                         (update.error?.message as string | undefined) ??
                         (status === 'failed' ? notification.error?.message : undefined)
+                    // The tool's args stream in across updates (e.g. an `exec` command or a tool's
+                    // input building up), so fold the latest rawInput in and re-resolve the registry
+                    // key from it rather than freezing the empty input the initial tool_call carried.
+                    const rawInput =
+                        update.rawInput && typeof update.rawInput === 'object'
+                            ? (update.rawInput as Record<string, unknown>)
+                            : update.input && typeof update.input === 'object'
+                              ? (update.input as Record<string, unknown>)
+                              : undefined
+                    const reResolved =
+                        rawInput && existing
+                            ? resolveToolKey(existing.rawServerName, existing.rawToolName, rawInput)
+                            : undefined
                     actions.updateToolInvocation(toolCallId, {
                         status,
                         title: (update.title as string | undefined) ?? existing?.title,
@@ -663,6 +676,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                             (update.locations as { path: string; line?: number }[] | undefined) ?? existing?.locations,
                         contentBlocks: mergedContent,
                         error: errorMessage !== undefined ? { message: errorMessage } : existing?.error,
+                        ...(rawInput ? { input: rawInput } : {}),
+                        ...(reResolved
+                            ? {
+                                  resolvedKey: reResolved.resolvedKey,
+                                  innerToolName: reResolved.innerToolName,
+                                  innerInput: reResolved.innerInput,
+                              }
+                            : {}),
                     })
                     break
                 }
