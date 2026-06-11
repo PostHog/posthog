@@ -433,16 +433,11 @@
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
               exposures.variant),
-       percentiles AS
-    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
-            quantileExact(0.9)(entity_metrics.value) AS upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(quantileExact(0.1)(entity_metrics.value) OVER (), entity_metrics.value), quantileExact(0.9)(entity_metrics.value) OVER ()) AS value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
@@ -498,16 +493,11 @@
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
               exposures.variant),
-       percentiles AS
-    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
-            quantileExact(0.9)(entity_metrics.value) AS upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(quantileExact(0.1)(entity_metrics.value) OVER (), entity_metrics.value), quantileExact(0.9)(entity_metrics.value) OVER ()) AS value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
@@ -711,16 +701,11 @@
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
               exposures.variant),
-       percentiles AS
-    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
-            quantileExact(0.9)(entity_metrics.value) AS upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(quantileExact(0.1)(entity_metrics.value) OVER (), entity_metrics.value), quantileExact(0.9)(entity_metrics.value) OVER ()) AS value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
@@ -776,16 +761,11 @@
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
               exposures.variant),
-       percentiles AS
-    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
-            quantileExact(0.9)(entity_metrics.value) AS upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(quantileExact(0.1)(entity_metrics.value) OVER (), entity_metrics.value), quantileExact(0.9)(entity_metrics.value) OVER ()) AS value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
@@ -859,16 +839,11 @@
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
               exposures.variant),
-       percentiles AS
-    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
-            quantileExact(0.9)(entity_metrics.value) AS upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(quantileExact(0.1)(entity_metrics.value) OVER (), entity_metrics.value), quantileExact(0.9)(entity_metrics.value) OVER ()) AS value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
@@ -924,16 +899,11 @@
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
               exposures.variant),
-       percentiles AS
-    (SELECT quantileExact(0.1)(entity_metrics.value) AS lower_bound,
-            quantileExact(0.9)(entity_metrics.value) AS upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(quantileExact(0.1)(entity_metrics.value) OVER (), entity_metrics.value), quantileExact(0.9)(entity_metrics.value) OVER ()) AS value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
@@ -1007,16 +977,11 @@
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
               exposures.variant),
-       percentiles AS
-    (SELECT min(entity_metrics.value) AS lower_bound,
-            quantileExact(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) AS upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(min(entity_metrics.value) OVER (), entity_metrics.value), quantileExact(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) OVER ()) AS value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
@@ -1072,16 +1037,11 @@
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
               exposures.variant),
-       percentiles AS
-    (SELECT min(entity_metrics.value) AS lower_bound,
-            quantileExact(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) AS upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(min(entity_metrics.value) OVER (), entity_metrics.value), quantileExact(0.9)(if(ifNull(notEquals(entity_metrics.value, 0), 1), entity_metrics.value, NULL)) OVER ()) AS value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,

@@ -393,8 +393,8 @@ class FunnelQueryBuilder:
                     {uuid_to_session_map} AS uuid_to_session,
                     {uuid_to_timestamp_map} AS uuid_to_timestamp"""
 
-        first_exposures_cte_str, temporal_join, having_clause = self.build_funnel_optimized_temporal_setup(
-            is_unordered_funnel
+        first_exposures_cte_str, temporal_join, having_clause, temporal_placeholders = (
+            self.build_funnel_optimized_temporal_setup(is_unordered_funnel)
         )
 
         ctes_sql = f"""
@@ -420,6 +420,7 @@ class FunnelQueryBuilder:
             "funnel_steps_filter": self.build_funnel_steps_filter(),
             "funnel_aggregation": self.build_funnel_aggregation_expr_optimized(),
             "num_steps_minus_1": ast.Constant(value=num_steps - 1),
+            **temporal_placeholders,
         }
         if not self._b.funnel_steps_data_disabled:
             placeholders["uuid_to_session_map"] = self.build_uuid_to_session_map_optimized()
@@ -513,10 +514,12 @@ class FunnelQueryBuilder:
 
         return query
 
-    def build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> tuple[str, str, str]:
+    def build_funnel_optimized_temporal_setup(
+        self, is_unordered_funnel: bool
+    ) -> tuple[str, str, str, dict[str, ast.Expr]]:
         """
-        Returns (first_exposures_cte_str, temporal_join, having_clause) for the
-        optimized funnel query.
+        Returns (first_exposures_cte_str, temporal_join, having_clause,
+        extra_placeholders) for the optimized funnel query.
 
         Three call sites collapse into one place:
 
@@ -530,20 +533,31 @@ class FunnelQueryBuilder:
           with step_X=1 (X>0) are never used in the post-window result.
         - Otherwise, no first_exposures CTE; HAVING countIf(step_0 = 1) > 0
           is the cheapest way to keep only exposed entities.
+
+        first_exposures scans events with only the exposure predicate rather
+        than re-reading base_events: ClickHouse executes a CTE once per
+        reference, so deriving it from base_events would run the full
+        (exposure OR funnel steps) scan twice. base_events rows with step_0 = 1
+        are by construction exactly the rows matching the exposure predicate,
+        and the exposure-only scan reads a subset of the OR scan's granules.
         """
         needs_first_exposures = is_unordered_funnel or self._b.cuped_config.enabled
 
-        first_exposures_cte_str = (
-            """
+        extra_placeholders: dict[str, ast.Expr] = {}
+        if needs_first_exposures:
+            first_exposures_cte_str = """
             first_exposures AS (
-                SELECT entity_id, min(timestamp) AS first_exposure_time
-                FROM base_events
-                WHERE step_0 = 1
+                SELECT {first_exposures_entity_key} AS entity_id, min(timestamp) AS first_exposure_time
+                FROM events
+                WHERE {first_exposures_predicate}
                 GROUP BY entity_id
             ),"""
-            if needs_first_exposures
-            else ""
-        )
+            extra_placeholders = {
+                "first_exposures_entity_key": parse_expr(self._b.entity_key),
+                "first_exposures_predicate": self._b._build_exposure_predicate(),
+            }
+        else:
+            first_exposures_cte_str = ""
 
         if is_unordered_funnel:
             temporal_join = """INNER JOIN first_exposures
@@ -559,7 +573,7 @@ class FunnelQueryBuilder:
             having_clause = """
                 HAVING countIf(step_0 = 1) > 0"""
 
-        return first_exposures_cte_str, temporal_join, having_clause
+        return first_exposures_cte_str, temporal_join, having_clause, extra_placeholders
 
     def build_variant_expr_for_funnel(self) -> ast.Expr:
         """

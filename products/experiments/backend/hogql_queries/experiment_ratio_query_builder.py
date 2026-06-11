@@ -5,6 +5,7 @@ from posthog.schema import ExperimentDataWarehouseNode, ExperimentMetricOutlierH
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
+from products.experiments.backend.hogql_queries.base_query_utils import apply_winsorization_breakdown_partitioning
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 if TYPE_CHECKING:
@@ -87,7 +88,12 @@ class RatioQueryBuilder:
         value_field: str,
     ) -> tuple[ast.Expr, ast.Expr]:
         """
-        Build (lower_bound, upper_bound) expressions over entity_metrics.<value_field>.
+        Build (lower_bound, upper_bound) window expressions over entity_metrics.<value_field>.
+
+        The bounds are window aggregates (``... OVER ()``) computed in the same pass
+        that reads entity_metrics, instead of a separate percentiles CTE: ClickHouse
+        executes a CTE once per reference, so the CTE + CROSS JOIN shape ran the whole
+        entity_metrics chain (including its events scans) twice.
 
         When a bound is not configured the threshold falls back to min()/max() so the
         least(greatest(...)) clamp becomes a no-op for that side. This lets the numerator
@@ -103,25 +109,25 @@ class RatioQueryBuilder:
 
         if lower_pct is not None:
             lower_bound_expr = parse_expr(
-                f"quantileExact({{level}})(entity_metrics.{value_field})",
+                f"quantileExact({{level}})(entity_metrics.{value_field}) OVER ()",
                 placeholders={"level": ast.Constant(value=lower_pct)},
             )
         else:
-            lower_bound_expr = parse_expr(f"min(entity_metrics.{value_field})")
+            lower_bound_expr = parse_expr(f"min(entity_metrics.{value_field}) OVER ()")
 
         if upper_pct is not None:
             if ignore_zeros:
                 upper_bound_expr = parse_expr(
-                    f"quantileExact({{level}})(if(entity_metrics.{value_field} != 0, entity_metrics.{value_field}, null))",
+                    f"quantileExact({{level}})(if(entity_metrics.{value_field} != 0, entity_metrics.{value_field}, null)) OVER ()",
                     placeholders={"level": ast.Constant(value=upper_pct)},
                 )
             else:
                 upper_bound_expr = parse_expr(
-                    f"quantileExact({{level}})(entity_metrics.{value_field})",
+                    f"quantileExact({{level}})(entity_metrics.{value_field}) OVER ()",
                     placeholders={"level": ast.Constant(value=upper_pct)},
                 )
         else:
-            upper_bound_expr = parse_expr(f"max(entity_metrics.{value_field})")
+            upper_bound_expr = parse_expr(f"max(entity_metrics.{value_field}) OVER ()")
 
         return lower_bound_expr, upper_bound_expr
 
@@ -147,6 +153,16 @@ class RatioQueryBuilder:
             self._b.metric.denominator_outlier_handling, "denominator_value"
         )
 
+        # Partition the bound windows by breakdown so each group is capped at
+        # its own threshold (pooled across variations).
+        apply_winsorization_breakdown_partitioning(
+            self._b.breakdowns,
+            num_lower_bound,
+            num_upper_bound,
+            denom_lower_bound,
+            denom_upper_bound,
+        )
+
         placeholders["numerator_lower_bound"] = num_lower_bound
         placeholders["numerator_upper_bound"] = num_upper_bound
         placeholders["denominator_lower_bound"] = denom_lower_bound
@@ -156,27 +172,14 @@ class RatioQueryBuilder:
             f"""
             WITH {common_ctes},
 
-            percentiles AS (
-                SELECT
-                    {{numerator_lower_bound}} AS numerator_lower_bound,
-                    {{numerator_upper_bound}} AS numerator_upper_bound,
-                    {{denominator_lower_bound}} AS denominator_lower_bound,
-                    {{denominator_upper_bound}} AS denominator_upper_bound
-                    -- breakdown columns added programmatically below
-                FROM entity_metrics
-                -- GROUP BY added programmatically below if breakdowns exist
-            ),
-
             winsorized_entity_metrics AS (
                 SELECT
                     entity_metrics.entity_id AS entity_id,
                     entity_metrics.variant AS variant,
-                    least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
-                    least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value
+                    least(greatest({{numerator_lower_bound}}, entity_metrics.numerator_value), {{numerator_upper_bound}}) AS numerator_value,
+                    least(greatest({{denominator_lower_bound}}, entity_metrics.denominator_value), {{denominator_upper_bound}}) AS denominator_value
                     -- breakdown columns added programmatically below
                 FROM entity_metrics
-                CROSS JOIN percentiles
-                -- JOIN conditions added programmatically below if breakdowns exist
             )
 
             SELECT

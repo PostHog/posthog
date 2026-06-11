@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
 from products.experiments.backend.hogql_queries.base_query_utils import (
+    apply_winsorization_breakdown_partitioning,
     is_session_property_metric,
     validate_session_property,
 )
@@ -298,33 +299,44 @@ class MeanQueryBuilder:
         """
         Builds query for mean metrics with winsorization (outlier handling).
         This clamps entity-level values to percentile-based bounds.
+
+        The bounds are window aggregates over entity_metrics rather than a
+        separate percentiles CTE: ClickHouse executes a CTE once per reference,
+        so the old percentiles + CROSS JOIN shape ran the whole entity_metrics
+        chain (including its events scans) twice. The window form computes the
+        bounds in the same pass that reads the rows.
         """
         assert isinstance(self._b.metric, ExperimentMeanMetric)
 
         # Build lower bound expression
         if self._b.metric.lower_bound_percentile is not None:
             lower_bound_expr = parse_expr(
-                "quantileExact({level})(entity_metrics.value)",
+                "quantileExact({level})(entity_metrics.value) OVER ()",
                 placeholders={"level": ast.Constant(value=self._b.metric.lower_bound_percentile)},
             )
         else:
-            lower_bound_expr = parse_expr("min(entity_metrics.value)")
+            lower_bound_expr = parse_expr("min(entity_metrics.value) OVER ()")
 
         # Build upper bound expression
         if self._b.metric.upper_bound_percentile is not None:
             # Handle ignore_zeros flag for upper bound calculation
             if getattr(self._b.metric, "ignore_zeros", False):
                 upper_bound_expr = parse_expr(
-                    "quantileExact({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
+                    "quantileExact({level})(if(entity_metrics.value != 0, entity_metrics.value, null)) OVER ()",
                     placeholders={"level": ast.Constant(value=self._b.metric.upper_bound_percentile)},
                 )
             else:
                 upper_bound_expr = parse_expr(
-                    "quantileExact({level})(entity_metrics.value)",
+                    "quantileExact({level})(entity_metrics.value) OVER ()",
                     placeholders={"level": ast.Constant(value=self._b.metric.upper_bound_percentile)},
                 )
         else:
-            upper_bound_expr = parse_expr("max(entity_metrics.value)")
+            upper_bound_expr = parse_expr("max(entity_metrics.value) OVER ()")
+
+        # Partition the bound windows by breakdown so each group is capped at
+        # its own threshold (pooled across variations), matching the old
+        # per-breakdown percentiles GROUP BY.
+        apply_winsorization_breakdown_partitioning(self._b.breakdowns, lower_bound_expr, upper_bound_expr)
 
         common_ctes = self.get_mean_query_common_ctes()
         placeholders = self.get_mean_query_common_placeholders()
@@ -351,24 +363,13 @@ class MeanQueryBuilder:
             f"""
             WITH {common_ctes},
 
-            percentiles AS (
-                SELECT
-                    {{lower_bound}} AS lower_bound,
-                    {{upper_bound}} AS upper_bound
-                    -- breakdown columns added programmatically below
-                FROM entity_metrics
-                -- GROUP BY added programmatically below if breakdowns exist
-            ),
-
             winsorized_entity_metrics AS (
                 SELECT
                     entity_metrics.entity_id AS entity_id,
                     entity_metrics.variant AS variant,
-                    least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value{winsorized_cuped_select}
+                    least(greatest({{lower_bound}}, entity_metrics.value), {{upper_bound}}) AS value{winsorized_cuped_select}
                     -- breakdown columns added programmatically below
                 FROM entity_metrics
-                CROSS JOIN percentiles
-                -- JOIN conditions added programmatically below if breakdowns exist
             )
 
             SELECT

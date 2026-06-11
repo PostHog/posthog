@@ -501,10 +501,12 @@ class ExperimentQueryBuilder:
     def _extend_date_from_for_funnel_cuped(self, date_from: ast.Expr) -> ast.Expr:
         return self._cuped_query_builder().extend_date_from_for_funnel_cuped(date_from)
 
-    def _build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> tuple[str, str, str]:
+    def _build_funnel_optimized_temporal_setup(
+        self, is_unordered_funnel: bool
+    ) -> tuple[str, str, str, dict[str, ast.Expr]]:
         """
-        Returns (first_exposures_cte_str, temporal_join, having_clause) for the
-        optimized funnel query.
+        Returns (first_exposures_cte_str, temporal_join, having_clause,
+        extra_placeholders) for the optimized funnel query.
 
         Three call sites collapse into one place:
 
@@ -846,9 +848,10 @@ class ExperimentQueryBuilder:
 
         Structure:
         - exposures: all exposures with variant assignment
-        - start_events: when each entity performed the start_event (with start_handling logic)
+        - start_events: when each entity performed the start_event (with start_handling logic),
+                        joined to exposures once and carrying variant through
         - completion_events: when each entity performed the completion_event
-        - entity_metrics: join exposures + start_events + completion_events
+        - entity_metrics: join start_events + completion_events
                           Calculate retention per entity (1 if retained, 0 if not)
         - Final SELECT: aggregated statistics per variant
 

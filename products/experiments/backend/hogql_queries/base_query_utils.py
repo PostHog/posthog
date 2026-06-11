@@ -375,6 +375,28 @@ def get_source_aggregation_expr(
     return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
 
+def apply_winsorization_breakdown_partitioning(breakdowns: list | None, *bound_exprs: ast.Expr) -> None:
+    """
+    Partition winsorization bound windows by the breakdown columns so each
+    breakdown group is capped at its own threshold (pooled across variations).
+
+    The bound expressions are window aggregates over entity_metrics
+    (e.g. ``quantileExact(0.99)(entity_metrics.value) OVER ()``); with
+    breakdowns configured this rewrites them to
+    ``... OVER (PARTITION BY entity_metrics.breakdown_value_1, ...)``.
+    """
+    if not breakdowns:
+        return
+    for expr in bound_exprs:
+        assert isinstance(expr, ast.WindowFunction)
+        expr.over_expr = ast.WindowExpr(
+            partition_by=[
+                ast.Field(chain=["entity_metrics", f"breakdown_value_{i + 1}"]) for i in range(len(breakdowns))
+            ]
+        )
+        expr.over_identifier = None
+
+
 def funnel_steps_to_filter(
     team: Team, funnel_steps: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode]
 ) -> ast.Expr:

@@ -1018,19 +1018,12 @@
      GROUP BY exposures.entity_id,
               exposures.variant,
               exposures.breakdown_value_1),
-       percentiles AS
-    (SELECT quantileExact(0.05)(entity_metrics.value) AS lower_bound,
-            quantileExact(0.95)(entity_metrics.value) AS upper_bound,
-            entity_metrics.breakdown_value_1 AS breakdown_value_1
-     FROM entity_metrics
-     GROUP BY entity_metrics.breakdown_value_1),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value,
+            least(greatest(quantileExact(0.05)(entity_metrics.value) OVER (PARTITION BY entity_metrics.breakdown_value_1), entity_metrics.value), quantileExact(0.95)(entity_metrics.value) OVER (PARTITION BY entity_metrics.breakdown_value_1)) AS value,
             entity_metrics.breakdown_value_1 AS breakdown_value_1
-     FROM entity_metrics
-     JOIN percentiles ON equals(percentiles.breakdown_value_1, entity_metrics.breakdown_value_1))
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          winsorized_entity_metrics.breakdown_value_1 AS breakdown_value_1,
          count(winsorized_entity_metrics.entity_id) AS num_users,
@@ -1704,6 +1697,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.breakdown_value_1 AS breakdown_value_1,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1715,7 +1710,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
-     GROUP BY exposures.entity_id),
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.breakdown_value_1),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
@@ -1729,16 +1726,15 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
-    (SELECT exposures.entity_id AS entity_id,
-            exposures.variant AS variant,
-            exposures.breakdown_value_1 AS breakdown_value_1,
+    (SELECT start_events.entity_id AS entity_id,
+            start_events.variant AS variant,
+            start_events.breakdown_value_1 AS breakdown_value_1,
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), ifNull(greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
-     FROM exposures
-     INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), start_events.start_timestamp), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(start_events.start_timestamp, toIntervalSecond(691200)))))
-     GROUP BY exposures.entity_id,
-              exposures.variant,
-              exposures.breakdown_value_1)
+     FROM start_events
+     LEFT JOIN completion_events ON and(equals(start_events.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), start_events.start_timestamp), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(start_events.start_timestamp, toIntervalSecond(691200)))))
+     GROUP BY start_events.entity_id,
+              start_events.variant,
+              start_events.breakdown_value_1)
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
          count(entity_metrics.entity_id) AS num_users,
@@ -1798,6 +1794,8 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.breakdown_value_1 AS breakdown_value_1,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1809,7 +1807,9 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
-     GROUP BY exposures.entity_id),
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.breakdown_value_1),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
@@ -1823,16 +1823,15 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
-    (SELECT exposures.entity_id AS entity_id,
-            exposures.variant AS variant,
-            exposures.breakdown_value_1 AS breakdown_value_1,
+    (SELECT start_events.entity_id AS entity_id,
+            start_events.variant AS variant,
+            start_events.breakdown_value_1 AS breakdown_value_1,
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), ifNull(greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
-     FROM exposures
-     INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), start_events.start_timestamp), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(start_events.start_timestamp, toIntervalSecond(691200)))))
-     GROUP BY exposures.entity_id,
-              exposures.variant,
-              exposures.breakdown_value_1)
+     FROM start_events
+     LEFT JOIN completion_events ON and(equals(start_events.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), start_events.start_timestamp), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(start_events.start_timestamp, toIntervalSecond(691200)))))
+     GROUP BY start_events.entity_id,
+              start_events.variant,
+              start_events.breakdown_value_1)
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
          count(entity_metrics.entity_id) AS num_users,
@@ -1892,6 +1891,9 @@
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            exposures.breakdown_value_1 AS breakdown_value_1,
+            exposures.breakdown_value_2 AS breakdown_value_2,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1903,7 +1905,10 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
-     GROUP BY exposures.entity_id),
+     GROUP BY exposures.entity_id,
+              exposures.variant,
+              exposures.breakdown_value_1,
+              exposures.breakdown_value_2),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
@@ -1917,18 +1922,17 @@
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
-    (SELECT exposures.entity_id AS entity_id,
-            exposures.variant AS variant,
-            exposures.breakdown_value_1 AS breakdown_value_1,
-            exposures.breakdown_value_2 AS breakdown_value_2,
+    (SELECT start_events.entity_id AS entity_id,
+            start_events.variant AS variant,
+            start_events.breakdown_value_1 AS breakdown_value_1,
+            start_events.breakdown_value_2 AS breakdown_value_2,
             max(if(and(isNotNull(toTimeZone(completion_events.completion_timestamp, 'UTC')), ifNull(greaterOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(toTimeZone(completion_events.completion_timestamp, 'UTC')), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
-     FROM exposures
-     INNER JOIN start_events ON equals(exposures.entity_id, start_events.entity_id)
-     LEFT JOIN completion_events ON and(equals(exposures.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), start_events.start_timestamp), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(start_events.start_timestamp, toIntervalSecond(691200)))))
-     GROUP BY exposures.entity_id,
-              exposures.variant,
-              exposures.breakdown_value_1,
-              exposures.breakdown_value_2)
+     FROM start_events
+     LEFT JOIN completion_events ON and(equals(start_events.entity_id, completion_events.entity_id), and(greaterOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), start_events.start_timestamp), lessOrEquals(toTimeZone(completion_events.completion_timestamp, 'UTC'), plus(start_events.start_timestamp, toIntervalSecond(691200)))))
+     GROUP BY start_events.entity_id,
+              start_events.variant,
+              start_events.breakdown_value_1,
+              start_events.breakdown_value_2)
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
          entity_metrics.breakdown_value_2 AS breakdown_value_2,

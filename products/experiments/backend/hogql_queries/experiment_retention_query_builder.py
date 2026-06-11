@@ -107,9 +107,10 @@ class RetentionQueryBuilder:
 
         Structure:
         - exposures: all exposures with variant assignment
-        - start_events: when each entity performed the start_event (with start_handling logic)
+        - start_events: when each entity performed the start_event (with start_handling logic),
+                        joined to exposures once and carrying variant through
         - completion_events: when each entity performed the completion_event
-        - entity_metrics: join exposures + start_events + completion_events
+        - entity_metrics: join start_events + completion_events
                           Calculate retention per entity (1 if retained, 0 if not)
         - Final SELECT: aggregated statistics per variant
 
@@ -121,7 +122,15 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        # Build the CTEs
+        # Build the CTEs.
+        #
+        # ClickHouse executes a CTE once per reference, so exposures (an events
+        # scan plus person joins) must be referenced exactly once. start_events
+        # already joins exposures for the after-exposure filter, so it carries
+        # variant through, and entity_metrics reads start_events instead of
+        # joining exposures again. The INNER JOIN semantics are unchanged: only
+        # entities with a start event count, and exposures has one row per
+        # entity, so grouping by (entity_id, variant) equals grouping by entity.
         common_ctes = """
             exposures AS (
                 {exposure_select_query}
@@ -130,12 +139,13 @@ class RetentionQueryBuilder:
             start_events AS (
                 SELECT
                     exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
                     {start_timestamp_expr} AS start_timestamp
                 FROM events
                 INNER JOIN exposures ON {entity_key} = exposures.entity_id
                 WHERE {start_event_predicate}
                     AND {start_after_exposure_predicate}
-                GROUP BY exposures.entity_id
+                GROUP BY exposures.entity_id, exposures.variant
             ),
 
             completion_events AS (
@@ -148,8 +158,8 @@ class RetentionQueryBuilder:
 
             entity_metrics AS (
                 SELECT
-                    exposures.entity_id AS entity_id,
-                    exposures.variant AS variant,
+                    start_events.entity_id AS entity_id,
+                    start_events.variant AS variant,
                     MAX(if(
                         completion_events.completion_timestamp IS NOT NULL
                         AND {truncated_completion_timestamp} >= {truncated_start_timestamp} + {retention_window_start_interval}
@@ -157,13 +167,11 @@ class RetentionQueryBuilder:
                         1,
                         0
                     )) AS value
-                FROM exposures
-                INNER JOIN start_events
-                    ON exposures.entity_id = start_events.entity_id
+                FROM start_events
                 LEFT JOIN completion_events
-                    ON exposures.entity_id = completion_events.entity_id
+                    ON start_events.entity_id = completion_events.entity_id
                     AND {completion_retention_window_predicate}
-                GROUP BY exposures.entity_id, exposures.variant
+                GROUP BY start_events.entity_id, start_events.variant
             )
         """
 

@@ -456,19 +456,12 @@
      LEFT JOIN denominator_agg ON equals(exposures.entity_id, denominator_agg.entity_id)
      GROUP BY exposures.variant,
               exposures.entity_id),
-       percentiles AS
-    (SELECT min(entity_metrics.numerator_value) AS numerator_lower_bound,
-            quantileExact(0.9)(entity_metrics.numerator_value) AS numerator_upper_bound,
-            min(entity_metrics.denominator_value) AS denominator_lower_bound,
-            quantileExact(0.9)(entity_metrics.denominator_value) AS denominator_upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
-            least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(min(entity_metrics.numerator_value) OVER (), entity_metrics.numerator_value), quantileExact(0.9)(entity_metrics.numerator_value) OVER ()) AS numerator_value,
+            least(greatest(min(entity_metrics.denominator_value) OVER (), entity_metrics.denominator_value), quantileExact(0.9)(entity_metrics.denominator_value) OVER ()) AS denominator_value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.numerator_value) AS total_sum,
@@ -554,19 +547,12 @@
      LEFT JOIN denominator_agg ON equals(exposures.entity_id, denominator_agg.entity_id)
      GROUP BY exposures.variant,
               exposures.entity_id),
-       percentiles AS
-    (SELECT min(entity_metrics.numerator_value) AS numerator_lower_bound,
-            quantileExact(0.9)(entity_metrics.numerator_value) AS numerator_upper_bound,
-            min(entity_metrics.denominator_value) AS denominator_lower_bound,
-            quantileExact(0.9)(entity_metrics.denominator_value) AS denominator_upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
-            least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(min(entity_metrics.numerator_value) OVER (), entity_metrics.numerator_value), quantileExact(0.9)(entity_metrics.numerator_value) OVER ()) AS numerator_value,
+            least(greatest(min(entity_metrics.denominator_value) OVER (), entity_metrics.denominator_value), quantileExact(0.9)(entity_metrics.denominator_value) OVER ()) AS denominator_value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.numerator_value) AS total_sum,
@@ -670,19 +656,12 @@
      LEFT JOIN denominator_agg ON equals(exposures.entity_id, denominator_agg.entity_id)
      GROUP BY exposures.variant,
               exposures.entity_id),
-       percentiles AS
-    (SELECT min(entity_metrics.numerator_value) AS numerator_lower_bound,
-            quantileExact(0.9)(entity_metrics.numerator_value) AS numerator_upper_bound,
-            min(entity_metrics.denominator_value) AS denominator_lower_bound,
-            max(entity_metrics.denominator_value) AS denominator_upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
-            least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(min(entity_metrics.numerator_value) OVER (), entity_metrics.numerator_value), quantileExact(0.9)(entity_metrics.numerator_value) OVER ()) AS numerator_value,
+            least(greatest(min(entity_metrics.denominator_value) OVER (), entity_metrics.denominator_value), max(entity_metrics.denominator_value) OVER ()) AS denominator_value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.numerator_value) AS total_sum,
@@ -768,19 +747,12 @@
      LEFT JOIN denominator_agg ON equals(exposures.entity_id, denominator_agg.entity_id)
      GROUP BY exposures.variant,
               exposures.entity_id),
-       percentiles AS
-    (SELECT min(entity_metrics.numerator_value) AS numerator_lower_bound,
-            quantileExact(0.9)(entity_metrics.numerator_value) AS numerator_upper_bound,
-            min(entity_metrics.denominator_value) AS denominator_lower_bound,
-            max(entity_metrics.denominator_value) AS denominator_upper_bound
-     FROM entity_metrics),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
-            least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value
-     FROM entity_metrics
-     CROSS JOIN percentiles)
+            least(greatest(min(entity_metrics.numerator_value) OVER (), entity_metrics.numerator_value), quantileExact(0.9)(entity_metrics.numerator_value) OVER ()) AS numerator_value,
+            least(greatest(min(entity_metrics.denominator_value) OVER (), entity_metrics.denominator_value), max(entity_metrics.denominator_value) OVER ()) AS denominator_value
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.numerator_value) AS total_sum,
@@ -887,22 +859,13 @@
      GROUP BY exposures.variant,
               exposures.entity_id,
               exposures.breakdown_value_1),
-       percentiles AS
-    (SELECT min(entity_metrics.numerator_value) AS numerator_lower_bound,
-            quantileExact(0.95)(entity_metrics.numerator_value) AS numerator_upper_bound,
-            min(entity_metrics.denominator_value) AS denominator_lower_bound,
-            max(entity_metrics.denominator_value) AS denominator_upper_bound,
-            entity_metrics.breakdown_value_1 AS breakdown_value_1
-     FROM entity_metrics
-     GROUP BY entity_metrics.breakdown_value_1),
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
-            least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value,
+            least(greatest(min(entity_metrics.numerator_value) OVER (PARTITION BY entity_metrics.breakdown_value_1), entity_metrics.numerator_value), quantileExact(0.95)(entity_metrics.numerator_value) OVER (PARTITION BY entity_metrics.breakdown_value_1)) AS numerator_value,
+            least(greatest(min(entity_metrics.denominator_value) OVER (PARTITION BY entity_metrics.breakdown_value_1), entity_metrics.denominator_value), max(entity_metrics.denominator_value) OVER (PARTITION BY entity_metrics.breakdown_value_1)) AS denominator_value,
             entity_metrics.breakdown_value_1 AS breakdown_value_1
-     FROM entity_metrics
-     JOIN percentiles ON equals(percentiles.breakdown_value_1, entity_metrics.breakdown_value_1))
+     FROM entity_metrics)
   SELECT winsorized_entity_metrics.variant AS variant,
          winsorized_entity_metrics.breakdown_value_1 AS breakdown_value_1,
          count(winsorized_entity_metrics.entity_id) AS num_users,
