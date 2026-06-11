@@ -3,8 +3,11 @@ name: creating-ai-subscription
 description: >
   Create a recurring AI-generated PostHog report — schedule a free-text prompt to
   run on a cron, with the LLM-synthesized markdown delivered to email or Slack on
-  each tick. Use when the user wants "send me a weekly AI summary of X" rather than
-  a one-off report.
+  each tick. Use when the user wants "send me a weekly AI summary of X", a recurring
+  written analysis of their data, or auto-surfaced outliers and insights — rather than
+  a one-off report. (To attach an AI summary to an existing insight/dashboard snapshot
+  subscription instead of a free-text prompt, see `managing-subscriptions` and its
+  `summary_enabled` option.)
 ---
 
 # Creating a prompt subscription
