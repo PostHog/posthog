@@ -354,27 +354,27 @@ class TestSESResponseShapeContract(TestCase):
     real `ResourceTenants` key, bricking the SES verify path for every customer.
     """
 
-    def test_list_resource_tenants_response_uses_resource_tenants_key(self):
-        sdk_fields = (
-            boto3.client("sesv2", region_name="us-east-1")
-            .meta.service_model.operation_model("ListResourceTenants")
-            .output_shape.members.keys()
-        )
-        assert "ResourceTenants" in sdk_fields, (
-            "AWS SES v2 ListResourceTenants response no longer exposes `ResourceTenants`. "
-            "Update _list_identity_tenants in products/workflows/backend/providers/ses.py."
-        )
-
-    def test_resource_tenant_metadata_exposes_tenant_name(self):
-        sdk_fields = (
-            boto3.client("sesv2", region_name="us-east-1")
-            .meta.service_model.shape_for("ResourceTenantMetadata")
-            .members.keys()
-        )
-        assert "TenantName" in sdk_fields, (
-            "AWS SES v2 ResourceTenantMetadata no longer exposes `TenantName`. "
-            "Update _list_identity_tenants in products/workflows/backend/providers/ses.py."
-        )
+    @parameterized.expand(
+        [
+            (
+                "list_resource_tenants_response_key",
+                "ResourceTenants",
+                lambda m: m.operation_model("ListResourceTenants").output_shape.members.keys(),
+                "AWS SES v2 ListResourceTenants response no longer exposes `ResourceTenants`. "
+                "Update _list_identity_tenants in products/workflows/backend/providers/ses.py.",
+            ),
+            (
+                "resource_tenant_metadata_field",
+                "TenantName",
+                lambda m: m.shape_for("ResourceTenantMetadata").members.keys(),
+                "AWS SES v2 ResourceTenantMetadata no longer exposes `TenantName`. "
+                "Update _list_identity_tenants in products/workflows/backend/providers/ses.py.",
+            ),
+        ]
+    )
+    def test_sdk_shape_exposes_field(self, _name, expected_key, get_members, message):
+        service_model = boto3.client("sesv2", region_name="us-east-1").meta.service_model
+        assert expected_key in get_members(service_model), message
 
     def test_list_identity_tenants_parses_real_shape(self):
         provider = SESProvider()
