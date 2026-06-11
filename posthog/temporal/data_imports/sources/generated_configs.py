@@ -324,7 +324,8 @@ class ChorusSourceConfig(config.Config):
 
 @config.config
 class CircleCISourceConfig(config.Config):
-    pass
+    api_token: str
+    org_slug: str
 
 
 @config.config
@@ -475,7 +476,7 @@ class DeelSourceConfig(config.Config):
 
 @config.config
 class DelightedSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -698,7 +699,7 @@ class HubspotSourceConfig(config.Config):
 
 @config.config
 class IncidentIoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -776,9 +777,9 @@ class MSSQLSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -794,7 +795,8 @@ class MailerLiteSourceConfig(config.Config):
 
 @config.config
 class MailgunSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -857,7 +859,6 @@ class MySQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
-    connection_string: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
@@ -1073,9 +1074,9 @@ class RedshiftSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -1224,9 +1225,9 @@ class SnowflakeSourceConfig(config.Config):
     database: str
     warehouse: str
     auth_type: SnowflakeAuthTypeConfig
-    schema: str
     connection_string: str | None = None
     role: str | None = None
+    schema: str | None = None
 
 
 @config.config

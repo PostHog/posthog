@@ -85,6 +85,23 @@ export const tracingSpansCountCreate = async (
     })
 }
 
+export const getTracingSpansDurationHistogramCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/duration-histogram/`
+}
+
+export const tracingSpansDurationHistogramCreate = async (
+    projectId: string,
+    _tracingQueryRequestApi: _TracingQueryRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingSpansDurationHistogramCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingQueryRequestApi),
+    })
+}
+
 export const getTracingSpansHasSpansRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/has_spans/`
 }
