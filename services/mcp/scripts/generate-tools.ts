@@ -377,12 +377,22 @@ function escapeForDescribe(desc: string): string {
  * that return {results: [...]} with no top-level id) — the URL is built from the
  * request params instead of the response body.
  */
-function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string; source: 'result' | 'params' } {
-    const match = enrichUrl.match(/^(.*?)\{(?:(params)\.)?(\w+)\}$/)
+function parseEnrichUrl(enrichUrl: string): {
+    prefix: string
+    field: string
+    suffix: string
+    source: 'result' | 'params'
+} {
+    const match = enrichUrl.match(/^(.*?)\{(?:(params)\.)?(\w+)\}(.*)$/)
     if (!match) {
         throw new Error(`Invalid enrich_url format: ${enrichUrl}`)
     }
-    return { prefix: match[1]!, field: match[3]!, source: match[2] === 'params' ? 'params' : 'result' }
+    return {
+        prefix: match[1]!,
+        field: match[3]!,
+        suffix: match[4] ?? '',
+        source: match[2] === 'params' ? 'params' : 'result',
+    }
 }
 
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
@@ -810,7 +820,7 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     const baseUrl = config.url_prefix ?? category.url_prefix
 
     if (config.list && config.enrich_url) {
-        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         // For list endpoints, 'params.x' is not meaningful (items come from the response
         // array, not request params), so force 'result' source here.
         if (source === 'params') {
@@ -821,7 +831,7 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
         return [
             `        return await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
-            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
+            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
             `        }, '${baseUrl}')`,
             ``,
         ].join('\n')
@@ -832,10 +842,10 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     }
 
     if (config.enrich_url) {
-        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}\`)\n`
+        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)\n`
     }
 
     return `        return ${resultVar}\n`
