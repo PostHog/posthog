@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     SnowflakeImplementation,
     _build_query,
     _parse_clustering_key_leading_column,
+    _split_display_name,
     filter_snowflake_incremental_fields,
 )
 
@@ -107,6 +108,23 @@ def _make_inputs(schema_name: str = "messages", **overrides) -> SourceInputs:
 )
 def test_parse_clustering_key_leading_column(clustering_key, expected):
     assert _parse_clustering_key_leading_column(clustering_key) == expected
+
+
+@pytest.mark.parametrize(
+    "display_name,default_schema,expected",
+    [
+        # Bare name uses the configured schema (single-schema source).
+        ("users", "PUBLIC", ("PUBLIC", "users")),
+        ("users", None, (None, "users")),
+        # Qualified name splits; the dotted schema wins over the default.
+        ("analytics.users", "PUBLIC", ("analytics", "users")),
+        ("analytics.users", None, ("analytics", "users")),
+        # Whitespace-only dotted prefix normalizes away and falls back to the default.
+        ("   .users", "PUBLIC", ("PUBLIC", "users")),
+    ],
+)
+def test_split_display_name(display_name, default_schema, expected):
+    assert _split_display_name(display_name, default_schema) == expected
 
 
 class TestFilterIncrementalFields:
@@ -301,6 +319,14 @@ class TestGetColumns:
         conn = _conn_with_cursor(cursor)
         result = impl.get_columns(conn, _make_config(schema=""), names=["sales.users"])
         assert list(result.keys()) == ["sales.users"]
+
+    def test_qualified_name_falls_back_to_bare_discovery_key(self, impl, cursor):
+        # Mid-migration a row may be requested qualified while a configured-schema source still
+        # discovers it bare — keep the requested (qualified) key, mapped to the bare columns.
+        cursor.fetchall.return_value = [("PUBLIC", "users", "id", "NUMBER", "NO")]
+        conn = _conn_with_cursor(cursor)
+        result = impl.get_columns(conn, _make_config(schema="PUBLIC"), names=["PUBLIC.users"])
+        assert result == {"PUBLIC.users": [("id", "NUMBER", False)]}
 
 
 def _pk_description() -> list[MagicMock]:

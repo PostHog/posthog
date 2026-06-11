@@ -83,6 +83,17 @@ def _split_display_name(display_name: str, default_schema: Optional[str]) -> tup
     return default_schema, display_name
 
 
+def _display_by_pair(tables: list[str], default_schema: Optional[str]) -> dict[tuple[str, str], str]:
+    """Map each resolvable `(schema, table)` back to its display name, dropping unresolved rows."""
+    pairs: dict[tuple[str, str], str] = {}
+    for display_name in tables:
+        schema, table = _split_display_name(display_name, default_schema)
+        if schema is None:
+            continue
+        pairs[(schema, table)] = display_name
+    return pairs
+
+
 def _build_query(
     database: str,
     schema: str,
@@ -260,8 +271,18 @@ class SnowflakeImplementation(
             schema_list[display_name].append((column_name, data_type, is_nullable == "YES"))
 
         if names is not None:
-            names_set = set(names)
-            schema_list = collections.defaultdict(list, {k: v for k, v in schema_list.items() if k in names_set})
+            # Match qualified (`schema.table`) and bare (`table`) names — a row requested by its
+            # qualified name can still map to a bare discovery key (or vice versa) mid-migration.
+            available = dict(schema_list)
+            filtered: dict[str, list[tuple[str, str, bool]]] = {}
+            for name in names:
+                if name in available:
+                    filtered[name] = available[name]
+                elif "." in name:
+                    _schema, _, unqualified = name.partition(".")
+                    if unqualified in available:
+                        filtered[name] = available[unqualified]
+            return filtered
 
         return dict(schema_list)
 
@@ -285,13 +306,7 @@ class SnowflakeImplementation(
         if not tables:
             return result
 
-        default_schema = normalize_namespace(config.schema)
-        display_by_pair: dict[tuple[str, str], str] = {}
-        for display_name in tables:
-            schema, table = _split_display_name(display_name, default_schema)
-            if schema is None:
-                continue
-            display_by_pair[(schema, table)] = display_name
+        display_by_pair = _display_by_pair(tables, normalize_namespace(config.schema))
 
         try:
             with conn.cursor() as cursor:
@@ -356,21 +371,13 @@ class SnowflakeImplementation(
         if not tables:
             return {}
 
-        default_schema = normalize_namespace(config.schema)
-        display_by_pair: dict[tuple[str, str], str] = {}
-        schemas: set[str] = set()
-        table_names: set[str] = set()
-        for display_name in tables:
-            schema, table = _split_display_name(display_name, default_schema)
-            if schema is None:
-                continue
-            display_by_pair[(schema, table)] = display_name
-            schemas.add(schema)
-            table_names.add(table)
-
+        display_by_pair = _display_by_pair(tables, normalize_namespace(config.schema))
         result: dict[str, set[str]] = {display_name: set() for display_name in tables}
         if not display_by_pair:
             return result
+
+        schemas = {schema for schema, _table in display_by_pair}
+        table_names = {table for _schema, table in display_by_pair}
 
         try:
             with conn.cursor() as cursor:
