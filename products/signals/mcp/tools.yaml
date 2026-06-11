@@ -194,8 +194,7 @@ tools:
             coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 10–43200),
             `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project
             (author it via the skills store first). Upsert: if a config already exists for the skill, the provided
-            fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives
-            spend.
+            fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.
     signals-scout-config-list:
         operation: signals_scout_config_list
         enabled: true
