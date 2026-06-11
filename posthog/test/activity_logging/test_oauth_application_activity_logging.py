@@ -188,7 +188,7 @@ class TestOAuthApplicationActivityLogging(BaseTest):
         assert log.detail is not None
         context = log.detail["context"]
         self.assertEqual(context["client_id"], "test_client_id_123")
-        self.assertEqual(context["application_name"], "Test App")
+        self.assertEqual(log.detail["name"], "Test App")
         self.assertTrue(context["is_dcr_client"])
         self.assertFalse(context["is_cimd_client"])
         self.assertFalse(context["is_first_party"])

@@ -396,7 +396,6 @@ def handle_experiment_holdout_delete(sender, instance, **kwargs):
 @dataclasses.dataclass(frozen=True)
 class OAuthApplicationScopesContext(ActivityContextBase):
     client_id: str
-    application_name: str
     is_cimd_client: bool
     is_dcr_client: bool
     is_first_party: bool
@@ -455,7 +454,6 @@ def handle_oauth_application_scopes_change(
             changes=changes,
             context=OAuthApplicationScopesContext(
                 client_id=application.client_id,
-                application_name=application.name,
                 is_cimd_client=application.is_cimd_client,
                 is_dcr_client=application.is_dcr_client,
                 is_first_party=application.is_first_party,
