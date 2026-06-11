@@ -16,7 +16,7 @@ Why it is the best general example:
 
 - Root scene logic uses `tabAwareScene()`
 - Scene component requires `tabId`
-- Route params and search params are owned by the scene root via `tabAwareUrlToAction` and `tabAwareActionToUrl`
+- Route params and search params are owned by the scene root via `urlToAction` (from `kea-router`) and `trackedActionToUrl`
 - Heavy child logics are attached with `useAttachedLogic`
 - The scene root stays mounted while child React components remount
 
@@ -44,12 +44,11 @@ Files:
 
 - `products/endpoints/frontend/endpointSceneLogic.tsx`
 - `products/endpoints/frontend/endpointSceneLogic.test.ts`
-- `frontend/src/lib/logic/scenes/tabSceneUtils.ts`
 
 Why it matters:
 
 - Strong example of inactive-tab URL updates
-- Uses `getTabSceneParams()` and `updateTabUrl()` when the scene needs to update URL state without taking over the active browser location
+- Drives URL state through `urlToAction` (from `kea-router`) and `trackedActionToUrl`, so an inactive tab updates its own URL state without taking over the active browser location
 - Includes tests that assert inactive-tab URL isolation
 
 ### `workflowsSceneLogic` and `messageTemplateSceneLogic`

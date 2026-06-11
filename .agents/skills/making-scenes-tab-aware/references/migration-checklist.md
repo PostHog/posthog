@@ -47,8 +47,8 @@ Important:
 
 At the scene root:
 
-- Replace `urlToAction` with `tabAwareUrlToAction`
-- Replace `actionToUrl` with `tabAwareActionToUrl`
+- Replace `actionToUrl` with `trackedActionToUrl` (from `lib/logic/scenes/trackedActionToUrl`) so the action -> URL sync only fires for the active tab
+- Keep using `urlToAction` from `kea-router` directly — no special wrapper is needed for the URL -> action direction
 - Parse route params, search params, and hash params into scene-root reducers/actions
 
 Prefer this ownership model:
@@ -66,12 +66,8 @@ URL <-> table logic
 URL <-> modal logic
 ```
 
-If a nested logic must read or update the inactive tab's URL state, use:
-
-- `getTabSceneParams(tabId)`
-- `updateTabUrl(tabId, pathname, searchParams, hashParams)`
-
-Prefer using those from the scene root, not deep child logics.
+Keep URL ownership in the scene root, not deep child logics.
+`tabAwareScene()` plus `trackedActionToUrl` ensures an inactive tab's `actionToUrl` sync does not take over the active browser location.
 
 ## 5. Preserve child logic lifetime across tab switches
 
