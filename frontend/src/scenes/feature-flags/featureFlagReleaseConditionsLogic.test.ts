@@ -1328,7 +1328,7 @@ describe('the feature flag release conditions logic', () => {
                     distinctIdNameCache: { 'distinct-1': 'alice@example.com', 'distinct-2': 'distinct-2' },
                 })
 
-            expect(logic.values.getDistinctIdName('distinct-1')).toBe('alice@example.com')
+            expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1 (alice@example.com)')
             // Unresolved ids and unknown ids both fall back to the raw distinct id.
             expect(logic.values.getDistinctIdName('distinct-2')).toBe('distinct-2')
             expect(logic.values.getDistinctIdName('never-requested')).toBe('never-requested')

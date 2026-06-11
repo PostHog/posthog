@@ -846,8 +846,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         getDistinctIdName: [
             (s) => [s.distinctIdNameCache],
             (distinctIdNameCache: Record<string, string>) =>
-                (distinctId: string): string =>
-                    distinctIdNameCache[distinctId] || distinctId,
+                (distinctId: string): string => {
+                    const name = distinctIdNameCache[distinctId]
+                    return name && name !== distinctId ? `${distinctId} (${name})` : distinctId
+                },
         ],
         properties: [
             (s) => [s.filterGroups],
