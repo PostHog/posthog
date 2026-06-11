@@ -14,7 +14,6 @@ from products.signals.backend.scout_harness.tools.emit import (
     InvalidEmitError,
     emit_finding,
     normalize_tags,
-    recent_tag_usage,
 )
 from products.signals.backend.scout_harness.tools.profile import (
     PROFILE_TTL,
@@ -59,7 +58,6 @@ __all__ = [
     "get_project_profile",
     "get_run",
     "normalize_tags",
-    "recent_tag_usage",
     "remember",
     "search_scratchpad",
     "search_recent_runs",

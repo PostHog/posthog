@@ -28,7 +28,6 @@ from __future__ import annotations
 import re
 import uuid
 import logging
-from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -449,32 +448,6 @@ def _record_emit(
         # Tally and emission row are best-effort; the signal already emitted. Log and move on
         # so the emit call returns success rather than a false failure the caller might retry.
         logger.exception("signals_scout.emit: failed to record emit for run %s", run_id)
-
-
-# Bounds on the tag-vocabulary feedback loop: the emissions sample caps the query, the
-# vocabulary size caps the prompt section it renders into.
-TAG_USAGE_RECENT_EMISSIONS = 500
-TAG_VOCABULARY_MAX_TAGS = 50
-
-
-def recent_tag_usage(*, team_id: int, skill_name: str) -> list[tuple[str, int]]:
-    """Aggregate this scout's recent tag usage, most-used first.
-
-    The self-evolving vocabulary: derived from what the scout actually emitted (its
-    `SignalScoutEmission` rows, joined via the run's `skill_name`) rather than a
-    maintained list, so it tracks behavior with no bookkeeping. Injected into the run
-    prompt so the scout sees its existing tags — with usage counts as gravity toward
-    reuse — while staying free to coin new ones as categories emerge. Uses the unscoped
-    manager with an explicit `team_id` filter because prompt assembly runs inside a
-    Temporal activity with no team scope set.
-    """
-    rows = (
-        SignalScoutEmission.all_teams.filter(team_id=team_id, scout_run__skill_name=skill_name)
-        .order_by("-emitted_at")
-        .values_list("tags", flat=True)[:TAG_USAGE_RECENT_EMISSIONS]
-    )
-    counter: Counter[str] = Counter(tag for row in rows for tag in (row or []) if isinstance(tag, str))
-    return counter.most_common(TAG_VOCABULARY_MAX_TAGS)
 
 
 def _log_extra(

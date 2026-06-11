@@ -16,7 +16,6 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
-from products.signals.backend.scout_harness.tools.emit import recent_tag_usage
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -250,12 +249,7 @@ async def _spawn_and_run(
         # right scope to call them.
         posthog_mcp_scopes="signals_scout",
     )
-    # The scout's own recent tag usage, injected so the vocabulary it sees (and evolves)
-    # derives from what it actually emitted — see `recent_tag_usage`.
-    tag_usage = await database_sync_to_async(recent_tag_usage, thread_sensitive=False)(
-        team_id=team.id, skill_name=skill.name
-    )
-    prompt = build_run_prompt(skill, run_id=str(run_id), team_id=team.id, started_at=started_at, tag_usage=tag_usage)
+    prompt = build_run_prompt(skill, run_id=str(run_id), team_id=team.id, started_at=started_at)
     logger.info(
         "signals_scout: spawning sandbox",
         extra={

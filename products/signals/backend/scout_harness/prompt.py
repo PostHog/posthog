@@ -83,7 +83,24 @@ When you call `signals-scout-emit-signal`:
   traceability. It does NOT dedupe: emitting the same id twice creates two
   signals, so emit each finding exactly once and never retry an emit.
 
-{tag_vocabulary}
+# Tagging your findings
+
+Attach 1-5 `tags` to each emit — lowercase kebab-case slugs naming the
+*category* of the finding (`cost-spike`, `silent-failure`, `tracking-gap`),
+not the specific entity (that's what `dedupe_keys` and evidence ids are for).
+Tags are how structure emerges from everything the scout fleet emits, and the
+vocabulary is yours to own and evolve:
+
+- **Keep your taxonomy in the scratchpad.** Maintain a `tags:<domain>:taxonomy`
+  entry listing your tags and what each means — your step-1 scratchpad search
+  surfaces it. Update it when you coin, rename, or retire a tag.
+- **Reuse before coining.** If an existing tag fits, use it — consistency is
+  what makes tags queryable. Coin a new slug when a genuinely new category
+  emerges; don't force a finding into an ill-fitting tag.
+- Your emitted tags are recorded per finding (visible via
+  `signals-scout-runs-emissions-list`), so you can audit actual usage against
+  your taxonomy if they drift.
+- Near-miss formats are normalized to slugs at emit, but aim for clean slugs.
 
 # Writing the description (how it renders in the inbox)
 
@@ -167,45 +184,7 @@ Respond at end_turn with a single JSON object matching this schema:
 """
 
 
-_TAG_GUIDANCE = """# Tagging your findings
-
-Attach 1-5 `tags` to each emit — lowercase kebab-case slugs naming the
-*category* of the finding (`cost-spike`, `silent-failure`, `tracking-gap`),
-not the specific entity (that's what `dedupe_keys` and evidence ids are for).
-Tags are how structure emerges from the signals you and your peers emit, so
-treat the vocabulary as something you own and evolve:
-
-- **Reuse before coining.** If an existing tag fits, use it — consistency is
-  what makes tags queryable. Usage counts below show your current vocabulary.
-- **Coin freely when a genuinely new category emerges.** The vocabulary should
-  evolve as the project does; don't force a finding into an ill-fitting tag.
-- Near-miss formats are normalized to slugs at emit, but aim for clean slugs.
-"""
-
-_TAG_VOCABULARY_EMPTY = """You have no tag history yet — this run starts the vocabulary. Coin slugs for
-the categories you actually find."""
-
-
-def render_tag_vocabulary(tag_usage: list[tuple[str, int]] | None) -> str:
-    """Render the *Tagging your findings* prompt section.
-
-    `tag_usage` is `(tag, emit_count)` pairs, most-used first — the scout's own
-    recent vocabulary as computed by `tools.emit.recent_tag_usage`.
-    """
-    if not tag_usage:
-        return _TAG_GUIDANCE + "\n" + _TAG_VOCABULARY_EMPTY
-    lines = "\n".join(f"- `{tag}` ({count})" for tag, count in tag_usage)
-    return f"{_TAG_GUIDANCE}\nYour recent tag usage (tag, times used):\n\n{lines}"
-
-
-def build_run_prompt(
-    skill: LoadedSkill,
-    *,
-    run_id: str,
-    team_id: int,
-    started_at: datetime,
-    tag_usage: list[tuple[str, int]] | None = None,
-) -> str:
+def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_at: datetime) -> str:
     """Render the opening prompt for one scout run.
 
     `run_id` is the UUID of the `SignalScoutRun` row the harness inserted before
@@ -225,7 +204,7 @@ def build_run_prompt(
     """
     started_at_iso = started_at.replace(microsecond=0).isoformat()
     schema_json = json.dumps(SignalScoutRunSummary.model_json_schema(), indent=2)
-    tail = _BASE_PROMPT_TAIL.format(schema_json=schema_json, tag_vocabulary=render_tag_vocabulary(tag_usage))
+    tail = _BASE_PROMPT_TAIL.format(schema_json=schema_json)
     return f"""{_BASE_PROMPT_INTRO}
 # Your run identity
 

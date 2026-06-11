@@ -38,7 +38,6 @@ from products.signals.backend.scout_harness.tools.emit import (
     _validate_inputs,
     emit_finding_sync,
     normalize_tags,
-    recent_tag_usage,
 )
 from products.signals.backend.scout_harness.tools.runs import MAX_FAILURE_REASON_LENGTH, MAX_RUN_SEARCH_LIMIT
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -1077,60 +1076,3 @@ def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
             )
     mock_emit.assert_not_called()
-
-
-class TestRecentTagUsage(BaseTest):
-    def _emission(self, run: SignalScoutRun, tags: list[str], finding_id: str) -> SignalScoutEmission:
-        return SignalScoutEmission.all_teams.create(
-            team=self.team,
-            scout_run=run,
-            finding_id=finding_id,
-            description="d",
-            weight=1.0,
-            confidence=0.8,
-            source_id=f"run:{run.id}:finding:{finding_id}",
-            tags=tags,
-        )
-
-    def test_aggregates_counts_most_used_first(self) -> None:
-        run = _create_run(self.team)
-        self._emission(run, ["cost-spike", "silent-failure"], "f1")
-        self._emission(run, ["cost-spike"], "f2")
-        usage = recent_tag_usage(team_id=self.team.id, skill_name="signals-scout-errors")
-        assert usage == [("cost-spike", 2), ("silent-failure", 1)]
-
-    def test_scoped_to_skill_name(self) -> None:
-        errors_run = _create_run(self.team, skill_name="signals-scout-errors")
-        logs_run = _create_run(self.team, skill_name="signals-scout-logs")
-        self._emission(errors_run, ["cost-spike"], "f1")
-        self._emission(logs_run, ["log-burst"], "f2")
-        usage = recent_tag_usage(team_id=self.team.id, skill_name="signals-scout-errors")
-        assert usage == [("cost-spike", 1)]
-
-    def test_does_not_leak_other_teams(self) -> None:
-        from posthog.models import Team
-
-        other_team = Team.objects.create(organization=self.organization, name="other")
-        with team_scope(other_team.id, canonical=True):
-            other_run = _create_run(other_team)
-            SignalScoutEmission.all_teams.create(
-                team=other_team,
-                scout_run=other_run,
-                finding_id="f-other",
-                description="d",
-                weight=1.0,
-                confidence=0.8,
-                source_id=f"run:{other_run.id}:finding:f-other",
-                tags=["foreign-tag"],
-            )
-        assert recent_tag_usage(team_id=self.team.id, skill_name="signals-scout-errors") == []
-
-    def test_empty_without_emissions(self) -> None:
-        assert recent_tag_usage(team_id=self.team.id, skill_name="signals-scout-errors") == []
-
-    def test_tolerates_untagged_emissions(self) -> None:
-        run = _create_run(self.team)
-        self._emission(run, [], "f1")
-        self._emission(run, ["cost-spike"], "f2")
-        usage = recent_tag_usage(team_id=self.team.id, skill_name="signals-scout-errors")
-        assert usage == [("cost-spike", 1)]

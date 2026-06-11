@@ -18,7 +18,6 @@ grade prose quality — that's on you.
 | `hypothesis`   | string                 | Always — one-line root-cause hypothesis the finding tests.           |
 | `severity`     | `P0`-`P4`              | Always — informational; calibrates downstream review.                |
 | `dedupe_keys`  | list of strings        | Always — see "Dedupe keys" below.                                    |
-| `tags`         | list of slugs          | Always — 1-5 category slugs; see "Tags" below.                       |
 | `time_range`   | `{date_from, date_to}` | When the finding has a clear window (burst, deploy, experiment).     |
 | `finding_id`   | string                 | Always — stable trace id (not a dedupe key); see "Finding ID" below. |
 | `mcp_trace_id` | string                 | When you used MCP queries you'd want a reviewer to replay.           |
@@ -101,25 +100,6 @@ Common kinds: `error_tracking_issue:<id>`, `experiment:<id>`, `feature_flag:<key
 
 Include 1-2 keys per finding. Multiple is fine when a finding spans entities.
 
-## Tags
-
-Lowercase kebab-case slugs naming the **category** of the finding — what kind of
-thing this is, not which entity it's about (entities go in `dedupe_keys` and
-evidence ids). Tags are how structure emerges across everything the scout fleet
-emits: they land in the signal's metadata (queryable) and feed the tag
-vocabulary shown in your run prompt.
-
-- Attach 1-5 per finding. Examples: `cost-spike`, `silent-failure`,
-  `tracking-gap`, `post-deploy-regression`, `data-quality`.
-- **Reuse your existing vocabulary first** — your run prompt lists your recent
-  tags with usage counts. Consistent tags are what make the structure useful.
-- **Coin a new slug when a genuinely new category emerges.** The vocabulary is
-  yours to evolve; don't force a finding into an ill-fitting tag, and don't
-  mint a synonym for a tag you already have (`cost-anomaly` next to
-  `cost-spike` helps nobody).
-- The harness normalizes near-miss formats (case, spaces, underscores) to slugs
-  and caps the list at 10, but aim for clean slugs at the source.
-
 ## Finding ID
 
 `finding_id` is a stable, human-readable trace id — it ties the emitted signal
@@ -173,9 +153,6 @@ time_range:
 dedupe_keys:
   - error_tracking_issue:019de34e-e2a3-7e53-80d0-8ccdd0866a36
   - missing_migration:access_control_propertyaccesscontrol
-tags:
-  - missing-migration
-  - post-deploy-regression
 description: |
   High-volume UndefinedTable / ProgrammingError: relation
   "access_control_propertyaccesscontrol" does not exist started firing at
@@ -198,8 +175,6 @@ Why this is a good finding:
 - **Recommendation**: actionable.
 - **Evidence**: diverse sources strengthen confidence.
 - **Dedupe keys**: both issue-id and topic-keyed, dedupes either way.
-- **Tags**: category slugs, not entity ids — a later schema-drift incident would
-  reuse `missing-migration` and the structure compounds.
 - **Severity**: P1 justified by 434-user blast.
 - **Confidence 0.9**: pattern unambiguous; remaining uncertainty is "did the
   migration actually not ship, or is something else mocking this table?"

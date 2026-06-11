@@ -113,10 +113,11 @@ one sandbox session → zero or more emitted signals.
 - Findings can carry `tags` — lowercase kebab-case category slugs, normalized and
   capped by `normalize_tags` in `tools/emit.py`. Tags persist in the signal's
   `extra.tags` (queryable in the signal store) and on the `SignalScoutEmission` row.
-  The vocabulary is self-evolving: `recent_tag_usage` aggregates the scout's own
-  recent emissions per skill and the runner injects the result into the run prompt
-  (`render_tag_vocabulary`), so each scout sees — and is nudged to reuse — the tags
-  it has actually used, while staying free to coin new ones.
+  The vocabulary lives in the scout loop, not the harness: the base prompt's
+  _Tagging your findings_ section instructs each scout to maintain a
+  `tags:<domain>:taxonomy` scratchpad entry (read first-move like any memory, evolved
+  as categories emerge), and the emission rows are the queryable ground truth a scout
+  can audit its taxonomy against. The harness only normalizes, caps, and persists.
 - Scratchpad entries and run history are read at prompt assembly time. The agent can
   also write scratchpad entries mid-run via `remember` / `forget` — that's how a
   specialist with no anomalies to chase records "no LLM activity here, close out

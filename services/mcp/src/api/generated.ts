@@ -14724,7 +14724,7 @@ export namespace Schemas {
       /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
       dedupe_keys?: string[];
       /**
-         * Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse your existing vocabulary (shown in your run prompt) when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row.
+         * Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row.
          * @maxItems 10
          * @items.maxLength 50
          */
