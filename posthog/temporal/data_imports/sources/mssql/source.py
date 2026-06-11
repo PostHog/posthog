@@ -125,7 +125,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                         name="schema",
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
-                        required=True,
+                        required=False,
                         placeholder="dbo",
                         secret=False,
                     ),
