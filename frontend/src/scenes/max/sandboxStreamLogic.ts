@@ -6,11 +6,20 @@ import { projectLogic } from 'scenes/projectLogic'
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
 import type {
     PermissionRequestRecord,
-    StoredLogEntry,
     ThreadItem,
     ToolInvocation,
     ToolInvocationStatus,
 } from './types/sandboxStreamTypes'
+import {
+    type PosthogErrorParams,
+    type PosthogProgressParams,
+    type SseErrorFrameData,
+    type StoredLogEntry,
+    isKnownSessionUpdate,
+    isNotificationFrame,
+    isSessionUpdateNotification,
+    isTaskRunStateFrame,
+} from './types/sandboxWireTypes'
 
 export type SandboxSseStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
 export type SandboxRunStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
@@ -391,7 +400,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
 
             // Existing run: replay the assembled resume-chain log, then refetch the run to decide on SSE.
-            let entries: Record<string, any>[]
+            let entries: unknown[]
             try {
                 entries = await api.tasks.runs.getLogEntries(taskId, runId)
             } catch (error) {
@@ -399,7 +408,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
             breakpoint()
-            entries.forEach((entry) => actions.ingestAcpFrame(entry as unknown as StoredLogEntry))
+            entries.filter(isNotificationFrame).forEach((entry) => actions.ingestAcpFrame(entry))
 
             const result = await fetchRunStatus(taskId, runId)
             breakpoint()
@@ -440,27 +449,21 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
 
                     eventSource.onopen = (): void => actions.sseOpened()
                     eventSource.onmessage = (event: MessageEvent<string>): void => {
-                        let data: { type?: string } & Record<string, unknown>
+                        let data: unknown
                         try {
                             data = JSON.parse(event.data)
                         } catch {
                             return
                         }
-                        switch (data.type) {
-                            case 'notification':
-                                actions.ingestAcpFrame(data as unknown as StoredLogEntry)
-                                break
-                            case 'task_run_state':
-                                actions.handleTerminalStatus({
-                                    status: data.status as SandboxRunStatus,
-                                    errorMessage: (data.errorMessage as string | null) ?? null,
-                                })
-                                break
-                            case 'keepalive':
-                                break
-                            default:
-                                break
+                        if (isNotificationFrame(data)) {
+                            actions.ingestAcpFrame(data)
+                        } else if (isTaskRunStateFrame(data)) {
+                            actions.handleTerminalStatus({
+                                status: data.status as SandboxRunStatus,
+                                errorMessage: data.error_message ?? null,
+                            })
                         }
+                        // keepalive arrives as a named event, never here; unknown frame types are ignored.
                     }
                     // `EventSource` fires `error` both for named `event: error` envelopes (carrying
                     // `data`) and for transient connection drops (no `data`). Surface the former
@@ -468,7 +471,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     eventSource.addEventListener('error', (event: MessageEvent<string>): void => {
                         if (typeof event.data === 'string' && event.data.length > 0) {
                             try {
-                                const envelope = JSON.parse(event.data)
+                                const envelope: SseErrorFrameData = JSON.parse(event.data)
                                 actions.handleStreamError({
                                     errorTitle: envelope.errorTitle ?? 'Cloud stream failed',
                                     errorMessage: envelope.errorMessage,
@@ -572,7 +575,6 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
             actions.markEntryIngested(hash)
             const method = notification.method
-            const params = (notification.params ?? {}) as Record<string, any>
 
             // Custom `_posthog/*` notification namespace emitted by the agent-server.
             if (method === '_posthog/run_started') {
@@ -584,11 +586,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
             if (method === '_posthog/progress') {
-                actions.setCurrentProgress(String(params.message ?? params.progress ?? ''))
+                const progress = (notification.params ?? {}) as PosthogProgressParams
+                actions.setCurrentProgress(String(progress.label ?? progress.detail ?? ''))
                 return
             }
             if (method === '_posthog/error') {
-                actions.pushErrorItem(String(params.message ?? notification.error?.message ?? 'Agent error'))
+                const error = (notification.params ?? {}) as PosthogErrorParams
+                actions.pushErrorItem(String(error.message ?? notification.error?.message ?? 'Agent error'))
                 return
             }
             if (method?.startsWith('_posthog/')) {
@@ -596,14 +600,16 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
 
-            if (method !== 'session/update') {
+            if (!isSessionUpdateNotification(notification)) {
                 return
             }
 
-            const update = (params.update ?? {}) as Record<string, any>
-            const sessionUpdate = update.sessionUpdate as string | undefined
+            const update = notification.params?.update
+            if (!isKnownSessionUpdate(update)) {
+                return
+            }
 
-            switch (sessionUpdate) {
+            switch (update.sessionUpdate) {
                 case 'agent_message_chunk': {
                     const id = String(update.messageId ?? 'current')
                     actions.appendAssistantChunk(id, String(update.content?.text ?? update.text ?? ''))
@@ -621,7 +627,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     }
                     const rawServerName = String(update.serverName ?? 'posthog')
                     const rawToolName = String(update.toolName ?? update.title ?? '')
-                    const input = (update.rawInput ?? update.input ?? {}) as Record<string, unknown>
+                    const input = update.rawInput ?? update.input ?? {}
                     const { resolvedKey, innerToolName, innerInput } = resolveToolKey(rawServerName, rawToolName, input)
                     actions.upsertToolInvocation({
                         toolCallId,
@@ -632,9 +638,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         input,
                         innerInput,
                         status: mapAcpStatus(update.status),
-                        title: update.title as string | undefined,
-                        kind: update.kind as string | undefined,
-                        locations: update.locations as { path: string; line?: number }[] | undefined,
+                        title: update.title,
+                        kind: update.kind,
+                        locations: update.locations,
                         contentBlocks: Array.isArray(update.content) ? update.content : [],
                     })
                     break
@@ -652,16 +658,16 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                           : []
                     const status = mapAcpStatus(update.status ?? existing?.status)
                     const errorMessage =
-                        (update.error?.message as string | undefined) ??
-                        (status === 'failed' ? notification.error?.message : undefined)
+                        update.error?.message ?? (status === 'failed' ? notification.error?.message : undefined)
                     // The tool's args stream in across updates (e.g. an `exec` command or a tool's
                     // input building up), so fold the latest rawInput in and re-resolve the registry
                     // key from it rather than freezing the empty input the initial tool_call carried.
+                    // Keep the runtime object checks — the wire payload is typed, not validated.
                     const rawInput =
                         update.rawInput && typeof update.rawInput === 'object'
-                            ? (update.rawInput as Record<string, unknown>)
+                            ? update.rawInput
                             : update.input && typeof update.input === 'object'
-                              ? (update.input as Record<string, unknown>)
+                              ? update.input
                               : undefined
                     const reResolved =
                         rawInput && existing
@@ -669,11 +675,10 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                             : undefined
                     actions.updateToolInvocation(toolCallId, {
                         status,
-                        title: (update.title as string | undefined) ?? existing?.title,
+                        title: update.title ?? existing?.title,
                         progress: update.progress ?? existing?.progress,
                         output: update.rawOutput ?? existing?.output,
-                        locations:
-                            (update.locations as { path: string; line?: number }[] | undefined) ?? existing?.locations,
+                        locations: update.locations ?? existing?.locations,
                         contentBlocks: mergedContent,
                         error: errorMessage !== undefined ? { message: errorMessage } : existing?.error,
                         ...(rawInput ? { input: rawInput } : {}),
@@ -691,8 +696,6 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
                     break
                 }
-                default:
-                    break
             }
         },
     })),
