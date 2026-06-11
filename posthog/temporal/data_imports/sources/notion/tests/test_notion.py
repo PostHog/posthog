@@ -11,7 +11,7 @@ from tenacity import RetryCallState
 from posthog.temporal.data_imports.sources.notion.notion import (
     MAX_BLOCK_DEPTH,
     MAX_CHILD_PAGES_PER_PARENT,
-    MAX_RETRY_WAIT_SECONDS,
+    MAX_RETRY_AFTER_WAIT_SECONDS,
     NOTION_VERSION,
     NotionResumeConfig,
     NotionRetryableError,
@@ -193,9 +193,16 @@ class TestNotion:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=3.0))
         assert _wait_strategy(cast(RetryCallState, state)) == 3.0
 
+    def test_wait_strategy_honors_retry_after_beyond_exponential_cap(self) -> None:
+        # Notion routinely returns Retry-After windows of hundreds of seconds when throttling.
+        # We must wait the full window rather than retrying early into a window that is still
+        # closed (which previously exhausted every attempt and surfaced the 429 as a failed sync).
+        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=196.0))
+        assert _wait_strategy(cast(RetryCallState, state)) == 196.0
+
     def test_wait_strategy_caps_retry_after(self) -> None:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=10_000.0))
-        assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_WAIT_SECONDS
+        assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_AFTER_WAIT_SECONDS
 
     def test_comments_stream_respects_page_cap(self) -> None:
         # First call is the page search (one page, then done); every subsequent /v1/comments

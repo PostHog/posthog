@@ -33,6 +33,14 @@ MAX_BLOCK_DEPTH = 2
 MAX_CHILD_PAGES_PER_PARENT = 50
 
 MAX_RETRY_WAIT_SECONDS = 30.0
+# Notion's Retry-After on a 429 tells us exactly when its rate-limit window reopens, and under
+# sustained load it is frequently well above the exponential-backoff cap (hundreds of seconds).
+# Honor it up to a generous bound instead of retrying early into a window we know is still closed
+# — capping it at MAX_RETRY_WAIT_SECONDS burned every attempt and surfaced the 429 as a failed
+# sync. The activity's liveness heartbeat runs on its own ~4s timer (independent of this thread),
+# so a long in-request sleep does not risk a heartbeat timeout, and the resumable import activity
+# has a week-long start-to-close timeout.
+MAX_RETRY_AFTER_WAIT_SECONDS = 300.0
 
 
 class NotionRetryableError(Exception):
@@ -76,7 +84,7 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     # Honor Notion's Retry-After on 429s; fall back to exponential backoff otherwise.
     exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
     if isinstance(exc, NotionRetryableError) and exc.retry_after is not None:
-        return min(exc.retry_after, MAX_RETRY_WAIT_SECONDS)
+        return min(exc.retry_after, MAX_RETRY_AFTER_WAIT_SECONDS)
     return _wait_exponential(retry_state)
 
 
