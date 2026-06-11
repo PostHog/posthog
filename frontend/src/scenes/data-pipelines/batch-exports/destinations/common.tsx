@@ -353,7 +353,7 @@ export function S3FamilyFields({
                                 allowCustomValues
                                 fullWidth
                                 value={value ? [value] : []}
-                                onChange={(vals) => onChange(vals[0] ?? '')}
+                                onChange={(vals) => onChange((vals[0] ?? '').trim())}
                                 options={regionOptions.map((o) => ({ key: o.value, label: o.label }))}
                                 placeholder="Select or enter a region"
                             />
@@ -447,11 +447,16 @@ export function S3FamilyFields({
                     showOptional={!endpointUrlRequired}
                     info={
                         endpointHelpText ?? (
-                            <>Only required if exporting to an S3-compatible blob storage (like MinIO)</>
+                            <>
+                                The endpoint URL corresponding to your provider (e.g. Cloudflare R2, DigitalOcean
+                                Spaces, Supabase, etc.). Works with any S3-compatible storage.
+                            </>
                         )
                     }
                 >
-                    <LemonInput placeholder={isNew ? 'e.g. https://your-minio-host:9000' : 'Leave unchanged'} />
+                    <LemonInput
+                        placeholder={isNew ? 'e.g. https://<account-id>.r2.cloudflarestorage.com' : 'Leave unchanged'}
+                    />
                 </LemonField>
             )}
 

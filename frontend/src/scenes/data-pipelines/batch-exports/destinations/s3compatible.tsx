@@ -36,12 +36,6 @@ export const s3CompatibleDefinition: DestinationDefinition = {
                 showEndpointUrl
                 endpointUrlRequired
                 showVirtualStyleAddressing
-                endpointHelpText={
-                    <>
-                        The endpoint URL corresponding to your provider (e.g. Cloudflare R2, DigitalOcean Spaces,
-                        Supabase, etc.). Works with any S3-compatible storage.
-                    </>
-                }
             />
         )
     },
