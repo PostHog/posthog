@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    BusinessKnowledgeDocumentsSearchListQueryParams,
     BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeDocumentsWindowListQueryParams,
     BusinessKnowledgeSourcesCreateBody,
@@ -31,6 +32,28 @@ const businessKnowledgeDocumentWindowRetrieve = (): ToolBase<
             query: {
                 around_ordinal: params.around_ordinal,
                 radius: params.radius,
+            },
+        })
+        return result
+    },
+})
+
+const BusinessKnowledgeDocumentsSearchSchema = BusinessKnowledgeDocumentsSearchListQueryParams
+
+const businessKnowledgeDocumentsSearch = (): ToolBase<
+    typeof BusinessKnowledgeDocumentsSearchSchema,
+    Schemas.KnowledgeSearchResult[]
+> => ({
+    name: 'business-knowledge-documents-search',
+    schema: BusinessKnowledgeDocumentsSearchSchema,
+    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeDocumentsSearchSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.KnowledgeSearchResult[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/documents/search/`,
+            query: {
+                limit: params.limit,
+                query: params.query,
             },
         })
         return result
@@ -145,6 +168,7 @@ const businessKnowledgeSourcesUrlCreate = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'business-knowledge-document-window-retrieve': businessKnowledgeDocumentWindowRetrieve,
+    'business-knowledge-documents-search': businessKnowledgeDocumentsSearch,
     'business-knowledge-sources-list': businessKnowledgeSourcesList,
     'business-knowledge-sources-retrieve': businessKnowledgeSourcesRetrieve,
     'business-knowledge-sources-text-create': businessKnowledgeSourcesTextCreate,
