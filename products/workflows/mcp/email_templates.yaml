@@ -87,7 +87,8 @@ tools:
         title: Show email template
         description: >
             Render an email template as an inline preview for the user. Call after creating or updating a template, and
-            whenever the user asks to see one. For fetching a template to edit it, use workflows-get-email-template.
+            whenever the user asks to see one. The response carries the final rendered html — read it before describing
+            the result. For fetching a template to edit it, use workflows-get-email-template.
         response:
             exclude:
                 - content.email.design

@@ -67,7 +67,7 @@ Pass the design directly in the tool call — no scratch files, no pre-validatio
 1. `workflows-get-email-template` — always fetch fresh; the returned `design` is the current source of truth.
 2. Modify the `design` (keep subject/text alongside it).
 3. `workflows-update-email-template` — send the complete `content` back. The server re-renders the sent email from the edited design.
-4. `workflows-show-email-template` — render the updated template so the user sees the change.
+4. `workflows-show-email-template` — render the updated template so the user sees the change; its response carries the final rendered html, so read it before describing the result.
 
 ## Using templates
 
