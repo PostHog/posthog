@@ -21,8 +21,9 @@ on:
             - '.github/workflows/build-phrocs.yml'
 
 concurrency:
+    # No pull_request trigger, and per-SHA push runs never share a group, so nothing is ever cancelled.
     group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    cancel-in-progress: false
 
 permissions:
     contents: write
@@ -61,8 +62,12 @@ jobs:
               env:
                   GIT_SHA: ${{ github.sha }}
               run: |
-                  CURRENT_MASTER=$(git ls-remote origin refs/heads/master | awk '{print $1}')
-                  if [ "$CURRENT_MASTER" = "$GIT_SHA" ]; then
+                  # `|| true`: a transient ls-remote failure must skip the release, not fail the build (red master).
+                  CURRENT_MASTER=$(git ls-remote origin refs/heads/master | awk '{print $1}') || true
+                  if [ -z "$CURRENT_MASTER" ]; then
+                      echo "is_current=false" >> "$GITHUB_OUTPUT"
+                      echo "Could not resolve current master ref; skipping phrocs-latest release"
+                  elif [ "$CURRENT_MASTER" = "$GIT_SHA" ]; then
                       echo "is_current=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "is_current=false" >> "$GITHUB_OUTPUT"
