@@ -650,7 +650,7 @@ export const InfiniteListRow = ({
 }
 
 function InfiniteListEmptyState(): JSX.Element {
-    const { searchQuery, taxonomicGroupTypes, includeStaleEvents, hasResultsInOtherGroups } =
+    const { searchQuery, taxonomicGroupTypes, taxonomicGroups, includeStaleEvents, infiniteListCounts } =
         useValues(taxonomicFilterLogic)
     const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
 
@@ -663,6 +663,17 @@ function InfiniteListEmptyState(): JSX.Element {
         !emptySearchQuery &&
         !includeStaleEvents &&
         (listGroupType === TaxonomicFilterGroupType.Events || listGroupType === TaxonomicFilterGroupType.CustomEvents)
+
+    // When this tab has no results but the aggregated "all" (suggested filters) section does, offer a
+    // jump there so the user doesn't have to guess which tab their match lives in.
+    const allGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.SuggestedFilters)
+    const allSectionHasResults = (infiniteListCounts[TaxonomicFilterGroupType.SuggestedFilters] ?? 0) > 0
+    const canOfferAllSwitch =
+        !emptySearchQuery &&
+        !isSuggestedFilters &&
+        !!allGroup &&
+        taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
+        allSectionHasResults
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
             {suggestedFiltersBeforeSearching ? (
@@ -704,14 +715,14 @@ function InfiniteListEmptyState(): JSX.Element {
                             Include stale events
                         </LemonButton>
                     )}
-                    {!emptySearchQuery && hasResultsInOtherGroups && (
+                    {canOfferAllSwitch && (
                         <LemonButton
                             type="secondary"
                             size="xsmall"
                             data-attr="taxonomic-switch-to-all"
                             onClick={() => setActiveTab(TaxonomicFilterGroupType.SuggestedFilters)}
                         >
-                            See results in other categories
+                            See results in {allGroup?.name}
                         </LemonButton>
                     )}
                 </>

@@ -1639,31 +1639,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (infiniteListCounts) => infiniteListCounts,
             { resultEqualityCheck: objectsEqual },
         ],
-        // True when the user is on a specific tab that has no results, but the "All"
-        // (SuggestedFilters) tab is available and some other non-meta group does have
-        // results — so switching to "All" would actually surface something.
-        hasResultsInOtherGroups: [
-            (s) => [s.taxonomicGroupTypes, s.activeTab, s.infiniteListCounts, s.metaGroupTypes],
-            (
-                taxonomicGroupTypes: TaxonomicFilterGroupType[],
-                activeTab: TaxonomicFilterGroupType,
-                infiniteListCounts: Record<string, number>,
-                metaGroupTypes: Set<string>
-            ): boolean => {
-                if (activeTab === TaxonomicFilterGroupType.SuggestedFilters) {
-                    return false
-                }
-                if (!taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
-                    return false
-                }
-                return taxonomicGroupTypes.some(
-                    (groupType) =>
-                        groupType !== activeTab &&
-                        !metaGroupTypes.has(groupType) &&
-                        (infiniteListCounts[groupType] ?? 0) > 0
-                )
-            },
-        ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
         currentTabIndex: [

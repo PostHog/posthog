@@ -463,39 +463,6 @@ describe('taxonomicFilterLogic', () => {
             expect(quickLogic.values.topMatchItemsWithSkeletons).toEqual([])
             expect(quickLogic.values.revealBarrierOpen).toBe(true)
         })
-
-        it('hasResultsInOtherGroups is true on an empty tab when another group has results', async () => {
-            const eventsListLogic = infiniteListLogic({
-                ...quickLogic.props,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-            await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
-            await expectLogic(quickLogic).delay(1)
-
-            // On the "All" (SuggestedFilters) tab we never offer the switch
-            expect(quickLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
-            expect(quickLogic.values.hasResultsInOtherGroups).toBe(false)
-
-            // Actions has no mocked results, but Events does, so switching to "All" would surface something
-            quickLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
-            expect(quickLogic.values.infiniteListCounts[TaxonomicFilterGroupType.Actions]).toBe(0)
-            expect(quickLogic.values.hasResultsInOtherGroups).toBe(true)
-        })
-
-        it('hasResultsInOtherGroups is false when no other group has results', async () => {
-            const eventsListLogic = infiniteListLogic({
-                ...quickLogic.props,
-                listGroupType: TaxonomicFilterGroupType.Events,
-            })
-
-            await expectLogic(eventsListLogic, () => {
-                quickLogic.actions.setSearchQuery('this query matches nothing')
-            }).toDispatchActions(['loadRemoteItemsSuccess'])
-            await expectLogic(quickLogic).delay(1)
-
-            quickLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
-            expect(quickLogic.values.hasResultsInOtherGroups).toBe(false)
-        })
     })
 
     describe('reveal barrier', () => {
