@@ -115,6 +115,7 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'feature-flag-list',
     'feature-flag-testing',
     'insight-actors',
+    'invite-email-preview',
     'llm-costs',
     'session-recording',
     'session-summary',
