@@ -173,7 +173,7 @@ function DashboardEditActions(): JSX.Element | null {
         <div className="flex shrink-0 flex-wrap items-center gap-2">
             <DashboardEditSaveCancelButtons
                 withShortcuts
-                middle={
+                extraAction={
                     showApplyFiltersBanner ? (
                         <LemonButton
                             data-attr="dashboard-apply-filters"
