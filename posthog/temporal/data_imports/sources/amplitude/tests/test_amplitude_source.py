@@ -38,7 +38,7 @@ class TestAmplitudeSource:
         assert config.name.value == "Amplitude"
         assert config.label == "Amplitude"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.iconPath == "/static/services/amplitude.png"
         assert len(config.fields) == 3
 

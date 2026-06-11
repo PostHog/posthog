@@ -58,7 +58,7 @@ class TestSourceConfig:
     def test_basic_metadata(self) -> None:
         config = MixpanelSource().get_source_config
         assert config.label == "Mixpanel"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.releaseStatus == "alpha"
 
     def test_fields(self) -> None:
