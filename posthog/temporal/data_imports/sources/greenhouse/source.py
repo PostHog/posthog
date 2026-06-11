@@ -40,7 +40,6 @@ class GreenhouseSource(ResumableSource[GreenhouseSourceConfig, GreenhouseResumeC
             name=SchemaExternalDataSourceType.GREENHOUSE,
             label="Greenhouse",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Greenhouse Harvest API key to automatically pull your Greenhouse recruiting data into the PostHog Data warehouse.
 
 You can create a Harvest API key in Greenhouse under **Configure → Dev Center → API Credential Management**.
