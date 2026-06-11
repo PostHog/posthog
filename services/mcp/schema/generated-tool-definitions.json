@@ -6443,7 +6443,7 @@
         }
     },
     "workflows-create-email-template": {
-        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a plain-text fallback, and content.email.design (Unlayer design JSON — full schema in the designing-email-templates skill). The server renders the sent email from the design with Unlayer's own renderer, and the template opens as editable blocks in PostHog's visual editor. Liquid personalization is supported throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design inline in this call exactly as authored. Use the template in a workflow's function_email action.",
+        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a plain-text fallback, and content.email.design (Unlayer design JSON — full schema in the designing-email-templates skill). The server renders the sent email from the design with Unlayer's own renderer, and the template opens as editable blocks in PostHog's visual editor. Liquid personalization is supported throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design inline in this call exactly as authored. After creating, call workflows-show-email-template so the user sees the result.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create email template",
@@ -6471,7 +6471,7 @@
         }
     },
     "workflows-get-email-template": {
-        "description": "Get an email template by ID, including content.email (subject, text, html, design) — renders an inline preview. Always fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build your update payload from this response.",
+        "description": "Get an email template by ID, including content.email (subject, text, design). Use this to fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build your update payload from this response. To display a template to the user, use workflows-show-email-template instead.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get email template",
@@ -6582,6 +6582,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-show-email-template": {
+        "description": "Render an email template as an inline preview for the user. Call after creating or updating a template, and whenever the user asks to see one. For fetching a template to edit it, use workflows-get-email-template.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Show email template",
+        "title": "Show email template",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-stats": {
         "description": "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering.",
         "category": "Workflows",
@@ -6625,7 +6639,7 @@
         }
     },
     "workflows-update-email-template": {
-        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save.",
+        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update email template",

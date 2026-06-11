@@ -29,12 +29,12 @@ tools:
             designing-email-templates skill). The server renders the sent email from the design with Unlayer's own
             renderer, and the template opens as editable blocks in PostHog's visual editor. Liquid personalization is
             supported throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design
-            inline in this call exactly as authored. Use the template in a workflow's function_email action.
+            inline in this call exactly as authored. After creating, call workflows-show-email-template so the user sees
+            the result.
         response:
             exclude:
-                - content.email.design
+                - content
                 - created_by
-        ui_app: email-template
     workflows-get-email-template:
         operation: messaging_templates_retrieve
         enabled: true
@@ -47,13 +47,14 @@ tools:
         enrich_url: '{id}'
         title: Get email template
         description: >
-            Get an email template by ID, including content.email (subject, text, html, design) — renders an inline
-            preview. Always fetch before updating — content is replaced as a whole and humans may have edited the design
-            in the visual editor since you last saw it, so build your update payload from this response.
+            Get an email template by ID, including content.email (subject, text, design). Use this to fetch before
+            updating — content is replaced as a whole and humans may have edited the design in the visual editor since
+            you last saw it, so build your update payload from this response. To display a template to the user, use
+            workflows-show-email-template instead.
         response:
             exclude:
+                - content.email.html
                 - created_by
-        ui_app: email-template
     workflows-list-email-templates:
         operation: messaging_templates_list
         enabled: true
@@ -73,6 +74,25 @@ tools:
             exclude:
                 - content
                 - created_by
+    workflows-show-email-template:
+        operation: messaging_templates_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Show email template
+        description: >
+            Render an email template as an inline preview for the user. Call after creating or updating a template, and
+            whenever the user asks to see one. For fetching a template to edit it, use workflows-get-email-template.
+        response:
+            exclude:
+                - content.email.design
+                - created_by
+        ui_app: email-template
     workflows-update-email-template:
         operation: messaging_templates_partial_update
         enabled: true
@@ -88,9 +108,8 @@ tools:
             Update an email template by ID. content is replaced as a whole, never merged — call
             workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send
             back the complete content.email with your edited design. The server re-renders the sent email from the
-            design on save.
+            design on save. After updating, call workflows-show-email-template so the user sees the result.
         response:
             exclude:
-                - content.email.design
+                - content
                 - created_by
-        ui_app: email-template

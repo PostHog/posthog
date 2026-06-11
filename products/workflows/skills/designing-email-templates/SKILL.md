@@ -52,6 +52,7 @@ Call `workflows-create-email-template` with:
 - `subject` is required for email templates.
 - Always provide `text` — it's the fallback for clients that block rich content and improves deliverability.
 - The tool result returns an edit link into the PostHog library.
+- After creating (or updating), call `workflows-show-email-template` — it renders an inline preview so the user sees the result.
 
 ### Payload mechanics
 
@@ -64,9 +65,11 @@ Pass the design directly in the tool call — no scratch files, no pre-validatio
 1. `workflows-get-email-template` — always fetch fresh; the returned `design` is the current source of truth.
 2. Modify the `design` (keep subject/text alongside it).
 3. `workflows-update-email-template` — send the complete `content` back. The server re-renders the sent email from the edited design.
+4. `workflows-show-email-template` — render the updated template so the user sees the change.
 
 ## Using templates
 
 - List what exists with `workflows-list-email-templates` (metadata only; fetch one for its content).
+- When the user asks to see a template, call `workflows-show-email-template` — it renders an inline preview.
 - Reference a template from a workflow's `function_email` action, or start a broadcast from it in the PostHog UI.
 - Templates are soft-deleted by setting `deleted: true` via `workflows-update-email-template`.
