@@ -60,6 +60,23 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "runs that errored before close-out. The dedupe key for non-emitting runs."
         ),
     )
+    error = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs "
+            "(null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary."
+        ),
+    )
+    failure_reason = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Concise derived reason the run didn't complete cleanly — the first line of `error` "
+            "(bounded), or a status-derived fallback. Null unless the run terminated failed/cancelled. "
+            "Read this to see at a glance *why* a run emitted nothing without pulling full stack traces."
+        ),
+    )
     emitted_count = serializers.IntegerField(
         help_text=(
             "Number of findings this run actually emitted to the inbox. 0 for runs that "
@@ -162,6 +179,19 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
             "(`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both."
         ),
     )
+    skill_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "Exact-match filter on the scout skill (e.g. `signals-scout-errors`). Narrows the run "
+            "dump to a single scout — the primary scoping path when a specialist dedupes against "
+            "its own past runs. Omit to span every scout on the team."
+        ),
+    )
+    skill_version = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.",
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -177,7 +207,13 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     """`SignalScratchpad` projection used by `search-memory` and `remember`."""
 
     key = serializers.CharField(help_text="Agent-chosen semantic key, unique per team.")
-    content = serializers.CharField(help_text="Prose content for prompt injection.")
+    content = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Prose content for prompt injection. Blank when the search projected it out "
+            "(`keys_only=true`); truncated to a preview when `content_max_chars` was set."
+        ),
+    )
     created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
     updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-write timestamp.")
     created_by_run_id = serializers.CharField(
@@ -193,6 +229,22 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
+    )
+    keys_only = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true, blank each entry's `content` and return only keys + metadata. Use to scan "
+            "which memories exist without pulling their (potentially large) bodies, then re-query "
+            "the ones worth a full read. Takes precedence over `content_max_chars`."
+        ),
+    )
+    content_max_chars = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Truncate each entry's `content` to the first N characters (a preview). Omit for the "
+            "full body. Ignored when `keys_only=true`."
+        ),
     )
     limit = serializers.IntegerField(
         required=False,

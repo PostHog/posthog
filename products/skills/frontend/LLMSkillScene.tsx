@@ -25,8 +25,12 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { MarkdownOutline } from '../components/MarkdownOutline'
-import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
+import { MarkdownOutline } from 'products/ai_observability/frontend/components/MarkdownOutline'
+import type {
+    LLMSkillFileManifestApi,
+    LLMSkillVersionSummaryApi,
+} from 'products/ai_observability/frontend/generated/api.schemas'
+
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
@@ -180,7 +184,7 @@ export function LLMSkillScene(): JSX.Element {
                                 type="secondary"
                                 onClick={() => {
                                     if (isNewSkill) {
-                                        router.actions.push(urls.aiObservabilitySkills())
+                                        router.actions.push(urls.skills())
                                     } else {
                                         setMode(SkillMode.View)
                                     }
@@ -557,7 +561,7 @@ function SkillFileViewer({
     const codeLanguage = isMarkdown ? null : getFileLanguage(file.path, file.content_type)
 
     const copyFileLink = (): void => {
-        const path = urls.aiObservabilitySkill(skillName, { file: file.path, version })
+        const path = urls.skill(skillName, { file: file.path, version })
         void copyToClipboard(urls.absolute(urls.currentProject(path)), 'file link')
     }
 
@@ -886,7 +890,7 @@ function SkillVersionSidebar({
                         const canCompare = skill?.version !== versionSkill.version
                         const cleanedParams = { ...searchParams }
                         delete cleanedParams.edit
-                        const versionUrl = combineUrl(urls.aiObservabilitySkill(skillName), {
+                        const versionUrl = combineUrl(urls.skill(skillName), {
                             ...cleanedParams,
                             version: versionSkill.is_latest ? undefined : versionSkill.version,
                         }).url
