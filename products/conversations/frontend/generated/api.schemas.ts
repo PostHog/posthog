@@ -599,6 +599,34 @@ export interface PatchedTicketApi {
 }
 
 /**
+ * A single message in a ticket thread (output-only).
+ */
+export interface TicketMessageApi {
+    /** Message (comment) UUID. */
+    readonly id: string
+    /** Plain-text message body. */
+    readonly content: string
+    /** TipTap rich content JSON, if any. */
+    readonly rich_content: unknown
+    /** One of: customer, support, AI. */
+    readonly author_type: string
+    /** Display name of the author. */
+    readonly author_name: string
+    /** True for internal notes not visible to the customer. */
+    readonly is_private: boolean
+    readonly created_at: string
+}
+
+export interface PaginatedTicketMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketMessageApi[]
+}
+
+/**
  * A ticket found to be semantically similar to the anchor ticket.
  */
 export interface RelatedTicketApi {
@@ -625,34 +653,6 @@ export interface RelatedTicketApi {
      * @nullable
      */
     last_activity?: string | null
-}
-
-/**
- * A single message in a ticket thread (output-only).
- */
-export interface TicketMessageApi {
-    /** Message (comment) UUID. */
-    readonly id: string
-    /** Plain-text message body. */
-    readonly content: string
-    /** TipTap rich content JSON, if any. */
-    readonly rich_content: unknown
-    /** One of: customer, support, AI. */
-    readonly author_type: string
-    /** Display name of the author. */
-    readonly author_name: string
-    /** True for internal notes not visible to the customer. */
-    readonly is_private: boolean
-    readonly created_at: string
-}
-
-export interface PaginatedTicketMessageListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TicketMessageApi[]
 }
 
 /**

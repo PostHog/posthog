@@ -89,9 +89,6 @@ tools:
                 - unread_team_count
                 - created_at
                 - updated_at
-    conversations-tickets-related-list:
-        operation: conversations_tickets_related_list
-        enabled: false
     conversations-tickets-messages-retrieve:
         operation: conversations_tickets_messages_list
         enabled: true
@@ -108,6 +105,9 @@ tools:
             from the response envelope. Includes all messages from the customer, team members, and AI, as well as
             private internal notes. Each message contains author_type, author_name, content, and an is_private flag
             indicating internal notes.
+    conversations-tickets-related-list:
+        operation: conversations_tickets_related_list
+        enabled: false
     conversations-tickets-reply-create:
         operation: conversations_tickets_reply_create
         enabled: true

@@ -382,24 +382,6 @@ export const conversationsTicketsDestroy = async (
     })
 }
 
-export const getConversationsTicketsRelatedListUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/conversations/tickets/${id}/related/`
-}
-
-/**
- * List tickets semantically similar to this one, found via a nearest-neighbor search over ticket embeddings. Results may span sources (Conversations and imported support sources). Returns an empty list when the related-tickets feature is disabled or AI data processing is not approved.
- */
-export const conversationsTicketsRelatedList = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<RelatedTicketApi[]> => {
-    return apiMutator<RelatedTicketApi[]>(getConversationsTicketsRelatedListUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getConversationsTicketsMessagesListUrl = (
     projectId: string,
     id: string,
@@ -430,6 +412,24 @@ export const conversationsTicketsMessagesList = async (
     options?: RequestInit
 ): Promise<PaginatedTicketMessageListApi> => {
     return apiMutator<PaginatedTicketMessageListApi>(getConversationsTicketsMessagesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsTicketsRelatedListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/related/`
+}
+
+/**
+ * List tickets semantically similar to this one, found via a nearest-neighbor search over ticket embeddings. Results may span sources (Conversations and imported support sources). Returns an empty list when the related-tickets feature is disabled or AI data processing is not approved.
+ */
+export const conversationsTicketsRelatedList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RelatedTicketApi[]> => {
+    return apiMutator<RelatedTicketApi[]>(getConversationsTicketsRelatedListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
