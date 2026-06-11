@@ -130,12 +130,15 @@ export default meta
 type Story = StoryObj
 
 function withTheme(render: (theme: ChartTheme) => JSX.Element): () => JSX.Element {
-    return () => <div className="max-w-[680px]">{render(buildTheme())}</div>
+    // Charts size themselves from their container via ResizeObserver, so the wrapper needs a
+    // definite width (not just max-width) — otherwise the card collapses in the shrink-to-fit
+    // snapshot runtime. Mirrors quill's own `Stage` story helper.
+    return () => <div className="w-[680px]">{render(buildTheme())}</div>
 }
 
 export const KeyMetrics: Story = {
     render: () => (
-        <div className="max-w-[960px]">
+        <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
                 intentClusterCount={metric(6, 0, [], 'up')}
@@ -164,7 +167,7 @@ export const DailyToolBreakdown: Story = {
 
 export const FlaggedSessions: Story = {
     render: () => (
-        <div className="max-w-[680px]">
+        <div className="w-[680px]">
             <NotableSessionsTable sessions={NOTABLE_SESSIONS} loading={false} />
         </div>
     ),
