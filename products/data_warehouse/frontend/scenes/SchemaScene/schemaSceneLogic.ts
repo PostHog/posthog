@@ -49,6 +49,7 @@ function buildSchemaUpdatePayload(schema: ExternalDataSourceSchema): Partial<Ext
         sync_time_of_day: schema.sync_time_of_day,
         cdc_table_mode: schema.cdc_table_mode,
         enabled_columns: schema.enabled_columns ?? null,
+        row_filters: schema.row_filters ?? null,
     }
 }
 
