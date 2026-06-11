@@ -1364,8 +1364,8 @@ export const experimentLogic = kea<experimentLogicType>([
                         `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                         {
                             ...values.experiment,
-                            parameters: {
-                                ...values.experiment?.parameters,
+                            running_time_calculation: {
+                                ...values.experiment?.running_time_calculation,
                                 recommended_running_time: recommendedRunningTime,
                                 recommended_sample_size: recommendedSampleSize,
                                 minimum_detectable_effect: minimumDetectableEffect,
@@ -1395,7 +1395,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 } else {
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
-                        parameters:
+                        running_time_calculation:
                             /**
                              * only if we are creating a new experiment we need to reset
                              * the recommended running time. If we are duplicating we want to
@@ -1403,12 +1403,12 @@ export const experimentLogic = kea<experimentLogicType>([
                              */
                             values.formMode === FORM_MODES.create
                                 ? {
-                                      ...values.experiment?.parameters,
+                                      ...values.experiment?.running_time_calculation,
                                       recommended_running_time: recommendedRunningTime,
                                       recommended_sample_size: recommendedSampleSize,
                                       minimum_detectable_effect: minimumDetectableEffect,
                                   }
-                                : values.experiment?.parameters,
+                                : values.experiment?.running_time_calculation,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                     })
@@ -1722,8 +1722,8 @@ export const experimentLogic = kea<experimentLogicType>([
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
             actions.updateExperiment({
-                parameters: {
-                    ...values.experiment?.parameters,
+                running_time_calculation: {
+                    ...values.experiment?.running_time_calculation,
                     recommended_running_time: recommendedRunningTime,
                     recommended_sample_size: recommendedSampleSize,
                     minimum_detectable_effect: minimumDetectableEffect || 0,
@@ -2699,7 +2699,9 @@ export const experimentLogic = kea<experimentLogicType>([
         minimumDetectableEffect: [
             (s) => [s.experiment, s.defaultMinimumDetectableEffect],
             (newExperiment, defaultMinimumDetectableEffect): number => {
-                return newExperiment?.parameters?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
+                return (
+                    newExperiment?.running_time_calculation?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
+                )
             },
         ],
         recommendedSampleSize: [
