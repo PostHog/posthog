@@ -18,6 +18,7 @@ from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
@@ -144,17 +145,24 @@ class ClickHousePrinter(BasePrinter):
 
         relevant_clickhouse_name = func_meta.clickhouse_name
         if func_meta.overloads:
-            # Look through aliases: an alias's declared type can be stale after a
-            # transform (e.g. the property-type swapper) rewrites its inner
-            # expression, so resolve the overload against the real expression.
+            # Prefer concrete fields/calls: transforms can leave a call's
+            # recorded arg_types stale after fields are rewritten.
             first_arg = node.args[0] if len(node.args) > 0 else None
+            first_arg_was_alias = False
             while isinstance(first_arg, ast.Alias):
+                first_arg_was_alias = True
                 first_arg = first_arg.expr
-            first_arg_constant_type = (
-                first_arg.type.resolve_constant_type(self.context)
-                if first_arg is not None and first_arg.type is not None
-                else None
-            )
+            first_arg_constant_type = None
+            if (
+                first_arg is not None
+                and first_arg.type is not None
+                and (
+                    first_arg_was_alias or isinstance(first_arg, ast.Call) or isinstance(first_arg.type, ast.FieldType)
+                )
+            ):
+                first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
+            elif isinstance(node.type, ast.CallType) and len(node.type.arg_types) > 0:
+                first_arg_constant_type = node.type.arg_types[0]
 
             if first_arg_constant_type is not None:
                 for (
@@ -708,6 +716,15 @@ class ClickHousePrinter(BasePrinter):
     def visit_call(self, node: ast.Call):
         # Property-group call optimizations (isNull/isNotNull/JSONHas over a property-group key) now run in ClickHouse
         # property resolution, which rewrites them to the keys-index `has(group, key)` form before printing.
+        # The type-name argument reaches ClickHouse's type parser verbatim, so bound it to
+        # type names we can classify — mirroring the whitelist CAST already enforces.
+        if node.name.lower() in ("accuratecast", "accuratecastornull"):
+            type_arg = node.args[1] if len(node.args) > 1 else None
+            if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+                raise QueryError(f"{node.name} requires a constant string type name as its second argument")
+            if parse_sql_runtime_type(type_arg.value).family == "unknown":
+                raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
+
         return super().visit_call(node)
 
     def visit_array_slice(self, node: ast.ArraySlice):

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { DashboardPlacement } from '~/types'
 
 import { WidgetCard } from './WidgetCard'
-import { WidgetCardBody, WidgetCardBodyMessage, WidgetLoadingState } from './WidgetCardBody'
+import { WidgetCardBody, WidgetLoadingState } from './WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from './WidgetCardHeader'
 import {
     dashboardTileTopHeading,
@@ -87,7 +87,7 @@ export default meta
 
 type Story = StoryObj<typeof WidgetCardStory>
 
-export const DashboardTilePopulated: Story = {
+export const Default: Story = {
     args: {
         headerLayout: 'dashboard_tile',
         title: 'Sample metric',
@@ -100,7 +100,7 @@ export const DashboardTilePopulated: Story = {
     },
 }
 
-export const SimpleHeaderLoading: Story = {
+export const Loading: Story = {
     args: {
         headerLayout: 'simple',
         title: 'Custom metric',
@@ -119,39 +119,6 @@ export const Locked: Story = {
         docs: {
             description: {
                 story: 'Locked widgets show a centered lock icon with the access message in the body.',
-            },
-        },
-    },
-}
-
-export const EmptyBodyMessage: Story = {
-    args: {
-        body: (
-            <WidgetCardBodyMessage>
-                No data matches your filters. Adjust the date range or filters in widget settings.
-            </WidgetCardBodyMessage>
-        ),
-    },
-}
-
-export const SetupUnavailablePattern: Story = {
-    args: {
-        body: (
-            <WidgetCardBodyMessage>
-                <div className="flex max-w-sm flex-col items-center gap-2">
-                    <div className="font-semibold text-primary">Enable this feature to use the widget</div>
-                    <p className="m-0 text-muted">
-                        Turn on the required product capability in project settings. See{' '}
-                        <code>WidgetAvailabilitySetupPrompt</code> for the full gated UI (requires team logic).
-                    </p>
-                </div>
-            </WidgetCardBodyMessage>
-        ),
-    },
-    parameters: {
-        docs: {
-            description: {
-                story: 'Catalog-driven setup uses `WidgetAvailabilitySetupPrompt` (Kea-backed). This story shows the centered body pattern only.',
             },
         },
     },

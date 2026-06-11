@@ -20,10 +20,10 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
 from posthog.models import Team
-from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -1086,6 +1086,12 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
     def test_performed_event_regularly_with_variable_event_counts_in_each_period(self):
+        # Pin to midnight so events at now-12h stay on yesterday: the cohort date range ends
+        # at "-1d", so when CI runs after noon UTC those events land on today and get excluded
+        with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
+            self._assert_performed_event_regularly_with_variable_event_counts()
+
+    def _assert_performed_event_regularly_with_variable_event_counts(self):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],

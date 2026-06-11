@@ -397,20 +397,30 @@ class SelectQueryType(Type):
 @dataclass(kw_only=True, slots=True)
 class SelectSetQueryType(Type):
     types: list[Union["SelectQueryType", "SelectSetQueryType"]]
+    columns: dict[str, Type] = field(default_factory=dict)
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
+        if name in self.columns:
+            return FieldType(name=name, table_type=self)
         return self.types[0].get_child(name, context)
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
+        if name in self.columns:
+            return True
         return self.types[0].has_child(name, context)
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
+        if name in self.columns:
+            return self.columns[name].resolve_constant_type(context)
         return self.types[0].resolve_column_constant_type(name, context)
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        if self.columns:
+            first_column = next(iter(self.columns.values()))
+            return first_column.resolve_constant_type(context)
         return self.types[0].resolve_constant_type(context)
 
 
@@ -597,10 +607,30 @@ class ArrayType(ConstantType):
 class TupleType(ConstantType):
     data_type: ConstantDataType = field(default="tuple", init=False)
     item_types: list[ConstantType]
+    field_names: list[str | None] = field(default_factory=list)
     repeat: bool = False
 
     def print_type(self) -> str:
         return "Tuple"
+
+
+@dataclass(kw_only=True, slots=True)
+class AggregateStateType(ConstantType):
+    data_type: ConstantDataType = field(default="unknown", init=False)
+    wrapped_type: ConstantType = field(default_factory=UnknownType)
+
+    def print_type(self) -> str:
+        return "AggregateState"
+
+
+@dataclass(kw_only=True, slots=True)
+class MapType(ConstantType):
+    data_type: ConstantDataType = field(default="map", init=False)
+    key_type: ConstantType = field(default_factory=UnknownType)
+    value_type: ConstantType = field(default_factory=UnknownType)
+
+    def print_type(self) -> str:
+        return "Map"
 
 
 @dataclass(kw_only=True, slots=True)
@@ -761,16 +791,30 @@ class PropertyType(Type):
             constant_type.nullable = nullable
             return constant_type
 
+        metadata_type = self._metadata_constant_type(context)
+        if metadata_type is not None:
+            return metadata_type
+
         # PropertyTypes are always nullable
         return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
+
+    def _metadata_constant_type(self, context: HogQLContext) -> ConstantType | None:
+        from posthog.hogql.property_planner import (
+            metadata_constant_type,  # noqa: PLC0415 — property_planner imports ast; deferring breaks the cycle
+        )
+
+        return metadata_constant_type(self, context)
 
 
 @dataclass(kw_only=True, slots=True)
 class LambdaArgumentType(Type):
     name: str
+    constant_type: Optional[ConstantType] = None
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        return UnknownType()
+        if self.constant_type is None:
+            return UnknownType()
+        return dataclasses.replace(self.constant_type)
 
 
 @dataclass(kw_only=True, slots=True)

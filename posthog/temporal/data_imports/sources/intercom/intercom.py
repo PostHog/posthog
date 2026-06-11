@@ -1,10 +1,13 @@
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
+import structlog
 from requests import Request, Response, Session
+from requests.exceptions import HTTPError
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
@@ -17,6 +20,15 @@ from posthog.temporal.data_imports.sources.intercom.settings import INTERCOM_END
 
 INTERCOM_API_BASE = "https://api.intercom.io"
 INTERCOM_API_VERSION = "2.13"
+
+logger = structlog.get_logger(__name__)
+
+
+def _is_not_found(exc: HTTPError) -> bool:
+    """A child row referenced by a parent can vanish (deleted/merged) between
+    the parent listing and the per-row detail fetch — Intercom then returns
+    404. Skip that single row instead of failing the whole sync."""
+    return exc.response is not None and exc.response.status_code == 404
 
 
 def _default_headers() -> dict[str, str]:
@@ -31,6 +43,23 @@ def _auth_headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}", **_default_headers()}
 
 
+# The substream walk reaches `/conversations/search` and `/companies/list` via
+# POST. The shared `DEFAULT_RETRY` excludes POST from `allowed_methods`, so a
+# transient read timeout on those calls is *not* retried — unlike the GET calls
+# in the same walk, which retry transparently. These POSTs are read-only,
+# idempotent queries (the body just carries the query + cursor), so it's safe to
+# retry them on transient read timeouts and 429/5xx like everything else.
+# Derived from DEFAULT_RETRY so the shared policy stays the single source of
+# truth — the only intentional difference is adding POST to allowed_methods.
+_INTERCOM_RETRY = Retry(
+    total=DEFAULT_RETRY.total,
+    backoff_factor=DEFAULT_RETRY.backoff_factor,
+    status_forcelist=DEFAULT_RETRY.status_forcelist,
+    allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"},
+    raise_on_status=DEFAULT_RETRY.raise_on_status,
+)
+
+
 def _make_intercom_session(access_token: str) -> Session:
     """Build a tracked session with Intercom auth + default headers baked in.
 
@@ -38,7 +67,7 @@ def _make_intercom_session(access_token: str) -> Session:
     keep the underlying TCP+TLS connection alive — the substream generators
     (one GET per parent row) are the main beneficiary.
     """
-    return make_tracked_session(headers=_auth_headers(access_token))
+    return make_tracked_session(headers=_auth_headers(access_token), retry=_INTERCOM_RETRY)
 
 
 class IntercomSearchPaginator(BasePaginator):
@@ -171,15 +200,19 @@ def get_resource(
     }
 
 
+def _resolve_intercom_url(path_or_url: str) -> str:
+    """Accept either an API path or a full URL (e.g. a `pages.next` link)."""
+    return path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
+
+
 def _intercom_get(session: Session, path_or_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    url = path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
-    response = session.get(url, params=params, timeout=30)
+    response = session.get(_resolve_intercom_url(path_or_url), params=params, timeout=30)
     response.raise_for_status()
     return response.json()
 
 
-def _intercom_post(session: Session, path: str, body: dict[str, Any]) -> dict[str, Any]:
-    response = session.post(f"{INTERCOM_API_BASE}{path}", json=body, timeout=30)
+def _intercom_post(session: Session, path_or_url: str, body: dict[str, Any]) -> dict[str, Any]:
+    response = session.post(_resolve_intercom_url(path_or_url), json=body, timeout=30)
     response.raise_for_status()
     return response.json()
 
@@ -213,7 +246,13 @@ def _conversation_parts_generator(
     so the pipeline's cursor watermark advances per-part. `conversation_id`
     is injected onto each row for joinability."""
     for conv in _iter_conversations(session, incremental_field, db_incremental_field_last_value):
-        full = _intercom_get(session, f"/conversations/{conv['id']}")
+        try:
+            full = _intercom_get(session, f"/conversations/{conv['id']}")
+        except HTTPError as exc:
+            if _is_not_found(exc):
+                logger.warning("intercom_conversation_not_found", conversation_id=conv["id"])
+                continue
+            raise
         parts = (full.get("conversation_parts") or {}).get("conversation_parts") or []
         for part in parts:
             part["conversation_id"] = conv["id"]
@@ -229,11 +268,12 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
         if next_url is None:
             payload = _intercom_post(session, "/companies/list", body)
         else:
-            # `pages.next` is a full URL; the framework follows it as GET, but
-            # /companies/list is POST. Empirically Intercom honors GET on the
-            # `pages.next` URL too — same response shape — so we use GET to
-            # avoid having to re-build the body with the embedded cursor.
-            payload = _intercom_get(session, next_url)
+            # `pages.next` is a full URL carrying the page cursor in its query
+            # string. `/companies/list` is POST-only — a GET against it 404s —
+            # so we re-POST the same body to the next-page URL, mirroring how
+            # the REST next-URL paginator advances the other list endpoints
+            # (it preserves the POST method + body and only swaps the URL).
+            payload = _intercom_post(session, next_url, body)
         yield from (payload.get("data") or [])
         next_url = (payload.get("pages") or {}).get("next")
         if not next_url:
@@ -245,7 +285,13 @@ def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     injected. Full refresh — Intercom has no server-side timestamp filter on
     either parent or child."""
     for company in _iter_companies(session):
-        payload = _intercom_get(session, f"/companies/{company['id']}/segments")
+        try:
+            payload = _intercom_get(session, f"/companies/{company['id']}/segments")
+        except HTTPError as exc:
+            if _is_not_found(exc):
+                logger.warning("intercom_company_not_found", company_id=company["id"])
+                continue
+            raise
         for seg in payload.get("data", []) or []:
             seg["company_id"] = company["id"]
             yield seg

@@ -14,7 +14,7 @@ use crate::fingerprinting::{
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::issue_resolution::Issue;
-use crate::langs::apple::AppleDebugImage;
+use crate::langs::native::DebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 use crate::tokenizer::CL100K_BPE;
 
@@ -143,7 +143,7 @@ pub struct RawErrProps {
         default,
         skip_serializing_if = "Vec::is_empty"
     )]
-    pub debug_images: Vec<AppleDebugImage>, // Debug images from iOS/macOS crash reports for symbolication
+    pub debug_images: Vec<DebugImage>, // Debug images sent by native SDKs (apple, rust) for symbolication
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
@@ -498,6 +498,7 @@ impl Stacktrace {
         &self,
         team_id: i32,
         lookup_table: &HashMap<RawFrameId, Vec<Frame>>,
+        debug_images: &[DebugImage],
     ) -> Option<Self> {
         let Stacktrace::Raw { frames: raw_frames } = self else {
             return Some(self.clone());
@@ -505,7 +506,7 @@ impl Stacktrace {
 
         let mut resolved_frames = Vec::with_capacity(raw_frames.len() + 10);
         for raw_frame in raw_frames {
-            match lookup_table.get(&raw_frame.raw_id(team_id)) {
+            match lookup_table.get(&raw_frame.raw_id(team_id, debug_images)) {
                 Some(resolved) => resolved_frames.extend(resolved.clone()),
                 None => return None,
             }

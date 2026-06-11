@@ -1,13 +1,8 @@
-from datetime import datetime, timedelta
 from typing import override
 
-from django.db import IntegrityError
-from django.db.models import Q
 from django.utils import timezone
 
-import structlog
 from drf_spectacular.utils import extend_schema
-from posthoganalytics import capture_exception
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -16,15 +11,13 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
-from products.error_tracking.backend.recommendations import RECOMMENDATIONS, RECOMMENDATIONS_BY_TYPE
-from products.error_tracking.backend.recommendations.base import Recommendation
+from products.error_tracking.backend.recommendations import RECOMMENDATIONS_BY_TYPE
+from products.error_tracking.backend.recommendations.refresh import (
+    claim_for_compute,
+    refresh_team_recommendations,
+    revert_to_ready,
+)
 from products.error_tracking.backend.tasks import compute_error_tracking_recommendation
-
-logger = structlog.get_logger(__name__)
-
-# How long a recommendation can stay in "computing" before we consider the worker
-# to have died and re-kick the task on the next list() request.
-COMPUTING_STUCK_AFTER = timedelta(minutes=5)
 
 
 class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
@@ -81,88 +74,6 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
         return rec.is_completed(self._enriched_meta(obj))
 
 
-def _is_stale(rec: Recommendation, obj: ErrorTrackingRecommendation, now: datetime) -> bool:
-    if obj.computed_at is None:
-        return True
-    if rec.refresh_interval is None:
-        return True
-    return now >= obj.computed_at + rec.refresh_interval
-
-
-def _claim_for_compute(obj_id, team_id: int, now: datetime) -> bool:
-    """Atomically transition this recommendation into the 'computing' state.
-
-    Returns True if we claimed the row (caller should kick a task), False if
-    another worker already owns it and is still within the stuck threshold.
-    """
-    stuck_threshold = now - COMPUTING_STUCK_AFTER
-    return (
-        ErrorTrackingRecommendation.objects.filter(id=obj_id, team_id=team_id)
-        .filter(
-            Q(status=ErrorTrackingRecommendation.Status.READY)
-            | Q(
-                status=ErrorTrackingRecommendation.Status.COMPUTING,
-                status_changed_at__lt=stuck_threshold,
-            )
-        )
-        .update(
-            status=ErrorTrackingRecommendation.Status.COMPUTING,
-            status_changed_at=now,
-        )
-        == 1
-    )
-
-
-def _revert_to_ready(obj_id, team_id: int) -> None:
-    ErrorTrackingRecommendation.objects.filter(
-        id=obj_id,
-        team_id=team_id,
-        status=ErrorTrackingRecommendation.Status.COMPUTING,
-    ).update(
-        status=ErrorTrackingRecommendation.Status.READY,
-        status_changed_at=timezone.now(),
-    )
-
-
-def _ensure_recommendation_row(rec: Recommendation, team_id: int) -> ErrorTrackingRecommendation:
-    try:
-        return ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
-    except ErrorTrackingRecommendation.DoesNotExist:
-        try:
-            return ErrorTrackingRecommendation.objects.create(
-                team_id=team_id,
-                type=rec.type,
-                status=ErrorTrackingRecommendation.Status.READY,
-            )
-        except IntegrityError:
-            return ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
-
-
-def _kick_off_stale_computations(team_id: int) -> None:
-    """Kick a celery task for every stale recommendation that we can claim."""
-    now = timezone.now()
-    for rec in RECOMMENDATIONS:
-        try:
-            obj = _ensure_recommendation_row(rec, team_id)
-            if not _is_stale(rec, obj, now):
-                continue
-            if not _claim_for_compute(obj.id, team_id, now):
-                continue
-            try:
-                compute_error_tracking_recommendation.delay(str(obj.id), team_id)
-            except Exception:
-                _revert_to_ready(obj.id, team_id)
-                raise
-        except Exception as e:
-            capture_exception(e)
-            logger.warning(
-                "error_tracking_recommendation_kick_failed",
-                team_id=team_id,
-                recommendation_type=rec.type,
-                exc_info=True,
-            )
-
-
 class ErrorTrackingRecommendationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -183,7 +94,7 @@ class ErrorTrackingRecommendationViewSet(
         # so each poll is a cheap read of the current state.
         is_poll = request.query_params.get("poll", "false").lower() == "true"
         if not is_poll:
-            _kick_off_stale_computations(self.team.id)
+            refresh_team_recommendations(self.team.id)
         return super().list(request, *args, **kwargs)
 
     @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)
@@ -193,11 +104,11 @@ class ErrorTrackingRecommendationViewSet(
         if recommendation.type not in RECOMMENDATIONS_BY_TYPE:
             return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
         force = request.query_params.get("force", "true").lower() != "false"
-        if force and _claim_for_compute(recommendation.id, self.team.id, timezone.now()):
+        if force and claim_for_compute(recommendation.id, self.team.id, timezone.now()):
             try:
                 compute_error_tracking_recommendation.delay(str(recommendation.id), self.team.id)
             except Exception:
-                _revert_to_ready(recommendation.id, self.team.id)
+                revert_to_ready(recommendation.id, self.team.id)
                 raise
             recommendation.refresh_from_db()
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)

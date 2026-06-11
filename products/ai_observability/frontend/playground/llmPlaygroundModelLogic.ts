@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
@@ -37,18 +37,15 @@ function normalizePromptsToAvailableModels(
     })
 }
 
-export interface LLMPlaygroundModelLogicProps {
-    tabId?: string
-}
+export type LLMPlaygroundModelLogicProps = Record<string, never>
 
 export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
     path(['products', 'ai_observability', 'frontend', 'playground', 'llmPlaygroundModelLogic']),
     props({} as LLMPlaygroundModelLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect(({ tabId }: LLMPlaygroundModelLogicProps) => ({
+    connect(() => ({
         values: [
-            llmPlaygroundPromptsLogic({ tabId }),
+            llmPlaygroundPromptsLogic,
             [
                 'promptConfigs',
                 'activePromptConfig',
@@ -69,7 +66,7 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             ['providerKeys', 'providerKeysLoading'],
         ],
         actions: [
-            llmPlaygroundPromptsLogic({ tabId }),
+            llmPlaygroundPromptsLogic,
             ['setupPlaygroundFromEvent', 'setModel', 'setPromptConfigs', 'clearPendingTargetModel'],
             modelPickerLogic,
             ['loadByokModelsSuccess', 'loadByokModelsFailure', 'loadTrialModelsSuccess', 'loadTrialModelsFailure'],
