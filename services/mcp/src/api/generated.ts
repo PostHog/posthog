@@ -17614,12 +17614,14 @@ export namespace Schemas {
       '': '<=',
       '': '=',
       '': '!=',
+      In: 'IN',
+      NotIn: 'NOT IN',
     } as const;
 
     export type ExternalDataSchemaRowFiltersItem = {
       column: string;
       operator: ExternalDataSchemaRowFiltersItemOperator;
-      /** Comparison value; must match the column's type. */
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
       value: unknown;
     };
 
@@ -17787,7 +17789,7 @@ export namespace Schemas {
          */
       enabled_columns?: string[] | null;
       /**
-         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows.
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
          */
       row_filters?: ExternalDataSchemaRowFiltersItem[] | null;
@@ -17810,12 +17812,14 @@ export namespace Schemas {
       '': '<=',
       '': '=',
       '': '!=',
+      In: 'IN',
+      NotIn: 'NOT IN',
     } as const;
 
     export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
       column: string;
       operator: ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator;
-      /** Comparison value; must match the column's type. */
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
       value: unknown;
     };
 
@@ -30302,12 +30306,14 @@ export namespace Schemas {
       '': '<=',
       '': '=',
       '': '!=',
+      In: 'IN',
+      NotIn: 'NOT IN',
     } as const;
 
     export type PatchedExternalDataSchemaRowFiltersItem = {
       column: string;
       operator: PatchedExternalDataSchemaRowFiltersItemOperator;
-      /** Comparison value; must match the column's type. */
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
       value: unknown;
     };
 
@@ -30407,7 +30413,7 @@ export namespace Schemas {
          */
       enabled_columns?: string[] | null;
       /**
-         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows.
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
          */
       row_filters?: PatchedExternalDataSchemaRowFiltersItem[] | null;
