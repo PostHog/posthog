@@ -15,6 +15,7 @@ from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 if TYPE_CHECKING:
     import aiohttp
     from anthropic import Anthropic
+    from slack_sdk.web.async_client import AsyncWebClient
     from stripe import StripeClient
 
 from django.conf import settings
@@ -35,7 +36,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from slack_sdk.web.async_client import AsyncWebClient
+
+from posthog.schema import SlackIntegrationScope
 
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
@@ -271,24 +273,10 @@ class OauthConfig:
     additional_authorize_params: dict[str, str] | None = None
 
 
-POSTHOG_SLACK_SCOPE = ",".join(
-    [
-        "channels:read",
-        "groups:read",
-        "chat:write",
-        "chat:write.customize",
-        "app_mentions:read",
-        "channels:history",
-        "groups:history",
-        "links:read",
-        "links:write",
-        "reactions:read",
-        "reactions:write",
-        "team:read",
-        "users:read",
-        "users:read.email",
-    ]
-)
+# Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
+# StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
+# frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
+POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
 
 
 class OauthIntegration:
@@ -1146,7 +1134,11 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
+    def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
+        # slack_sdk's async client imports aiohttp at module scope; this is a models module,
+        # so a top-level import would put aiohttp on the django.setup() path
+        from slack_sdk.web.async_client import AsyncWebClient  # noqa: PLC0415
+
         return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
 
     def granted_scopes(self) -> frozenset[str]:

@@ -17,8 +17,6 @@ from posthog.schema import PropertyGroupFilter
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
@@ -381,32 +379,3 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
-
-
-@mutable_receiver(model_activity_signal, sender=LogsExclusionRule)
-def handle_logs_sampling_rule_activity(
-    sender: Any,
-    scope: str,
-    before_update: LogsExclusionRule | None,
-    after_update: LogsExclusionRule | None,
-    activity: str,
-    user: User | None,
-    was_impersonated: bool = False,
-    **kwargs: Any,
-) -> None:
-    instance = after_update or before_update
-    if instance is None:
-        return
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(cast(ActivityScope, scope), previous=before_update, current=after_update),
-            name=instance.name,
-        ),
-    )

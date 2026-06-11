@@ -16,7 +16,7 @@ class TestExecutionTimeRecorder:
         mock_hist = MagicMock()
         mock_meter.create_histogram_timedelta.return_value = mock_hist
 
-        with patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
+        with patch("posthog.temporal.common.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
             with ExecutionTimeRecorder("test_histogram"):
                 pass
 
@@ -30,7 +30,7 @@ class TestExecutionTimeRecorder:
         mock_hist = MagicMock()
         mock_meter.create_histogram_timedelta.return_value = mock_hist
 
-        with patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
+        with patch("posthog.temporal.common.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
             with pytest.raises(ValueError):
                 with ExecutionTimeRecorder("test_histogram"):
                     raise ValueError("test error")
@@ -51,7 +51,7 @@ class TestExecutionTimeRecorder:
         mock_hist = MagicMock()
         mock_meter.create_histogram_timedelta.return_value = mock_hist
 
-        with patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
+        with patch("posthog.temporal.common.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
             with ExecutionTimeRecorder("test_histogram", histogram_attributes={"activity_type": "test_activity"}):
                 pass
 
@@ -66,7 +66,7 @@ class TestExecutionTimeRecorder:
         mock_hist = MagicMock()
         mock_meter.create_histogram_timedelta.return_value = mock_hist
 
-        with patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
+        with patch("posthog.temporal.common.metrics.get_metric_meter", return_value=mock_meter) as mock_get:
             with ExecutionTimeRecorder("test_histogram") as recorder:
                 recorder.set_status("SKIPPED")
 

@@ -290,6 +290,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     } else {
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         lemonToast.success('Scanner saved')
+                        router.actions.push(urls.replayVision(props.id))
                     }
                 } catch (error: any) {
                     lemonToast.error(`Failed to save scanner${error.detail ? `: ${error.detail}` : ''}`)

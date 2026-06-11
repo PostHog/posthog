@@ -385,17 +385,6 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Add this task to the desktop project tree so it can be organized into folders. Optionally pass a destination folder path. Idempotent — re-filing updates the existing entry.
- * @summary File a task into the project tree
- */
-export const TasksFileCreateBody = /* @__PURE__ */ zod.object({
-    folder: zod
-        .string()
-        .optional()
-        .describe("Destination folder path in the project tree (e.g. 'Tasks\/Bugs'). Defaults to 'Tasks'."),
-})
-
-/**
  * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
  * @summary Beacon presence for a device watching this task
  */

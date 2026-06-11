@@ -135,11 +135,6 @@ export interface _TracingCountResponseApi {
     count: number
 }
 
-export interface _HasSpansResponseApi {
-    /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
-    hasSpans: boolean
-}
-
 /**
  * * `timestamp` - timestamp
  * * `duration` - duration
@@ -204,6 +199,11 @@ export interface _TracingQueryBodyApi {
 export interface _TracingQueryRequestApi {
     /** The tracing spans query to execute. */
     query: _TracingQueryBodyApi
+}
+
+export interface _HasSpansResponseApi {
+    /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+    hasSpans: boolean
 }
 
 export interface _TracingTraceRequestApi {

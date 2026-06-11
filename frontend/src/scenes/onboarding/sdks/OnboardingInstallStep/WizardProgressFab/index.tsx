@@ -7,6 +7,7 @@ import { IconChevronDown, IconX } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
+import { wizardActiveSessionDetectorLogic } from '../wizardActiveSessionDetectorLogic'
 import { wizardProgressTrackerLogic } from '../wizardProgressTrackerLogic'
 import { ExpandedDetails } from './ExpandedDetails'
 import { headlineFor, simulatedTaskFraction, subLineFor } from './helpers'
@@ -15,6 +16,18 @@ import { ProgressRing } from './ProgressRing'
 export function WizardProgressFab(): JSX.Element | null {
     const isSyncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
     if (!isSyncEnabled) {
+        return null
+    }
+    return <WizardProgressFabGate />
+}
+
+// Gates whether we mount the streaming tracker logic at all. The detector does
+// a cheap REST poll and only flips `shouldStream` once it has evidence that a
+// wizard run is in flight — so the SSE connection isn't held open for every
+// authenticated user just because the flag is on (INC-886).
+function WizardProgressFabGate(): JSX.Element | null {
+    const { shouldStream } = useValues(wizardActiveSessionDetectorLogic)
+    if (!shouldStream) {
         return null
     }
     return <WizardProgressFabInner />

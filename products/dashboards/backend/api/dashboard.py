@@ -11,12 +11,11 @@ from enum import StrEnum
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -41,7 +40,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
@@ -50,17 +49,9 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
-from posthog.helpers.trigram_search import (
-    DESCRIPTION_SCORE_WEIGHT,
-    MAX_SEARCH_LENGTH,
-    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
-    MIN_NAME_TRIGRAM_SIMILARITY,
-    normalize_search_term,
-)
-from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
+from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -819,6 +810,7 @@ class AddDashboardWidgetsBatchResponseSerializer(serializers.Serializer):
 
 
 class DashboardBasicSerializer(
+    SearchMatchTypeSerializerMixin,
     TaggedItemSerializerMixin,
     serializers.ModelSerializer,
     UserPermissionsSerializerMixin,
@@ -853,6 +845,7 @@ class DashboardBasicSerializer(
             "access_control_version",
             "last_refresh",
             "team_id",
+            "search_match_type",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1792,11 +1785,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram "
-                    "word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches "
-                    "rank above `description` matches. Results are ordered by relevance, then pinned status, "
-                    "then name. When omitted, dashboards are ordered by pinned status then alphabetical name. "
-                    "Capped at 200 characters; longer queries return a 400 error."
+                    "Optional. Match against dashboard `name`, `description`, and tag names. Returns "
+                    "case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, "
+                    "prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each "
+                    "result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered "
+                    "by pinned status then alphabetical name. Capped at 200 characters; longer queries return a "
+                    "400 error."
                 ),
             ),
         ],
@@ -1863,39 +1857,13 @@ class DashboardsViewSet(
     @staticmethod
     @tracer.start_as_current_span("DashboardViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        span = trace.get_current_span()
-        span.set_attribute("dashboard.search.length", len(search))
-        if not search:
-            return queryset
-
-        # Word similarity (`<%`) drives match/no-match — it's index-accelerated and handles
-        # prefix-as-you-type and substring matches. Full-string similarity is added as a
-        # tiebreak so an exact name match outranks rows that merely *contain* the search word.
-        # `Dashboard.name` is nullable; coalesce each component to 0.0 so a NULL-name row
-        # matched only on description doesn't end up with a NULL `_search_score` (which
-        # Postgres orders NULLS FIRST in DESC, putting unnamed rows wrongly at the top).
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-                _description_word=description_word_score,
-            )
-            .filter(
-                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-            )
-            .annotate(
-                _name_match_score=F("_name_word") + F("_name_full"),
-                _description_match_score=F("_description_word"),
-            )
-            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
-            .order_by("-_search_score", "-pinned", "name")
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="dashboard.search",
+            fields=(NAME_FIELD, DESCRIPTION_FIELD),
+            include_tag_search=True,
+            tiebreakers=("-pinned", "name"),
         )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
@@ -2870,59 +2838,3 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
-
-
-@mutable_receiver(model_activity_signal, sender=DashboardWidget)
-def handle_dashboard_widget_change(
-    sender: Any,
-    scope: str,
-    before_update: DashboardWidget | None,
-    after_update: DashboardWidget | None,
-    activity: str,
-    user: User | None,
-    was_impersonated: bool = False,
-    **kwargs: Any,
-) -> None:
-    instance = after_update or before_update
-    if instance is None:
-        return
-    organization_id = Team.objects.values_list("organization_id", flat=True).filter(pk=instance.team_id).first()
-    log_activity(
-        organization_id=organization_id,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(cast(ActivityScope, scope), previous=before_update, current=after_update),
-            name=instance.name or instance.widget_type,
-        ),
-    )
-
-
-@mutable_receiver(model_activity_signal, sender=Dashboard)
-def handle_dashboard_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    if before_update and after_update:
-        before_deleted = getattr(before_update, "deleted", None)
-        after_deleted = getattr(after_update, "deleted", None)
-        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
-            activity = "restored" if after_deleted is False else "deleted"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-            type="dashboard",
-        ),
-    )
