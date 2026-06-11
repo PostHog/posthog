@@ -46,6 +46,9 @@ class ListFeatureFlagsTool(MaxTool):
     context_prompt_template: str = "Lists feature flags with their status, filterable by stale/enabled/disabled"
     args_schema: type[BaseModel] = ListFeatureFlagsToolArgs
 
+    def get_required_resource_access(self):
+        return [("feature_flag", "viewer")]
+
     async def _arun_impl(
         self, *, status: str | None = None, limit: int = 100, offset: int = 0
     ) -> tuple[str, ToolMessagesArtifact | None]:

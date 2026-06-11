@@ -401,6 +401,11 @@ class EntitySearchContext:
     def _list_feature_flags_sync(
         self, limit: int = 100, offset: int = 0, active_filter: str | None = None
     ) -> tuple[list[dict[str, Any]], int]:
+        # Resource-level gate: filter_queryset_by_access_level only prunes object-level denials, so a
+        # role without feature flag access would still see flags here (also reachable via list_data).
+        if not self.user_access_control.check_access_level_for_resource("feature_flag", "viewer"):
+            return [], 0
+
         queryset = self.user_access_control.filter_queryset_by_access_level(
             FeatureFlag.objects.filter(team=self._team, deleted=False)
         )

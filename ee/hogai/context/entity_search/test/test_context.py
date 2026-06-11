@@ -469,6 +469,22 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert entities[0]["extra_fields"]["status"] == "disabled"
         assert entities[0]["extra_fields"]["active"] is False
 
+    async def test_list_feature_flags_denied_without_resource_access(self):
+        # A role without feature flag viewer access must not receive any flag metadata
+        await FeatureFlag.objects.acreate(team=self.team, key="some-flag", active=True, created_by=self.user)
+
+        with patch.object(
+            EntitySearchContext,
+            "user_access_control",
+            new_callable=PropertyMock,
+        ) as mock_uac:
+            mock_uac.return_value.check_access_level_for_resource.return_value = False
+
+            entities, total = await self.context.list_feature_flags(limit=10, offset=0)
+
+        assert entities == []
+        assert total == 0
+
     async def test_list_entities_feature_flag_applies_access_control(self):
         flag1 = await FeatureFlag.objects.acreate(
             team=self.team, key="accessible-flag", active=True, created_by=self.user
