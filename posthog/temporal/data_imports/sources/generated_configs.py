@@ -253,7 +253,9 @@ class BoxSourceConfig(config.Config):
 
 @config.config
 class BraintreeSourceConfig(config.Config):
-    pass
+    public_key: str
+    private_key: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config

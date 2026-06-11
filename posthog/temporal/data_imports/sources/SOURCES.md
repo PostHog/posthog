@@ -52,6 +52,7 @@ the row lists both.
 | bamboohr         | HTTP                        | requests                                                        | ✅                          |
 | bigquery         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| braintree        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze            | HTTP                        | requests                                                        | ✅                          |
 | brevo            | HTTP                        | requests                                                        | ✅                          |
 | buildbetter      | HTTP                        | requests                                                        | ✅                          |
@@ -198,7 +199,6 @@ doesn't conflict with concurrent PRs.
 - azure_devops
 - bigcommerce
 - box
-- braintree
 - branch
 - brex
 - campaign_manager_360
