@@ -722,7 +722,7 @@ function InfiniteListEmptyState(): JSX.Element {
                             data-attr="taxonomic-switch-to-all"
                             onClick={() => setActiveTab(TaxonomicFilterGroupType.SuggestedFilters)}
                         >
-                            See results in {allGroup?.name}
+                            See results from other categories
                         </LemonButton>
                     )}
                 </>

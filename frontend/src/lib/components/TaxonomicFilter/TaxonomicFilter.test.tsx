@@ -309,7 +309,7 @@ describe('TaxonomicFilter', () => {
                 switchButton = inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-all'))
                 expect(switchButton).toBeDefined()
             })
-            expect(switchButton).toHaveTextContent(/See results in/i)
+            expect(switchButton).toHaveTextContent(/See results from other categories/i)
 
             await userEvent.click(switchButton!)
 
