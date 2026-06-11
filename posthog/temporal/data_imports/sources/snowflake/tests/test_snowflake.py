@@ -249,46 +249,114 @@ def _conn_with_cursor(cursor: MagicMock) -> MagicMock:
 class TestGetColumns:
     def test_groups_columns_by_table(self, impl, cursor):
         cursor.fetchall.return_value = [
-            ("users", "id", "NUMBER", "NO"),
-            ("users", "email", "VARCHAR", "YES"),
-            ("orders", "id", "NUMBER", "NO"),
+            ("PUBLIC", "users", "id", "NUMBER", "NO"),
+            ("PUBLIC", "users", "email", "VARCHAR", "YES"),
+            ("PUBLIC", "orders", "id", "NUMBER", "NO"),
         ]
         conn = _conn_with_cursor(cursor)
         result = impl.get_columns(conn, _make_config(), names=None)
+        # Single-schema source keeps bare table names.
         assert set(result.keys()) == {"users", "orders"}
         assert ("id", "NUMBER", False) in result["users"]
         assert ("email", "VARCHAR", True) in result["users"]
 
     def test_filters_by_names(self, impl, cursor):
         cursor.fetchall.return_value = [
-            ("users", "id", "NUMBER", "NO"),
-            ("orders", "id", "NUMBER", "NO"),
+            ("PUBLIC", "users", "id", "NUMBER", "NO"),
+            ("PUBLIC", "orders", "id", "NUMBER", "NO"),
         ]
         conn = _conn_with_cursor(cursor)
         result = impl.get_columns(conn, _make_config(), names=["users"])
         assert list(result.keys()) == ["users"]
 
+    def test_single_schema_filters_by_configured_schema(self, impl, cursor):
+        cursor.fetchall.return_value = []
+        conn = _conn_with_cursor(cursor)
+        impl.get_columns(conn, _make_config(schema="SALES"), names=None)
+        sql = cursor.execute.call_args.args[0]
+        params = cursor.execute.call_args.args[1]
+        assert "table_schema = %(schema)s" in sql
+        assert params == {"schema": "SALES"}
+
+    @pytest.mark.parametrize("blank", ["", "   ", None])
+    def test_blank_schema_discovers_all_namespaces_qualified(self, impl, cursor, blank):
+        cursor.fetchall.return_value = [
+            ("analytics", "users", "id", "NUMBER", "NO"),
+            ("sales", "users", "id", "NUMBER", "NO"),
+            ("sales", "orders", "id", "NUMBER", "NO"),
+        ]
+        conn = _conn_with_cursor(cursor)
+        result = impl.get_columns(conn, _make_config(schema=blank), names=None)
+        # Same table name in two schemas must stay distinct and qualified.
+        assert set(result.keys()) == {"analytics.users", "sales.users", "sales.orders"}
+        sql = cursor.execute.call_args.args[0]
+        assert "table_schema != %(system_schema)s" in sql
+        assert cursor.execute.call_args.args[1] == {"system_schema": "INFORMATION_SCHEMA"}
+
+    def test_blank_schema_filters_by_qualified_names(self, impl, cursor):
+        cursor.fetchall.return_value = [
+            ("analytics", "users", "id", "NUMBER", "NO"),
+            ("sales", "users", "id", "NUMBER", "NO"),
+        ]
+        conn = _conn_with_cursor(cursor)
+        result = impl.get_columns(conn, _make_config(schema=""), names=["sales.users"])
+        assert list(result.keys()) == ["sales.users"]
+
+
+def _pk_description() -> list[MagicMock]:
+    """`SHOW PRIMARY KEYS IN SCHEMA` description: table_name, column_name, key_sequence at 0,1,2."""
+    cols = []
+    for col_name in ("table_name", "column_name", "key_sequence"):
+        desc = MagicMock()
+        desc.name = col_name
+        cols.append(desc)
+    return cols
+
 
 class TestGetPrimaryKeys:
     def test_extracts_pk_column_names(self, impl, cursor):
-        cursor.description = [MagicMock(name="column_name")]
-        cursor.description[0].name = "column_name"
-        cursor.__iter__.return_value = iter([("id",)])
+        cursor.description = _pk_description()
+        cursor.__iter__.return_value = iter([("t", "id", 1)])
         conn = _conn_with_cursor(cursor)
         out = impl.get_primary_keys(conn, _make_config(), tables=["t"])
         assert out["t"] == ["id"]
+        # Batched per schema, not per table.
+        sql = cursor.execute.call_args.args[0]
+        assert "SHOW PRIMARY KEYS IN SCHEMA" in sql
+        assert '"DB"."PUBLIC"' in sql
 
-    def test_swallows_per_table_failure(self, impl, cursor):
-        # Per-table failure leaves the None placeholder so schema discovery keeps going
+    def test_orders_composite_key_by_sequence(self, impl, cursor):
+        cursor.description = _pk_description()
+        cursor.__iter__.return_value = iter([("t", "b", 2), ("t", "a", 1)])
+        conn = _conn_with_cursor(cursor)
+        out = impl.get_primary_keys(conn, _make_config(), tables=["t"])
+        assert out["t"] == ["a", "b"]
+
+    def test_swallows_per_schema_failure(self, impl, cursor):
+        # Per-schema failure leaves the None placeholder so schema discovery keeps going
         cursor.execute.side_effect = Exception("permission denied")
         conn = _conn_with_cursor(cursor)
         out = impl.get_primary_keys(conn, _make_config(), tables=["t"])
         assert out == {"t": None}
 
+    def test_multi_schema_routes_keys_to_qualified_display_names(self, impl, cursor):
+        cursor.description = _pk_description()
+        # One SHOW per distinct schema, in sorted order: analytics, then sales.
+        cursor.__iter__.side_effect = [
+            iter([("users", "id", 1)]),
+            iter([("users", "uuid", 1), ("orders", "id", 1)]),
+        ]
+        conn = _conn_with_cursor(cursor)
+        out = impl.get_primary_keys(
+            conn, _make_config(schema=""), tables=["analytics.users", "sales.users", "sales.orders"]
+        )
+        assert out == {"analytics.users": ["id"], "sales.users": ["uuid"], "sales.orders": ["id"]}
+        assert cursor.execute.call_count == 2
+
 
 class TestGetLeadingIndexColumns:
     def test_returns_leading_column_set_per_table(self, impl, cursor):
-        cursor.__iter__.return_value = iter([("users", "LINEAR(created_at)"), ("orders", None)])
+        cursor.__iter__.return_value = iter([("PUBLIC", "users", "LINEAR(created_at)"), ("PUBLIC", "orders", None)])
         conn = _conn_with_cursor(cursor)
         out = impl.get_leading_index_columns(conn, _make_config(), tables=["users", "orders"])
         assert out is not None
@@ -300,6 +368,34 @@ class TestGetLeadingIndexColumns:
         cursor.execute.side_effect = Exception("perm")
         conn = _conn_with_cursor(cursor)
         assert impl.get_leading_index_columns(conn, _make_config(), tables=["t"]) is None
+
+    def test_multi_schema_maps_clustering_keys_to_qualified_names(self, impl, cursor):
+        # Same table name across schemas must not cross-contaminate clustering keys.
+        cursor.__iter__.return_value = iter(
+            [
+                ("analytics", "users", "LINEAR(created_at)"),
+                ("sales", "users", "LINEAR(signed_up)"),
+            ]
+        )
+        conn = _conn_with_cursor(cursor)
+        out = impl.get_leading_index_columns(conn, _make_config(schema=""), tables=["analytics.users", "sales.users"])
+        assert out is not None
+        assert out["analytics.users"] == {"CREATED_AT"}
+        assert out["sales.users"] == {"SIGNED_UP"}
+
+
+class TestGetSourceMetadata:
+    def test_single_schema_pins_configured_namespace(self, impl):
+        meta = impl.get_source_metadata(MagicMock(), _make_config(schema="PUBLIC"), tables=["users"])
+        assert meta.catalog_by_table == {"users": "DB"}
+        assert meta.schema_by_table == {"users": "PUBLIC"}
+        assert meta.table_name_by_table == {"users": "users"}
+
+    def test_multi_schema_splits_qualified_display_names(self, impl):
+        meta = impl.get_source_metadata(MagicMock(), _make_config(schema=""), tables=["analytics.users", "sales.users"])
+        assert meta.catalog_by_table == {"analytics.users": "DB", "sales.users": "DB"}
+        assert meta.schema_by_table == {"analytics.users": "analytics", "sales.users": "sales"}
+        assert meta.table_name_by_table == {"analytics.users": "users", "sales.users": "users"}
 
 
 # ---------------------------------------------------------------------------
@@ -366,8 +462,40 @@ class TestBuildPipeline:
 
         with patch("snowflake.connector.connect", return_value=mock_connection):
             response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="messages"))
+            assert response.name == "messages"
             assert response.primary_keys == ["id"]
             assert response.rows_to_sync == 5
             assert list(response.items()) == [b"batch-1", b"batch-2"]
             # Pin a single timestamp unit so mixed ns/us batches don't break pyarrow assembly.
             streaming_cursor.fetch_arrow_batches.assert_called_once_with(force_microsecond_precision=True)
+
+    def test_multi_schema_row_routes_to_qualified_namespace(self, impl):
+        # A blank-namespace source pins each row's schema via the dotted schema_name.
+        metadata_cursor = MagicMock()
+        metadata_cursor.__enter__.return_value = metadata_cursor
+        desc = MagicMock()
+        desc.name = "column_name"
+        metadata_cursor.description = [desc]
+        metadata_cursor.__iter__.return_value = iter([("id",)])
+        metadata_cursor.fetchone.return_value = (3,)
+
+        streaming_cursor = MagicMock()
+        streaming_cursor.__enter__.return_value = streaming_cursor
+        streaming_cursor.fetch_arrow_batches.return_value = iter([b"batch-1"])
+
+        cursors = iter([metadata_cursor, streaming_cursor])
+        mock_connection = MagicMock()
+        mock_connection.__enter__.return_value = mock_connection
+        mock_connection.cursor.side_effect = lambda: next(cursors)
+
+        with patch("snowflake.connector.connect", return_value=mock_connection):
+            response = impl.build_pipeline(_make_config(schema=""), _make_inputs(schema_name="analytics.users"))
+            # Delta subdir keeps the qualified, normalized name so cross-schema duplicates stay distinct.
+            assert response.name == "analytics_users"
+            assert list(response.items()) == [b"batch-1"]
+
+        # PK probe and streaming query both target DB.analytics.users (resolved schema, unqualified table).
+        pk_param = metadata_cursor.execute.call_args_list[0].args[1]
+        assert pk_param == ("DB.analytics.users",)
+        stream_param = streaming_cursor.execute.call_args.args[1]
+        assert stream_param == ("DB.analytics.users",)

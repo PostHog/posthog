@@ -315,6 +315,20 @@ def test_snowflake_config():
     assert config.auth_type.passphrase == ""
 
 
+def test_snowflake_config_without_schema():
+    # A blank schema flips the source into multi-schema discovery across the database.
+    config = SnowflakeSourceConfig.from_dict(
+        {
+            "account_id": "account_id",
+            "database": "database",
+            "warehouse": "warehouse",
+            "auth_type": {"selection": "password", "user": "user", "password": "password"},
+        }
+    )
+
+    assert config.schema is None
+
+
 def test_stripe_config():
     config = StripeSourceConfig.from_dict(
         {"auth_method": {"selection": "api_key", "stripe_secret_key": "api_key"}, "stripe_account_id": "acct_id"}

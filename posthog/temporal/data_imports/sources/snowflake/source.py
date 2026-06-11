@@ -160,10 +160,10 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="schema",
-                        label="Schema",
+                        label="Schema (optional)",
                         type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="public",
+                        required=False,
+                        placeholder="leave blank to sync every schema in the database",
                         secret=False,
                     ),
                 ],
