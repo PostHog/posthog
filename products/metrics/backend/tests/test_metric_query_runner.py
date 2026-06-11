@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -14,6 +15,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 
+from products.metrics.backend.facade.api import run_metric_query
+from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
+from products.metrics.backend.facade.enums import FilterOp, MetricAggregation
 from products.metrics.backend.metric_query_runner import MetricQueryRunner, _pick_interval, attribute_field
 from products.metrics.backend.tests._seeder import seed_metric
 
@@ -179,7 +183,12 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         self.assertIn("results", body)
-        self.assertEqual(sum(point["value"] for point in body["results"]), 3.0)
+        self.assertEqual(len(body["results"]), 1)
+        series = body["results"][0]
+        self.assertEqual(series["labels"], {})
+        self.assertEqual(series["metric_name"], "m1")
+        self.assertEqual(series["clause"], "a")
+        self.assertEqual(sum(point["value"] for point in series["points"]), 3.0)
 
 
 class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
@@ -273,3 +282,102 @@ class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
         )
         value = self._select_attribute(attribute_field("nonexistent"), "m_auto_missing")
         self.assertEqual(value, "")
+
+
+class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+
+    def _request(self, **overrides):
+        anchor = timezone.now().replace(microsecond=0)
+        defaults: dict[str, Any] = {
+            "clauses": (MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),),
+            "date_from": anchor - dt.timedelta(hours=1),
+            "date_to": anchor,
+        }
+        defaults.update(overrides)
+        return MetricQueryRequest(**defaults)
+
+    def test_single_clause_returns_one_series_with_empty_labels(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5), (anchor - dt.timedelta(minutes=10), 2.5)],
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].labels, {})
+        self.assertEqual(series[0].metric_name, "m1")
+        self.assertEqual(series[0].clause, "a")
+        self.assertEqual(sum(p.value for p in series[0].points), 4.0)
+
+    def test_quantile_095_maps_to_p95(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(team_id=self.team.id, metric_name="m1", points=[(anchor - dt.timedelta(minutes=10), 5.0)])
+
+        series = run_metric_query(
+            team=self.team,
+            request=self._request(
+                clauses=(
+                    MetricQueryClause(
+                        name="a", metric_name="m1", aggregation=MetricAggregation.QUANTILE, quantile=0.95
+                    ),
+                )
+            ),
+        )
+        self.assertEqual(len(series), 1)
+
+    @parameterized.expand(
+        [
+            (
+                "multi_clause",
+                {
+                    "clauses": (
+                        MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
+                        MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
+                    )
+                },
+            ),
+            ("formula", {"formula": "a / b"}),
+            ("interval", {"interval": "minute"}),
+            (
+                "filters",
+                {
+                    "clauses": (
+                        MetricQueryClause(
+                            name="a",
+                            metric_name="m1",
+                            aggregation=MetricAggregation.SUM,
+                            filters=(MetricFilter(key="env", op=FilterOp.EQ, value="prod"),),
+                        ),
+                    )
+                },
+            ),
+            (
+                "group_by",
+                {
+                    "clauses": (
+                        MetricQueryClause(
+                            name="a",
+                            metric_name="m1",
+                            aggregation=MetricAggregation.SUM,
+                            group_by=(MetricGroupBy(key="env"),),
+                        ),
+                    )
+                },
+            ),
+            (
+                "unsupported_aggregation",
+                {"clauses": (MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.RATE),)},
+            ),
+        ]
+    )
+    def test_not_yet_supported_features_raise_value_error(self, _name, overrides):
+        with self.assertRaises(ValueError):
+            run_metric_query(team=self.team, request=self._request(**overrides))
