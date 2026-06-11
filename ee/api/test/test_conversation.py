@@ -1386,3 +1386,41 @@ class TestConversationSandboxRoute(APIBaseTest):
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         m_telemetry.assert_not_called()
+
+    def test_prewarm_post_delegates_to_warm_handler(self):
+        conversation = self._sandbox_conversation()
+        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        # The service receives the resolved conversation, and POST warms (never releases).
+        passed_conversation = m_service.call_args[0][0]
+        self.assertEqual(passed_conversation.id, conversation.id)
+        m_service.return_value.prewarm.assert_called_once()
+        m_service.return_value.prewarm_release.assert_not_called()
+
+    def test_prewarm_delete_delegates_to_release_handler(self):
+        conversation = self._sandbox_conversation()
+        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+            response = self.client.delete(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        m_service.return_value.prewarm_release.assert_called_once()
+        m_service.return_value.prewarm.assert_not_called()
+
+    def test_prewarm_rejects_langgraph_conversation(self):
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        m_service.assert_not_called()

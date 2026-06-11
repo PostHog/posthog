@@ -164,8 +164,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         queuedMessages,
         queueSubmitting,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, updateQueuedMessage } =
-        useActions(maxThreadLogic)
+    const {
+        askMax,
+        stopGeneration,
+        completeThreadGeneration,
+        setSupportOverrideEnabled,
+        updateQueuedMessage,
+        releaseSandboxPrewarm,
+    } = useActions(maxThreadLogic)
     const { isActive: handsFreeActive } = useValues(handsFreeLogic({ panelId: maxPanelId }))
     // Only the hands-free row needs bottom-aligned pills — it has the mic + submit pair
     // pinned to the bottom and pills sitting in normal flow look misaligned next to them.
@@ -327,6 +333,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         ref={textAreaRef}
                                         value={isSharedThread ? '' : question}
                                         onChange={(value) => setQuestion(value)}
+                                        onBlur={() => {
+                                            // Release any sandbox pre-warm when the user leaves the
+                                            // input without sending. No-op on LangGraph / unwarmed
+                                            // conversations.
+                                            releaseSandboxPrewarm()
+                                        }}
                                         onPressEnter={() => {
                                             if (
                                                 hasQuestion &&

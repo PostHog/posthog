@@ -193,6 +193,141 @@ class MessageRoutingService(BaseSandboxService):
             cancel_requested=True,
         )
 
+    def prewarm(self) -> None:
+        """Eagerly provision a sandbox Run while the user is typing.
+
+        Boots the sandbox + ACP session ahead of the first submit so first-token
+        latency drops from a cold boot to roughly model-invocation time. The warm
+        Run carries the standard system prompt but no pending user message and no
+        attached context — it opens the session and idles awaiting a `user_message`
+        command. When the user submits, `handle` finds the Run in-progress and
+        routes through the follow-up branch.
+
+        Idempotent: if the conversation already has a non-terminal current Run,
+        this is a no-op.
+        """
+        if self.conversation.task_id is not None:
+            current_run = self.conversation.current_run
+            if current_run is not None and current_run.status in self._IN_PROGRESS_STATUSES:
+                return
+
+        system_prompt = PromptService(self.team, self.user).build()
+
+        if self.conversation.task_id is None:
+            self._prewarm_first(system_prompt)
+        else:
+            self._prewarm_rewarm(system_prompt)
+
+    def prewarm_release(self) -> None:
+        """Release a warm Run if the user abandons the input.
+
+        Cancels the conversation's current non-terminal Run via the in-process
+        command path, letting it transition to terminal; the conversation can warm
+        again on the next typing session. Idempotent: no warm Run is a no-op.
+        """
+        if self.conversation.task_id is None:
+            return
+
+        run = self.conversation.current_run
+        if run is None or run.is_terminal:
+            return
+
+        if run.status not in self._IN_PROGRESS_STATUSES:
+            return
+
+        send_cancel(run)
+
+    def _prewarm_first(self, system_prompt: str) -> None:
+        """First warm — create the Task + Run, mirroring `_handle_first_message`
+        but without a pending user message or attached context."""
+        task = Task.create_and_run(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            user_id=self.user.pk,
+            repository=None,
+            create_pr=False,
+            mode="interactive",
+            # Defer the workflow so the initial run state can carry the PostHog AI keys.
+            start_workflow=False,
+        )
+
+        task_run = task.latest_run
+        if task_run is None:
+            raise exceptions.ValidationError("Failed to create sandbox prewarm run.")
+
+        run_state: dict[str, Any] = dict(task_run.state or {})
+        run_state.update(
+            {
+                "systemPrompt": system_prompt,
+                "initial_permission_mode": "default",
+                # No pending_user_message / attached_context: the session idles awaiting input.
+                "await_user_message": True,
+            }
+        )
+        with transaction.atomic():
+            task_run.state = run_state
+            task_run.save(update_fields=["state"])
+            self.conversation.task = task
+            self.conversation.save(update_fields=["task", "updated_at"])
+
+        # Same write scopes as the first message — the warm Run becomes the run the
+        # user's first submit follows up on, so it must keep create scopes.
+        execute_task_processing_workflow(
+            task_id=str(task.id),
+            run_id=str(task_run.id),
+            team_id=self.team.id,
+            user_id=self.user.pk,
+            create_pr=False,
+            posthog_mcp_scopes="full",
+        )
+
+    def _prewarm_rewarm(self, system_prompt: str) -> None:
+        """Re-warm on an existing Task whose current Run is terminal.
+
+        Creates a fresh successor Run carrying the prior Run's snapshot so the warm
+        session reuses the filesystem, then starts its workflow. The successor
+        create runs under the same Conversation row lock as a terminal resume so a
+        concurrent prewarm / submit cannot create two successors.
+        """
+        task = self.conversation.task
+        if task is None:
+            return
+
+        new_run: TaskRun | None = None
+        with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
+            # Re-resolve under the lock: a concurrent prewarm / submit may have already
+            # created a live successor Run while this request waited.
+            current_run = locked.current_run
+            if current_run is not None and current_run.status in self._IN_PROGRESS_STATUSES:
+                return
+
+            extra_state: dict[str, Any] = {
+                "systemPrompt": system_prompt,
+                "initial_permission_mode": "default",
+                "await_user_message": True,
+            }
+            if current_run is not None:
+                extra_state["resume_from_run_id"] = str(current_run.id)
+                snapshot_external_id = (current_run.state or {}).get("snapshot_external_id")
+                if snapshot_external_id:
+                    extra_state["snapshot_external_id"] = snapshot_external_id
+
+            new_run = task.create_run(mode="interactive", extra_state=extra_state)
+
+        if new_run is None:
+            return
+
+        execute_task_processing_workflow(
+            task_id=str(task.id),
+            run_id=str(new_run.id),
+            team_id=self.team.id,
+            user_id=self.user.pk,
+            create_pr=False,
+            posthog_mcp_scopes="full",
+        )
+
     def _handle_first_message(
         self,
         *,

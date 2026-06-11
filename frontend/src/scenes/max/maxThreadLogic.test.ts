@@ -1392,6 +1392,36 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('filteredCommands runtime filter', () => {
+        function setRuntime(runtime: 'langgraph' | 'sandbox'): void {
+            logic.actions.setConversation({
+                ...MOCK_IN_PROGRESS_CONVERSATION,
+                status: ConversationStatus.Idle,
+                agent_runtime: runtime,
+            } as Conversation)
+            // Empty question matches every command by prefix.
+            maxLogicInstance.actions.setQuestion('')
+        }
+
+        it('hides /init and /remember for sandbox conversations, keeps /usage and /feedback', async () => {
+            setRuntime('sandbox')
+            const names = logic.values.filteredCommands.map((c) => c.name)
+            expect(names).not.toContain(SlashCommandName.SlashInit)
+            expect(names).not.toContain(SlashCommandName.SlashRemember)
+            expect(names).toContain(SlashCommandName.SlashUsage)
+            expect(names).toContain(SlashCommandName.SlashFeedback)
+        })
+
+        it('keeps the full command set for langgraph conversations', async () => {
+            setRuntime('langgraph')
+            const names = logic.values.filteredCommands.map((c) => c.name)
+            expect(names).toContain(SlashCommandName.SlashInit)
+            expect(names).toContain(SlashCommandName.SlashRemember)
+            expect(names).toContain(SlashCommandName.SlashUsage)
+            expect(names).toContain(SlashCommandName.SlashFeedback)
+        })
+    })
+
     describe('command selection and activation', () => {
         beforeEach(() => {
             logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })

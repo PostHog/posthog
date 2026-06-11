@@ -709,6 +709,37 @@ class ConversationViewSet(
         return Response(result.model_dump(exclude={"attached_context_count"}), status=status.HTTP_200_OK)
 
     @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Sandbox warmed (booting or ready), or already warm / released."),
+            400: OpenApiResponse(description="Conversation is not on the sandbox runtime."),
+        },
+        description=(
+            "Eagerly provision a sandbox for a sandbox-runtime conversation while the user is typing. "
+            "POST warms a Run in-process (no pending message); DELETE releases it if the user abandons. "
+            "Both idempotent and sandbox runtime only."
+        ),
+    )
+    @action(detail=True, methods=["POST", "DELETE"], url_path="prewarm")
+    def prewarm(self, request: Request, *args, **kwargs):
+        """Per-conversation eager sandbox warm.
+
+        Sandbox runtime only. POST delegates to the in-process products/tasks warm
+        path; DELETE cancels a warm Run. No HTTP-to-self, no provisioning reimplemented.
+        """
+        conversation = self.get_object()
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
+            raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
+
+        user = cast(User, request.user)
+        service = MessageRoutingService(conversation, user)
+        if request.method == "DELETE":
+            service.prewarm_release()
+        else:
+            service.prewarm()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
         description="Cancel the conversation's in-progress run (sandbox or LangGraph).",
         responses={
             200: SandboxCancelResponseSerializer,

@@ -6674,6 +6674,23 @@ const api = {
         },
 
         /**
+         * Eagerly provision a sandbox while the user is typing. Sandbox runtime only; idempotent.
+         * Returns 204 — warms a Run in-process with no pending message so the session boots and
+         * idles awaiting input. Submitting later follows the in-progress branch.
+         */
+        prewarm(conversationId: string): Promise<void> {
+            return new ApiRequest().conversation(conversationId).withAction('prewarm').create()
+        },
+
+        /**
+         * Release / cancel an eager prewarm if the user abandons. Idempotent;
+         * a DELETE on a conversation with no warm Run is a no-op.
+         */
+        prewarmRelease(conversationId: string): Promise<void> {
+            return new ApiRequest().conversation(conversationId).withAction('prewarm').delete()
+        },
+
+        /**
          * Sandbox-runtime approval reply. Routes in-process to the products/tasks
          * `permission_response` command path. `customInput` carries the optional
          * `reject_with_feedback` text.
