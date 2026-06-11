@@ -21212,6 +21212,8 @@ export namespace Schemas {
       id: string;
       inactive_seconds?: number | null;
       keypress_count?: number | null;
+      /** False when the recording was included in list results via a direct link despite not matching the filters. */
+      matches_filters?: boolean | null;
       /** List of matching events. * */
       matching_events?: MatchedRecording[] | null;
       /** count of all mouse activity in the recording, not just clicks */
@@ -21884,6 +21886,33 @@ export namespace Schemas {
     }
 
     /**
+     * One ranked chunk from a business knowledge search.
+     *
+     * Output-only — the rows come from the ``search_knowledge_for_team`` logic
+     * helper (a ``KnowledgeSearchResult`` dataclass), not the ORM.
+     */
+    export interface KnowledgeSearchResult {
+      /** Stable identifier of this chunk. */
+      readonly chunk_id: string;
+      /** ID of the parent document. Pass to the document-window endpoint with `around_ordinal` to drill down. */
+      readonly document_id: string;
+      /** Zero-based position of this chunk within its document. Use as `around_ordinal` in the document-window endpoint. */
+      readonly ordinal: number;
+      /** ID of the knowledge source this chunk belongs to. */
+      readonly source_id: string;
+      /** Human label of the knowledge source this chunk belongs to. */
+      readonly source_name: string;
+      /** Source type (text, url, or file). */
+      readonly source_type: string;
+      /** Title of the document this chunk belongs to. */
+      readonly document_title: string;
+      /** Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure. */
+      readonly heading_path: string;
+      /** The chunk's text content. */
+      readonly content: string;
+    }
+
+    /**
      * * `text` - Text
      * * `url` - URL
      * * `file` - File
@@ -22550,6 +22579,7 @@ export namespace Schemas {
     /**
      * * `slack` - slack
      * * `webhook` - webhook
+     * * `teams` - teams
      */
     export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
 
@@ -22557,6 +22587,7 @@ export namespace Schemas {
     export const NotificationDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
+      Teams: 'teams',
     } as const;
 
     export interface LogsAlertConfiguration {
@@ -22658,10 +22689,11 @@ export namespace Schemas {
     }
 
     export interface LogsAlertCreateDestination {
-      /** Destination type — slack or webhook.
+      /** Destination type — slack, webhook, or teams.
        *
        * * `slack` - slack
-       * * `webhook` - webhook */
+       * * `webhook` - webhook
+       * * `teams` - teams */
       type: NotificationDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -22669,7 +22701,7 @@ export namespace Schemas {
       slack_channel_id?: string;
       /** Human-readable channel name for display. */
       slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook. */
+      /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
       webhook_url?: string;
     }
 
@@ -26047,6 +26079,11 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
+      /**
+         * Latest projected observations/month for this scanner. Null until first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_observations: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -26486,6 +26523,8 @@ export namespace Schemas {
       readonly summary_outcome: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters: boolean;
     }
 
     export interface PaginatedSessionRecordingList {
@@ -28466,7 +28505,7 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
-      /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review: boolean;
     }
 
@@ -32774,6 +32813,11 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;
+      /**
+         * Latest projected observations/month for this scanner. Null until first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_observations?: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -33022,6 +33066,8 @@ export namespace Schemas {
       readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters?: boolean;
     }
 
     /**
@@ -34586,7 +34632,7 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
-      /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review?: boolean;
     }
 
@@ -42217,6 +42263,8 @@ export namespace Schemas {
       readonly period_start: string;
       /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
       readonly period_end: string;
+      /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+      readonly projected_monthly_observations: number;
     }
 
     /**
@@ -48379,6 +48427,17 @@ export namespace Schemas {
      * Number of chunks before and after the center to include. Defaults to 5, clamped to [0, 15].
      */
     radius?: number;
+    };
+
+    export type BusinessKnowledgeDocumentsSearchListParams = {
+    /**
+     * Maximum number of ranked chunks to return. Defaults to 10, capped at 20.
+     */
+    limit?: number;
+    /**
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
+     */
+    query: string;
     };
 
     export type BusinessKnowledgeSourcesListParams = {

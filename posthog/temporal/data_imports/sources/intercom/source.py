@@ -58,7 +58,6 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
-            unreleasedSource=True,
             featureFlag="dwh_intercom",
             releaseStatus=ReleaseStatus.ALPHA,
         )

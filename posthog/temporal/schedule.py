@@ -86,6 +86,7 @@ from products.error_tracking.backend.temporal.symbol_set_cleanup.schedule import
     create_error_tracking_symbol_set_cleanup_schedule,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
 from products.tasks.backend.temporal.code_workstreams.schedule import create_evaluate_code_workstreams_schedule
@@ -662,6 +663,7 @@ schedules = [
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
+    create_replay_vision_estimates_schedule,
     create_evaluate_code_workstreams_schedule,
 ]
 

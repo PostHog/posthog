@@ -83,11 +83,11 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                         // Save field access control changes if any
                         const currentTeamId = teamLogic.values.currentTeamId
                         if (currentTeamId) {
-                            const facLogic = propertyAccessControlLogic({
+                            const facLogic = propertyAccessControlLogic.findMounted({
                                 propertyDefinitionId: definition.id,
                                 teamId: currentTeamId,
                             })
-                            if (facLogic.values.hasChanges) {
+                            if (facLogic?.values.hasChanges) {
                                 facLogic.actions.saveAccessControls()
                             }
                         }

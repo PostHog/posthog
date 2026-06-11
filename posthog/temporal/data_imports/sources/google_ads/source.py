@@ -3,6 +3,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -136,7 +137,7 @@ class GoogleAdsSource(
             name=SchemaExternalDataSourceType.GOOGLE_ADS,
             label="Google Ads",
             caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/google-ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-ads",
             fields=cast(
