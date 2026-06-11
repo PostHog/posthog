@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { type CSSProperties, useEffect, useState } from 'react'
+import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconCode, IconCopy, IconQuote, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
@@ -27,7 +27,7 @@ export const TEXT_BLOCK_STYLE_BUTTONS: {
     { style: 1, label: 'Heading 1', content: 'H1' },
     { style: 2, label: 'Heading 2', content: 'H2' },
     { style: 3, label: 'Heading 3', content: 'H3' },
-    { style: 'blockquote', label: 'Quote', icon: <IconQuote /> },
+    { style: 'blockquote', label: 'Blockquote', icon: <IconQuote /> },
     { style: 'code', label: 'Code', icon: <IconCode /> },
 ]
 
@@ -62,9 +62,53 @@ export function FormattingToolbar({
 }): JSX.Element {
     const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(initialLinkEditorOpen)
     const [linkHref, setLinkHref] = useState(currentLinkHref ?? '')
+    const toolbarRef = useRef<HTMLDivElement | null>(null)
+    const [boundsShift, setBoundsShift] = useState({ x: 0, y: 0 })
+
+    // The anchor point only clamps the toolbar's center to the viewport, so the rendered toolbar
+    // (translated -50% horizontally, and -100% when placed above) can still poke past the edges.
+    // Measure the real box and shift it back inside.
+    useLayoutEffect(() => {
+        const element = toolbarRef.current
+        if (!element) {
+            return
+        }
+
+        const rect = element.getBoundingClientRect()
+        if (!rect.width && !rect.height) {
+            return
+        }
+
+        const margin = 8
+        const baseLeft = rect.left - boundsShift.x
+        const baseTop = rect.top - boundsShift.y
+        let x = 0
+        if (baseLeft + rect.width > window.innerWidth - margin) {
+            x = window.innerWidth - margin - rect.width - baseLeft
+        }
+        if (baseLeft + x < margin) {
+            x = margin - baseLeft
+        }
+        let y = 0
+        if (baseTop + rect.height > window.innerHeight - margin) {
+            y = window.innerHeight - margin - rect.height - baseTop
+        }
+        if (baseTop + y < margin) {
+            y = margin - baseTop
+        }
+
+        x = Math.round(x)
+        y = Math.round(y)
+        if (x !== boundsShift.x || y !== boundsShift.y) {
+            setBoundsShift({ x, y })
+        }
+    }, [top, left, placement, isLinkEditorOpen, showInlineActions, boundsShift])
+
     const toolbarStyle = {
         '--markdown-notebook-format-toolbar-top': `${top}px`,
         '--markdown-notebook-format-toolbar-left': `${left}px`,
+        '--markdown-notebook-format-toolbar-shift-x': `${boundsShift.x}px`,
+        '--markdown-notebook-format-toolbar-shift-y': `${boundsShift.y}px`,
     } as CSSProperties
     const normalizedLinkHref = sanitizeNotebookLinkHref(linkHref)
     const hasExistingLink = !!currentLinkHref
@@ -104,6 +148,7 @@ export function FormattingToolbar({
         <div
             className={clsx('MarkdownNotebook__format-toolbar', `MarkdownNotebook__format-toolbar--${placement}`)}
             contentEditable={false}
+            ref={toolbarRef}
             style={toolbarStyle}
             onFocusCapture={lockPosition}
             onPointerDownCapture={lockPosition}

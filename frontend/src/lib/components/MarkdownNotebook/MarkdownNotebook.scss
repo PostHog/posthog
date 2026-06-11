@@ -270,6 +270,22 @@
     border-left: 6px solid var(--markdown-notebook-code-gutter);
 }
 
+/* When a quote/code surface starts or ends its text group (or stands alone), stretch it to the
+   card edge instead of leaving a strip of the card background above/below it. */
+.MarkdownNotebook__text-group .MarkdownNotebook__blockquote-group:first-child,
+.MarkdownNotebook__text-group .MarkdownNotebook__code-group:first-child {
+    padding-top: 1.25rem;
+    margin-top: -1.75rem;
+    border-top-right-radius: calc(0.25rem - 1px);
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__blockquote-group:last-child,
+.MarkdownNotebook__text-group .MarkdownNotebook__code-group:last-child {
+    padding-bottom: 1.25rem;
+    margin-bottom: -1.75rem;
+    border-bottom-right-radius: calc(0.25rem - 1px);
+}
+
 .MarkdownNotebook__text-group .MarkdownNotebook__text-block:focus {
     background: color-mix(in sRGB, var(--color-bg-fill-tertiary) 58%, transparent);
 }
@@ -513,11 +529,17 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__format-toolbar--above {
-    transform: translate(-50%, calc(-100% - 0.5rem));
+    transform: translate(
+        calc(-50% + var(--markdown-notebook-format-toolbar-shift-x, 0px)),
+        calc(-100% - 0.5rem + var(--markdown-notebook-format-toolbar-shift-y, 0px))
+    );
 }
 
 .MarkdownNotebook__format-toolbar--below {
-    transform: translate(-50%, 0);
+    transform: translate(
+        calc(-50% + var(--markdown-notebook-format-toolbar-shift-x, 0px)),
+        var(--markdown-notebook-format-toolbar-shift-y, 0)
+    );
 }
 
 .MarkdownNotebook__format-style-buttons {

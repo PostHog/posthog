@@ -3407,7 +3407,7 @@ aXbc
         let listItems = getEditableListItems(container)
 
         selectTextAcrossNodes(getFirstTextNode(listItems[0]), 0, getFirstTextNode(listItems[1]), 'Second'.length, true)
-        fireEvent.click(getFormattingStyleButton(container, 'Quote'))
+        fireEvent.click(getFormattingStyleButton(container, 'Blockquote'))
 
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
 
@@ -3417,9 +3417,9 @@ aXbc
         listItems = getEditableListItems(container)
         selectTextAcrossNodes(getFirstTextNode(listItems[0]), 0, getFirstTextNode(listItems[1]), 'Second'.length, true)
 
-        expect(getFormattingStyleButton(container, 'Quote').classList.contains('LemonButton--active')).toBe(true)
+        expect(getFormattingStyleButton(container, 'Blockquote').classList.contains('LemonButton--active')).toBe(true)
 
-        fireEvent.click(getFormattingStyleButton(container, 'Quote'))
+        fireEvent.click(getFormattingStyleButton(container, 'Blockquote'))
 
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
 
@@ -4105,7 +4105,7 @@ First paragraph
         const textBlock = getBodyTextBlock(container)
 
         selectTextNode(getFirstTextNode(textBlock), 0, 'First'.length, true)
-        fireEvent.click(container.querySelector('button[aria-label="Quote"]') as HTMLButtonElement)
+        fireEvent.click(container.querySelector('button[aria-label="Blockquote"]') as HTMLButtonElement)
 
         expect(container.querySelector('blockquote.MarkdownNotebook__text-block')).toBeInstanceOf(HTMLElement)
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> First paragraph`)
@@ -4119,7 +4119,7 @@ First paragraph
         const quoteBlock = getBodyTextBlock(container)
 
         selectTextNode(getFirstTextNode(quoteBlock), 0, 'First'.length, true)
-        const quoteButton = getFormattingStyleButton(container, 'Quote')
+        const quoteButton = getFormattingStyleButton(container, 'Blockquote')
 
         expect(quoteButton.classList.contains('LemonButton--active')).toBe(true)
         fireEvent.click(quoteButton)
@@ -4138,7 +4138,7 @@ First paragraph
 
         expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeInstanceOf(HTMLElement)
         expect(getFormattingStyleButton(container, 'Code').classList.contains('LemonButton--active')).toBe(true)
-        expect(getFormattingStyleButton(container, 'Quote')).toBeInstanceOf(HTMLButtonElement)
+        expect(getFormattingStyleButton(container, 'Blockquote')).toBeInstanceOf(HTMLButtonElement)
         expect(container.querySelector('button[aria-label="Bold"]')).toBeNull()
         expect(container.querySelector('button[aria-label="Italic"]')).toBeNull()
         expect(container.querySelector('button[aria-label="Link"]')).toBeNull()

@@ -417,9 +417,9 @@ export function buildInsertCommands(
     const textStyleCommands: InsertCommand[] = [
         {
             key: 'text-quote',
-            label: 'Quote',
+            label: 'Blockquote',
             category: 'Text',
-            aliases: ['blockquote'],
+            aliases: ['quote'],
             icon: <IconPencil />,
             run: (targetNodeId) =>
                 replaceNode(targetNodeId, {
