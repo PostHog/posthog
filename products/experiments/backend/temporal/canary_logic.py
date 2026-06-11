@@ -122,10 +122,12 @@ def _eligible_experiments() -> list[Experiment]:
         .exclude(deleted=True)
         .exclude(archived=True)
         .select_related("team")
+        # Metric discovery walks saved metrics per experiment; prefetch to avoid an N+1 over the sample.
+        .prefetch_related("experimenttosavedmetric_set__saved_metric")
     )
 
 
-def _experiment_metric_dicts(experiment: Experiment) -> list[dict]:
+def _experiment_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
     with team_scope(experiment.team_id, canonical=True):
         return [m for m in iter_metric_dicts(experiment) if m.get("metric_type") in ELIGIBLE_METRIC_TYPES]
 
@@ -257,20 +259,24 @@ def evaluate_canary_runs(
     if any(not run.variants for run in runs):
         return CanaryVerdict(outcome=OUTCOME_SKIPPED, detail="empty results (no exposures yet)")
 
+    # Checked before the variant-set comparison: a flipped run compares live vs frozen data, so it can
+    # also explain a variant showing up in one run but not another.
+    flipped = [run.label for run in (run_a, run_b) if not run.is_precomputed]
+    if flipped:
+        # A forced-precomputed run fell back to the direct scan (e.g. the lazy computation executor timed
+        # out). Deviation is expected — not a divergence.
+        return CanaryVerdict(outcome=OUTCOME_PATH_FLIP, detail=f"run(s) {', '.join(flipped)} fell back to direct scan")
+
     variant_keys = {frozenset(run.variants) for run in runs}
     if len(variant_keys) > 1:
         return CanaryVerdict(outcome=OUTCOME_ERROR, detail="variant set mismatch between runs")
 
-    if min(stats.number_of_samples for stats in run_a.variants.values()) < MIN_EXPOSURES_PER_VARIANT:
+    # Gated on every run: a thin variant in the direct scan would make the correctness comparison just as
+    # meaningless as one in the precomputed reads.
+    if min(stats.number_of_samples for run in runs for stats in run.variants.values()) < MIN_EXPOSURES_PER_VARIANT:
         return CanaryVerdict(
             outcome=OUTCOME_SKIPPED, detail=f"fewer than {MIN_EXPOSURES_PER_VARIANT} exposures in a variant"
         )
-
-    flipped = [run.label for run in (run_a, run_b) if not run.is_precomputed]
-    if flipped:
-        # A forced-precomputed run fell back to the direct scan (e.g. the lazy computation executor timed
-        # out). The pair compares live vs frozen data, so deviation is expected — not a divergence.
-        return CanaryVerdict(outcome=OUTCOME_PATH_FLIP, detail=f"run(s) {', '.join(flipped)} fell back to direct scan")
 
     stability_deviation = _max_deviation(run_a, run_b)
     correctness_deviation = _max_deviation(run_b, run_c)
@@ -292,10 +298,14 @@ def evaluate_canary_runs(
 def _execute_canary_run(
     experiment: Experiment, metric: ExperimentMetric, mode: PrecomputationMode, label: str, query_id: str
 ) -> CanaryRunSnapshot:
-    # Fresh runner per run: the runner caches precomputation state from its first execution.
+    # Fresh runner per run: the runner caches precomputation state from its first execution. The workload
+    # is deliberately left at its default (online cluster) — the bug class this canary hunts is only
+    # observable on the path users actually read from. user_facing=False keeps original exceptions intact
+    # for Temporal's retry classification instead of converting them to friendly ValidationErrors.
     runner = ExperimentQueryRunner(
         query=ExperimentQuery(experiment_id=experiment.id, metric=metric, precomputation_mode=mode),
         team=experiment.team,
+        user_facing=False,
     )
     with tags_context(client_query_id=query_id, trigger="experiment_precompute_canary"):
         response = runner.calculate()
@@ -337,6 +347,11 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
         metric_dict = find_metric_dict(experiment, target.metric_uuid)
         if metric_dict is None:
             return _skipped("metric no longer present on experiment")
+        # Re-resolved, so the type can differ from what was sampled (metric edited in between). The verdict
+        # rules depend on it, so use the current type — and bail if it changed to an ineligible one.
+        metric_type = metric_dict.get("metric_type")
+        if metric_type not in ELIGIBLE_METRIC_TYPES:
+            return _skipped(f"metric type changed to ineligible {metric_type!r}")
         try:
             metric = build_metric(metric_dict)
         except Exception as e:
@@ -360,7 +375,7 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
                 )
                 raise
 
-        verdict = evaluate_canary_runs(target.metric_type, *runs)
+        verdict = evaluate_canary_runs(metric_type, *runs)
         result = CanaryMetricResult(
             target=target,
             outcome=verdict.outcome,

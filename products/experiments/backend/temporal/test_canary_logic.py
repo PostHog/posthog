@@ -3,16 +3,20 @@ from datetime import timedelta
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.canary_logic import (
     evaluate_canary_runs,
+    relative_deviation,
+    report_canary_results_sync,
     run_metric_canary_sync,
     sample_canary_targets_sync,
 )
@@ -22,7 +26,9 @@ from products.experiments.backend.temporal.models import (
     OUTCOME_PASS,
     OUTCOME_PATH_FLIP,
     OUTCOME_SKIPPED,
+    CanaryMetricResult,
     CanaryMetricTarget,
+    CanaryReportInputs,
     CanaryRunSnapshot,
     CanaryVariantStats,
     ExperimentPrecomputeCanaryInputs,
@@ -42,6 +48,22 @@ def _snapshot(label: str, variants: dict[str, tuple[float, int]], is_precomputed
 
 
 _BASE = {"control": (1000.0, 10000), "test": (1100.0, 10000)}
+
+
+class TestRelativeDeviation:
+    @parameterized.expand(
+        [
+            # name, a, b, expected
+            ("both_zero", 0.0, 0.0, 0.0),
+            ("equal", 1000.0, 1000.0, 0.0),
+            ("small_drift", 1000.0, 1005.0, 5.0 / 1005.0),
+            ("one_zero_below_floor", 0.0, 0.5, 0.5),  # denominator floored at 1.0
+            ("negative_values", -10.0, 10.0, 2.0),
+        ]
+    )
+    def test_relative_deviation(self, _name, a, b, expected):
+        assert relative_deviation(a, b) == pytest.approx(expected)
+        assert relative_deviation(b, a) == pytest.approx(expected)
 
 
 class TestEvaluateCanaryRuns:
@@ -124,6 +146,20 @@ class TestEvaluateCanaryRuns:
             "funnel", _snapshot("a", _BASE), _snapshot("b", _BASE), _snapshot("c", _BASE, is_precomputed=False)
         )
         assert verdict.outcome == OUTCOME_PASS
+
+    def test_path_flip_takes_precedence_over_variant_mismatch(self):
+        verdict = evaluate_canary_runs(
+            "funnel",
+            _snapshot("a", {"control": (1000.0, 10000)}, is_precomputed=False),
+            _snapshot("b", _BASE),
+            _snapshot("c", _BASE),
+        )
+        assert verdict.outcome == OUTCOME_PATH_FLIP
+
+    def test_low_volume_in_direct_scan_is_skipped(self):
+        thin_c = {"control": (1000.0, 10000), "test": (5.0, 50)}
+        verdict = evaluate_canary_runs("funnel", _snapshot("a", _BASE), _snapshot("b", _BASE), _snapshot("c", thin_c))
+        assert verdict.outcome == OUTCOME_SKIPPED
 
     def test_variant_set_mismatch_is_error(self):
         verdict = evaluate_canary_runs(
@@ -312,6 +348,12 @@ class TestRunMetricCanary(BaseTest):
         result = run_metric_canary_sync(self._target(experiment, str(uuid.uuid4())))
         assert result.outcome == OUTCOME_SKIPPED
 
+    def test_metric_type_changed_to_ineligible_is_skipped(self):
+        metric = _inline_metric("retention")
+        experiment = self._experiment([metric])
+        result = run_metric_canary_sync(self._target(experiment, metric["uuid"]))  # target still says funnel
+        assert result.outcome == OUTCOME_SKIPPED
+
     def test_unparseable_metric_is_skipped(self):
         metric = {"uuid": str(uuid.uuid4()), "metric_type": "funnel"}  # missing required series
         experiment = self._experiment([metric])
@@ -342,3 +384,48 @@ class TestRunMetricCanary(BaseTest):
         ):
             with pytest.raises(RuntimeError):
                 run_metric_canary_sync(self._target(experiment, metric["uuid"]))
+
+
+def _result(outcome: str, **kwargs) -> CanaryMetricResult:
+    target = CanaryMetricTarget(team_id=1, experiment_id=2, metric_uuid="m-uuid", metric_type="funnel")
+    return CanaryMetricResult(target=target, outcome=outcome, runs=[_snapshot("a", _BASE)], **kwargs)
+
+
+class TestCanaryReporting:
+    @override_settings(EXPERIMENT_CANARY_SLACK_WEBHOOK_URL="")
+    def test_no_slack_when_webhook_unset(self):
+        with patch("products.experiments.backend.temporal.canary_logic.requests.post") as post:
+            report_canary_results_sync(CanaryReportInputs(results=[_result(OUTCOME_DIVERGENCE)]))
+        post.assert_not_called()
+
+    @override_settings(EXPERIMENT_CANARY_SLACK_WEBHOOK_URL="https://hooks.example.com/secret")
+    def test_no_slack_when_nothing_diverged(self):
+        with patch("products.experiments.backend.temporal.canary_logic.requests.post") as post:
+            report_canary_results_sync(
+                CanaryReportInputs(results=[_result(OUTCOME_PASS), _result(OUTCOME_ERROR), _result(OUTCOME_SKIPPED)])
+            )
+        post.assert_not_called()
+
+    @override_settings(EXPERIMENT_CANARY_SLACK_WEBHOOK_URL="https://hooks.example.com/secret")
+    def test_slack_posted_on_divergence(self):
+        with patch(
+            "products.experiments.backend.temporal.canary_logic.requests.post", return_value=MagicMock()
+        ) as post:
+            report_canary_results_sync(
+                CanaryReportInputs(results=[_result(OUTCOME_DIVERGENCE, stability_deviation=0.3)])
+            )
+        post.assert_called_once()
+        args, kwargs = post.call_args
+        assert args[0] == "https://hooks.example.com/secret"
+        assert kwargs["timeout"] == 10
+        body = str(kwargs["json"])
+        assert "experiment 2" in body
+        assert "m-uuid" in body
+
+    @override_settings(EXPERIMENT_CANARY_SLACK_WEBHOOK_URL="https://hooks.example.com/secret")
+    def test_slack_failure_is_swallowed_and_does_not_log_the_url(self):
+        error = requests.RequestException("404 for url: https://hooks.example.com/secret")
+        with patch("products.experiments.backend.temporal.canary_logic.requests.post", side_effect=error):
+            with patch("products.experiments.backend.temporal.canary_logic.logger.warning") as warning:
+                report_canary_results_sync(CanaryReportInputs(results=[_result(OUTCOME_DIVERGENCE)]))
+        assert "secret" not in str(warning.call_args)
