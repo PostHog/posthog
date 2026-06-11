@@ -50,6 +50,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         errorDisplay,
         personDistinctIds,
         hasMultipleDistinctIds,
+        bucketingDistinctId,
     } = useValues(logic)
 
     const {
@@ -134,6 +135,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <LemonLabel>Distinct ID for bucketing</LemonLabel>
                                     <LemonSelect
                                         fullWidth
+                                        aria-label="Distinct ID for bucketing"
                                         truncateText={{ maxWidthClass: 'max-w-full' }}
                                         value={formData.distinct_id}
                                         onChange={(distinctId) => {
@@ -290,11 +292,11 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     backend echoes an explicit value — it returns null when a different ID
                                     was actually bucketed against, and falling back to the requested ID
                                     here would mislabel which ID drove the result. */}
-                                {result.evaluation_distinct_id && (
+                                {bucketingDistinctId && (
                                     <div className="space-y-2">
                                         <LemonLabel>Bucketed using distinct ID</LemonLabel>
                                         <div className="px-3 py-2 rounded text-sm font-mono bg-bg-light break-all">
-                                            {result.evaluation_distinct_id}
+                                            {bucketingDistinctId}
                                         </div>
                                     </div>
                                 )}

@@ -247,6 +247,13 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             (s) => [s.personDistinctIds],
             (distinctIds: string[]): boolean => distinctIds.length > 1,
         ],
+        // The distinct ID the backend reports it bucketed against. Null when the API
+        // withholds it (a different ID was actually used) — we must not fall back to the
+        // requested ID, which would mislabel which ID drove the result.
+        bucketingDistinctId: [
+            (s) => [s.testResult],
+            (result: TestResult | null): string | null => result?.evaluation_distinct_id ?? null,
+        ],
         // Get formatted error display information
         errorDisplay: [
             (s) => [s.testError],

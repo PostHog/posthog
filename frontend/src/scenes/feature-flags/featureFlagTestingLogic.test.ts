@@ -256,6 +256,42 @@ describe('featureFlagTestingLogic', () => {
         })
     })
 
+    describe('bucketingDistinctId selector', () => {
+        const baseResult: Omit<FeatureFlagTestEvaluationResponseApi, 'evaluation_distinct_id'> = {
+            flag_key: 'test-flag',
+            result: true,
+            reason: 'condition_match',
+            condition_index: 0,
+            payload: null,
+            person_properties: {},
+            conditions: [],
+        }
+
+        it('is null before any evaluation has run', () => {
+            expect(logic.values.bucketingDistinctId).toBeNull()
+        })
+
+        it.each([
+            {
+                description: 'returns the backend-reported ID when present',
+                evaluation_distinct_id: 'user-123',
+                expected: 'user-123',
+            },
+            {
+                description: 'is null when the backend withholds it (a different ID was used)',
+                evaluation_distinct_id: null,
+                expected: null,
+            },
+        ])('$description', async ({ evaluation_distinct_id, expected }) => {
+            await expectLogic(logic, () => {
+                logic.actions.testFlagEvaluationSuccess({
+                    ...baseResult,
+                    evaluation_distinct_id,
+                } as FeatureFlagTestEvaluationResponseApi)
+            }).toMatchValues({ bucketingDistinctId: expected })
+        })
+    })
+
     describe('hasValidPerson selector', () => {
         it.each([
             { description: 'is true when distinct_id is set', formData: { distinct_id: 'user-123' }, expected: true },
