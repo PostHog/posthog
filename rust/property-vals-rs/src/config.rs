@@ -35,9 +35,6 @@ pub struct Config {
     #[envconfig(default = "none")]
     pub intermediate_topic_encoding: EnvelopeEncoding,
 
-    // Payload serialization for the intermediate topic: `json` or `binary`.
-    // The merger decodes both, so `binary` can roll out incrementally; it
-    // roughly halves the uncompressed bytes per record.
     #[envconfig(default = "json")]
     pub intermediate_topic_format: WireFormat,
 
