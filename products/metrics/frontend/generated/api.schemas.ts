@@ -58,9 +58,9 @@ export const OpEnumApi = {
  * * `attribute` - attribute
  * * `auto` - auto
  */
-export type _MetricFilterScopeEnumApi = (typeof _MetricFilterScopeEnumApi)[keyof typeof _MetricFilterScopeEnumApi]
+export type MetricAttributeScopeEnumApi = (typeof MetricAttributeScopeEnumApi)[keyof typeof MetricAttributeScopeEnumApi]
 
-export const _MetricFilterScopeEnumApi = {
+export const MetricAttributeScopeEnumApi = {
     Resource: 'resource',
     Attribute: 'attribute',
     Auto: 'auto',
@@ -86,8 +86,45 @@ export interface _MetricFilterApi {
      * * `resource` - resource
      * * `attribute` - attribute
      * * `auto` - auto */
-    scope?: _MetricFilterScopeEnumApi
+    scope?: MetricAttributeScopeEnumApi
 }
+
+export interface _MetricGroupByApi {
+    /**
+     * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
+     * @maxLength 255
+     */
+    key: string
+    /** Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.
+     *
+     * * `resource` - resource
+     * * `attribute` - attribute
+     * * `auto` - auto */
+    scope?: MetricAttributeScopeEnumApi
+}
+
+/**
+ * * `second` - second
+ * * `minute` - minute
+ * * `minute_5` - minute_5
+ * * `minute_15` - minute_15
+ * * `hour` - hour
+ * * `hour_6` - hour_6
+ * * `day` - day
+ * * `week` - week
+ */
+export type MetricQueryIntervalEnumApi = (typeof MetricQueryIntervalEnumApi)[keyof typeof MetricQueryIntervalEnumApi]
+
+export const MetricQueryIntervalEnumApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Minute5: 'minute_5',
+    Minute15: 'minute_15',
+    Hour: 'hour',
+    Hour6: 'hour_6',
+    Day: 'day',
+    Week: 'week',
+} as const
 
 export interface _MetricQueryBodyApi {
     /**
@@ -104,6 +141,19 @@ export interface _MetricQueryBodyApi {
     aggregation?: AggregationEnumApi
     /** Label predicates ANDed together. Rows must satisfy every filter. */
     filters?: _MetricFilterApi[]
+    /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
+    groupBy?: _MetricGroupByApi[]
+    /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
+     *
+     * * `second` - second
+     * * `minute` - minute
+     * * `minute_5` - minute_5
+     * * `minute_15` - minute_15
+     * * `hour` - hour
+     * * `hour_6` - hour_6
+     * * `day` - day
+     * * `week` - week */
+    interval?: MetricQueryIntervalEnumApi | null
     /** Lower bound (inclusive) for the query range. ISO 8601. */
     dateFrom: string
     /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */

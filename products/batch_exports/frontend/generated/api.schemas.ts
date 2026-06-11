@@ -231,9 +231,9 @@ export interface BatchExportDestinationApi {
  * * `every 5 minutes` - every 5 minutes
  * * `every 15 minutes` - every 15 minutes
  */
-export type IntervalEnumApi = (typeof IntervalEnumApi)[keyof typeof IntervalEnumApi]
+export type BatchExportIntervalEnumApi = (typeof BatchExportIntervalEnumApi)[keyof typeof BatchExportIntervalEnumApi]
 
-export const IntervalEnumApi = {
+export const BatchExportIntervalEnumApi = {
     Hour: 'hour',
     Day: 'day',
     Week: 'week',
@@ -381,7 +381,7 @@ export interface BatchExportApi {
      * * `week` - week
      * * `every 5 minutes` - every 5 minutes
      * * `every 15 minutes` - every 15 minutes */
-    interval: IntervalEnumApi
+    interval: BatchExportIntervalEnumApi
     /** Whether this BatchExport is paused or not. */
     paused?: boolean
     /** The timestamp at which this BatchExport was created. */
@@ -1115,7 +1115,7 @@ export interface BatchExportRequestApi {
      * * `week` - week
      * * `every 5 minutes` - every 5 minutes
      * * `every 15 minutes` - every 15 minutes */
-    interval: IntervalEnumApi
+    interval: BatchExportIntervalEnumApi
     /** Whether the batch export is paused. */
     paused?: boolean
     /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
@@ -1274,7 +1274,7 @@ export interface PatchedBatchExportRequestApi {
      * * `week` - week
      * * `every 5 minutes` - every 5 minutes
      * * `every 15 minutes` - every 15 minutes */
-    interval?: IntervalEnumApi
+    interval?: BatchExportIntervalEnumApi
     /** Whether the batch export is paused. */
     paused?: boolean
     /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */

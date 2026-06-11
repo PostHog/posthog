@@ -16,6 +16,9 @@ export const metricsQueryCreateBodyQueryOneFiltersItemKeyMax = 255
 
 export const metricsQueryCreateBodyQueryOneFiltersItemOpDefault = `eq`
 export const metricsQueryCreateBodyQueryOneFiltersItemScopeDefault = `auto`
+export const metricsQueryCreateBodyQueryOneGroupByItemKeyMax = 255
+
+export const metricsQueryCreateBodyQueryOneGroupByItemScopeDefault = `auto`
 
 export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -61,6 +64,39 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Label predicates ANDed together. Rows must satisfy every filter.'),
+            groupBy: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .max(metricsQueryCreateBodyQueryOneGroupByItemKeyMax)
+                            .describe("Attribute name to split series by (e.g. 'k8s.pod.name', 'env')."),
+                        scope: zod
+                            .enum(['resource', 'attribute', 'auto'])
+                            .describe('\* `resource` - resource\n\* `attribute` - attribute\n\* `auto` - auto')
+                            .default(metricsQueryCreateBodyQueryOneGroupByItemScopeDefault)
+                            .describe(
+                                "Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.\n\n\* `resource` - resource\n\* `attribute` - attribute\n\* `auto` - auto"
+                            ),
+                    })
+                )
+                .optional()
+                .describe(
+                    'Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest.'
+                ),
+            interval: zod
+                .union([
+                    zod
+                        .enum(['second', 'minute', 'minute_5', 'minute_15', 'hour', 'hour_6', 'day', 'week'])
+                        .describe(
+                            '\* `second` - second\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).\n\n\* `second` - second\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                ),
             dateFrom: zod.iso
                 .datetime({ offset: true })
                 .describe('Lower bound (inclusive) for the query range. ISO 8601.'),

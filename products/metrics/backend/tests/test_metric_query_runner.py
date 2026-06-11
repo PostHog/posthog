@@ -2,6 +2,7 @@ import datetime as dt
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -345,20 +346,6 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
                 },
             ),
             ("formula", {"formula": "a / b"}),
-            ("interval", {"interval": "minute"}),
-            (
-                "group_by",
-                {
-                    "clauses": (
-                        MetricQueryClause(
-                            name="a",
-                            metric_name="m1",
-                            aggregation=MetricAggregation.SUM,
-                            group_by=(MetricGroupBy(key="env"),),
-                        ),
-                    )
-                },
-            ),
             (
                 "unsupported_aggregation",
                 {"clauses": (MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.RATE),)},
@@ -485,3 +472,117 @@ class TestMetricFilters(ClickhouseTestMixin, APIBaseTest):
             ),
         )
         self.assertEqual(sum(p.value for p in series[0].points), 10.0)
+
+
+class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        self.anchor = timezone.now().replace(microsecond=0, second=0)
+        # env=prod has points in two buckets, env=dev only in the second —
+        # exercises the shared-grid zero-fill.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=10), 1.0), (self.anchor - dt.timedelta(minutes=5), 2.0)],
+            labels={"env": "prod"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 10.0)],
+            labels={"env": "dev"},
+        )
+
+    def _run(self, **request_overrides):
+        defaults: dict[str, Any] = {
+            "clauses": (
+                MetricQueryClause(
+                    name="a",
+                    metric_name="req",
+                    aggregation=MetricAggregation.SUM,
+                    group_by=(MetricGroupBy(key="env"),),
+                ),
+            ),
+            "date_from": self.anchor - dt.timedelta(hours=1),
+            "date_to": self.anchor,
+        }
+        defaults.update(request_overrides)
+        return run_metric_query(team=self.team, request=MetricQueryRequest(**defaults))
+
+    def test_one_series_per_group_with_shared_zero_filled_grid(self):
+        series = self._run()
+
+        self.assertEqual(len(series), 2)
+        by_env = {s.labels["env"]: s for s in series}
+        self.assertEqual(set(by_env), {"prod", "dev"})
+
+        prod_times = [p.time for p in by_env["prod"].points]
+        dev_times = [p.time for p in by_env["dev"].points]
+        self.assertEqual(prod_times, dev_times)
+
+        self.assertEqual(sum(p.value for p in by_env["prod"].points), 3.0)
+        self.assertEqual(sum(p.value for p in by_env["dev"].points), 10.0)
+        # dev has no data in prod's first bucket: zero-filled, not missing.
+        self.assertIn(0.0, [p.value for p in by_env["dev"].points])
+
+    def test_series_ordered_largest_first(self):
+        series = self._run()
+        self.assertEqual(series[0].labels["env"], "dev")
+
+    def test_explicit_interval_respected(self):
+        series = self._run(interval="minute_5")
+        # 10-minute spread at 5m buckets: both points land in distinct buckets
+        by_env = {s.labels["env"]: s for s in series}
+        self.assertEqual(len(by_env["prod"].points), len(by_env["dev"].points))
+
+    def test_unknown_interval_raises(self):
+        with self.assertRaises(ValueError):
+            self._run(interval="fortnight")
+
+    def test_group_by_resource_scope(self):
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 7.0)],
+            resource_labels={"k8s.pod.name": "web-1"},
+        )
+        series = self._run(
+            clauses=(
+                MetricQueryClause(
+                    name="a",
+                    metric_name="req",
+                    aggregation=MetricAggregation.SUM,
+                    group_by=(MetricGroupBy(key="k8s.pod.name", scope=AttributeScope.RESOURCE),),
+                ),
+            )
+        )
+        self.assertEqual(series[0].labels, {"k8s.pod.name": "web-1"})
+
+    def test_group_by_via_api(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "req",
+                    "aggregation": "sum",
+                    "groupBy": [{"key": "env"}],
+                    "interval": "minute",
+                    "dateFrom": (self.anchor - dt.timedelta(hours=1)).isoformat(),
+                    "dateTo": self.anchor.isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual({s["labels"]["env"] for s in results}, {"prod", "dev"})
+
+    def test_series_cap_keeps_largest(self):
+        with patch("products.metrics.backend.facade.api.MAX_SERIES_PER_CLAUSE", 1):
+            series = self._run()
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].labels["env"], "dev")
