@@ -107,7 +107,8 @@ class ActiveCampaignSourceConfig(config.Config):
 
 @config.config
 class AdRollSourceConfig(config.Config):
-    pass
+    client_id: str
+    personal_access_token: str
 
 
 @config.config
