@@ -183,6 +183,23 @@ describe('FunnelLineChart', () => {
             expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
         })
 
+        it('assigns a distinct color to each breakdown series', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const legend = await screen.findByTestId('funnel-line-legend')
+            const swatchColors = Array.from(legend.querySelectorAll<HTMLElement>('span[style]')).map(
+                (el) => el.style.backgroundColor
+            )
+            expect(swatchColors).toHaveLength(2)
+            expect(new Set(swatchColors).size).toBe(2)
+        })
+
         it('omits the legend for a single series even when showLegend is true', async () => {
             renderInsight({
                 query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
