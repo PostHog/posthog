@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 from django.utils.timezone import now
 
@@ -9,6 +9,7 @@ from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import (
     SESSION_ID_CLOCK_SKEW_SLACK,
     SessionReplayEvents,
+    get_latest_session_event_properties,
     uuidv7_session_lower_bound,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -405,3 +406,60 @@ class TestSessionLookupUsesUuidv7Bound(ClickhouseTestMixin, APIBaseTest):
         found = SessionReplayEvents()._find_with_timestamps([uuid_id, custom_id], self.team)
 
         assert {session_id for session_id, _, _, _ in found} == {uuid_id, custom_id}
+
+
+class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
+    def _seed_event(self, session_id: str, timestamp, marker: str) -> None:
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=timestamp,
+            properties={"$session_id": session_id, "$recording_status": marker},
+        )
+
+    def test_finds_event_within_uuidv7_window(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        self._seed_event(session_id, session_start, "bounded")
+
+        properties = get_latest_session_event_properties(session_id, self.team)
+
+        assert properties is not None
+        assert properties["$recording_status"] == "bounded"
+
+    def test_finds_event_outside_uuidv7_window_via_fallback(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        self._seed_event(session_id, session_start - relativedelta(days=10), "fallback")
+
+        properties = get_latest_session_event_properties(session_id, self.team)
+
+        assert properties is not None
+        assert properties["$recording_status"] == "fallback"
+
+    def test_finds_event_for_non_uuid_session_id(self) -> None:
+        session_id = "my-custom-session-id"
+        self._seed_event(session_id, (now() - relativedelta(minutes=10)).replace(microsecond=0), "custom")
+
+        properties = get_latest_session_event_properties(session_id, self.team)
+
+        assert properties is not None
+        assert properties["$recording_status"] == "custom"
+
+    def test_returns_none_when_session_has_no_events(self) -> None:
+        session_id = _uuidv7_session_id_for(now() - relativedelta(minutes=10))
+
+        assert get_latest_session_event_properties(session_id, self.team) is None
+
+    def test_capture_diagnostics_endpoint_returns_properties(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        self._seed_event(session_id, session_start, "endpoint")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/session_recordings/{session_id}/capture_diagnostics"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["properties"]["$recording_status"] == "endpoint"

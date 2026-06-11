@@ -1,4 +1,5 @@
 import re
+import json
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -55,6 +56,60 @@ def uuidv7_session_lower_bound(session_id: str, now: datetime | None = None) -> 
     if embedded_start < _EARLIEST_PLAUSIBLE_SESSION_START:
         return None
     return embedded_start - SESSION_ID_CLOCK_SKEW_SLACK
+
+
+# Wide window for capture diagnostics when the session id carries no usable
+# timestamp: covers any session whose recording could still be within retention.
+CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK = timedelta(days=90)
+
+
+def get_latest_session_event_properties(session_id: str, team: Team) -> Optional[dict]:
+    """The most recent event's properties for a session, for the replay capture diagnostics panel.
+
+    Bounded by a window derived from the UUIDv7 session id so the events sort key
+    can prune the scan; misses (or ids that don't parse) fall back to a
+    retention-wide window so a skewed client clock degrades to a slower lookup
+    rather than missing diagnostics.
+    """
+    lower_bound = uuidv7_session_lower_bound(session_id)
+    if lower_bound is not None:
+        # lower_bound is embedded_start - slack; sessions last at most a day,
+        # so embedded_start + 1d + slack closes the window symmetrically.
+        upper_bound = lower_bound + 2 * SESSION_ID_CLOCK_SKEW_SLACK + timedelta(days=1)
+        properties = _latest_session_event_properties_between(session_id, team, lower_bound, upper_bound)
+        if properties is not None:
+            return properties
+    now = datetime.now(pytz.UTC)
+    return _latest_session_event_properties_between(
+        session_id, team, now - CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK, now + timedelta(days=1)
+    )
+
+
+def _latest_session_event_properties_between(
+    session_id: str, team: Team, date_from: datetime, date_to: datetime
+) -> Optional[dict]:
+    from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+    query = HogQLQuery(
+        query="""
+            SELECT properties
+            FROM events
+            WHERE $session_id = {session_id}
+                AND timestamp >= {date_from}
+                AND timestamp <= {date_to}
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """,
+        values={"session_id": session_id, "date_from": date_from, "date_to": date_to},
+    )
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
+    result = HogQLQueryRunner(team=team, query=query).calculate()
+    if not result.results:
+        return None
+    row = result.results[0][0]
+    if not row:
+        return None
+    return json.loads(row) if isinstance(row, str) else row
 
 
 def seconds_until_midnight():
