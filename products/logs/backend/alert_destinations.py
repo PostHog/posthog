@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -16,7 +15,8 @@ class EventKindSpec:
     event_id: str
     display_kind: str
     header: str
-    body: str
+    # Plain-text (label, value) pairs; each destination renders these in its own markup.
+    details: tuple[tuple[str, str], ...]
     button_url: str
     button_label: str
     webhook_body: dict[str, Any]
@@ -53,10 +53,12 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
         event_id="$logs_alert_firing",
         display_kind="firing",
         header="🔴 Log alert '{event.properties.alert_name}' is firing",
-        body=(
-            "*Threshold breached:* {event.properties.result_count} logs in "
-            "{event.properties.window_minutes}m "
-            "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})"
+        details=(
+            (
+                "Threshold breached",
+                "{event.properties.result_count} logs in {event.properties.window_minutes}m "
+                "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+            ),
         ),
         button_url="{project.url}/logs?{event.properties.logs_url_params}",
         button_label="View logs",
@@ -71,10 +73,12 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
         event_id="$logs_alert_resolved",
         display_kind="resolved",
         header="🟢 Log alert '{event.properties.alert_name}' has resolved",
-        body=(
-            "*Current count:* {event.properties.result_count} logs in "
-            "{event.properties.window_minutes}m "
-            "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})"
+        details=(
+            (
+                "Current count",
+                "{event.properties.result_count} logs in {event.properties.window_minutes}m "
+                "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+            ),
         ),
         button_url="{project.url}/logs?{event.properties.logs_url_params}",
         button_label="View logs",
@@ -89,9 +93,9 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
         event_id="$logs_alert_auto_disabled",
         display_kind="auto-disabled",
         header="⚠️ Log alert '{event.properties.alert_name}' was auto-disabled",
-        body=(
-            "*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n"
-            "*Last error:* {event.properties.last_error_message}"
+        details=(
+            ("Reason", "{event.properties.consecutive_failures} consecutive check failures."),
+            ("Last error", "{event.properties.last_error_message}"),
         ),
         button_url="{project.url}/logs/alerts/{event.properties.alert_id}",
         button_label="View alert",
@@ -109,7 +113,10 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
         event_id="$logs_alert_errored",
         display_kind="errored",
         header="🟡 Log alert '{event.properties.alert_name}' couldn't evaluate",
-        body=("*Reason:* {event.properties.error_message}\n*Failure count:* {event.properties.consecutive_failures}"),
+        details=(
+            ("Reason", "{event.properties.error_message}"),
+            ("Failure count", "{event.properties.consecutive_failures}"),
+        ),
         button_url="{project.url}/logs/alerts/{event.properties.alert_id}",
         button_label="View alert",
         webhook_body={
@@ -152,10 +159,15 @@ _SEVERITY_SERVICE_CONTEXT = (
 )
 
 
+def _slack_body(spec: EventKindSpec) -> str:
+    # Slack mrkdwn: *single asterisks* for bold, one line per detail.
+    return "\n".join(f"*{label}:* {value}" for label, value in spec.details)
+
+
 def _slack_blocks(spec: EventKindSpec) -> list[dict]:
     return [
         {"type": "header", "text": {"type": "plain_text", "text": spec.header}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": spec.body}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": _slack_body(spec)}},
         {
             "type": "context",
             "elements": [
@@ -177,20 +189,12 @@ def _slack_blocks(spec: EventKindSpec) -> list[dict]:
     ]
 
 
-_SLACK_BOLD_RE = re.compile(r"\*([^*\n]+)\*")
-
-
-def _slack_to_teams_markdown(text: str) -> str:
-    # Slack mrkdwn marks bold with *single asterisks*; Adaptive Card markdown uses **double**.
-    # Adaptive Card TextBlocks also need a blank line between paragraphs, so collapse any run of
-    # newlines into a single blank line (one widened, none doubled-up).
-    return re.sub(r"\n+", "\n\n", _SLACK_BOLD_RE.sub(r"**\1**", text))
-
-
 def _teams_text(spec: EventKindSpec) -> str:
     # The Microsoft Teams template renders a single Adaptive Card TextBlock from `text`, so fold
-    # the header, body, and action into one markdown string (the button becomes an inline link).
-    return f"**{spec.header}**\n\n{_slack_to_teams_markdown(spec.body)}\n\n[{spec.button_label}]({spec.button_url})"
+    # the header, details, and action into one markdown string (the button becomes an inline link).
+    # Adaptive Card markdown: **double asterisks** for bold, blank lines between paragraphs.
+    details = "\n\n".join(f"**{label}:** {value}" for label, value in spec.details)
+    return f"**{spec.header}**\n\n{details}\n\n[{spec.button_label}]({spec.button_url})"
 
 
 def _filter_for(alert: LogsAlertConfiguration, kind: EventKind) -> dict[str, Any]:
