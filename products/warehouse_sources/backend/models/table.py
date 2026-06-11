@@ -8,7 +8,6 @@ from uuid import UUID
 from django.db import models
 from django.db.models import Q
 
-import chdb
 import structlog
 from clickhouse_driver.errors import ServerException as ClickHouseServerException
 
@@ -220,6 +219,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableIntrospectedColumns:
+        import chdb  # noqa: PLC0415 - embedded ClickHouse; deferred so this model module stays off the startup path
+
         result: list[tuple[str, ...]] | None = None
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
@@ -347,6 +348,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return None
 
     def get_count(self, safe_expose_ch_error=True) -> int:
+        import chdb  # noqa: PLC0415 - embedded ClickHouse; deferred so this model module stays off the startup path
+
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,

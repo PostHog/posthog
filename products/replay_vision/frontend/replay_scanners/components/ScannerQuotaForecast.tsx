@@ -32,19 +32,11 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const used = quota?.usage_this_month ?? 0
     const cap = quota?.monthly_quota ?? 0
 
-    // Always include the scanner's projection — on edit we slightly double-count the scanner's existing
-    // contribution to `usage_this_month`, but that's a small over-report. Missing an over-cap config
-    // (e.g., 15 obs/month projected against a 10 cap) is the bigger UX hazard.
-    const projection = projectQuota(quota, projected)
-    const {
-        status,
-        capReachDate,
-        projectionConfident,
-        projectedPeriodEndRatio,
-        resetsOn,
-        daysRemaining,
-        combinedDailyRate,
-    } = projection
+    // The fleet sum already contains this scanner's stored estimate when it's enabled, so only the
+    // delta between the proposed config and that stored contribution is added on top.
+    const storedContribution = scanner.enabled ? (scanner.estimated_monthly_observations ?? 0) : 0
+    const projection = projectQuota(quota, projected !== null ? projected - storedContribution : 0)
+    const { status, capReachDate, projectedPeriodEndRatio, resetsOn, daysRemaining, combinedDailyRate } = projection
 
     const effectiveStatus: QuotaStatus = projected === null ? 'safe' : status
     const styles = STATUS_STYLES[effectiveStatus]
@@ -71,7 +63,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
 
     const renderStatusLine = (): JSX.Element | string => {
         if (effectiveStatus === 'danger') {
-            if (capReachDate && projectionConfident) {
+            if (capReachDate) {
                 return (
                     <span className="text-danger">
                         You'll run out of observations on <strong>{capReachDate.format('MMMM D')}</strong> at this rate.

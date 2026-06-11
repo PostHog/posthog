@@ -3841,6 +3841,7 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
+                "list_feature_flags",
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
@@ -20825,6 +20826,10 @@
                 "path": {
                     "description": "Object's name and folder",
                     "type": "string"
+                },
+                "pinnedByDefault": {
+                    "description": "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row",
+                    "type": "boolean"
                 },
                 "protocol": {
                     "description": "Protocol of the item, defaults to \"project://\"",
@@ -39501,6 +39506,13 @@
                 "skill_version": {
                     "type": "number"
                 },
+                "tags": {
+                    "description": "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the finding. Each scout maintains and evolves its own vocabulary over time; the harness normalizes and caps these at emit.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "task_run_id": {
                     "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
                     "type": "string"
@@ -39633,6 +39645,25 @@
                 }
             ],
             "description": "A single (leaf) detector config"
+        },
+        "SlackIntegrationScope": {
+            "enum": [
+                "app_mentions:read",
+                "channels:history",
+                "channels:read",
+                "chat:write",
+                "chat:write.customize",
+                "groups:history",
+                "groups:read",
+                "links:read",
+                "links:write",
+                "reactions:read",
+                "reactions:write",
+                "team:read",
+                "users:read",
+                "users:read.email"
+            ],
+            "type": "string"
         },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],

@@ -38,7 +38,6 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
         expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
-        expect(urls.aiObservabilitySkills()).toBe('/skills')
     })
 
     it('redirects legacy LLM analytics URLs to their new product areas', () => {
@@ -63,10 +62,6 @@ describe('LLM analytics URL split', () => {
         expect(redirectUrl('/llm-analytics/prompts/:name', { name: 'prompt-1' })).toBe(
             '/prompt-management/prompts/prompt-1'
         )
-        expect(redirectUrl('/llm-analytics/skills', {})).toBe('/skills')
-        expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe('/skills/skill-1')
-        expect(redirectUrl('/prompt-management/skills', {})).toBe('/skills')
-        expect(redirectUrl('/prompt-management/skills/:name', { name: 'skill-1' })).toBe('/skills/skill-1')
     })
 
     it('redirects AI observability settings to the project-level BYOK setting', () => {
@@ -118,6 +113,34 @@ describe('aiObservabilitySharedLogic', () => {
             },
             shouldFilterTestAccounts: true,
         })
+    })
+
+    it('preserves params owned by other logics when rewriting the URL', () => {
+        // review_* / human_reviews_tab ride along on tab links — applying shared
+        // state must not strip them
+        router.actions.push(urls.aiObservabilityGenerations(), {
+            date_from: '-14d',
+            review_search: 'needs review',
+            human_reviews_tab: 'reviews',
+        })
+
+        expectLogic(logic).toMatchValues({
+            dateFilter: { dateFrom: '-14d', dateTo: null },
+        })
+        expect(router.values.searchParams).toMatchObject({
+            review_search: 'needs review',
+            human_reviews_tab: 'reviews',
+        })
+    })
+
+    it('strips stale trace-view params while keeping foreign params', () => {
+        router.actions.push(urls.aiObservabilityTraces(), {
+            event: 'event-1',
+            timestamp: '2026-01-01',
+            review_search: 'abc',
+        })
+
+        expect(router.values.searchParams).toEqual({ review_search: 'abc' })
     })
 
     it('should reset filters when switching tabs without params', () => {

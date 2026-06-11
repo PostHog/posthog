@@ -10,6 +10,7 @@ function makeQuota(overrides: Partial<VisionQuotaApi> = {}): VisionQuotaApi {
         usage_this_month: 0,
         remaining: 10_000,
         exhausted: false,
+        projected_monthly_observations: 0,
         period_start: now.subtract(10, 'day').toISOString(),
         period_end: now.add(20, 'day').toISOString(),
         ...overrides,
@@ -22,48 +23,56 @@ describe('projectQuota', () => {
         expect(projectQuota(makeQuota({ monthly_quota: 0 }))).toMatchObject({ status: 'safe', combinedDailyRate: 0 })
     })
 
-    it('safe when current burn projects well under the cap', () => {
-        const proj = projectQuota(makeQuota({ usage_this_month: 1_000, remaining: 9_000 }))
+    it('safe when the fleet rate projects well under the cap', () => {
+        // 3,000/month fleet → 100/day → ends at 3,000 of 10,000.
+        const proj = projectQuota(makeQuota({ usage_this_month: 1_000, projected_monthly_observations: 3_000 }))
         expect(proj.status).toBe('safe')
         expect(proj.projectedPeriodEndRatio).toBeLessThan(QUOTA_WARN_THRESHOLD)
     })
 
-    it('warning when projection crosses the warn threshold but stays under cap', () => {
-        // 3,000 used over 10 days → 300/day. Projected to end at 9,000 (90% of cap) without exhausting.
-        const proj = projectQuota(makeQuota({ usage_this_month: 3_000, remaining: 7_000 }))
+    it('zero fleet rate projects flat usage to period end', () => {
+        const proj = projectQuota(makeQuota({ usage_this_month: 4_000 }))
+        expect(proj.combinedDailyRate).toBe(0)
+        expect(proj.projectedPeriodEndRatio).toBeCloseTo(0.4)
+        expect(proj.capReachDate).toBeNull()
+    })
+
+    it('warning when the fleet projection crosses the warn threshold but stays under cap', () => {
+        // 3,000 used + 9,000/month fleet → 300/day × 20 days → ends at 9,000 (90% of cap).
+        const proj = projectQuota(makeQuota({ usage_this_month: 3_000, projected_monthly_observations: 9_000 }))
         expect(proj.status).toBe('warning')
         expect(proj.projectedPeriodEndRatio).toBeGreaterThanOrEqual(QUOTA_WARN_THRESHOLD)
         expect(proj.capReachInPeriod).toBe(false)
     })
 
     it('danger when projected to exhaust before period end', () => {
-        const proj = projectQuota(makeQuota({ usage_this_month: 9_000, remaining: 1_000 }))
+        // 9,000 used + 100/day → cap reached in 10 days, 20 days left in the period.
+        const proj = projectQuota(makeQuota({ usage_this_month: 9_000, projected_monthly_observations: 3_000 }))
         expect(proj.status).toBe('danger')
         expect(proj.capReachInPeriod).toBe(true)
         expect(proj.capReachDate).not.toBeNull()
     })
 
-    it('danger when explicitly exhausted regardless of historical burn', () => {
+    it('danger when explicitly exhausted regardless of the fleet rate', () => {
         const proj = projectQuota(makeQuota({ usage_this_month: 10_000, remaining: 0, exhausted: true }))
         expect(proj.status).toBe('danger')
     })
 
-    it('projection is unconfident before 3 days have elapsed', () => {
-        const now = dayjs()
-        const proj = projectQuota(
-            makeQuota({
-                period_start: now.subtract(1, 'day').toISOString(),
-                period_end: now.add(29, 'day').toISOString(),
-            })
+    it('a positive scanner delta raises the projection on top of the fleet sum', () => {
+        const base = projectQuota(makeQuota({ usage_this_month: 1_000, projected_monthly_observations: 3_000 }))
+        const withDelta = projectQuota(
+            makeQuota({ usage_this_month: 1_000, projected_monthly_observations: 3_000 }),
+            6_000
         )
-        expect(proj.projectionConfident).toBe(false)
+        expect(withDelta.combinedDailyRate).toBeGreaterThan(base.combinedDailyRate)
+        expect(withDelta.projectedPeriodEndRatio).toBeGreaterThan(base.projectedPeriodEndRatio)
     })
 
-    it('adds scanner projected monthly on top of historical burn', () => {
-        const noScanner = projectQuota(makeQuota({ usage_this_month: 1_000, remaining: 9_000 }))
-        const withScanner = projectQuota(makeQuota({ usage_this_month: 1_000, remaining: 9_000 }), 6_000)
-        expect(withScanner.combinedDailyRate).toBeGreaterThan(noScanner.combinedDailyRate)
-        expect(withScanner.projectedPeriodEndRatio).toBeGreaterThan(noScanner.projectedPeriodEndRatio)
+    it('a negative scanner delta lowers the projection and clamps at zero', () => {
+        const lowered = projectQuota(makeQuota({ projected_monthly_observations: 3_000 }), -1_000)
+        expect(lowered.combinedDailyRate).toBeCloseTo(2_000 / 30)
+        const clamped = projectQuota(makeQuota({ projected_monthly_observations: 3_000 }), -9_000)
+        expect(clamped.combinedDailyRate).toBe(0)
     })
 })
 
