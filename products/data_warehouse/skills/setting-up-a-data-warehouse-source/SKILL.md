@@ -27,19 +27,19 @@ hand-pick which tables sync or set non-default sync types per table.
 
 ## Available tools
 
-| Tool                                                   | Purpose                                                                          |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| Tool                                                   | Purpose                                                                                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | `data-warehouse-source-connect-link`                   | **Preferred for credentials** — get a secure browser/OAuth link so the user authenticates without pasting secrets in chat |
-| `data-warehouse-source-setup`                          | **Preferred to create** — one call: validate creds, discover tables, apply sync defaults, create the source |
-| `external-data-sources-wizard`                         | Discover which source types exist and what fields each needs (advanced flow)     |
-| `external-data-sources-db-schema`                      | Validate credentials and list tables with available sync methods per table (advanced flow) |
-| `external-data-sources-create`                         | Advanced create — requires a `schemas` array built from the db-schema response   |
-| `external-data-sources-check-cdc-prerequisites-create` | Postgres CDC pre-flight check (optional, only for Postgres CDC)                  |
-| `external-data-sources-webhook-info-retrieve`          | Check if a source supports webhooks and whether one has been registered          |
-| `external-data-sources-create-webhook-create`          | Register a webhook with the external service after source creation               |
-| `external-data-sources-update-webhook-inputs-create`   | Supply the signing secret manually when auto-registration failed                 |
-| `external-data-sources-list`                           | After creation, confirm the source is listed and see its initial status          |
-| `external-data-schemas-list`                           | See per-table sync status once the source is created                             |
+| `data-warehouse-source-setup`                          | **Preferred to create** — one call: validate creds, discover tables, apply sync defaults, create the source               |
+| `external-data-sources-wizard`                         | Discover which source types exist and what fields each needs (advanced flow)                                              |
+| `external-data-sources-db-schema`                      | Validate credentials and list tables with available sync methods per table (advanced flow)                                |
+| `external-data-sources-create`                         | Advanced create — requires a `schemas` array built from the db-schema response                                            |
+| `external-data-sources-check-cdc-prerequisites-create` | Postgres CDC pre-flight check (optional, only for Postgres CDC)                                                           |
+| `external-data-sources-webhook-info-retrieve`          | Check if a source supports webhooks and whether one has been registered                                                   |
+| `external-data-sources-create-webhook-create`          | Register a webhook with the external service after source creation                                                        |
+| `external-data-sources-update-webhook-inputs-create`   | Supply the signing secret manually when auto-registration failed                                                          |
+| `external-data-sources-list`                           | After creation, confirm the source is listed and see its initial status                                                   |
+| `external-data-schemas-list`                           | See per-table sync status once the source is created                                                                      |
 
 ## Recommended: one-step setup
 
@@ -57,6 +57,7 @@ missing required fields).
      form where they enter credentials over TLS. Then poll `external-data-sources-list` for the new source.
 
    Never ask the user to paste raw database passwords or API keys into the chat.
+
 3. **Create in one call**: `data-warehouse-source-setup({source_type, payload, prefix})`. The server validates
    credentials, discovers all tables, enables them with sync defaults (incremental where a tracking column exists,
    else append, else full_refresh — never CDC), sets `created_via=mcp`, and creates the source. The `payload` carries
