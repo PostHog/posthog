@@ -26568,6 +26568,77 @@ export namespace Schemas {
     }
 
     /**
+     * * `video_segment` - Video Segment
+     * * `safety_judgment` - Safety Judgment
+     * * `actionability_judgment` - Actionability Judgment
+     * * `priority_judgment` - Priority Judgment
+     * * `signal_finding` - Signal Finding
+     * * `repo_selection` - Repo Selection
+     * * `suggested_reviewers` - Suggested Reviewers
+     * * `dismissal` - Dismissal
+     * * `code_reference` - Code Reference
+     * * `code_diff` - Code Diff
+     * * `line_reference` - Line Reference
+     * * `commit` - Commit
+     * * `task_run` - Task Run
+     * * `note` - Note
+     */
+    export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
+
+
+    export const SignalReportArtefactTypeEnum = {
+      VideoSegment: 'video_segment',
+      SafetyJudgment: 'safety_judgment',
+      ActionabilityJudgment: 'actionability_judgment',
+      PriorityJudgment: 'priority_judgment',
+      SignalFinding: 'signal_finding',
+      RepoSelection: 'repo_selection',
+      SuggestedReviewers: 'suggested_reviewers',
+      Dismissal: 'dismissal',
+      CodeReference: 'code_reference',
+      CodeDiff: 'code_diff',
+      LineReference: 'line_reference',
+      Commit: 'commit',
+      TaskRun: 'task_run',
+      Note: 'note',
+    } as const;
+
+    export interface _User {
+      readonly id: number;
+      readonly uuid: string;
+      readonly first_name: string;
+      readonly last_name: string;
+      readonly email: string;
+    }
+
+    export type SignalReportArtefactContent = { [key: string]: unknown } | unknown[];
+
+    export interface SignalReportArtefact {
+      readonly id: string;
+      readonly type: SignalReportArtefactTypeEnum;
+      readonly content: SignalReportArtefactContent;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
+      readonly created_by: _User | null;
+      /**
+         * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
+    }
+
+    export interface PaginatedSignalReportArtefactList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReportArtefact[];
+    }
+
+    /**
      * * `potential` - Potential
      * * `candidate` - Candidate
      * * `in_progress` - In Progress
@@ -39962,14 +40033,6 @@ export namespace Schemas {
       emitted_finding_ids: string[];
     }
 
-    export interface _User {
-      readonly id: number;
-      readonly uuid: string;
-      readonly first_name: string;
-      readonly last_name: string;
-      readonly email: string;
-    }
-
     export interface SignalUserAutonomyConfig {
       readonly id: string;
       readonly user: _User;
@@ -53025,6 +53088,17 @@ export namespace Schemas {
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string;
+    };
+
+    export type SignalsReportArtefactsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type SignalsScoutProjectProfileGetParams = {

@@ -30,6 +30,9 @@ tools:
     sandbox-retrieve:
         operation: sandbox_retrieve
         enabled: false
+    signals-report-tasks-create:
+        operation: signals_report_tasks_create
+        enabled: false
     task-automations-create:
         operation: task_automations_create
         enabled: false

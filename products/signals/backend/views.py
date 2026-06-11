@@ -1000,8 +1000,25 @@ class SignalReportViewSet(
 
 
 @extend_schema_view(
-    list=extend_schema(exclude=True),
-    retrieve=extend_schema(exclude=True),
+    list=extend_schema(
+        summary="List a report's artefacts",
+        description=(
+            "List every artefact on a report — the full work log: signal findings (the evidence "
+            "behind the report), status judgments (safety / actionability / priority, repo "
+            "selection, suggested reviewers — the newest row of each status type is canonical), "
+            "and log entries (code references, diffs, commits, task runs, notes). "
+            "`suggested_reviewers` content is enriched with PostHog user info at read time."
+        ),
+        responses={200: SignalReportArtefactSerializer(many=True)},
+        operation_id="signals_report_artefacts_list",
+    ),
+    retrieve=extend_schema(
+        summary="Get a single artefact",
+        description="Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.",
+        responses={200: SignalReportArtefactSerializer},
+        operation_id="signals_report_artefacts_retrieve",
+    ),
+    # The bespoke reviewers PUT stays app-only: agents append suggested_reviewers via POST instead.
     update=extend_schema(exclude=True),
 )
 class SignalReportArtefactViewSet(

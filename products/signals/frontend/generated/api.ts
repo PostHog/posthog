@@ -15,6 +15,7 @@ import type {
     ForgetRequestApi,
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
+    PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalReportArtefactLogUpdateApi,
@@ -26,6 +27,7 @@ import type {
     RememberRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
+    SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
     SignalReportArtefactWriteResponseApi,
     SignalReportStateRequestApi,
@@ -39,6 +41,7 @@ import type {
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
+    SignalsReportArtefactsListParams,
     SignalsReportsListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
@@ -207,6 +210,45 @@ export const signalsReportsStateCreate = async (
     })
 }
 
+export const getSignalsReportArtefactsListUrl = (
+    projectId: string,
+    reportId: string,
+    params?: SignalsReportArtefactsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/`
+}
+
+/**
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, diffs, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time.
+ * @summary List a report's artefacts
+ */
+export const signalsReportArtefactsList = async (
+    projectId: string,
+    reportId: string,
+    params?: SignalsReportArtefactsListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalReportArtefactListApi> => {
+    return apiMutator<PaginatedSignalReportArtefactListApi>(
+        getSignalsReportArtefactsListUrl(projectId, reportId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getSignalsReportArtefactsCreateUrl = (projectId: string, reportId: string) => {
     return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/`
 }
@@ -226,6 +268,26 @@ export const signalsReportArtefactsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportArtefactLogCreateApi),
+    })
+}
+
+export const getSignalsReportArtefactsRetrieveUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/`
+}
+
+/**
+ * Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.
+ * @summary Get a single artefact
+ */
+export const signalsReportArtefactsRetrieve = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportArtefactApi> => {
+    return apiMutator<SignalReportArtefactApi>(getSignalsReportArtefactsRetrieveUrl(projectId, reportId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

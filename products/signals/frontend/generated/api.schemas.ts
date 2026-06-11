@@ -142,6 +142,77 @@ export interface SignalReportStateRequestApi {
 }
 
 /**
+ * * `video_segment` - Video Segment
+ * * `safety_judgment` - Safety Judgment
+ * * `actionability_judgment` - Actionability Judgment
+ * * `priority_judgment` - Priority Judgment
+ * * `signal_finding` - Signal Finding
+ * * `repo_selection` - Repo Selection
+ * * `suggested_reviewers` - Suggested Reviewers
+ * * `dismissal` - Dismissal
+ * * `code_reference` - Code Reference
+ * * `code_diff` - Code Diff
+ * * `line_reference` - Line Reference
+ * * `commit` - Commit
+ * * `task_run` - Task Run
+ * * `note` - Note
+ */
+export type SignalReportArtefactTypeEnumApi =
+    (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
+
+export const SignalReportArtefactTypeEnumApi = {
+    VideoSegment: 'video_segment',
+    SafetyJudgment: 'safety_judgment',
+    ActionabilityJudgment: 'actionability_judgment',
+    PriorityJudgment: 'priority_judgment',
+    SignalFinding: 'signal_finding',
+    RepoSelection: 'repo_selection',
+    SuggestedReviewers: 'suggested_reviewers',
+    Dismissal: 'dismissal',
+    CodeReference: 'code_reference',
+    CodeDiff: 'code_diff',
+    LineReference: 'line_reference',
+    Commit: 'commit',
+    TaskRun: 'task_run',
+    Note: 'note',
+} as const
+
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
+export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
+
+export interface SignalReportArtefactApi {
+    readonly id: string
+    readonly type: SignalReportArtefactTypeEnumApi
+    readonly content: SignalReportArtefactApiContent
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
+    readonly created_by: _UserApi | null
+    /**
+     * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
+     * @nullable
+     */
+    readonly task_id: string | null
+}
+
+export interface PaginatedSignalReportArtefactListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalReportArtefactApi[]
+}
+
+/**
  * Body for appending an artefact to a report.
  *
  * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
@@ -1260,14 +1331,6 @@ export interface PatchedSignalSourceConfigApi {
     readonly status?: string | null
 }
 
-export interface _UserApi {
-    readonly id: number
-    readonly uuid: string
-    readonly first_name: string
-    readonly last_name: string
-    readonly email: string
-}
-
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
 export const BlankEnumApi = {
@@ -1349,6 +1412,17 @@ export type SignalsReportsListParams = {
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string
+}
+
+export type SignalsReportArtefactsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type SignalsScoutProjectProfileGetParams = {
