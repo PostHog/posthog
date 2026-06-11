@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
 from posthog.temporal.data_imports.sources.common.sql.identifiers import AnsiIdentifierQuoter, BacktickIdentifierQuoter
 from posthog.temporal.data_imports.sources.common.sql.predicates import (
+    _BOOLEAN_TYPES,
+    _DATE_TYPES,
+    _INTEGER_TYPES,
+    _NUMERIC_TYPES,
+    _STRING_TYPES,
+    _TIMESTAMP_TYPES,
     ColumnTypeCategory,
     RowFilterValidationError,
     ValidatedRowFilter,
@@ -77,8 +85,10 @@ class TestClassifyColumnType:
             ("varchar(255)", ColumnTypeCategory.STRING),
             ("text", ColumnTypeCategory.STRING),
             ("uuid", ColumnTypeCategory.STRING),
-            ("jsonb", ColumnTypeCategory.STRING),
             ("FixedString(8)", ColumnTypeCategory.STRING),
+            # json / jsonb are unfilterable: a text-bound comparison fails at sync time.
+            ("json", ColumnTypeCategory.UNKNOWN),
+            ("jsonb", ColumnTypeCategory.UNKNOWN),
             ("boolean", ColumnTypeCategory.BOOLEAN),
             ("bool", ColumnTypeCategory.BOOLEAN),
             ("bit", ColumnTypeCategory.BOOLEAN),
@@ -98,6 +108,37 @@ class TestClassifyColumnType:
     def test_case_insensitive(self) -> None:
         assert classify_column_type("INTEGER") == ColumnTypeCategory.INTEGER
         assert classify_column_type("VarChar(10)") == ColumnTypeCategory.STRING
+
+
+class TestTypeVocabularyParity:
+    """The classifier's type sets are duplicated in the frontend (rowFilterUtils.ts). Assert the
+    two stay in sync so a column type can't be filterable on one side and not the other."""
+
+    _TS_PATH = (
+        Path(__file__).resolve().parents[7]
+        / "products/data_warehouse/frontend/scenes/SourceScene/tabs/rowFilterUtils.ts"
+    )
+
+    def _ts_set(self, name: str) -> set[str]:
+        source = self._TS_PATH.read_text()
+        match = re.search(rf"const {name} = new Set\(\[(.*?)\]\)", source, re.DOTALL)
+        assert match, f"{name} not found in rowFilterUtils.ts"
+        body = re.sub(r"//[^\n]*", "", match.group(1))  # drop line comments first
+        return set(re.findall(r"'([^']*)'", body))
+
+    @pytest.mark.parametrize(
+        "ts_name,py_set",
+        [
+            ("INTEGER_TYPES", _INTEGER_TYPES),
+            ("NUMERIC_TYPES", _NUMERIC_TYPES),
+            ("STRING_TYPES", _STRING_TYPES),
+            ("BOOLEAN_TYPES", _BOOLEAN_TYPES),
+            ("DATE_TYPES", _DATE_TYPES),
+            ("TIMESTAMP_TYPES", _TIMESTAMP_TYPES),
+        ],
+    )
+    def test_python_and_typescript_type_sets_match(self, ts_name: str, py_set: set[str]) -> None:
+        assert self._ts_set(ts_name) == py_set
 
     def test_nullable_wrapper_is_stripped(self) -> None:
         assert classify_column_type("Nullable(Int64)") == ColumnTypeCategory.INTEGER
@@ -189,14 +230,18 @@ class TestValidateAndCoerce:
                 [{"column": "name", "operator": "=", "value": value}], _metadata([("name", "text")])
             )
 
-    @pytest.mark.parametrize("value,expected", [(True, True), (False, False), ("true", True), ("false", False)])
+    @pytest.mark.parametrize(
+        "value,expected",
+        [(True, True), (False, False), ("true", True), ("false", False), (1, True), (0, False)],
+    )
     def test_boolean_coercion(self, value: object, expected: bool) -> None:
+        # Integers 0/1 are accepted (valid JSON encodings of booleans a direct API caller may send).
         result = validate_and_coerce_row_filters(
             [{"column": "active", "operator": "=", "value": value}], _metadata([("active", "boolean")])
         )
         assert result[0].value is expected
 
-    @pytest.mark.parametrize("value", ["yes", "1", 1, 0, None])
+    @pytest.mark.parametrize("value", ["yes", "1", 2, -1, None])
     def test_boolean_rejects_bad_values(self, value: object) -> None:
         with pytest.raises(RowFilterValidationError):
             validate_and_coerce_row_filters(

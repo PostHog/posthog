@@ -6,6 +6,7 @@ import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { RowFilter, RowFilterOperator } from '~/types'
 
 import {
+    MAX_ROW_FILTERS,
     ROW_FILTER_OPERATORS,
     RowFilterColumnCategory,
     classifyColumnType,
@@ -42,11 +43,13 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
     const available = useMemo(() => schema?.available_columns ?? [], [schema?.available_columns])
     const [filters, setFilters] = useState<RowFilter[]>([])
 
+    // Serialize once into a stable key: the array ref changes on every poll even with identical
+    // contents, so we key the reset effect on the content, not the reference.
+    const rowFiltersKey = JSON.stringify(schema?.row_filters ?? null)
     useEffect(() => {
         setFilters(Array.isArray(schema?.row_filters) ? schema!.row_filters!.map((f) => ({ ...f })) : [])
-        // Stable serialized key: the array ref changes on every poll even with identical contents.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [schema?.id, JSON.stringify(schema?.row_filters ?? null)])
+    }, [schema?.id, rowFiltersKey])
 
     const errors = useMemo(() => validateRowFilters(filters, { availableColumns: available }), [filters, available])
 
@@ -171,7 +174,13 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
                     size="small"
                     icon={<IconPlus />}
                     onClick={addFilter}
-                    disabledReason={available.length === 0 ? 'No columns discovered' : undefined}
+                    disabledReason={
+                        available.length === 0
+                            ? 'No columns discovered'
+                            : filters.length >= MAX_ROW_FILTERS
+                              ? `At most ${MAX_ROW_FILTERS} filters`
+                              : undefined
+                    }
                 >
                     Add filter
                 </LemonButton>

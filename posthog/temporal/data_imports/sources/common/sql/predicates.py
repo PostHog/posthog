@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
 
@@ -204,8 +204,10 @@ _STRING_TYPES = {
     "name",
     "citext",
     "enum",
-    "json",
-    "jsonb",
+    # NB: json / jsonb are intentionally excluded. A `jsonb <op> $text_param` comparison fails at
+    # sync time on Postgres/Redshift ("operator does not exist: jsonb = text") without an explicit
+    # cast, so we classify them as UNKNOWN (unfilterable) rather than let a filter pass PATCH-time
+    # validation and then break every sync.
 }
 _BOOLEAN_TYPES = {"bool", "boolean", "bit"}
 _DATE_TYPES = {"date", "date32"}
@@ -290,6 +292,10 @@ def _coerce_string(value: Any) -> str:
 def _coerce_boolean(value: Any) -> bool:
     if isinstance(value, bool):
         return value
+    # Accept the JSON integer encodings 0/1 — a direct API caller may send these for a boolean
+    # column, and rejecting them here would only surface as an opaque sync-time failure.
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
     if isinstance(value, str):
         lowered = value.strip().lower()
         if lowered == "true":
@@ -319,7 +325,7 @@ def _coerce_timestamp(value: Any) -> datetime:
     except ValueError:
         # A plain date is a valid timestamp boundary (midnight).
         try:
-            return datetime.combine(date.fromisoformat(raw), datetime.min.time())
+            return datetime.combine(date.fromisoformat(raw), time())
         except ValueError:
             raise RowFilterValidationError(f"Expected an ISO datetime string, got {value!r}")
 

@@ -136,7 +136,14 @@ CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
             "type": "object",
             "properties": {
                 "column": {"type": "string"},
-                "operator": {"type": "string", "enum": [">", ">=", "<", "<=", "=", "!=", "IN", "NOT IN"]},
+                # Not an OpenAPI `enum`: the operators are punctuation with no nameable identifier,
+                # so orval collapses the enum to duplicate empty-string keys (`'': '>'`, …) in the
+                # generated clients. Keep it a plain string and list the allowed values in the
+                # description; validation is enforced server-side regardless.
+                "operator": {
+                    "type": "string",
+                    "description": 'One of: > >= < <= = != IN "NOT IN".',
+                },
                 "value": {
                     "description": (
                         "Comparison value; must match the column's type. For `IN` / `NOT IN`, a "
