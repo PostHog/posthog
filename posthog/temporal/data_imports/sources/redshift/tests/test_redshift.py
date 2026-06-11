@@ -415,6 +415,37 @@ class TestGetPrimaryKeys:
         assert result == {"users": None}
 
 
+class TestGetRowCounts:
+    def test_returns_empty_for_no_tables(self, impl):
+        assert impl.get_row_counts(MagicMock(), _make_config(), []) == {}
+
+    def test_blank_schema_counts_tables_and_views_per_namespace(self, impl):
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        # 1: SET statement_timeout, 2: svv_table_info, 3: pg_views, 4: UNION ALL view counts.
+        cur.fetchall.side_effect = [
+            [("analytics", "events", 500)],  # svv_table_info (materialized tables)
+            [("public", "events")],  # pg_views (views aren't in svv_table_info)
+            [("public", "events", 42)],  # COUNT(*) per view
+        ]
+        conn.cursor.return_value = cur
+
+        result = impl.get_row_counts(conn, _make_config(schema=""), ["analytics.events", "public.events"])
+
+        # Same table name in two namespaces stays distinct; the view falls through to COUNT(*).
+        assert result == {"analytics.events": 500, "public.events": 42}
+
+    def test_returns_empty_on_exception(self, impl):
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.execute.side_effect = Exception("denied")
+        conn.cursor.return_value = cur
+
+        assert impl.get_row_counts(conn, _make_config(), ["users"]) == {}
+
+
 class TestGetLeadingIndexColumns:
     def _make_conn(self, rows):
         conn = MagicMock()

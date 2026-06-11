@@ -89,7 +89,10 @@ def _display_name(schema_name: str, table_name: str, *, qualify: bool) -> str:
 def _split_display_name(display: str, selected_schema: Optional[str]) -> tuple[str, str]:
     """Inverse of `_display_name` — `(schema, unqualified_table)` for a discovery key.
 
-    With a pinned `selected_schema` the key is the bare table; otherwise it is dotted.
+    With a pinned `selected_schema` the key is the bare table; otherwise it is the dotted
+    `schema.table` that `get_columns` produced. A multi-schema key without a dot isn't expected
+    (every multi-schema key is qualified at discovery); if one ever appears, treat the whole
+    string as the table under the same-named schema rather than emitting an empty predicate.
     """
     if selected_schema is not None:
         return selected_schema, display
