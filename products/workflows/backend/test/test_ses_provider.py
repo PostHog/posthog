@@ -223,7 +223,7 @@ class TestSESProvider(TestCase):
             mock_mail_from_attrs.return_value = {
                 "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Success"}}
             }
-            mock_list_tenants.return_value = {"Tenants": [{"TenantName": "team-1"}]}
+            mock_list_tenants.return_value = {"ResourceTenants": [{"TenantName": "team-1"}]}
 
             result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 

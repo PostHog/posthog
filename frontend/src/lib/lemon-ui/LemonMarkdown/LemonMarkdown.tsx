@@ -27,6 +27,11 @@ export interface LemonMarkdownProps {
     lowKeyHeadings?: boolean
     /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
     disableDocsRedirect?: boolean
+    /**
+     * Whether to render images as plain links instead of <img> elements. Use for untrusted content
+     * (e.g. LLM/agent output), where auto-loading images would fire requests to arbitrary URLs.
+     */
+    disableImages?: boolean
     className?: string
     wrapCode?: boolean
     /** Whether to generate id attributes on heading elements for anchor linking. */
@@ -71,6 +76,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    disableImages = false,
     wrapCode = false,
     generateHeadingIds = false,
     renderMermaid,
@@ -114,6 +120,15 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 }
                 return <span className={className} {...props} />
             },
+            ...(disableImages
+                ? {
+                      img: ({ src, alt }: any): JSX.Element => (
+                          <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
+                              {alt || src}
+                          </Link>
+                      ),
+                  }
+                : {}),
             li: ({ children, node }: any): JSX.Element => {
                 const isTaskItem = node?.properties?.className?.includes('task-list-item')
                 if (isTaskItem) {
@@ -157,7 +172,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     )
                   : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
+        [disableDocsRedirect, disableImages, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
     )
 
     return (
@@ -173,6 +188,7 @@ function LemonMarkdownComponent({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    disableImages = false,
     wrapCode = false,
     generateHeadingIds = false,
     renderMermaid,
@@ -183,6 +199,7 @@ function LemonMarkdownComponent({
             <LemonMarkdownRenderer
                 lowKeyHeadings={lowKeyHeadings}
                 disableDocsRedirect={disableDocsRedirect}
+                disableImages={disableImages}
                 wrapCode={wrapCode}
                 generateHeadingIds={generateHeadingIds}
                 renderMermaid={renderMermaid}

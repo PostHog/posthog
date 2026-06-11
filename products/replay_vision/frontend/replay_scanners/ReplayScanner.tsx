@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
@@ -38,8 +38,8 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
-    const { scanner, scannerLoading } = useValues(scannerLogic)
-    const { deleteScanner } = useActions(scannerLogic)
+    const { scanner, scannerLoading, togglingEnabled } = useValues(scannerLogic)
+    const { deleteScanner, toggleEnabled } = useActions(scannerLogic)
 
     if (scannerLoading || !scanner) {
         return (
@@ -57,6 +57,38 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
+                        <div className="flex items-center gap-2">
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.SessionRecording}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonSwitch
+                                    checked={scanner.enabled}
+                                    onChange={() => toggleEnabled()}
+                                    disabled={togglingEnabled}
+                                    size="small"
+                                    data-attr="vision-scanner-toggle-enabled"
+                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                                />
+                            </AccessControlAction>
+                            <span className={scanner.enabled ? 'text-success' : 'text-muted'}>
+                                {scanner.enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                        </div>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                to={urls.replayVisionScannerConfigure(scannerId)}
+                                data-attr="vision-scanner-edit"
+                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            >
+                                Edit scanner
+                            </LemonButton>
+                        </AccessControlAction>
                         <ReplayVisionFeedbackButton />
                         <More
                             size="small"
@@ -91,34 +123,20 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
             <ScannerOverview scannerId={scannerId} />
 
-            <LemonCollapse
-                panels={[
-                    {
-                        key: 'configuration',
-                        header: 'Configuration',
-                        content: <ScannerConfigReadonly scanner={scanner} />,
-                        dataAttr: 'vision-scanner-config-expand',
-                    },
-                ]}
-            />
-            <div className="flex items-center justify-end">
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <LemonButton
-                        type="primary"
-                        to={urls.replayVisionScannerConfigure(scannerId)}
-                        data-attr="vision-scanner-edit"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                    >
-                        Edit scanner
-                    </LemonButton>
-                </AccessControlAction>
+            <div className="flex flex-col gap-2">
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'configuration',
+                            header: 'Configuration',
+                            content: <ScannerConfigReadonly scanner={scanner} />,
+                            dataAttr: 'vision-scanner-config-expand',
+                        },
+                    ]}
+                />
+                <SummarizerMaxChat scannerId={scannerId} />
+                <ScannerObservationsTable scannerId={scannerId} />
             </div>
-
-            <SummarizerMaxChat scannerId={scannerId} />
-            <ScannerObservationsTable scannerId={scannerId} />
         </SceneContent>
     )
 }

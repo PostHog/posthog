@@ -445,8 +445,14 @@ class ExperimentService:
     }
 
     @classmethod
-    def validate_stats_config(cls, stats_config: dict | None) -> None:
-        """Validate stats_config shape and method value."""
+    def validate_stats_config(cls, stats_config: dict | None, variant_keys: list[str] | None = None) -> None:
+        """Validate stats_config shape, method value, and baseline variant key.
+
+        When ``variant_keys`` is provided, a ``baseline_variant_key`` set in
+        ``stats_config`` must be one of them. When ``variant_keys`` is None/empty,
+        baseline validation is skipped (the caller couldn't supply the keys).
+        Absence of ``baseline_variant_key`` is always valid (defaults to control downstream).
+        """
         if not stats_config:
             return
         method = stats_config.get("method")
@@ -454,6 +460,33 @@ class ExperimentService:
             raise ValidationError(
                 f"Invalid stats method: '{method}'. Must be one of: {', '.join(sorted(cls.VALID_STATS_METHODS))}"
             )
+        baseline_variant_key = stats_config.get("baseline_variant_key")
+        if baseline_variant_key is not None and variant_keys and baseline_variant_key not in variant_keys:
+            raise ValidationError(
+                f"Invalid baseline_variant_key: '{baseline_variant_key}'. "
+                f"Must be one of: {', '.join(sorted(variant_keys))}"
+            )
+
+    @staticmethod
+    def _variant_keys(variants: list | None) -> list[str]:
+        """Extract variant keys from a feature_flag_variants list, skipping malformed entries."""
+        return [variant["key"] for variant in (variants or []) if isinstance(variant, dict)]
+
+    @classmethod
+    def _resolved_variant_keys(cls, experiment: Experiment, update_data: dict) -> list[str]:
+        """Variant keys the experiment will have after this update.
+
+        Prefer the variants the PATCH sets; otherwise fall back to the experiment's
+        current variants (its parameters first, then the linked flag's multivariate set).
+        """
+        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        if update_variants is None:
+            update_variants = (experiment.parameters or {}).get("feature_flag_variants") or (
+                experiment.feature_flag.filters.get("multivariate", {}).get("variants", [])
+                if experiment.feature_flag
+                else []
+            )
+        return cls._variant_keys(update_variants)
 
     @staticmethod
     def validate_no_duplicate_metric_uuids(*metric_lists: list | None) -> None:
@@ -683,7 +716,6 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
-        self.validate_stats_config(stats_config)
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -696,6 +728,13 @@ class ExperimentService:
             create_in_folder=create_in_folder,
             serializer_context=serializer_context,
         )
+
+        # Validate the baseline against the variants the flag actually ends up with.
+        # used_variants reflects DEFAULT_VARIANTS / an existing linked flag, which the
+        # raw parameters payload may omit. This runs inside the @transaction.atomic
+        # create, so a raise rolls back the just-created flag.
+        used_variant_keys = self._variant_keys(used_variants)
+        self.validate_stats_config(stats_config, used_variant_keys)
 
         team_config = self._get_team_experiments_config()
         stats_config = self._apply_stats_config_defaults(stats_config, team_config)
@@ -918,6 +957,11 @@ class ExperimentService:
 
         if "control" not in [variant["key"] for variant in variants]:
             raise ValidationError("Feature flag must have a variant with key 'control'")
+
+    def _assert_flag_not_deleted_for_launch(self, feature_flag: FeatureFlag) -> None:
+        """A deleted flag distributes no traffic, so an experiment can never go live on it."""
+        if feature_flag.deleted:
+            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
 
     @staticmethod
     def _assign_uuids_to_metrics(
@@ -1185,8 +1229,7 @@ class ExperimentService:
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
-        if feature_flag.deleted:
-            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
+        self._assert_flag_not_deleted_for_launch(feature_flag)
         self._validate_existing_flag(feature_flag)
 
         # Set start_date
@@ -1895,8 +1938,15 @@ class ExperimentService:
                 existing_flag_serializer.save()
 
         # --- validate updated fields ------------------------------------------
-        if "stats_config" in update_data:
-            self.validate_stats_config(update_data["stats_config"])
+        # Revalidate the baseline whenever either side of the constraint changes:
+        # the stats_config itself, or the variant set it references. A variants-only
+        # PATCH (e.g. updateDistribution) that renames/removes the current baseline
+        # must not leave a dangling baseline_variant_key behind.
+        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        if "stats_config" in update_data or update_variants is not None:
+            variant_keys = self._resolved_variant_keys(experiment, update_data)
+            effective_stats_config = update_data.get("stats_config", experiment.stats_config)
+            self.validate_stats_config(effective_stats_config, variant_keys)
 
         # Defense-in-depth: only validate the inline metric lists this update
         # is actually touching. Dedup-on-input has already made these lists
@@ -1956,6 +2006,13 @@ class ExperimentService:
                 "Cannot restore experiment: the linked feature flag has been deleted. "
                 "Restore the feature flag first, then restore the experiment."
             )
+
+        # Launching a draft via PATCH (start_date) is an alternate launch path, so it must
+        # run the same flag guards as the dedicated launch_experiment action: flag not
+        # deleted, and a valid control/variant configuration.
+        if experiment.is_draft and update_data.get("start_date") is not None:
+            self._assert_flag_not_deleted_for_launch(feature_flag)
+            self._validate_existing_flag(feature_flag)
 
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):

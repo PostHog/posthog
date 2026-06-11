@@ -13,7 +13,7 @@ import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general
 import { PropertyGroupFilter } from '~/types'
 
 import type { tracingDataLogicType } from './tracingDataLogicType'
-import { tracingFiltersLogic } from './tracingFiltersLogic'
+import { type TracingOrderBy, tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 
 export interface SparklineRow {
@@ -59,7 +59,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     path(['products', 'tracing', 'frontend', 'tracingDataLogic']),
 
     connect(() => ({
-        values: [tracingFiltersLogic(), ['filters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs']],
+        values: [tracingFiltersLogic(), ['filters', 'orderBy', 'utcDateRange', 'currentWindowMs', 'previousWindowMs']],
     })),
 
     actions({
@@ -195,6 +195,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         {
                             dateRange: values.utcDateRange,
                             orderBy: values.filters.orderBy,
+                            orderDirection: values.filters.orderDirection,
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.filters.filterGroup as PropertyGroupFilter,
@@ -210,23 +211,31 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     return response.results as Span[]
                 },
                 fetchNextPage: async () => {
-                    if (!values.nextCursor) {
+                    if (!values.hasMoreToLoad) {
                         return values.spans
                     }
 
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
+                    // Duration ordering paginates by offset (it has no keyset cursor); timestamp
+                    // ordering uses the `after` cursor. Offset is the count of traces already shown.
+                    const pagination =
+                        values.filters.orderBy === 'duration'
+                            ? { offset: values.rootSpans.length }
+                            : { after: values.nextCursor ?? undefined }
+
                     const response = await api.tracing.listSpans(
                         {
                             dateRange: values.utcDateRange,
                             orderBy: values.filters.orderBy,
+                            orderDirection: values.filters.orderDirection,
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                             prefetchSpans: PREFETCH_SPANS,
                             limit: DEFAULT_PAGE_SIZE,
-                            after: values.nextCursor,
+                            ...pagination,
                         },
                         controller.signal
                     )
@@ -437,13 +446,19 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             },
         ],
 
-        // Date range covered by the currently-visible (scrolled-into-view) rows. Mirrors the
-        // logs viewer so the sparkline can highlight the window the list is showing. Values are
-        // always ordered date_from <= date_to regardless of the list's sort order.
+        // Date range covered by the currently-visible (scrolled-into-view) rows, so the sparkline can
+        // highlight the window the list is showing (mirrors the logs viewer). Only meaningful when the
+        // list is time-ordered — under duration (or any non-timestamp) sort, consecutive rows aren't
+        // contiguous in time, so the highlight would be meaningless. Suppress it then; a
+        // duration-appropriate overlay is a follow-up (JON-36).
         visibleRowDateRange: [
-            (s) => [s.visibleRowRange, s.rootSpans],
-            (visibleRowRange: VisibleRowRange | null, rootSpans: Span[]): VisibleSpanTimeRange | null => {
-                if (!visibleRowRange || rootSpans.length === 0) {
+            (s) => [s.visibleRowRange, s.rootSpans, s.orderBy],
+            (
+                visibleRowRange: VisibleRowRange | null,
+                rootSpans: Span[],
+                orderBy: TracingOrderBy
+            ): VisibleSpanTimeRange | null => {
+                if (orderBy !== 'timestamp' || !visibleRowRange || rootSpans.length === 0) {
                     return null
                 }
                 const startIndex = Math.max(0, Math.min(visibleRowRange.startIndex, rootSpans.length - 1))

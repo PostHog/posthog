@@ -63,20 +63,20 @@ export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
 
 /**
  * Transition a report to a new state. The model validates allowed transitions.
-
-The request body is validated by SignalReportStateRequestSerializer — only the
-fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
-and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
-so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
-
-Body: {
-    "state": "suppressed" | "potential",
-    # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
-    "dismissal_reason": "<any string code, owned by the caller>",
-    "dismissal_note": "free-form text",
-    # Optional, only honored for state == "potential":
-    "snooze_for": <number of additional signals before re-promotion>,
-}
+ *
+ * The request body is validated by SignalReportStateRequestSerializer — only the
+ * fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
+ * and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
+ * so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
+ *
+ * Body: {
+ *     "state": "suppressed" | "potential",
+ *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+ *     "dismissal_reason": "<any string code, owned by the caller>",
+ *     "dismissal_note": "free-form text",
+ *     # Optional, only honored for state == "potential":
+ *     "snooze_for": <number of additional signals before re-promotion>,
+ * }
  */
 export const SignalsReportsStateCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this signal report.'),
@@ -196,7 +196,7 @@ export const SignalsScoutProjectProfileGetQueryParams = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
@@ -232,6 +232,18 @@ export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
         .max(signalsScoutRunsListQueryLimitMax)
         .optional()
         .describe('Max rows to return (default 20, hard cap 100).'),
+    skill_name: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Exact-match filter on the scout skill (e.g. `signals-scout-errors`). Narrows the run dump to a single scout — the primary scoping path when a specialist dedupes against its own past runs. Omit to span every scout on the team.'
+        ),
+    skill_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.'),
     text: zod
         .string()
         .min(1)
@@ -244,12 +256,12 @@ export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
  * @summary Get a run by ID
  */
 export const SignalsScoutRunsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this Signal scout run.'),
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
 })
 
 /**
@@ -257,12 +269,12 @@ export const SignalsScoutRunsRetrieveParams = /* @__PURE__ */ zod.object({
  * @summary List a run's emitted findings
  */
 export const SignalsScoutRunsEmissionsParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this Signal scout run.'),
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
 })
 
 /**
@@ -270,12 +282,12 @@ export const SignalsScoutRunsEmissionsParams = /* @__PURE__ */ zod.object({
  * @summary Emit a finding for a run
  */
 export const SignalsScoutEmitSignalParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this Signal scout run.'),
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
 })
 
 export const signalsScoutEmitSignalBodyDescriptionMax = 50000
@@ -284,6 +296,10 @@ export const signalsScoutEmitSignalBodyConfidenceMin = 0
 export const signalsScoutEmitSignalBodyConfidenceMax = 1
 
 export const signalsScoutEmitSignalBodyEvidenceMax = 20
+
+export const signalsScoutEmitSignalBodyTagsItemMax = 50
+
+export const signalsScoutEmitSignalBodyTagsMax = 10
 
 export const signalsScoutEmitSignalBodyFindingIdMax = 100
 
@@ -335,6 +351,13 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).'),
+        tags: zod
+            .array(zod.string().max(signalsScoutEmitSignalBodyTagsItemMax))
+            .max(signalsScoutEmitSignalBodyTagsMax)
+            .optional()
+            .describe(
+                "Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row."
+            ),
         time_range: zod
             .union([
                 zod.object({
@@ -357,7 +380,7 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
 
 /**
- * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`.
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
@@ -368,9 +391,24 @@ export const SignalsScoutScratchpadSearchParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const signalsScoutScratchpadSearchQueryContentMaxCharsMin = 0
+
 export const signalsScoutScratchpadSearchQueryLimitMax = 100
 
 export const SignalsScoutScratchpadSearchQueryParams = /* @__PURE__ */ zod.object({
+    content_max_chars: zod
+        .number()
+        .min(signalsScoutScratchpadSearchQueryContentMaxCharsMin)
+        .optional()
+        .describe(
+            "Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`."
+        ),
+    keys_only: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`."
+        ),
     limit: zod
         .number()
         .min(1)

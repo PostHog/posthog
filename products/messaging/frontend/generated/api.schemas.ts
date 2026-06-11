@@ -9,7 +9,7 @@
  */
 /**
  * * `marketing` - Marketing
- * `transactional` - Transactional
+ * * `transactional` - Transactional
  */
 export type CategoryTypeEnumApi = (typeof CategoryTypeEnumApi)[keyof typeof CategoryTypeEnumApi]
 
@@ -140,8 +140,8 @@ export interface EmailTemplateApi {
 
 export interface MessageTemplateContentApi {
     /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
-
-  * `liquid` - liquid */
+     *
+     * * `liquid` - liquid */
     templating?: MessageTemplateContentTemplatingEnumApi
     /** Email message content. Replaced as a whole on update — send the complete object. */
     email?: EmailTemplateApi | null
@@ -149,13 +149,13 @@ export interface MessageTemplateContentApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
