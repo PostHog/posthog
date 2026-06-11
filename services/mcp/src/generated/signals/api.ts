@@ -297,6 +297,10 @@ export const signalsScoutEmitSignalBodyConfidenceMax = 1
 
 export const signalsScoutEmitSignalBodyEvidenceMax = 20
 
+export const signalsScoutEmitSignalBodyTagsItemMax = 50
+
+export const signalsScoutEmitSignalBodyTagsMax = 10
+
 export const signalsScoutEmitSignalBodyFindingIdMax = 100
 
 export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
@@ -347,6 +351,13 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).'),
+        tags: zod
+            .array(zod.string().max(signalsScoutEmitSignalBodyTagsItemMax))
+            .max(signalsScoutEmitSignalBodyTagsMax)
+            .optional()
+            .describe(
+                "Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row."
+            ),
         time_range: zod
             .union([
                 zod.object({
