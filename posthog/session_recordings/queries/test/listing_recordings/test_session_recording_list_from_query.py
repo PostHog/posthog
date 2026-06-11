@@ -966,6 +966,29 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
+    @parameterized.expand(
+        [
+            ("windowed_excludes_old_recording", True, False),
+            ("not_windowed_includes_old_recording", False, True),
+        ]
+    )
+    def test_apply_date_window_to_session_ids_restores_date_filtering(
+        self, _name: str, apply_date_window: bool, expect_found: bool
+    ) -> None:
+        old_session_id = self._an_old_recording()
+
+        # internal callers (bulk_delete, the session_recording_id prepend check, scheduled sweeps)
+        # use the date range as a search bound and opt back into windowing via the kwarg
+        result = SessionRecordingListFromQuery(
+            query=RecordingsQuery(session_ids=[old_session_id], date_from="-1d"),
+            team=self.team,
+            hogql_query_modifiers=None,
+            apply_date_window_to_session_ids=apply_date_window,
+        ).run()
+
+        actual = [r["session_id"] for r in result.results]
+        assert actual == ([old_session_id] if expect_found else [])
+
     @snapshot_clickhouse_queries
     def test_event_filter_with_active_sessions(
         self,

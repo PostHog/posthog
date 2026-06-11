@@ -81,7 +81,13 @@ class ScannerCandidateQuery:
         if (sampling := self._sampling_predicate()) is not None:
             extra_having.append(sampling)
 
-        self._inner = SessionRecordingListFromQuery(team=team, query=inner_query, extra_having_predicates=extra_having)
+        self._inner = SessionRecordingListFromQuery(
+            team=team,
+            query=inner_query,
+            extra_having_predicates=extra_having,
+            # the schedule's window must hold even if the saved query carries session_ids
+            apply_date_window_to_session_ids=True,
+        )
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:

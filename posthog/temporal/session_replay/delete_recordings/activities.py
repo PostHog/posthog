@@ -131,6 +131,8 @@ async def load_recordings_with_query(input: RecordingsWithQueryInput) -> LoadRec
         query=parsed_query,
         team=team,
         hogql_query_modifiers=None,
+        # deletion search: any date bound in the query must apply even with session_ids
+        apply_date_window_to_session_ids=True,
     )
     query_results = await database_sync_to_async(query_instance.run)()
     session_ids = [session["session_id"] for session in query_results.results]

@@ -318,7 +318,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # when a comment filter is active, session_ids may be derived from the comment search
         # (see session_recording_api), so the user's date range must still apply.
         # internal callers that use the date range as a search bound (e.g. bulk_delete,
-        # the session_recording_id prepend check) opt back in via apply_date_window_to_session_ids
+        # the session_recording_id prepend check) opt back in via apply_date_window_to_session_ids.
+        # known limit: event/person subqueries still scan within the query date range (bounding the
+        # events table scan), so event-filtered lookups only match sessions whose events fall in range
         has_explicit_session_ids = (
             isinstance(self._query.session_ids, list)
             and len(self._query.session_ids) > 0

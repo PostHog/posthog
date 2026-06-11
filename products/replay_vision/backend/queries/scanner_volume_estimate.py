@@ -37,7 +37,8 @@ def estimate_scanner_session_volume(*, team: Team, query: RecordingsQuery) -> Sc
     windowed.date_from = f"-{ESTIMATE_WINDOW_DAYS}d"
     windowed.date_to = None
 
-    inner = SessionRecordingListFromQuery(team=team, query=windowed).get_query()
+    # the fixed estimate window must hold even if the saved query carries session_ids
+    inner = SessionRecordingListFromQuery(team=team, query=windowed, apply_date_window_to_session_ids=True).get_query()
     # The inner query groups by session_id, so one row is one session; order is irrelevant to a count.
     inner.order_by = None
 

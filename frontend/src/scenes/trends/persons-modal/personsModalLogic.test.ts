@@ -432,16 +432,18 @@ describe('personsModalLogic', () => {
             const setupFunnelStepLogic = ({
                 funnelStep,
                 matchedRecordings = [],
+                series = funnelSeries,
             }: {
                 funnelStep?: number
                 matchedRecordings?: Array<{ session_id: string; events: any[] }>
+                series?: any[]
             }): void => {
                 logic = personsModalLogic({
                     query: {
                         kind: NodeKind.FunnelsActorsQuery,
                         source: {
                             kind: NodeKind.FunnelsQuery,
-                            series: funnelSeries,
+                            series,
                             dateRange: { date_from: '-7d', date_to: '2024-05-01' },
                         },
                         ...(funnelStep !== undefined ? { funnelStep } : {}),
@@ -525,6 +527,21 @@ describe('personsModalLogic', () => {
             ])('filters on $expectedEvents for $scenario', ({ funnelStep, expectedEvents }) => {
                 setupFunnelStepLogic({ funnelStep })
                 expect(getInnerFilterValues().map((filter) => filter.id)).toEqual(expectedEvents)
+            })
+
+            it('includes action steps in the fallback path', () => {
+                setupFunnelStepLogic({
+                    funnelStep: -3,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'step one' },
+                        { kind: NodeKind.ActionsNode, id: 42, name: 'Sign up' },
+                        { kind: NodeKind.EventsNode, event: 'step three' },
+                    ],
+                })
+                expect(getInnerFilterValues()).toEqual([
+                    expect.objectContaining({ id: 'step one', type: 'events' }),
+                    expect.objectContaining({ id: 42, name: 'Sign up', type: 'actions' }),
+                ])
             })
         })
 

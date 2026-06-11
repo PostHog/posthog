@@ -619,20 +619,30 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         seriesToFilterOn = insightQuery.series.slice(0, completedStepCount)
                     }
                     seriesToFilterOn.forEach((series) => {
+                        let entityFilter: any = null
                         if ('event' in series && series.event) {
-                            const eventFilter: any = {
+                            entityFilter = {
                                 id: series.event,
                                 name: series.event,
                                 type: 'events',
                             }
+                        } else if (series.kind === NodeKind.ActionsNode && series.id != null) {
+                            // action steps have an action id, not an event name
+                            entityFilter = {
+                                id: series.id,
+                                name: series.name,
+                                type: 'actions',
+                            }
+                        }
+                        if (entityFilter) {
                             if (
                                 'properties' in series &&
                                 Array.isArray(series.properties) &&
                                 series.properties.length > 0
                             ) {
-                                eventFilter.properties = series.properties
+                                entityFilter.properties = series.properties
                             }
-                            filters.push(eventFilter)
+                            filters.push(entityFilter)
                         }
                     })
                 }
