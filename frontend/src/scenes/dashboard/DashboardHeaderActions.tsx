@@ -98,11 +98,11 @@ export function DashboardAddTileButton(): JSX.Element | null {
 
 export function DashboardEditSaveCancelButtons({
     withShortcuts = true,
-    extraAction,
+    applyFiltersButton,
 }: {
     withShortcuts?: boolean
-    /** Optional action rendered between Cancel and Save (e.g. the large-dashboard "Apply filters" preview). */
-    extraAction?: JSX.Element | null
+    /** The large-dashboard "Apply filters" preview button, rendered between Cancel and Save. */
+    applyFiltersButton?: JSX.Element | null
 }): JSX.Element {
     const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, cancelEditMode } = useActions(dashboardLogic)
@@ -143,7 +143,7 @@ export function DashboardEditSaveCancelButtons({
         return (
             <>
                 {cancelButton}
-                {extraAction}
+                {applyFiltersButton}
                 {saveButton}
             </>
         )
@@ -160,7 +160,7 @@ export function DashboardEditSaveCancelButtons({
             >
                 {cancelButton}
             </AppShortcut>
-            {extraAction}
+            {applyFiltersButton}
             <AppShortcut
                 name="SaveDashboard"
                 keybind={[keyBinds.edit, keyBinds.save]}
