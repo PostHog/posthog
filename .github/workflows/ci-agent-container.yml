@@ -134,6 +134,7 @@ jobs:
 
             - name: Build and push container image
               id: build
+              continue-on-error: true
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: ${{ matrix.context }}
@@ -147,9 +148,40 @@ jobs:
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
 
+            - name: Re-login to registries (retry)
+              if: steps.build.outcome == 'failure'
+              uses: ./.github/actions/docker-meta
+              with:
+                  image-name: ${{ matrix.image }}
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  push-to-ecr: ${{ matrix.push_to_ecr }}
+
+            - name: Build and push container image (retry)
+              id: build_retry
+              if: steps.build.outcome == 'failure'
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: ${{ matrix.context }}
+                  buildx-fallback: false
+                  project: ${{ matrix.depot_project }}
+                  push: true
+                  file: ${{ matrix.dockerfile }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      COMMIT_HASH=${{ github.sha }}
+
+            - name: Fail if both build attempts failed
+              if: steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
+              run: exit 1
+
             - name: Container image digest
               env:
-                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest || steps.build_retry.outputs.digest }}
                   ECR_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
                   IMAGE_NAME: ${{ matrix.image }}
                   PUSH_TO_ECR: ${{ matrix.push_to_ecr }}
@@ -176,7 +208,7 @@ jobs:
             # SHA per release. Same idiom as _rust-build-images.yml.
             - name: Save digest to file
               env:
-                  DIGEST: ${{ steps.build.outputs.digest }}
+                  DIGEST: ${{ steps.build.outputs.digest || steps.build_retry.outputs.digest }}
               run: echo "$DIGEST" > /tmp/digest-${{ matrix.image }}.txt
 
             - name: Upload digest
@@ -195,7 +227,7 @@ jobs:
               env:
                   ECR_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
                   IMAGE_NAME: ${{ matrix.image }}
-                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest || steps.build_retry.outputs.digest }}
                   PUSH_TO_ECR: ${{ matrix.push_to_ecr }}
               run: |
                   set -euo pipefail
