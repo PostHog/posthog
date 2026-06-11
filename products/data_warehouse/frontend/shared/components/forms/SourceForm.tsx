@@ -243,6 +243,7 @@ export const sourceFieldToElement = (
                             value={value}
                             onChange={onChange}
                             integration={field.kind}
+                            autoSelectFirstIntegration={!isUpdateMode}
                             schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
                         />
                     )}
