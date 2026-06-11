@@ -2,6 +2,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { createElement, useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
+import { getAskAISelectionQuery } from './documentModel'
 import {
     htmlElementToInlineNodes,
     inlineNodesToHtml,
@@ -7764,5 +7765,23 @@ After component`,
         expect(shell?.querySelector('.MarkdownNotebook__component-badge')).toBeNull()
         expect(shell?.textContent?.match(/SQL \(DuckDB\)/g)).toHaveLength(1)
         expect(shell?.textContent).toContain('select * from events')
+    })
+
+    it.each([
+        ['plain text selection', 'just some text', '```markdown\njust some text\n```'],
+        [
+            'selection with a fenced code block',
+            'before\n```\nfenced\n```\nafter',
+            '````markdown\nbefore\n```\nfenced\n```\nafter\n````',
+        ],
+        [
+            'selection with a four-backtick fence',
+            '`````\nnested\n`````',
+            '``````markdown\n`````\nnested\n`````\n``````',
+        ],
+    ])('wraps the highlighted markdown in an unescapable fence: %s', (_name, selection, expectedBlock) => {
+        const query = getAskAISelectionQuery(selection, 'rewrite this', TEST_AI_CHAT_ID)
+
+        expect(query).toContain(expectedBlock)
     })
 })

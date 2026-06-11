@@ -418,6 +418,9 @@ export function serializeNotebookNodes(nodes: NotebookBlockNode[]): string {
 
 export function getAskAISelectionQuery(selectedMarkdown: string, userQuery: string, chatId: string): string {
     const highlightedMarkdown = selectedMarkdown.trim()
+    // A fence longer than any backtick run in the content, so embedded ``` can't close the block early
+    const longestBacktickRun = highlightedMarkdown.match(/`+/g)?.reduce((max, run) => Math.max(max, run.length), 0) ?? 0
+    const fence = '`'.repeat(Math.max(3, longestBacktickRun + 1))
 
     return [
         'The user highlighted content in a markdown notebook and asked PostHog AI to help with it.',
@@ -426,9 +429,9 @@ export function getAskAISelectionQuery(selectedMarkdown: string, userQuery: stri
         userQuery,
         '',
         'Highlighted markdown:',
-        '```markdown',
+        `${fence}markdown`,
         highlightedMarkdown,
-        '```',
+        fence,
         '',
         `Use the notebook context as the source of truth. The inline <Chat id="${chatId}" /> block is the answer anchor directly below the highlighted content.`,
         'If the user asks to replace, rewrite, shorten, expand, summarize, or otherwise change the highlighted content, update the notebook near the highlighted content and keep that Chat block as the anchor for the answer.',
