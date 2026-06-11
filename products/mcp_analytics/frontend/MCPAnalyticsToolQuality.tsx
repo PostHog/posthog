@@ -10,6 +10,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
 import { isHogQLQuery } from '~/queries/utils'
 
+import { Card } from './dashboard/Card'
 import { mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
 
 const COLLECTION_ID = 'mcp-analytics-tool-quality'
@@ -97,24 +98,21 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
         <div className="flex flex-col gap-4">
             <CategoryScopeBar />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="bg-bg-light border rounded p-2 min-h-[260px] flex flex-col">
-                    <div className="text-muted text-xs font-medium uppercase mb-2 px-2 pt-1">Top tools by calls</div>
+                <Card title="Top tools by calls" className="flex min-h-[260px] flex-col">
                     <div className="flex-1">
                         <Query query={topToolsQuery} readOnly />
                     </div>
-                </div>
-                <div className="bg-bg-light border rounded p-2 min-h-[260px] flex flex-col">
-                    <div className="text-muted text-xs font-medium uppercase mb-2 px-2 pt-1">Errors over time</div>
+                </Card>
+                <Card title="Errors over time" className="flex min-h-[260px] flex-col">
                     <div className="flex-1">
                         <Query query={errorTrendQuery} readOnly />
                     </div>
-                </div>
-                <div className="bg-bg-light border rounded p-2 min-h-[260px] flex flex-col">
-                    <div className="text-muted text-xs font-medium uppercase mb-2 px-2 pt-1">Duration over time</div>
+                </Card>
+                <Card title="Duration over time" className="flex min-h-[260px] flex-col">
                     <div className="flex-1">
                         <Query query={durationTrendQuery} readOnly />
                     </div>
-                </div>
+                </Card>
             </div>
             <DataTable
                 query={toolQualityQuery}
