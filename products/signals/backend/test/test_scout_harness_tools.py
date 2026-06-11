@@ -36,7 +36,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     _validate_inputs,
     emit_finding_sync,
 )
-from products.signals.backend.scout_harness.tools.runs import MAX_RUN_SEARCH_LIMIT
+from products.signals.backend.scout_harness.tools.runs import MAX_FAILURE_REASON_LENGTH, MAX_RUN_SEARCH_LIMIT
 from products.signals.backend.scout_harness.tools.scratchpad import (
     MAX_SCRATCHPAD_CONTENT_LENGTH,
     MAX_SCRATCHPAD_SEARCH_LIMIT,
@@ -200,6 +200,73 @@ class TestSearchRecentRuns(BaseTest):
 
         assert len(hits) == 2
 
+    def test_skill_name_filter_scopes_to_one_scout(self) -> None:
+        errors = _create_run(self.team, skill_name="signals-scout-errors")
+        _create_run(self.team, skill_name="signals-scout-llm")
+
+        hits = search_recent_runs(team_id=self.team.id, skill_name="signals-scout-errors")
+
+        assert [h.run_id for h in hits] == [str(errors.id)]
+
+    def test_skill_version_filter_pins_one_version(self) -> None:
+        v1 = _create_run(self.team, skill_name="signals-scout-errors", skill_version=1)
+        _create_run(self.team, skill_name="signals-scout-errors", skill_version=2)
+
+        hits = search_recent_runs(team_id=self.team.id, skill_name="signals-scout-errors", skill_version=1)
+
+        assert [h.run_id for h in hits] == [str(v1.id)]
+
+    def test_failure_reason_and_error_surface_for_failed_run(self) -> None:
+        run = _create_run(self.team, task_run_status=TaskRun.Status.FAILED)
+        TaskRun.objects.filter(id=run.task_run_id).update(error_message="boom: sandbox died\nstack line 2")
+
+        hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
+
+        assert hit.error == "boom: sandbox died\nstack line 2"
+        # Derived reason is the bounded first line only.
+        assert hit.failure_reason == "boom: sandbox died"
+        detail = get_run(team_id=self.team.id, run_id=str(run.id))
+        assert detail is not None
+        assert detail.failure_reason == "boom: sandbox died"
+
+    def test_failure_reason_falls_back_when_no_error_message(self) -> None:
+        run = _create_run(self.team, task_run_status=TaskRun.Status.CANCELLED)
+
+        hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
+
+        assert hit.error is None
+        assert hit.failure_reason == "cancelled"
+        assert hit.run_id == str(run.id)
+
+    def test_no_failure_reason_for_completed_run(self) -> None:
+        _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
+
+        hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
+
+        assert hit.error is None
+        assert hit.failure_reason is None
+
+    def test_completed_run_with_error_message_does_not_surface_error(self) -> None:
+        # A stray error_message on a run that still reached COMPLETED must not surface as a
+        # failure signal — `error` and `failure_reason` are gated on terminal-failure status.
+        run = _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
+        TaskRun.objects.filter(id=run.task_run_id).update(error_message="transient warning, recovered")
+
+        hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
+
+        assert hit.error is None
+        assert hit.failure_reason is None
+
+    def test_failure_reason_truncated_to_max_length(self) -> None:
+        run = _create_run(self.team, task_run_status=TaskRun.Status.FAILED)
+        long_message = "x" * (MAX_FAILURE_REASON_LENGTH + 50)
+        TaskRun.objects.filter(id=run.task_run_id).update(error_message=long_message)
+
+        hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
+
+        assert hit.error == long_message  # full message preserved
+        assert len(hit.failure_reason or "") == MAX_FAILURE_REASON_LENGTH  # derived reason bounded
+
 
 class TestGetRun(BaseTest):
     def test_returns_full_run_payload(self) -> None:
@@ -337,6 +404,35 @@ class TestSearchScratchpad(BaseTest):
         results = search_scratchpad(team_id=self.team.id, limit=MAX_SCRATCHPAD_SEARCH_LIMIT + 50)
 
         assert len(results) == MAX_SCRATCHPAD_SEARCH_LIMIT
+
+    def test_keys_only_blanks_content_but_keeps_keys(self) -> None:
+        remember(team_id=self.team.id, key="k1", content="a long body the caller doesn't need yet")
+
+        results = search_scratchpad(team_id=self.team.id, keys_only=True)
+
+        assert [e.key for e in results] == ["k1"]
+        assert results[0].content == ""
+
+    def test_content_max_chars_truncates_to_preview(self) -> None:
+        remember(team_id=self.team.id, key="k1", content="abcdefghij")
+
+        results = search_scratchpad(team_id=self.team.id, content_max_chars=4)
+
+        assert results[0].content == "abcd"
+
+    def test_keys_only_takes_precedence_over_content_max_chars(self) -> None:
+        remember(team_id=self.team.id, key="k1", content="abcdefghij")
+
+        results = search_scratchpad(team_id=self.team.id, keys_only=True, content_max_chars=4)
+
+        assert results[0].content == ""
+
+    def test_content_returned_in_full_by_default(self) -> None:
+        remember(team_id=self.team.id, key="k1", content="abcdefghij")
+
+        results = search_scratchpad(team_id=self.team.id)
+
+        assert results[0].content == "abcdefghij"
 
 
 # --- emit adapter tests ---
