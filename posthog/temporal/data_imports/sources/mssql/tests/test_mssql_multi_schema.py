@@ -140,16 +140,23 @@ class TestGetColumns:
 
 
 class TestGetSourceMetadata:
-    def test_multi_schema_splits_qualified_display(self, impl):
-        meta = impl.get_source_metadata(MagicMock(), _make_config(schema=""), ["dbo.users", "sales.orders"])
-        assert meta.schema_by_table == {"dbo.users": "dbo", "sales.orders": "sales"}
-        assert meta.table_name_by_table == {"dbo.users": "users", "sales.orders": "orders"}
-        assert meta.catalog_by_table == {"dbo.users": "warehouse", "sales.orders": "warehouse"}
-
-    def test_single_schema_uses_config_namespace(self, impl):
-        meta = impl.get_source_metadata(MagicMock(), _make_config(schema="dbo"), ["users"])
-        assert meta.schema_by_table == {"users": "dbo"}
-        assert meta.table_name_by_table == {"users": "users"}
+    @pytest.mark.parametrize(
+        "schema,tables,expected_schema,expected_table",
+        [
+            (
+                "",
+                ["dbo.users", "sales.orders"],
+                {"dbo.users": "dbo", "sales.orders": "sales"},
+                {"dbo.users": "users", "sales.orders": "orders"},
+            ),
+            ("dbo", ["users"], {"users": "dbo"}, {"users": "users"}),
+        ],
+    )
+    def test_splits_namespace(self, impl, schema, tables, expected_schema, expected_table):
+        meta = impl.get_source_metadata(MagicMock(), _make_config(schema=schema), tables)
+        assert meta.schema_by_table == expected_schema
+        assert meta.table_name_by_table == expected_table
+        assert meta.catalog_by_table == dict.fromkeys(tables, "warehouse")
 
 
 class TestGetPrimaryKeys:
@@ -158,8 +165,11 @@ class TestGetPrimaryKeys:
         conn, cursor = _conn_with_rows(rows)
         result = impl.get_primary_keys(conn, _make_config(schema=""), ["dbo.users", "sales.users"])
         assert result == {"dbo.users": ["id"], "sales.users": ["uid"]}
-        sql, _params = cursor.execute.call_args.args
+        sql, params = cursor.execute.call_args.args
         assert "db[_]" in sql
+        # Scan is bounded server-side by the unqualified table names.
+        assert "t.name IN %(names)s" in sql
+        assert params["names"] == ("users",)
 
     def test_single_schema_keys_by_bare_name(self, impl):
         rows = [("dbo", "users", "id"), ("dbo", "users", "email")]
@@ -172,17 +182,24 @@ class TestGetPrimaryKeys:
 
 
 class TestGetLeadingIndexColumns:
-    def test_multi_schema_keys_by_qualified_name(self, impl):
-        rows = [("dbo", "users", "created_at"), ("sales", "orders", "ts")]
-        conn, _cursor = _conn_with_rows(rows)
-        result = impl.get_leading_index_columns(conn, _make_config(schema=""), ["dbo.users", "sales.orders"])
-        assert result == {"dbo.users": {"created_at"}, "sales.orders": {"ts"}}
-
-    def test_single_schema_keys_by_bare_name(self, impl):
-        rows = [("dbo", "users", "created_at")]
-        conn, _cursor = _conn_with_rows(rows)
-        result = impl.get_leading_index_columns(conn, _make_config(schema="dbo"), ["users"])
-        assert result == {"users": {"created_at"}}
+    @pytest.mark.parametrize(
+        "schema,tables,rows,expected",
+        [
+            (
+                "",
+                ["dbo.users", "sales.orders"],
+                [("dbo", "users", "created_at"), ("sales", "orders", "ts")],
+                {"dbo.users": {"created_at"}, "sales.orders": {"ts"}},
+            ),
+            ("dbo", ["users"], [("dbo", "users", "created_at")], {"users": {"created_at"}}),
+        ],
+    )
+    def test_keys_by_namespace(self, impl, schema, tables, rows, expected):
+        conn, cursor = _conn_with_rows(rows)
+        result = impl.get_leading_index_columns(conn, _make_config(schema=schema), tables)
+        assert result == expected
+        sql, _params = cursor.execute.call_args.args
+        assert "t.name IN %(names)s" in sql
 
 
 # ---------------------------------------------------------------------------

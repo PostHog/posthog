@@ -76,6 +76,11 @@ def _non_system_schema_clause(column: str) -> tuple[str, dict[str, str]]:
     return clause, params
 
 
+def _unqualified_table(display: str) -> str:
+    """The table part of a qualified `schema.table` (or the whole name if unqualified)."""
+    return display.partition(".")[2] or display
+
+
 def _filter_qualified_tables(
     all_tables: dict[str, list[tuple[str, str, bool]]], names: list[str]
 ) -> dict[str, list[tuple[str, str, bool]]]:
@@ -341,14 +346,18 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             JOIN sys.schemas s ON t.schema_id = s.schema_id
             WHERE i.is_primary_key = 1
         """
+        # Bound the scan by table name server-side even in multi-schema mode (where two
+        # schemas can share a name → false positives the `if display in result` guard drops).
+        params: dict[str, Any] = {}
         if selected_schema is not None:
-            query = (
-                base_query + " AND s.name = %(schema)s AND t.name IN %(names)s ORDER BY s.name, t.name, ic.key_ordinal"
-            )
-            params: dict[str, Any] = {"schema": selected_schema, "names": tuple(tables)}
+            schema_clause = "s.name = %(schema)s"
+            params["schema"] = selected_schema
+            params["names"] = tuple(tables)
         else:
-            schema_clause, params = _non_system_schema_clause("s.name")
-            query = base_query + f" AND {schema_clause} ORDER BY s.name, t.name, ic.key_ordinal"
+            schema_clause, sys_params = _non_system_schema_clause("s.name")
+            params.update(sys_params)
+            params["names"] = tuple({_unqualified_table(table) for table in tables})
+        query = base_query + f" AND {schema_clause} AND t.name IN %(names)s ORDER BY s.name, t.name, ic.key_ordinal"
 
         try:
             with conn.cursor(as_dict=False) as cursor:
@@ -387,6 +396,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         schema_by_table: dict[str, str | None] = {}
         table_name_by_table: dict[str, str | None] = {}
         for display in tables:
+            schema: str | None
             if selected_schema is None and "." in display:
                 schema, _, table = display.partition(".")
             else:
@@ -441,12 +451,18 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
               AND i.has_filter = 0
               AND i.is_disabled = 0
         """
+        # Bound the scan by table name server-side even in multi-schema mode; the
+        # `if display in result` guard drops any same-name false positives.
+        params: dict[str, Any] = {}
         if selected_schema is not None:
-            query = base_query + " AND s.name = %(schema)s AND t.name IN %(names)s"
-            params: dict[str, Any] = {"schema": selected_schema, "names": tuple(tables)}
+            schema_clause = "s.name = %(schema)s"
+            params["schema"] = selected_schema
+            params["names"] = tuple(tables)
         else:
-            schema_clause, params = _non_system_schema_clause("s.name")
-            query = base_query + f" AND {schema_clause}"
+            schema_clause, sys_params = _non_system_schema_clause("s.name")
+            params.update(sys_params)
+            params["names"] = tuple({_unqualified_table(table) for table in tables})
+        query = base_query + f" AND {schema_clause} AND t.name IN %(names)s"
 
         try:
             with conn.cursor(as_dict=False) as cursor:
