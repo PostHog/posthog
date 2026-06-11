@@ -93,8 +93,22 @@ export async function driveCodingSession(
         return { state: 'failed', reason: 'coding_pool_unavailable', turns: 0 }
     }
 
+    // The agent's persona (agent.md / spec.entrypoint) is appended to the
+    // harness's claude_code preset — the same layering the in-process
+    // framework prompt does. Best-effort: a missing entrypoint falls back to
+    // the harness preset rather than failing the session.
+    let systemPrompt: string | undefined
+    try {
+        const entry = rev.spec.entrypoint || 'agent.md'
+        if (deps.bundle && (await deps.bundle.exists(rev.id, entry))) {
+            systemPrompt = await deps.bundle.readText(rev.id, entry)
+        }
+    } catch {
+        systemPrompt = undefined
+    }
+
     const launch: CodingLaunchConfig = {
-        ...renderLaunchConfig(rev.spec, { modelBaseUrl: deps.codingGateway?.baseUrl }),
+        ...renderLaunchConfig(rev.spec, { modelBaseUrl: deps.codingGateway?.baseUrl, systemPrompt }),
         apiKey: deps.codingGateway?.apiKey,
         apiUrl: deps.posthogApiBaseUrl,
         projectId: deps.codingGateway?.projectId,

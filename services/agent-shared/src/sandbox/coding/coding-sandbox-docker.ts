@@ -244,7 +244,13 @@ export class DockerCodingSandboxPool implements CodingSandboxPool {
             args.push('--mcpServers', JSON.stringify(launch.mcpServers))
         }
         if (launch.systemPrompt) {
-            args.push('--claudeCodeConfig', JSON.stringify({ systemPrompt: launch.systemPrompt }))
+            // Append the agent's persona to the harness's claude_code preset so
+            // the coding scaffolding (tool usage, etc.) stays and the agent's
+            // agent.md layers on top — mirrors the in-process framework prompt.
+            args.push(
+                '--claudeCodeConfig',
+                JSON.stringify({ systemPrompt: { type: 'preset', preset: 'claude_code', append: launch.systemPrompt } })
+            )
         }
 
         const { stdout, code, stderr } = await runDocker(args)
