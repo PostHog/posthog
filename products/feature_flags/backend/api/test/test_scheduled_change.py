@@ -695,8 +695,14 @@ class TestScheduledChangePersonalAPIKeyAccess(APIBaseTest):
         response = self._write_request(action)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        # The write must not have taken effect.
-        assert ScheduledChange.objects.filter(id=self.scheduled_change.id).exists()
+        # The forbidden write must not have taken effect.
+        if action == "create":
+            assert ScheduledChange.objects.filter(team=self.team).count() == 1
+        elif action == "update":
+            self.scheduled_change.refresh_from_db()
+            assert self.scheduled_change.payload == {"operation": "update_status", "value": False}
+        else:
+            assert ScheduledChange.objects.filter(id=self.scheduled_change.id).exists()
 
     def test_read_scope_is_team_scoped(self):
         # A schedule under a different team in the same org must not leak through the
