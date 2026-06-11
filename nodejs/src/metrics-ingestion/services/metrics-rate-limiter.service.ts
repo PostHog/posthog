@@ -20,6 +20,7 @@ export type MetricsRateLimiterConfig = Pick<
     | 'METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND'
     | 'METRICS_LIMITER_DISABLED_FOR_TEAMS'
     | 'METRICS_LIMITER_ENABLED_TEAMS'
+    | 'METRICS_LIMITER_EXEMPT_TEAMS'
     | 'METRICS_LIMITER_BUCKET_SIZE_KB'
     | 'METRICS_LIMITER_REFILL_RATE_KB_PER_SECOND'
     | 'METRICS_LIMITER_TTL_SECONDS'
@@ -45,6 +46,7 @@ export class MetricsRateLimiterService {
     private teamRefillRates: Map<number, number>
     private disabledTeamIds: Set<number> | '*' | null
     private enabledTeamIds: Set<number> | '*' | null
+    private exemptTeamIds: Set<number> | '*' | null
 
     constructor(
         private config: MetricsRateLimiterConfig,
@@ -54,6 +56,7 @@ export class MetricsRateLimiterService {
         this.teamRefillRates = this.parseTeamConfig(config.METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
         this.disabledTeamIds = this.parseTeamIdList(config.METRICS_LIMITER_DISABLED_FOR_TEAMS)
         this.enabledTeamIds = this.parseTeamIdList(config.METRICS_LIMITER_ENABLED_TEAMS)
+        this.exemptTeamIds = this.parseTeamIdList(config.METRICS_LIMITER_EXEMPT_TEAMS)
     }
 
     private parseTeamIdList(config: string): Set<number> | '*' | null {
@@ -154,7 +157,23 @@ export class MetricsRateLimiterService {
         })
     }
 
+    /**
+     * Internal-infrastructure teams (METRICS_LIMITER_EXEMPT_TEAMS) whose metrics must never be
+     * throttled. Exempt teams bypass both quota and rate limiting, and skip token-bucket
+     * accounting so their traffic doesn't pollute per-team quota state.
+     */
+    public isTeamExempt(teamId: number): boolean {
+        if (this.exemptTeamIds === '*') {
+            return true
+        }
+        return this.exemptTeamIds?.has(teamId) ?? false
+    }
+
     private isRateLimitingEnabledForTeam(teamId: number): boolean {
+        if (this.isTeamExempt(teamId)) {
+            return false
+        }
+
         if (this.disabledTeamIds === '*') {
             return false
         }

@@ -36,6 +36,7 @@ export type MetricsIngestionConsumerConfig = {
     METRICS_REDIS_TLS: boolean
     METRICS_LIMITER_ENABLED_TEAMS: string
     METRICS_LIMITER_DISABLED_FOR_TEAMS: string
+    METRICS_LIMITER_EXEMPT_TEAMS: string
     METRICS_LIMITER_BUCKET_SIZE_KB: number
     METRICS_LIMITER_REFILL_RATE_KB_PER_SECOND: number
     METRICS_LIMITER_TTL_SECONDS: number
@@ -60,6 +61,9 @@ export function getDefaultMetricsIngestionConsumerConfig(): MetricsIngestionCons
         METRICS_REDIS_TLS: isProdEnv() ? true : false,
         METRICS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         METRICS_LIMITER_DISABLED_FOR_TEAMS: '',
+        // Internal-infrastructure teams (comma-separated IDs) that bypass both quota and rate
+        // limiting — their metrics must never be dropped by per-team throttling.
+        METRICS_LIMITER_EXEMPT_TEAMS: '',
         METRICS_LIMITER_BUCKET_SIZE_KB: 10000,
         METRICS_LIMITER_REFILL_RATE_KB_PER_SECOND: 1000,
         METRICS_LIMITER_TTL_SECONDS: 60 * 60 * 24,

@@ -235,7 +235,12 @@ export class MetricsIngestionConsumer {
         const quotaDroppedMessages: MetricsIngestionMessage[] = []
         const quotaAllowedMessages: MetricsIngestionMessage[] = []
 
-        const uniqueTokens = [...new Set(messages.map((m) => m.token))]
+        // Internal-infra teams (METRICS_LIMITER_EXEMPT_TEAMS) bypass quota enforcement entirely:
+        // their tokens are excluded from the quota lookup, so their messages can never be dropped
+        // here. A token maps to exactly one team, so filtering by team is sufficient.
+        const uniqueTokens = [
+            ...new Set(messages.filter((m) => !this.rateLimiter.isTeamExempt(m.teamId)).map((m) => m.token)),
+        ]
 
         const quotaLimitedTokens = new Set(
             (
