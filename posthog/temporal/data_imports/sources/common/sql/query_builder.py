@@ -30,7 +30,7 @@ from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_operator,
 )
 from posthog.temporal.data_imports.sources.common.sql.identifiers import IdentifierQuoter
-from posthog.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
+from posthog.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter, is_multi_value_operator
 from posthog.temporal.data_imports.sources.common.sql.projection import (
     compute_projected_columns,
     format_projected_select_clause,
@@ -132,9 +132,16 @@ class SelectQueryBuilder:
             conditions.append(f"{quoted_incremental_field} {operator} {placeholder}")
 
         for index, row_filter in enumerate(row_filters or []):
-            placeholder = self._append_param(f"row_filter_{index}", row_filter.value, params)
             quoted_column = self.quoter.quote(row_filter.column)
-            conditions.append(f"{quoted_column} {row_filter.operator} {placeholder}")
+            if is_multi_value_operator(row_filter.operator):
+                placeholders = [
+                    self._append_param(f"row_filter_{index}_{position}", element, params)
+                    for position, element in enumerate(row_filter.value)
+                ]
+                conditions.append(f"{quoted_column} {row_filter.operator} ({', '.join(placeholders)})")
+            else:
+                placeholder = self._append_param(f"row_filter_{index}", row_filter.value, params)
+                conditions.append(f"{quoted_column} {row_filter.operator} {placeholder}")
 
         parts = [f"SELECT {select_clause} FROM {table_ref}{hint}"]
         if conditions:

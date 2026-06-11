@@ -9,6 +9,7 @@ import {
     ROW_FILTER_OPERATORS,
     RowFilterColumnCategory,
     classifyColumnType,
+    isMultiValueOperator,
     rowFilterOperatorLabel,
     validateRowFilters,
 } from './rowFilterUtils'
@@ -98,8 +99,17 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
                     const prevCategory = categoryFor(filter.column)
                     const nextCategory = categoryFor(patch.column)
                     if (prevCategory !== nextCategory) {
-                        merged.value = defaultValueForCategory(nextCategory)
+                        merged.value = isMultiValueOperator(merged.operator)
+                            ? ''
+                            : defaultValueForCategory(nextCategory)
                     }
+                }
+                // Switching between scalar and multi-value operators changes the value shape
+                // (single value vs comma-separated list), so reset to a clean string/default.
+                if (patch.operator && isMultiValueOperator(patch.operator) !== isMultiValueOperator(filter.operator)) {
+                    merged.value = isMultiValueOperator(patch.operator)
+                        ? ''
+                        : defaultValueForCategory(categoryFor(merged.column))
                 }
                 return merged
             })
@@ -138,6 +148,7 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
                             />
                             <RowFilterValueInput
                                 category={category}
+                                multiValue={isMultiValueOperator(filter.operator)}
                                 value={filter.value}
                                 hasError={!!errors[index]}
                                 onChange={(value) => patchFilter(index, { value })}
@@ -189,15 +200,39 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
 
 function RowFilterValueInput({
     category,
+    multiValue,
     value,
     hasError,
     onChange,
 }: {
     category: RowFilterColumnCategory
+    multiValue: boolean
     value: string | number | boolean
     hasError: boolean
     onChange: (value: string | number | boolean) => void
 }): JSX.Element {
+    // IN / NOT IN take a comma-separated list, so a single text input regardless of type.
+    if (multiValue) {
+        const example =
+            category === 'string'
+                ? "'a', 'b', 'c'"
+                : category === 'date'
+                  ? '2026-01-01, 2026-02-01'
+                  : category === 'boolean'
+                    ? 'true, false'
+                    : '1, 2, 3'
+        return (
+            <LemonInput
+                className="flex-1"
+                type="text"
+                status={hasError ? 'danger' : 'default'}
+                placeholder={`Comma-separated, e.g. ${example}`}
+                value={value === undefined || value === null ? '' : String(value)}
+                onChange={(v) => onChange(v)}
+            />
+        )
+    }
+
     if (category === 'boolean') {
         return (
             <LemonSelect

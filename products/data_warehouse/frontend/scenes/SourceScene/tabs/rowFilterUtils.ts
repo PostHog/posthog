@@ -6,7 +6,7 @@ import { RowFilter, RowFilterOperator } from '~/types'
 
 export type RowFilterColumnCategory = 'integer' | 'numeric' | 'string' | 'boolean' | 'date' | 'timestamp' | 'unknown'
 
-export const ROW_FILTER_OPERATORS: RowFilterOperator[] = ['>', '>=', '<', '<=', '=', '!=']
+export const ROW_FILTER_OPERATORS: RowFilterOperator[] = ['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']
 
 const OPERATOR_LABELS: Record<RowFilterOperator, string> = {
     '>': '> greater than',
@@ -15,10 +15,16 @@ const OPERATOR_LABELS: Record<RowFilterOperator, string> = {
     '<=': '≤ less than or equal',
     '=': '= equals',
     '!=': '≠ not equal',
+    IN: 'IN one of',
+    'NOT IN': 'NOT IN any of',
 }
 
 export function rowFilterOperatorLabel(operator: RowFilterOperator): string {
     return OPERATOR_LABELS[operator]
+}
+
+export function isMultiValueOperator(operator: RowFilterOperator): boolean {
+    return operator === 'IN' || operator === 'NOT IN'
 }
 
 const INTEGER_TYPES = new Set([
@@ -206,6 +212,109 @@ export function validateRowFilterValue(
     }
 }
 
+// Split on commas that are not inside single quotes; quote chars stay in each piece.
+// Throws on an unterminated quote (mirrors the backend `_split_top_level_commas`).
+function splitTopLevelCommas(raw: string): string[] {
+    const pieces: string[] = []
+    let buf = ''
+    let inQuote = false
+    for (let i = 0; i < raw.length; i++) {
+        const ch = raw[i]
+        if (ch === "'") {
+            buf += ch
+            if (inQuote && raw[i + 1] === "'") {
+                buf += "'"
+                i++
+                continue
+            }
+            inQuote = !inQuote
+        } else if (ch === ',' && !inQuote) {
+            pieces.push(buf)
+            buf = ''
+        } else {
+            buf += ch
+        }
+    }
+    if (inQuote) {
+        throw new Error('Unterminated quote in list')
+    }
+    pieces.push(buf)
+    return pieces
+}
+
+/**
+ * Parse a comma-separated `IN` / `NOT IN` list into its element strings. Trims each
+ * element, keeps single-quoted contents verbatim (commas, spaces), and unescapes `''`.
+ * Mirrors the backend `_split_in_list`. Throws on an unterminated quote.
+ */
+export function parseInList(raw: string): string[] {
+    if (!raw.trim()) {
+        return []
+    }
+    return splitTopLevelCommas(raw).map((piece) => {
+        const token = piece.trim()
+        if (token.length >= 2 && token.startsWith("'") && token.endsWith("'")) {
+            return token.slice(1, -1).replace(/''/g, "'")
+        }
+        return token
+    })
+}
+
+function validateInElement(category: RowFilterColumnCategory, element: string): string | null {
+    switch (category) {
+        case 'unknown':
+            return 'This column type is not supported for filtering'
+        case 'string':
+            return null
+        case 'integer':
+            return /^[+-]?\d+$/.test(element) ? null : `"${element}" is not a whole number`
+        case 'numeric':
+            return element !== '' && Number.isFinite(Number(element)) ? null : `"${element}" is not a number`
+        case 'boolean':
+            return element === 'true' || element === 'false' ? null : `"${element}" must be true or false`
+        case 'date':
+            return ISO_DATE.test(element) && !Number.isNaN(Date.parse(element))
+                ? null
+                : `"${element}" is not a date (YYYY-MM-DD)`
+        case 'timestamp':
+            return ISO_DATETIME.test(element) && !Number.isNaN(Date.parse(element))
+                ? null
+                : `"${element}" is not a date or timestamp`
+    }
+}
+
+/**
+ * Validate an `IN` / `NOT IN` value (a comma-separated string) against the column type.
+ * Returns an error string to show the user, or `null` when every element is acceptable.
+ */
+export function validateInListValue(
+    category: RowFilterColumnCategory,
+    value: string | number | boolean
+): string | null {
+    if (typeof value !== 'string') {
+        return 'Enter a comma-separated list'
+    }
+    let elements: string[]
+    try {
+        elements = parseInList(value)
+    } catch {
+        return 'Unterminated quote in list'
+    }
+    if (elements.length === 0) {
+        return 'Enter at least one value'
+    }
+    for (const element of elements) {
+        if (element === '') {
+            return 'The list has an empty value'
+        }
+        const error = validateInElement(category, element)
+        if (error) {
+            return error
+        }
+    }
+    return null
+}
+
 export interface RowFilterValidationContext {
     availableColumns: { name: string; data_type?: string }[]
 }
@@ -235,7 +344,9 @@ export function validateRowFilters(
             return
         }
         const category = classifyColumnType(typeByColumn.get(filter.column))
-        const valueError = validateRowFilterValue(category, filter.value)
+        const valueError = isMultiValueOperator(filter.operator)
+            ? validateInListValue(category, filter.value)
+            : validateRowFilterValue(category, filter.value)
         if (valueError) {
             errors[index] = valueError
         }
