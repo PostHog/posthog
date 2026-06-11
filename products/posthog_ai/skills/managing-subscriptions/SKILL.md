@@ -19,13 +19,12 @@ Use this skill when the user:
 - Asks to stop, pause, or unsubscribe from something
 - Wants to change who receives an update or how often
 
-> **Auto-refreshing summary _on the dashboard itself_ is not a native feature.** PostHog
-> dashboards don't render a dynamic AI-written text tile that regenerates on page load. When a
-> user asks for that, don't call it a flat gap — recommend the closest supported thing: a
+> **An auto-refreshing AI summary that lives _on the dashboard itself_ is not a native feature.**
+> When a user asks for that, don't call it a flat gap — recommend the closest supported thing: a
 > **dashboard subscription with `summary_enabled: true`** (an AI summary of the dashboard
 > delivered on each tick — see step 6 below), or, when the value is the analysis itself rather
-> than a snapshot of existing tiles, a **prompt subscription** (see the `creating-ai-subscription`
-> skill).
+> than a recurring snapshot of an existing dashboard, a **prompt subscription** (see the
+> `creating-ai-subscription` skill).
 
 ## Subscriptions vs alerts
 
