@@ -16,10 +16,6 @@ export const MAX_CLUSTERING_RUNS = 20
 // the moment the last run ages past a day or two. MAX_CLUSTERING_RUNS still bounds the result.
 export const CLUSTERING_RUNS_LOOKBACK_DAYS = 90
 
-// When the most recent run is older than this many days, surface a "last clustered N days ago"
-// notice so a stale-but-present run reads as stale rather than as the current state.
-export const STALE_RUN_THRESHOLD_DAYS = 2
-
 // Cluster detail URL pattern. Mirrored in `manifest.tsx`'s route registration so any
 // `urlToAction` matcher (e.g. `clusterDetailLogic`, `aiObservabilitySharedLogic`)
 // stays in lockstep with the actual route.

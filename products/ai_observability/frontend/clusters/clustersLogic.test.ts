@@ -498,32 +498,6 @@ describe('clustersLogic', () => {
             })
         })
 
-        describe('latestRunTimestamp', () => {
-            it('is null when there are no runs', () => {
-                expect(logic.values.latestRunTimestamp).toBe(null)
-            })
-
-            it('is null when the latest run carries no timestamp', () => {
-                logic.actions.loadClusteringRunsSuccess([
-                    { runId: 'first-run', windowEnd: '2025-01-08', label: 'First Run' },
-                ])
-                expect(logic.values.latestRunTimestamp).toBe(null)
-            })
-
-            it('returns the most recent run timestamp', () => {
-                logic.actions.loadClusteringRunsSuccess([
-                    {
-                        runId: 'first-run',
-                        windowEnd: '2025-01-08',
-                        label: 'First Run',
-                        timestamp: '2025-01-08T10:00:00Z',
-                    },
-                    { runId: 'second-run', windowEnd: '2025-01-01', label: 'Second Run' },
-                ])
-                expect(logic.values.latestRunTimestamp).toBe('2025-01-08T10:00:00Z')
-            })
-        })
-
         describe('currentRunMatchesLevel', () => {
             it('is false when no run is loaded', () => {
                 expect(logic.values.currentRunMatchesLevel).toBe(false)

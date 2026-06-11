@@ -323,8 +323,7 @@ export const clustersLogic = kea<clustersLogicType>([
                     // Look back a wide window rather than a hard 7 days: scheduled runs are
                     // emitted ~daily but a team can go several days without a fresh one, and a
                     // narrow window made the page go empty the moment the last run aged out.
-                    // MAX_CLUSTERING_RUNS still bounds the result, and the staleness notice in
-                    // the view flags a most-recent run that's older than expected.
+                    // MAX_CLUSTERING_RUNS still bounds the result.
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -345,14 +344,11 @@ export const clustersLogic = kea<clustersLogicType>([
                         }
                     )
 
-                    return (response.results || []).map(
-                        (row: string[]): ClusteringRunOption => ({
-                            runId: row[0],
-                            windowEnd: row[1],
-                            timestamp: row[2],
-                            label: dayjs(row[2]).format('MMM D, YYYY h:mm A'),
-                        })
-                    )
+                    return (response.results || []).map((row: string[]) => ({
+                        runId: row[0],
+                        windowEnd: row[1],
+                        label: dayjs(row[2]).format('MMM D, YYYY h:mm A'),
+                    }))
                 },
             },
         ],
@@ -464,16 +460,6 @@ export const clustersLogic = kea<clustersLogicType>([
                 }
                 return runs.length > 0 ? runs[0].runId : null
             },
-        ],
-
-        // Timestamp of the most recent run, or null when there are no runs (or the run
-        // option carries no timestamp). Runs are ordered newest-first, so the first option
-        // is the latest. The view diffs this against the wall clock at render time — the age
-        // can't be computed here because the selector is memoized on `clusteringRuns` and
-        // would freeze `now()` at first computation, never advancing during the session.
-        latestRunTimestamp: [
-            (s) => [s.clusteringRuns],
-            (runs: ClusteringRunOption[]): string | null => runs[0]?.timestamp ?? null,
         ],
 
         // True while the loaded run still belongs to the level the user is currently
