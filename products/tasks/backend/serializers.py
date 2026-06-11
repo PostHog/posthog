@@ -222,6 +222,15 @@ class TaskSerializer(serializers.ModelSerializer):
             )
         return attrs
 
+    @staticmethod
+    def _signal_report_title(validated_data: dict) -> str | None:
+        """The linked report's own title for a report-scoped task, capped to the title field length."""
+        if validated_data.get("origin_product") != Task.OriginProduct.SIGNAL_REPORT:
+            return None
+        report = validated_data.get("signal_report")
+        report_title = (getattr(report, "title", None) or "").strip()
+        return report_title[:255] or None
+
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
         validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
@@ -257,11 +266,19 @@ class TaskSerializer(serializers.ModelSerializer):
                 validated_data["github_user_integration"] = github_user_integration.integration
 
         title = validated_data.get("title", "").strip()
-        if not title and validated_data.get("description"):
+        report_title = self._signal_report_title(validated_data)
+        if title:
+            validated_data.setdefault("title_manually_set", True)
+        elif report_title:
+            # Report tasks run a deliberately generic prompt ("Act on PostHog inbox
+            # report …") whose summary makes a useless title. Use the report's own
+            # title and lock it so client-side title generation doesn't re-summarize
+            # the prompt over it.
+            validated_data["title"] = report_title
+            validated_data.setdefault("title_manually_set", True)
+        elif validated_data.get("description"):
             validated_data["title"] = generate_task_title(validated_data["description"])
             validated_data.setdefault("title_manually_set", False)
-        elif title:
-            validated_data.setdefault("title_manually_set", True)
 
         # Inbox / PostHog Code: tasks created via this API with a signal report use the same
         # origin_product as server-side flows, but only those flows previously called

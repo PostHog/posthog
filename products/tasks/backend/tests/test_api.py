@@ -950,6 +950,62 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         self.assertEqual(str(link.task_id), data["id"])
 
+    def test_signal_report_task_uses_report_title_when_no_title_given(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout flow throws on empty cart")
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "description": "Act on PostHog inbox report abc. Use the inbox MCP tools to fetch the report...",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.title, "Checkout flow throws on empty cart")
+        self.assertTrue(task.title_manually_set)
+
+    def test_signal_report_task_explicit_title_wins_over_report_title(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="Report title")
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Explicit title",
+                "description": "Act on PostHog inbox report abc...",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.title, "Explicit title")
+
+    @patch("products.tasks.backend.serializers.generate_task_title", return_value="Generated title")
+    def test_signal_report_task_without_report_title_falls_back_to_generation(self, mock_generate):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)  # no title
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "description": "Act on PostHog inbox report abc...",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.title, "Generated title")
+        self.assertFalse(task.title_manually_set)
+        mock_generate.assert_called_once()
+
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport
 
