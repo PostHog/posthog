@@ -89,6 +89,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     footer?: React.ReactNode
     /** Whether the first column should always remain visible when scrolling horizontally. */
     firstColumnSticky?: boolean
+    /** Freeze the header — body scrolls vertically within a max-height while the header stays pinned at the top. */
+    stickyHeader?: boolean
     /** Array of column keys to pin (make sticky). Columns won't be pinned in order. */
     pinnedColumns?: string[]
     // Max width for the column headers
@@ -140,6 +142,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     'data-attr': dataAttr,
     footer,
     firstColumnSticky,
+    stickyHeader = false,
     pinnedColumns,
     maxHeaderWidth,
     hideScrollbar,
@@ -372,6 +375,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                     stealth && 'LemonTable--stealth',
                     !uppercaseHeader && 'LemonTable--lowercase-header',
+                    stickyHeader && 'LemonTable--sticky-header',
                     allowContentScroll && 'h-full min-h-0 overflow-hidden',
                     className
                 )}
@@ -381,7 +385,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
             >
                 <ScrollableShadows
                     innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
-                    direction={allowContentScroll ? undefined : 'horizontal'}
+                    direction={allowContentScroll || stickyHeader ? undefined : 'horizontal'}
                     scrollRef={scrollRef}
                 >
                     <div className="LemonTable__content">

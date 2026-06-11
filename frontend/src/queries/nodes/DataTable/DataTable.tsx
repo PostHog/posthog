@@ -903,6 +903,7 @@ export function DataTable({
                             <LemonTable
                                 data-attr={dataAttr}
                                 className="DataTable"
+                                stickyHeader
                                 loading={responseLoading && !nextDataLoading && !newDataLoading}
                                 columns={lemonColumns}
                                 embedded={embedded}

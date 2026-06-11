@@ -331,6 +331,13 @@
     border-top: 1px solid var(--color-border-primary);
 }
 
+.LemonTable--sticky-header {
+    .ScrollableShadows__inner {
+        // Only long tables scroll; short ones render unchanged.
+        max-height: var(--lemon-table-sticky-header-max-height, 600px);
+    }
+}
+
 // NOTE: this is outside of the storybook check for 3000 selective styling
 .LemonTable__cell--sticky {
     background: var(--lemon-table-background-color);
@@ -351,6 +358,15 @@
 
 // Stickiness is disabled in snapshots due to flakiness
 body:not(.storybook-test-runner) {
+    .LemonTable--sticky-header .LemonTable__content > table > thead {
+        position: sticky;
+        top: 0;
+
+        // Above tbody rows AND above pinned-column cells (z-index: 6), so the
+        // frozen-corner (sticky header × pinned column) renders correctly.
+        z-index: 7;
+    }
+
     .LemonTable__header--sticky,
     .LemonTable__cell--sticky,
     .LemonTable__header--pinned,
