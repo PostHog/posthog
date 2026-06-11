@@ -53,7 +53,6 @@
 !services/agent-ingress
 !services/agent-runner
 !services/agent-janitor
-!services/agent-migrations
 !services/agent-shared
 !services/agent-tools
 !services/agent-console

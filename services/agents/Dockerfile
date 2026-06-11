@@ -1,12 +1,14 @@
 # PostHog agent-platform runtime image.
 #
-# Single image, four entrypoints: ingress, runner, janitor, migrate.
+# Single image, three entrypoints: ingress, runner, janitor.
 # The deploy manifest picks which one runs in each replica / Job:
 #
 #   command: ["node", "services/agents/dist/ingress.mjs"]
 #   command: ["node", "services/agents/dist/runner.mjs"]
 #   command: ["node", "services/agents/dist/janitor.mjs"]
-#   command: ["node", "services/agents/dist/migrate.mjs", "up"]
+#
+# Schema is Django-owned (the `agent_platform` product DB), migrated by the
+# posthog-django `migrate_product_databases` job — no node migrate entrypoint.
 #
 # Runtime WORKDIR is `/code`; bundles live at `/code/services/agents/dist/`
 # so Node module resolution walks up to `services/agents/node_modules/`
@@ -70,7 +72,6 @@ COPY services/agents/package.json services/agents/package.json
 COPY services/agent-ingress/package.json services/agent-ingress/package.json
 COPY services/agent-runner/package.json services/agent-runner/package.json
 COPY services/agent-janitor/package.json services/agent-janitor/package.json
-COPY services/agent-migrations/package.json services/agent-migrations/package.json
 COPY services/agent-shared/package.json services/agent-shared/package.json
 COPY services/agent-tools/package.json services/agent-tools/package.json
 
@@ -85,14 +86,12 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
         --filter '@posthog/agents-image...' \
         --filter '@posthog/agent-ingress...' \
         --filter '@posthog/agent-runner...' \
-        --filter '@posthog/agent-janitor...' \
-        --filter '@posthog/agent-migrations...'
+        --filter '@posthog/agent-janitor...'
 
 # Sources. Ordered shared-first so a change to (say) ingress doesn't
 # invalidate the shared layer.
 COPY services/agent-shared/ services/agent-shared/
 COPY services/agent-tools/ services/agent-tools/
-COPY services/agent-migrations/ services/agent-migrations/
 COPY services/agent-ingress/ services/agent-ingress/
 COPY services/agent-runner/ services/agent-runner/
 COPY services/agent-janitor/ services/agent-janitor/
@@ -134,11 +133,7 @@ RUN echo "${COMMIT_HASH:-unknown}" > /code/commit.txt
 # walks up to `services/agents/node_modules/` (where pnpm symlinks
 # `node-rdkafka` because @posthog/agents-image declares it as a direct
 # dep) and then to `/code/node_modules/.pnpm/...` (the actual content).
-# `dirname(import.meta.url)` for the migrate bundle becomes
-# `/code/services/agents/dist`, so `../migrations` resolves to
-# `/code/services/agents/migrations` — that's where the SQL goes.
 COPY --from=build --chown=node:node /code/services/agents/dist/ ./services/agents/dist/
-COPY --from=build --chown=node:node /code/services/agent-migrations/migrations/ ./services/agents/migrations/
 
 # Workspace symlinks for the bundle's externals. `services/agents/node_modules/`
 # is a pnpm symlink farm; the underlying `.pnpm` store at the workspace
