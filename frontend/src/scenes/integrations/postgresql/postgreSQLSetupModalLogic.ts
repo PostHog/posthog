@@ -29,7 +29,8 @@ export const postgreSQLSetupModalLogic = kea<postgreSQLSetupModalLogicType>([
                 user: null as string | null,
                 password: null as string | null,
                 ssl_mode: 'no',
-                use_system_ca: true,
+                // Off by default: the 'system' CA option requires libpq >= 16, which older Postgres servers may not have.
+                use_system_ca: false,
                 ssl_root_cert: null as string | null,
             },
             errors: ({ host, port, user, password, ssl_mode, use_system_ca, ssl_root_cert }) => ({
