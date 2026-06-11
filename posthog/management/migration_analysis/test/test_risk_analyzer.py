@@ -2094,11 +2094,20 @@ class TestHotTableAlterPolicy:
         assert risk.level == RiskLevel.BLOCKED
         assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
 
-    @parameterized.expand(["RemoveField", "AlterField", "AddConstraint"])
-    def test_other_field_ops_on_hot_model_blocked(self, op_type):
+    # sorted() so test IDs are stable across runs (pytest-xdist collects by ID)
+    @parameterized.expand(sorted(HotTableAlterPolicy.FIELD_LEVEL_OPS))
+    def test_every_field_level_op_on_hot_model_blocked(self, op_type):
         op = MagicMock()
         op.__class__.__name__ = op_type
         op.model_name = "team"
+        risk = self._analyze([op])
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    @parameterized.expand(sorted(HotTableAlterPolicy.MODEL_LEVEL_OPS))
+    def test_every_model_level_op_on_hot_model_blocked(self, op_type):
+        op = MagicMock()
+        op.__class__.__name__ = op_type
+        op.name = "team"
         risk = self._analyze([op])
         assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
 
