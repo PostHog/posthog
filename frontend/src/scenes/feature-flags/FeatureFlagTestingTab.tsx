@@ -48,6 +48,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         enrichedConditions,
         hasValidPerson,
         errorDisplay,
+        personDistinctIds,
+        hasMultipleDistinctIds,
     } = useValues(logic)
 
     const {
@@ -131,6 +133,17 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <strong>Distinct ID:</strong> {formData.distinct_id}
                                 </div>
                             </div>
+                        )}
+
+                        {hasMultipleDistinctIds && (
+                            <LemonBanner type="warning">
+                                <div className="text-sm">
+                                    This person has {personDistinctIds.length} merged distinct IDs. Rollout and variant
+                                    assignment are computed by hashing the distinct ID, so the result can differ
+                                    depending on which one is used. At runtime PostHog buckets using the distinct ID
+                                    from the incoming request, which may not be the one selected here.
+                                </div>
+                            </LemonBanner>
                         )}
                     </div>
 
@@ -253,6 +266,16 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                             : String(result.result)}
                                     </div>
                                 </div>
+
+                                {/* Distinct ID used for rollout/variant bucketing */}
+                                {(result.evaluation_distinct_id || formData.distinct_id) && (
+                                    <div className="space-y-2">
+                                        <LemonLabel>Bucketed using distinct ID</LemonLabel>
+                                        <div className="px-3 py-2 rounded text-sm font-mono bg-bg-light break-all">
+                                            {result.evaluation_distinct_id || formData.distinct_id}
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Timestamp Warning */}
                                 {formData.timestamp && (

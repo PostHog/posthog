@@ -220,6 +220,42 @@ describe('featureFlagTestingLogic', () => {
         })
     })
 
+    describe('distinct ID bucketing selectors', () => {
+        it.each([
+            {
+                description: 'full person with multiple merged IDs flags as having multiple',
+                person: { name: 'Jane Doe', uuid: 'uuid-abc', distinct_ids: ['user-123', 'user-456'] },
+                expectedDistinctIds: ['user-123', 'user-456'],
+                expectedHasMultiple: true,
+            },
+            {
+                description: 'full person with a single ID does not flag as having multiple',
+                person: { name: 'Jane Doe', uuid: 'uuid-abc', distinct_ids: ['user-123'] },
+                expectedDistinctIds: ['user-123'],
+                expectedHasMultiple: false,
+            },
+            {
+                description: 'partial person (no distinct_ids) yields an empty list',
+                person: { name: 'Jane Doe' },
+                expectedDistinctIds: [],
+                expectedHasMultiple: false,
+            },
+            {
+                description: 'no selected person yields an empty list',
+                person: null,
+                expectedDistinctIds: [],
+                expectedHasMultiple: false,
+            },
+        ])('$description', async ({ person, expectedDistinctIds, expectedHasMultiple }) => {
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedPerson(person)
+            }).toMatchValues({
+                personDistinctIds: expectedDistinctIds,
+                hasMultipleDistinctIds: expectedHasMultiple,
+            })
+        })
+    })
+
     describe('hasValidPerson selector', () => {
         it.each([
             { description: 'is true when distinct_id is set', formData: { distinct_id: 'user-123' }, expected: true },

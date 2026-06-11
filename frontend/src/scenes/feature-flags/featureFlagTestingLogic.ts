@@ -234,6 +234,19 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             (s) => [s.testFormData],
             (formData: TestFormData): boolean => Boolean(formData.distinct_id?.trim()),
         ],
+        // The distinct IDs known for the selected person. Empty when only a partial
+        // person is available (e.g. the recent tab, which carries name + distinct_id only).
+        personDistinctIds: [
+            (s) => [s.selectedPerson],
+            (person: Partial<PersonType> | null): string[] => person?.distinct_ids ?? [],
+        ],
+        // A person merged from multiple distinct IDs can bucket into a different
+        // rollout/variant depending on which ID is hashed, so the test result may not
+        // match what runtime evaluation produces for the same person.
+        hasMultipleDistinctIds: [
+            (s) => [s.personDistinctIds],
+            (distinctIds: string[]): boolean => distinctIds.length > 1,
+        ],
         // Get formatted error display information
         errorDisplay: [
             (s) => [s.testError],
