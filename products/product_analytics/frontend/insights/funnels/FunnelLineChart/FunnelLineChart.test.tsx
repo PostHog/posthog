@@ -170,14 +170,20 @@ describe('FunnelLineChart', () => {
             expect(labels).toEqual(['Spike', 'Bramble'])
         })
 
-        it('hides the legend when showLegend is false', async () => {
-            renderInsight({
+        it.each([
+            {
+                desc: 'showLegend is false',
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                     funnelsFilter: { showLegend: false },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
-            })
+            },
+            {
+                desc: 'there is only a single series, even when showLegend is true',
+                query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
+            },
+        ])('omits the legend when $desc', async ({ query }) => {
+            renderInsight({ query, featureFlags: HOG_CHARTS_FUNNEL_FLAG })
 
             await screen.findByRole('img', { name: /chart with/i })
             expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
@@ -198,16 +204,6 @@ describe('FunnelLineChart', () => {
             )
             expect(swatchColors).toHaveLength(2)
             expect(new Set(swatchColors).size).toBe(2)
-        })
-
-        it('omits the legend for a single series even when showLegend is true', async () => {
-            renderInsight({
-                query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
-            })
-
-            await screen.findByRole('img', { name: /chart with/i })
-            expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
         })
     })
 
