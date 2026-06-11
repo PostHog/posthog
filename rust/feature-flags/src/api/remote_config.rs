@@ -78,6 +78,12 @@ pub async fn remote_config(
     // Resolve the payload, mirroring Django's `Response(payloads["true"] or None)`:
     // the stored value (unencrypted), the decrypted plaintext (personal key), or the
     // redacted marker (secret key on an encrypted flag).
+    //
+    // Deliberate divergence on malformed rows: when an encrypted flag is missing the
+    // "true" entry, Django raises KeyError and 500s; with a non-string stored value it
+    // feeds `str(value)` to Fernet and 500s on InvalidToken. Both are shapes the
+    // serializer shouldn't allow. We return gracefully (no payload -> empty body) rather
+    // than reproduce those 500s, so phase 2 will show these rare rows as a known diff.
     let payload: Option<Value> = if has_encrypted_payloads != Some(true) {
         stored.cloned()
     } else if should_decrypt {
