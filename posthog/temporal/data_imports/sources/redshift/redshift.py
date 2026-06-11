@@ -86,18 +86,20 @@ def _display_name(schema_name: str, table_name: str, *, qualify: bool) -> str:
     return f"{schema_name}.{table_name}" if qualify else table_name
 
 
-def _split_display_name(display: str, selected_schema: Optional[str]) -> tuple[str, str]:
+def _split_display_name(display: str, selected_schema: Optional[str]) -> tuple[Optional[str], str]:
     """Inverse of `_display_name` — `(schema, unqualified_table)` for a discovery key.
 
-    With a pinned `selected_schema` the key is the bare table; otherwise it is the dotted
-    `schema.table` that `get_columns` produced. A multi-schema key without a dot isn't expected
-    (every multi-schema key is qualified at discovery); if one ever appears, treat the whole
-    string as the table under the same-named schema rather than emitting an empty predicate.
+    With a pinned `selected_schema` the key is the bare table. Otherwise it is the dotted
+    `schema.table` that `get_columns` produced; a multi-schema key without a dot isn't expected
+    (every multi-schema key is qualified at discovery), so the schema is reported as unknown
+    (`None`) rather than guessed from the table name — never invent a schema we'd then query.
     """
     if selected_schema is not None:
         return selected_schema, display
-    schema, _, table = display.partition(".")
-    return schema, table or schema
+    schema, dot, table = display.partition(".")
+    if not dot:
+        return None, display
+    return schema, table
 
 
 def _named_placeholders(prefix: str, values: list[str]) -> tuple[str, dict[str, str]]:
@@ -462,15 +464,20 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
 
         Lets a single batch query (`schema = ANY(...) AND table = ANY(...)`) cover both the
         single-namespace and multi-namespace cases; results re-key to the display name by pair.
+        A display whose schema is unknown (bare key in multi-schema mode) is dropped from the
+        queryable schema list — it can't be matched to a result row, so it degrades to no metadata
+        rather than querying a schema that doesn't exist.
         """
         display_by_pair: dict[tuple[str, str], str] = {}
         schemas: set[str] = set()
         bare_tables: set[str] = set()
         for display in tables:
             schema, table = _split_display_name(display, selected_schema)
+            bare_tables.add(table)
+            if schema is None:
+                continue
             display_by_pair[(schema, table)] = display
             schemas.add(schema)
-            bare_tables.add(table)
         return display_by_pair, sorted(schemas), sorted(bare_tables)
 
     def get_row_counts(

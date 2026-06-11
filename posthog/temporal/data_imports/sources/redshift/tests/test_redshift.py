@@ -404,6 +404,17 @@ class TestGetPrimaryKeys:
         result = impl.get_primary_keys(conn, _make_config(schema=""), ["analytics.users", "public.users"])
         assert result == {"analytics.users": ["id"], "public.users": ["uid"]}
 
+    def test_blank_schema_bare_name_degrades_without_crashing(self, impl):
+        # Unknown-schema key must not crash the batch query (None can't sort with str schemas).
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.fetchall.return_value = []
+        conn.cursor.return_value = cur
+
+        result = impl.get_primary_keys(conn, _make_config(schema=""), ["users"])
+        assert result == {"users": None}
+
     def test_swallows_errors_and_returns_none_per_table(self, impl):
         conn = MagicMock()
         cur = MagicMock()
@@ -519,6 +530,13 @@ class TestGetSourceMetadata:
         assert metadata.schema_by_table == {"analytics.users": "analytics", "public.users": "public"}
         assert metadata.table_name_by_table == {"analytics.users": "users", "public.users": "users"}
         assert metadata.catalog_by_table == {"analytics.users": None, "public.users": None}
+
+    def test_blank_schema_does_not_guess_namespace_for_bare_name(self, impl):
+        # A bare key in multi-schema mode is unexpected (discovery always qualifies); never invent
+        # a schema we'd then fail to query — leave it unknown so the resolver self-heals.
+        metadata = impl.get_source_metadata(MagicMock(), _make_config(schema=""), ["users"])
+        assert metadata.schema_by_table == {"users": None}
+        assert metadata.table_name_by_table == {"users": "users"}
 
 
 # ---------------------------------------------------------------------------
