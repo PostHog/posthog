@@ -4811,9 +4811,9 @@ snapshots:
     scenes-app-experiments--draft-experiment--light:
         hash: v1.k794b7964.70dc18be765207610c6040e3f2c831c2c5ebaa1726a330e293fa8c00d49a5cd9.rPoZm0K5sQEKk_6Br3PLSxWDdh9BKzhs7EHtpqP54KM
     scenes-app-experiments--experiment-asymmetric-intervals--dark:
-        hash: v1.k794b7964.cba7d55aa1a7d4b310d210118cb9a9d644c97a522cd855e08014cb8ea20de373.DRZgKpNgQ9kDl9NwVIrDfa29EUAo8hkhgNMR3PWX204
+        hash: v1.k794b7964.16714efab3de01b2493cb8a6b54c57ebc8a35c794f9a3de128031c3a5f53b086.fsBLZMEaO-B8vm419k-olm5zmSJxatxWS7dV0uKycC8
     scenes-app-experiments--experiment-asymmetric-intervals--light:
-        hash: v1.k794b7964.10a29cbd091d468255f6f9daaea63c562fbe79b6898a4036d1ef6aa84447f5d5.bDwdfY2wuzA1aTOs3L2icCegZbZu9fiTVbIxXJSGCl8
+        hash: v1.k794b7964.fce1cce1ac8905e25fff816ea028c9b9446fc6aff025a246db7009700192b697.8WGowBmtZO2lG-3xIKK9P7eD3MYNjTRHGCBTxn1nog0
     scenes-app-experiments--experiment-frequentist-five-variants--dark:
         hash: v1.k794b7964.09d23fd44208249b4fd1555fcbdb941118bc2825dc7142bd6ba96335c9cb8f32.AipSypBKnQguXtQO9tkCsdO9IVj-_0bHqjCnFe0BE-U
     scenes-app-experiments--experiment-frequentist-five-variants--light:
@@ -4825,7 +4825,7 @@ snapshots:
     scenes-app-experiments--experiment-with-funnel-metric--dark:
         hash: v1.k794b7964.a6b8d933157f59f997c8e85e81316b2f1c57667880fc6184c8a0b5ebac8acf76.K_vAMn8GGLpJ0_ZzlpEiPeb98TwI8iWauzAZ6KjUYBM
     scenes-app-experiments--experiment-with-funnel-metric--light:
-        hash: v1.k794b7964.f305aeb1f57f2b5067d6ae0b812f75a63f88cf5c40d15caa863bc805664d5375.mY8pmFLkdB5pzrPDozUDx4CgAHJa6pFcvQH41UDz_FE
+        hash: v1.k794b7964.052d9c26d1a9fdd501f1c1c70747733af00910fd869fffd84bd6f395b08a41ed.6ytL6IZuCRWo69vUBJJmtHXviUcl1Twtt-cB0dAVxYw
     scenes-app-experiments--experiment-with-legacy-funnels-query--dark:
         hash: v1.k794b7964.5d2468e37868c1f7eb92bd6194d06bb4c58ec1e67eb97f2381bb554b6a50c25c.A-5pOsMFnOdqWaayNMR2WpehMVHF6c-PZ4aGq6L4Gvg
     scenes-app-experiments--experiment-with-legacy-funnels-query--light:
