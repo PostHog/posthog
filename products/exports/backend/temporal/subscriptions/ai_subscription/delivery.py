@@ -1,6 +1,7 @@
 import re
+import uuid
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import nh3
 import structlog
@@ -175,6 +176,13 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     )
 
 
+def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:
+    # Lands on the authenticated subscription page; the frontend reads these exact params
+    # (feedback_delivery, feedback, feedback_source) and captures an `ai_report_feedback` event.
+    params = urlencode({"feedback_delivery": str(delivery_id), "feedback": feedback, "feedback_source": source})
+    return f"{subscription_url}?{params}"
+
+
 def render_ai_email_html(markdown: str) -> str:
     rendered = _MARKDOWN_RENDERER.render(_strip_external_links_markdown(markdown))
     return nh3.clean(rendered, tags=_ALLOWED_EMAIL_TAGS, attributes=_ALLOWED_EMAIL_ATTRS)
@@ -186,6 +194,7 @@ def send_email_ai_subscription_report(
     subscription: Subscription,
     markdown: str,
     delivery_run_id: str,
+    delivery_id: uuid.UUID,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
     html = render_ai_email_html(markdown)
@@ -206,6 +215,8 @@ def send_email_ai_subscription_report(
             "rendered_html": html,
             "subscription_url": f"{subscription_url}?{utm_tags}",
             "unsubscribe_url": unsubscribe_url,
+            "feedback_positive_url": _build_feedback_url(subscription_url, delivery_id, "positive", "email"),
+            "feedback_negative_url": _build_feedback_url(subscription_url, delivery_id, "negative", "email"),
         },
     )
     message.add_recipient(email=email)
@@ -244,7 +255,7 @@ def send_email_ai_subscription_credit_limited(
     message.send(send_async=False)
 
 
-def _build_ai_slack_message(subscription: Subscription, markdown: str) -> SlackMessageData:
+def _build_ai_slack_message(subscription: Subscription, markdown: str, *, delivery_id: uuid.UUID) -> SlackMessageData:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = subscription.target_value.split("|")[0]
     sections = _split_text_into_chunks(_SLACK_CONVERTER.convert(_strip_external_links_markdown(markdown)))
@@ -263,6 +274,8 @@ def _build_ai_slack_message(subscription: Subscription, markdown: str) -> SlackM
     subscription_url = subscription.url or absolute_uri(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
     )
+    feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "slack")
+    feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "slack")
     blocks.extend(
         [
             {"type": "divider"},
@@ -273,6 +286,18 @@ def _build_ai_slack_message(subscription: Subscription, markdown: str) -> SlackM
                         "type": "button",
                         "text": {"type": "plain_text", "text": "Manage subscription"},
                         "url": f"{subscription_url}?{utm_tags}",
+                    }
+                ],
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": (
+                            "Was this report useful? "
+                            f"<{feedback_positive_url}|👍 Yes> · <{feedback_negative_url}|👎 No>"
+                        ),
                     }
                 ],
             },
@@ -291,8 +316,9 @@ async def send_slack_ai_subscription_report(
     subscription: Subscription,
     markdown: str,
     integration: Integration,
+    delivery_id: uuid.UUID,
 ) -> SlackDeliveryResult:
-    message_data = _build_ai_slack_message(subscription, markdown)
+    message_data = _build_ai_slack_message(subscription, markdown, delivery_id=delivery_id)
     return await deliver_slack_message_data(integration, subscription, message_data)
 
 

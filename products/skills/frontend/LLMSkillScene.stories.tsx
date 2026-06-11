@@ -12,7 +12,7 @@ import type {
     LLMSkillResolveResponseApi,
     LLMSkillVersionSummaryApi,
     UserBasicApi,
-} from '../generated/api.schemas'
+} from 'products/ai_observability/frontend/generated/api.schemas'
 
 const MOCK_AUTHOR: UserBasicApi = {
     id: 178,
@@ -120,7 +120,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2025-01-28',
-        pageUrl: urls.aiObservabilitySkill(SKILL_NAME),
+        pageUrl: urls.skill(SKILL_NAME),
         testOptions: {
             waitForLoadersToDisappear: true,
         },

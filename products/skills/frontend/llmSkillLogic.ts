@@ -14,14 +14,15 @@ import {
     llmSkillsNameFilesRetrieve,
     llmSkillsNamePartialUpdate,
     llmSkillsResolveNameRetrieve,
-} from '../generated/api'
+} from 'products/ai_observability/frontend/generated/api'
 import type {
     LLMSkillApi,
     LLMSkillFileApi,
     LLMSkillFileInputApi,
     LLMSkillListApi,
     LLMSkillVersionSummaryApi,
-} from '../generated/api.schemas'
+} from 'products/ai_observability/frontend/generated/api.schemas'
+
 import type { llmSkillLogicType } from './llmSkillLogicType'
 import { llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
 import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from './skillConstants'
@@ -121,7 +122,7 @@ function findExistingSkill(skillName: string): LLMSkillListApi | undefined {
 }
 
 export const llmSkillLogic = kea<llmSkillLogicType>([
-    path(['scenes', 'ai-observability', 'llmSkillLogic']),
+    path(['scenes', 'skills', 'llmSkillLogic']),
     props({ skillName: 'new' } as SkillLogicProps),
     key(({ skillName, selectedVersion }) => `skill-${skillName}:${selectedVersion ?? 'latest'}`),
     actions({
@@ -253,7 +254,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                         savedSkill = { ...createResponse, files: [] }
                         llmSkillsLogic.findMounted()?.actions.loadSkills(false)
                         lemonToast.success('Skill created successfully')
-                        router.actions.replace(urls.aiObservabilitySkill(savedSkill.name))
+                        router.actions.replace(urls.skill(savedSkill.name))
                     } else {
                         const currentSkill = values.skill
 
@@ -295,7 +296,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             has_more: currentSkill.has_more,
                         })
                         actions.setSkillFormValues(getSkillFormDefaults(savedSkill))
-                        router.actions.replace(urls.aiObservabilitySkill(props.skillName))
+                        router.actions.replace(urls.skill(props.skillName))
 
                         try {
                             const latest = await fetchResolvedSkill(props.skillName)
@@ -348,8 +349,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             (skill: LLMSkillApi | SkillFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Skills',
-                    path: combineUrl(urls.aiObservabilitySkills(), searchParams).url,
-                    key: 'AIObservabilitySkills',
+                    path: combineUrl(urls.skills(), searchParams).url,
+                    key: 'Skills',
                 },
                 {
                     name:
@@ -358,7 +359,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                                 ? `${skill.name} v${skill.version}`
                                 : skill.name || 'New skill'
                             : 'New skill',
-                    key: 'AIObservabilitySkill',
+                    key: 'Skill',
                 },
             ],
         ],
@@ -404,7 +405,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                     await llmSkillsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), values.skill.name)
                     lemonToast.info(`${values.skill.name || 'Skill'} has been archived.`)
                     llmSkillsLogic.findMounted()?.actions.loadSkills(false)
-                    router.actions.replace(urls.aiObservabilitySkills(), {
+                    router.actions.replace(urls.skills(), {
                         ...router.values.searchParams,
                         [LLM_SKILLS_FORCE_RELOAD_PARAM]: String(Date.now()),
                     })
@@ -553,7 +554,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        '/prompt-management/skills/:name': (_, __, ___, { method }) => {
+        '/skills/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && values.isNewSkill) {
                 actions.setSkill(DEFAULT_SKILL_FORM_VALUES)
                 actions.resetSkillForm(DEFAULT_SKILL_FORM_VALUES)

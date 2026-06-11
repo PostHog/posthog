@@ -11517,6 +11517,32 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other
+     */
+    export type TopicEnum = typeof TopicEnum[keyof typeof TopicEnum];
+
+
+    export const TopicEnum = {
+      WebAnalytics: 'web_analytics',
+      ProductAnalytics: 'product_analytics',
+      SessionReplay: 'session_replay',
+      Surveys: 'surveys',
+      FeatureFlags: 'feature_flags',
+      Experiments: 'experiments',
+      ErrorTracking: 'error_tracking',
+      DataWarehouse: 'data_warehouse',
+      Other: 'other',
+    } as const;
+
+    /**
      * * `assistant` - Assistant
      * * `tool_call` - Tool call
      * * `deep_research` - Deep research
@@ -11540,6 +11566,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly title: string | null;
+      /** Product domain the conversation is about, classified from the first question.
+       *
+       * * `web_analytics` - Web analytics
+       * * `product_analytics` - Product analytics
+       * * `session_replay` - Session replay
+       * * `surveys` - Surveys
+       * * `feature_flags` - Feature flags
+       * * `experiments` - Experiments
+       * * `error_tracking` - Error tracking
+       * * `data_warehouse` - Data warehouse
+       * * `other` - Other */
+      readonly topic: TopicEnum | null;
       readonly user: UserBasic;
       /** @nullable */
       readonly created_at: string | null;
@@ -11581,6 +11619,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly title: string | null;
+      /** Product domain the conversation is about, classified from the first question.
+       *
+       * * `web_analytics` - Web analytics
+       * * `product_analytics` - Product analytics
+       * * `session_replay` - Session replay
+       * * `surveys` - Surveys
+       * * `feature_flags` - Feature flags
+       * * `experiments` - Experiments
+       * * `error_tracking` - Error tracking
+       * * `data_warehouse` - Data warehouse
+       * * `other` - Other */
+      readonly topic: TopicEnum | null;
       readonly user: UserBasic;
       /** @nullable */
       readonly created_at: string | null;
@@ -12465,6 +12515,8 @@ export namespace Schemas {
       /** @nullable */
       readonly last_refresh: string | null;
       readonly team_id: number;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface DashboardCollaborator {
@@ -14951,6 +15003,8 @@ export namespace Schemas {
     export interface EndpointRunResponse {
       /** URL-safe endpoint name that was executed. */
       name: string;
+      /** Unique identifier for this execution. Use it to find the matching entry in the endpoint's logs. */
+      execution_id?: string;
       /** Query result rows. Each row is a list of values matching the columns order. */
       results?: unknown[];
       /** Column names from the query SELECT clause. */
@@ -15933,6 +15987,39 @@ export namespace Schemas {
       Suppressed: 'suppressed',
       All: 'all',
     } as const;
+
+    /**
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed
+     */
+    export type ErrorTrackingIssueWriteStatusEnum = typeof ErrorTrackingIssueWriteStatusEnum[keyof typeof ErrorTrackingIssueWriteStatusEnum];
+
+
+    export const ErrorTrackingIssueWriteStatusEnum = {
+      Active: 'active',
+      Resolved: 'resolved',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface ErrorTrackingIssueWrite {
+      /** Issue status to set. Deprecated archived and pending_release values are rejected.
+       *
+       * * `active` - active
+       * * `resolved` - resolved
+       * * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueWriteStatusEnum;
+      /**
+         * Optional issue display name.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Optional issue description.
+         * @nullable
+         */
+      description?: string | null;
+    }
 
     export interface ErrorTrackingIssuesListQueryRequest {
       /** Date range for issue aggregates. Defaults to the last 7 days. */
@@ -19670,18 +19757,18 @@ export namespace Schemas {
 
     export interface HogFlowMasking {
       /**
-         * Hash TTL in seconds (60 to ~94M / 3y).
+         * Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.
          * @minimum 60
          * @maximum 94608000
          * @nullable
          */
       ttl?: number | null;
       /**
-         * Min matching events before triggering (k-anonymity).
+         * Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.
          * @nullable
          */
       threshold?: number | null;
-      /** HogQL template, e.g. '{person.properties.email}'. */
+      /** HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl. */
       hash: string;
       /** Auto-compiled from hash. Do not set. */
       bytecode?: unknown;
@@ -19860,7 +19947,7 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       readonly trigger: unknown;
-      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
@@ -20862,6 +20949,14 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type TraceOrderColumn = typeof TraceOrderColumn[keyof typeof TraceOrderColumn];
+
+
+    export const TraceOrderColumn = {
+      Timestamp: 'timestamp',
+      Duration: 'duration',
+    } as const;
+
     export interface TraceSpansQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -20899,7 +20994,10 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      orderBy?: LogsOrderBy | null;
+      /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
+      orderBy?: TraceOrderColumn | null;
+      /** Order direction. Defaults to DESC. */
+      orderDirection?: OrderDirection2 | null;
       /** Prefetch up to this many spans per trace and include them in results */
       prefetchSpans?: number | null;
       response?: TraceSpansQueryResponse | null;
@@ -24241,6 +24339,8 @@ export namespace Schemas {
       readonly is_2fa_enabled: boolean;
       readonly has_social_auth: boolean;
       readonly last_login: string;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     /**
@@ -25678,6 +25778,7 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** @nullable */
       readonly last_rolled_at: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes: string[];
     }
 
@@ -29032,6 +29133,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly title?: string | null;
+      /** Product domain the conversation is about, classified from the first question.
+       *
+       * * `web_analytics` - Web analytics
+       * * `product_analytics` - Product analytics
+       * * `session_replay` - Session replay
+       * * `surveys` - Surveys
+       * * `feature_flags` - Feature flags
+       * * `experiments` - Experiments
+       * * `error_tracking` - Error tracking
+       * * `data_warehouse` - Data warehouse
+       * * `other` - Other */
+      readonly topic?: TopicEnum | null;
       readonly user?: UserBasic;
       /** @nullable */
       readonly created_at?: string | null;
@@ -29745,6 +29858,25 @@ export namespace Schemas {
       external_issues?: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
       readonly cohort?: PatchedErrorTrackingIssueFullCohort;
+    }
+
+    export interface PatchedErrorTrackingIssueWrite {
+      /** Issue status to set. Deprecated archived and pending_release values are rejected.
+       *
+       * * `active` - active
+       * * `resolved` - resolved
+       * * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueWriteStatusEnum;
+      /**
+         * Optional issue display name.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Optional issue description.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export interface PatchedErrorTrackingRelease {
@@ -30473,7 +30605,7 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
       readonly trigger?: unknown;
-      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
@@ -31439,6 +31571,8 @@ export namespace Schemas {
       readonly is_2fa_enabled?: boolean;
       readonly has_social_auth?: boolean;
       readonly last_login?: string;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedParserRecipe {
@@ -32462,6 +32596,7 @@ export namespace Schemas {
       readonly last_used_at?: string | null;
       /** @nullable */
       readonly last_rolled_at?: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes?: string[];
     }
 
@@ -39070,7 +39205,7 @@ export namespace Schemas {
     export interface ScratchpadEntry {
       /** Agent-chosen semantic key, unique per team. */
       key: string;
-      /** Prose content for prompt injection. */
+      /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
       content: string;
       /**
          * ISO-8601 creation timestamp.
@@ -39552,6 +39687,16 @@ export namespace Schemas {
       task_url?: string | null;
       /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
       summary: string;
+      /**
+         * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
+         * @nullable
+         */
+      error?: string | null;
+      /**
+         * Concise derived reason the run didn't complete cleanly — the first line of `error` (bounded), or a status-derived fallback. Null unless the run terminated failed/cancelled. Read this to see at a glance *why* a run emitted nothing without pulling full stack traces.
+         * @nullable
+         */
+      failure_reason?: string | null;
       /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
       emitted_count: number;
       /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
@@ -39596,6 +39741,16 @@ export namespace Schemas {
       task_url?: string | null;
       /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
       summary: string;
+      /**
+         * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
+         * @nullable
+         */
+      error?: string | null;
+      /**
+         * Concise derived reason the run didn't complete cleanly — the first line of `error` (bounded), or a status-derived fallback. Null unless the run terminated failed/cancelled. Read this to see at a glance *why* a run emitted nothing without pulling full stack traces.
+         * @nullable
+         */
+      failure_reason?: string | null;
       /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
       emitted_count: number;
       /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
@@ -42673,6 +42828,18 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * * `timestamp` - timestamp
+     * * `duration` - duration
+     */
+    export type _TracingQueryBodyOrderByEnum = typeof _TracingQueryBodyOrderByEnum[keyof typeof _TracingQueryBodyOrderByEnum];
+
+
+    export const _TracingQueryBodyOrderByEnum = {
+      Timestamp: 'timestamp',
+      Duration: 'duration',
+    } as const;
+
     export interface _TracingQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -42680,19 +42847,29 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Filter by HTTP status codes. */
       statusCodes?: number[];
-      /** Order results by timestamp. Defaults to latest.
+      /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
        *
-       * * `latest` - latest
-       * * `earliest` - earliest */
-      orderBy?: OrderByEnum;
+       * * `timestamp` - timestamp
+       * * `duration` - duration */
+      orderBy?: _TracingQueryBodyOrderByEnum;
+      /** Order direction. Defaults to DESC (e.g. timestamp+DESC = newest first, duration+DESC = slowest first).
+       *
+       * * `ASC` - ASC
+       * * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
       /** Property filters for the query. */
       filterGroup?: _SpanPropertyFilter[];
       /** Filter to a specific trace ID (hex string). */
       traceId?: string;
       /** Max results (1-1000). Defaults to 100. */
       limit?: number;
-      /** Pagination cursor from previous response. */
+      /** Keyset pagination cursor from a previous timestamp-ordered response. */
       after?: string;
+      /**
+         * Pagination offset, used when ordering by a column (e.g. duration). Defaults to 0.
+         * @minimum 0
+         */
+      offset?: number;
       /** Filter to root spans only. Defaults to true. */
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
@@ -43018,7 +43195,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     * Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string;
     };
@@ -43476,6 +43653,38 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsEndpointsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type EnvironmentsEndpointsOpenapiSpecRetrieveParams = {
@@ -47255,7 +47464,7 @@ export namespace Schemas {
      */
     order?: string;
     /**
-     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     * Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string;
     };
@@ -48400,7 +48609,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     * Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string;
     };
@@ -48921,6 +49130,38 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EndpointsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type EndpointsOpenapiSpecRetrieveParams = {
@@ -52623,6 +52864,16 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Exact-match filter on the scout skill (e.g. `signals-scout-errors`). Narrows the run dump to a single scout — the primary scoping path when a specialist dedupes against its own past runs. Omit to span every scout on the team.
+     * @minLength 1
+     */
+    skill_name?: string;
+    /**
+     * Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.
+     * @minimum 1
+     */
+    skill_version?: number;
+    /**
      * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
      * @minLength 1
      */
@@ -52630,6 +52881,15 @@ export namespace Schemas {
     };
 
     export type SignalsScoutScratchpadSearchParams = {
+    /**
+     * Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`.
+     * @minimum 0
+     */
+    content_max_chars?: number;
+    /**
+     * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
+     */
+    keys_only?: boolean;
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
