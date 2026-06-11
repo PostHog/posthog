@@ -1951,6 +1951,45 @@ class StartHandling(StrEnum):
     LAST_SEEN = "last_seen"
 
 
+class ConversionRateInputType(StrEnum):
+    MANUAL = "manual"
+    AUTOMATIC = "automatic"
+
+
+class ManualMetricType(StrEnum):
+    FUNNEL = "funnel"
+    MEAN_COUNT = "mean_count"
+    MEAN_SUM_OR_AVG = "mean_sum_or_avg"
+
+
+class ExperimentExposureEstimateConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversionRateInputType: ConversionRateInputType = Field(
+        ...,
+        description=(
+            "'manual' when the baseline value and exposure rate were entered by hand,"
+            " 'automatic' when derived from live experiment data."
+        ),
+    )
+    manualBaselineValue: float | None = Field(
+        default=None,
+        description=(
+            "Manually entered baseline metric value (a conversion percentage for funnel"
+            " metrics). Only used in manual mode."
+        ),
+    )
+    manualExposureRate: float | None = Field(
+        default=None,
+        description=("Manually entered estimate of users exposed to the experiment per day. Only used in manual mode."),
+    )
+    manualMetricType: ManualMetricType | None = Field(
+        default=None,
+        description=("Metric type the manual baseline value refers to. Only used in manual mode."),
+    )
+
+
 class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2033,6 +2072,33 @@ class ExperimentMetricType(StrEnum):
 class PrecomputationMode(StrEnum):
     PRECOMPUTED = "precomputed"
     DIRECT = "direct"
+
+
+class ExperimentRunningTimeCalculation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_estimate_config: ExperimentExposureEstimateConfig | None = Field(
+        default=None,
+        description=(
+            "How the exposure estimate is configured: manual user-entered values or"
+            " automatic from live experiment data."
+        ),
+    )
+    minimum_detectable_effect: float | None = Field(
+        default=None,
+        description=(
+            "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes."
+        ),
+    )
+    recommended_running_time: float | None = Field(
+        default=None,
+        description=("Estimated number of days needed to reach the recommended sample size."),
+    )
+    recommended_sample_size: float | None = Field(
+        default=None,
+        description=("Recommended number of exposed users needed for statistical significance."),
+    )
 
 
 class ExperimentSignificanceCode(StrEnum):

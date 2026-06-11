@@ -231,6 +231,53 @@ class ExperimentService:
         if not variant_keys - set(excluded_variants) - {baseline_key}:
             raise ValidationError("at least one test variant must remain in analysis")
 
+    RUNNING_TIME_CALCULATION_KEYS = (
+        "minimum_detectable_effect",
+        "recommended_running_time",
+        "recommended_sample_size",
+        "exposure_estimate_config",
+    )
+
+    @staticmethod
+    def validate_running_time_calculation(value: dict | None) -> None:
+        """Validate the running-time calculator config accepted by the API layer."""
+        if not value:
+            return
+        if not isinstance(value, dict):
+            raise ValidationError("running_time_calculation must be an object")
+
+        unknown = set(value.keys()) - set(ExperimentService.RUNNING_TIME_CALCULATION_KEYS)
+        if unknown:
+            raise ValidationError(f"running_time_calculation got unknown keys: {sorted(unknown)}")
+
+        for key in ("minimum_detectable_effect", "recommended_running_time", "recommended_sample_size"):
+            number = value.get(key)
+            if number is not None and (isinstance(number, bool) or not isinstance(number, int | float)):
+                raise ValidationError(f"{key} must be a number")
+
+        exposure_estimate_config = value.get("exposure_estimate_config")
+        if exposure_estimate_config is not None and not isinstance(exposure_estimate_config, dict):
+            raise ValidationError("exposure_estimate_config must be an object")
+
+    @staticmethod
+    def _running_time_calculation_from_parameters(parameters: dict | None) -> dict:
+        return {
+            key: (parameters or {})[key]
+            for key in ExperimentService.RUNNING_TIME_CALCULATION_KEYS
+            if key in (parameters or {})
+        }
+
+    @staticmethod
+    def _merge_running_time_calculation_into_parameters(parameters: dict | None, calculation: dict | None) -> dict:
+        """Replace the legacy calculator keys in `parameters` with the canonical calculation values."""
+        merged = {
+            key: value
+            for key, value in (parameters or {}).items()
+            if key not in ExperimentService.RUNNING_TIME_CALCULATION_KEYS
+        }
+        merged.update(calculation or {})
+        return merged
+
     EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
 
     EXPOSURE_CONFIG_HINT = (
@@ -671,6 +718,7 @@ class ExperimentService:
         description: str = "",
         type: str = "product",
         parameters: dict | None = None,
+        running_time_calculation: dict | None = None,
         metrics: list[dict] | None = None,
         metrics_secondary: list[dict] | None = None,
         secondary_metrics: list[dict] | None = None,
@@ -709,6 +757,13 @@ class ExperimentService:
         metrics_secondary = self._assign_uuids_to_metrics(metrics_secondary, seen=seen_metric_uuids)
         self.validate_variant_shapes(parameters)
         self.validate_variant_percentages(parameters)
+        self.validate_running_time_calculation(running_time_calculation)
+        # Dual-write during the parameters deprecation window: running_time_calculation is
+        # canonical, but the legacy calculator keys in `parameters` stay in sync for old readers.
+        if running_time_calculation is not None:
+            parameters = self._merge_running_time_calculation_into_parameters(parameters, running_time_calculation)
+        else:
+            running_time_calculation = self._running_time_calculation_from_parameters(parameters)
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         self.validate_metric_action_ids(metrics, self.team.id)
@@ -791,6 +846,7 @@ class ExperimentService:
             "description": description,
             "type": type,
             "parameters": parameters,
+            "running_time_calculation": running_time_calculation,
             "metrics": metrics if metrics is not None else [],
             "metrics_secondary": metrics_secondary if metrics_secondary is not None else [],
             "secondary_metrics": secondary_metrics if secondary_metrics is not None else [],
@@ -1991,6 +2047,21 @@ class ExperimentService:
             feature_flag.active = True
             feature_flag.save()
 
+        # --- running-time calculation dual-write ----------------------------
+        # During the parameters deprecation window, keep running_time_calculation and
+        # the legacy calculator keys in `parameters` in sync. `parameters` is replaced
+        # wholesale on update, so derive the counterpart from whichever side this
+        # update carries (running_time_calculation wins when both are sent).
+        if "running_time_calculation" in update_data:
+            update_data["parameters"] = self._merge_running_time_calculation_into_parameters(
+                update_data.get("parameters", experiment.parameters),
+                update_data["running_time_calculation"],
+            )
+        elif "parameters" in update_data:
+            update_data["running_time_calculation"] = self._running_time_calculation_from_parameters(
+                update_data["parameters"]
+            )
+
         # --- apply changes and save ----------------------------------------
         for attr, value in update_data.items():
             setattr(experiment, attr, value)
@@ -2043,6 +2114,7 @@ class ExperimentService:
             "end_date",
             "filters",
             "parameters",
+            "running_time_calculation",
             "archived",
             "deleted",
             "secondary_metrics",
@@ -2066,6 +2138,8 @@ class ExperimentService:
 
         if extra_keys:
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
+
+        self.validate_running_time_calculation(update_data.get("running_time_calculation"))
 
         if not experiment.is_draft:
             if "feature_flag_variants" in update_data.get("parameters", {}):
