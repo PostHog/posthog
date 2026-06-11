@@ -235,6 +235,12 @@ The resolver often treats literal and function results as non-nullable, but prop
 
 Wrong nullability can change filtering semantics, especially in `WHERE`, `HAVING`, joins, and `NOT` comparisons.
 
+### Query-Level Settings Coupling
+
+Some type-driven decisions are only correct under the ClickHouse settings PostHog pins for every HogQL query via `HogQLGlobalSettings` (`posthog/hogql/constants.py`), most notably `transform_null_in=1`.
+The nullable-comparison rewrites, the planner's IN/has handling, and the skip-index expectations all assume those defaults, and the skip-index tests deliberately run `EXPLAIN` under the same settings.
+Today this coupling is consistent because the settings are applied unconditionally; if a setting like `transform_null_in` ever becomes configurable per-query, the rewrites that assume it must be re-audited.
+
 ### DateTime And Timezones
 
 Review DateTime parsing, DateTime64 precision, timezone display, and typed property range comparisons.
@@ -251,7 +257,8 @@ Restricted properties should not route through materialized sources.
 
 ### JSONExtract Rewrites
 
-Typed `JSONExtract(...)` rewrites should require exact type equality between the requested type literal and the physical materialized-column type.
+Typed `JSONExtract(...)` rewrites should require semantic type equality between the requested type literal and the physical materialized-column type: spelling differences (whitespace, quoting, `LowCardinality` wrapping) are normalized away, but nullability, width, precision, and timezone differences still block the rewrite.
+Do not relax this to "lossless" widenings such as `String` vs `Nullable(String)` — JSON helper missing-key and out-of-range semantics differ from bare column reads, so those rewrites change results.
 Do not generalize this to helper families without proving missing-key and bad-type semantics match.
 
 ### Higher-Order Lambdas

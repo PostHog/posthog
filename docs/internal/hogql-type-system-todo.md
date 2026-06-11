@@ -265,7 +265,7 @@ Some are in property definitions.
 Some are in materialized column metadata.
 Some are only visible in printer logic.
 
-The skip-index tests show why this matters.
+The skip-index tests in `posthog/hogql/test/test_property_skip_indexes.py` show why this matters.
 A materialized property column can be directly usable by ClickHouse indexes.
 If we add a conversion call around the column because the type system cannot prove the column and literal are already compatible, the query may execute correctly but lose index eligibility.
 Typed physical numeric and datetime materialized columns now have integration tests proving that direct range comparisons stay visible to ClickHouse minmax skip indexes.
