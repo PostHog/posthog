@@ -71,15 +71,16 @@ def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
             continue
 
         chosen = _select_incremental_field(source_schema.incremental_fields)
-        if source_schema.supports_incremental and chosen is not None:
+        if chosen is not None and source_schema.supports_incremental:
             sync_type = "incremental"
-        elif source_schema.supports_append and chosen is not None:
+        elif chosen is not None and source_schema.supports_append:
             sync_type = "append"
         else:
             sync_type = "full_refresh"
+            chosen = None  # full_refresh carries no incremental field, even if one was detected
 
         entry: dict = {"name": source_schema.name, "should_sync": True, "sync_type": sync_type}
-        if sync_type in ("incremental", "append") and chosen is not None:
+        if chosen is not None:
             entry["incremental_field"] = chosen["field"]
             entry["incremental_field_type"] = str(chosen.get("field_type") or chosen.get("type"))
         if source_schema.detected_primary_keys:

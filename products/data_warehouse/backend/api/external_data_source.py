@@ -1197,6 +1197,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description: str | None,
         access_method: str,
         created_via: str,
+        skip_credential_validation: bool = False,
     ) -> Response:
         is_direct_postgres = (
             access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
@@ -1260,17 +1261,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         source_config: Config = source.parse_config(payload)
 
-        if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
-            )
-        else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
-        if not credentials_valid:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": credentials_error or "Invalid credentials"},
-            )
+        # `setup` already validated credentials before introspecting tables, so skip the redundant
+        # live credential check here — `get_schemas` below re-exercises the connection regardless.
+        if not skip_credential_validation:
+            if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
+                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                    cast(Any, source_config), self.team_id, access_method
+                )
+            else:
+                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+            if not credentials_valid:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": credentials_error or "Invalid credentials"},
+                )
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -2065,9 +2069,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         # Build the schemas array server-side so the caller never has to. `_create_external_data_source`
-        # re-introspects for its own validation, so the extra round-trip here is acceptable for a one-shot.
+        # re-introspects for its own table mapping, so the extra round-trip here is acceptable for a one-shot.
         payload["schemas"] = build_default_schemas(source_schemas)
 
+        # Credentials were already validated above (required before `get_schemas`), so let
+        # `_create_external_data_source` skip the duplicate live credential check.
         return self._create_external_data_source(
             request,
             source_type=source_type,
@@ -2076,6 +2082,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
+            skip_credential_validation=True,
         )
 
     @extend_schema(

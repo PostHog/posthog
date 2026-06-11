@@ -6,11 +6,11 @@ from posthog.temporal.data_imports.sources.common.schema import (
     build_default_schemas,
 )
 
-from products.data_warehouse.backend.types import IncrementalField
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
-def _field(name: str, field_type: str = "datetime") -> IncrementalField:
-    return {"label": name, "type": field_type, "field": name, "field_type": field_type, "nullable": False}
+def _field(name: str, field_type: IncrementalFieldType = IncrementalFieldType.DateTime) -> IncrementalField:
+    return IncrementalField(label=name, type=field_type, field=name, field_type=field_type, nullable=False)
 
 
 class TestSelectIncrementalField:
