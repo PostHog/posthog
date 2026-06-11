@@ -113,7 +113,8 @@ class CreateFeatureFlagToolArgs(BaseModel):
         - **variants**: Array of variants for A/B testing (see Variants Structure below)
         - **evaluation_contexts**: Array of evaluation context names (e.g. ['production', 'staging'])
           controlling where the flag evaluates at runtime. Some projects require at least one on every
-          new flag; leave empty to apply the project's configured defaults when set.
+          new flag; omit this field entirely to apply the project's configured defaults when set
+          (an explicit empty list skips the defaults).
 
         # Groups Structure
         Each group defines targeting criteria with AND logic within the group:
