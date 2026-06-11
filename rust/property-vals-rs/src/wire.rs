@@ -2,12 +2,17 @@ use std::fmt;
 
 use crate::types::{PropertyType, PropertyValueMessage};
 
-/// Compact binary wire format for the intermediate topic. Layout after the
-/// magic+version header: varint team_id, type tag (0=event, 1=person,
-/// 2=group followed by the group index byte), then length-prefixed key and
-/// value strings, then varint count. The magic byte distinguishes records
-/// from JSON (`{`) and from the LZ4 frame magic, so all three coexist on the
-/// topic during rollout.
+/// Compact binary format for intermediate topic records:
+///
+/// - magic + version header
+/// - team_id (varint)
+/// - type tag (0 = event, 1 = person, 2 = group + index byte)
+/// - key (varint length + utf8 bytes)
+/// - value (varint length + utf8 bytes)
+/// - count (varint)
+///
+/// The magic byte distinguishes records from JSON (`{`) and the LZ4 frame
+/// magic, so consumers can sniff which decoder to use.
 pub const MAGIC: [u8; 3] = *b"PV\x01";
 
 const TAG_EVENT: u8 = 0;
