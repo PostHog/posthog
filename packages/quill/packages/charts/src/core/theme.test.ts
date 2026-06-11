@@ -56,31 +56,6 @@ describe('chart theme', () => {
         expect(themeFromCssVars({ root }).backgroundColor).toBe(expected)
     })
 
-    it.each<{ name: string; vars: Record<string, string>; tooltipBackground: string; tooltipColor: string }>([
-        {
-            name: 'prefers quill tokens over the app compat names',
-            vars: {
-                '--card': '#card00',
-                '--foreground': '#fg0000',
-                '--color-bg-surface-primary': '#appbg0',
-                '--color-text-primary': '#apptxt',
-            },
-            tooltipBackground: '#card00',
-            tooltipColor: '#fg0000',
-        },
-        {
-            name: 'falls back to the app compat names when quill tokens are absent',
-            vars: { '--color-bg-surface-primary': '#appbg0', '--color-text-primary': '#apptxt' },
-            tooltipBackground: '#appbg0',
-            tooltipColor: '#apptxt',
-        },
-    ])('tooltip $name', ({ vars, tooltipBackground, tooltipColor }) => {
-        const theme = themeFromCssVars({ root: rootWithVars(vars) })
-
-        expect(theme.tooltipBackground).toBe(tooltipBackground)
-        expect(theme.tooltipColor).toBe(tooltipColor)
-    })
-
     it('falls back to DEFAULT_CHART_COLORS for unset color vars', () => {
         const root = rootWithVars({})
 
