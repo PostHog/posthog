@@ -449,7 +449,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
             ],
             useWebAnalyticsPrecompute: [
-                false as boolean,
+                // Tri-state: `null` means the user never touched the toggle, so the
+                // backend's per-team default decides (opt-out for unrestricted teams,
+                // opt-in for everyone else). An explicit `true`/`false` overrides it.
+                null as boolean | null,
                 persistConfig,
                 {
                     setUseWebAnalyticsPrecompute: (_, { useWebAnalyticsPrecompute }) => useWebAnalyticsPrecompute,
@@ -828,17 +831,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filterTestAccounts: boolean,
                 shouldStripQueryParams: boolean,
                 includeHostPath: boolean,
-                useWebAnalyticsPrecompute: boolean,
+                useWebAnalyticsPrecompute: boolean | null,
                 featureFlags: Record<string, boolean>
             ) => ({
                 isPathCleaningEnabled,
                 filterTestAccounts,
                 shouldStripQueryParams,
                 includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
-                // Gate the persisted opt-in on the flag so killing the flag can never send a stale `true`
-                // to the backend for a team that had it enabled — belt-and-suspenders, not a backend guard.
+                // `null` (untouched) is normalized to `undefined` so the field is omitted from the
+                // query payload and the backend's per-team default decides. An explicit choice is
+                // gated on the flag so killing the flag can never send a stale `true` to the backend.
                 useWebAnalyticsPrecompute:
-                    useWebAnalyticsPrecompute && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE],
+                    useWebAnalyticsPrecompute == null
+                        ? undefined
+                        : useWebAnalyticsPrecompute && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE],
             }),
         ],
         filters: [

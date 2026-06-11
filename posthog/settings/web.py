@@ -921,3 +921,18 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Teams allowed to precompute *any* web analytics query, not just the
+# single-`$host`-exact filter shape the general gate permits. For these teams the
+# eligibility gate skips the filter-shape restriction (arbitrary property filters
+# become distinct cache keys via `property_to_expr`) and flips the per-query
+# toggle from opt-in to opt-out (precompute runs unless the user explicitly turns
+# it off). Membership here also implies precompute enrollment, so a team need not
+# also appear in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`. Same Cloud-only
+# default (project 2) and comma-separated env-var override as the enrollment list.
+WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(
+        get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
+    )
+]
