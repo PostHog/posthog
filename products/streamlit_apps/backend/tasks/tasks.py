@@ -7,6 +7,7 @@ import structlog
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 
+from posthog.models.scoping import with_team_scope
 from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
@@ -42,8 +43,8 @@ def _mark_sandbox_error(app_id: str, message: str) -> None:
     soft_time_limit=_TASK_SOFT_TIME_LIMIT,
     max_retries=0,
 )
-@skip_team_scope_audit  # StreamlitApp still uses the default manager; app_id is dispatched internally
-def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]) -> None:
+@with_team_scope()
+def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"], team_id: int) -> None:
     """Celery entry point for both start and restart."""
     from posthog.storage import object_storage
 
@@ -85,8 +86,8 @@ def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]
 
 
 @shared_task(ignore_result=True, max_retries=0)
-@skip_team_scope_audit  # StreamlitApp still uses the default manager; app_id is dispatched internally
-def reset_streamlit_app_restart_count_if_stable(app_id: str) -> None:
+@with_team_scope()
+def reset_streamlit_app_restart_count_if_stable(app_id: str, team_id: int) -> None:
     """Reset restart_count to 0 only if the sandbox is still RUNNING and stable.
 
     Deferred via countdown so a brief RUNNING bounce in a crash loop can't
@@ -254,7 +255,7 @@ def auto_restart_crashed_streamlit_sandboxes() -> int:
         try:
             # Hand off to the existing lifecycle task so we don't block on
             # Modal cold-starts here and the cap/lock logic stays in one place.
-            run_streamlit_app_lifecycle.delay(app_id, "restart")
+            run_streamlit_app_lifecycle.delay(app_id, "restart", team_id=sandbox.app.team_id)
             restarted += 1
             logger.info("streamlit_crashed_sandbox_restart_dispatched", app_id=app_id)
         except Exception:

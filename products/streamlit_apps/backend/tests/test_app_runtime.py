@@ -342,7 +342,7 @@ class TestAppRuntimeRestartApp(BaseTest):
         assert record.status == StreamlitAppSandbox.Status.RUNNING
         app.refresh_from_db()
         assert app.restart_count == 1
-        mock_schedule.assert_called_once_with(str(app.id))
+        mock_schedule.assert_called_once_with(str(app.id), app.team_id)
 
     def test_restart_count_rolls_back_on_failure(self, mock_get_sandbox_class, _mock_wait):
         """When start_app raises mid-restart, restart_count decrements so a
@@ -450,7 +450,7 @@ class TestResetRestartCountIfStable(BaseTest):
 
         from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
 
-        reset_streamlit_app_restart_count_if_stable(str(app.id))
+        reset_streamlit_app_restart_count_if_stable(str(app.id), team_id=app.team_id)
 
         app.refresh_from_db()
         assert app.restart_count == 0
@@ -464,7 +464,7 @@ class TestResetRestartCountIfStable(BaseTest):
 
         from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
 
-        reset_streamlit_app_restart_count_if_stable(str(app.id))
+        reset_streamlit_app_restart_count_if_stable(str(app.id), team_id=app.team_id)
 
         app.refresh_from_db()
         assert app.restart_count == 2
@@ -478,7 +478,7 @@ class TestResetRestartCountIfStable(BaseTest):
 
         from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
 
-        reset_streamlit_app_restart_count_if_stable(str(app.id))
+        reset_streamlit_app_restart_count_if_stable(str(app.id), team_id=app.team_id)
 
         app.refresh_from_db()
         assert app.restart_count == 2

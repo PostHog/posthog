@@ -85,11 +85,11 @@ def _app_to_contract(app: StreamlitApp) -> AppContract:
 
 
 def list_apps(team_id: int) -> QuerySet[StreamlitApp]:
-    return StreamlitApp.objects.filter(team_id=team_id, deleted=False)
+    return StreamlitApp.objects.for_team(team_id).filter(deleted=False)
 
 
 def get_app(team_id: int, short_id: str) -> StreamlitApp:
-    return StreamlitApp.objects.get(team_id=team_id, short_id=short_id, deleted=False)
+    return StreamlitApp.objects.for_team(team_id).get(short_id=short_id, deleted=False)
 
 
 def get_app_status(app: StreamlitApp) -> AppSandboxContract | None:

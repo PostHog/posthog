@@ -150,7 +150,7 @@ class TestAutoRestartCrashedStreamlitSandboxes(_LifecycleTestMixin, BaseTest):
         restarted = auto_restart_crashed_streamlit_sandboxes()
 
         assert restarted == 1
-        lifecycle_delay.assert_called_once_with(str(app.id), "restart")
+        lifecycle_delay.assert_called_once_with(str(app.id), "restart", team_id=app.team_id)
 
     @patch("products.streamlit_apps.backend.tasks.run_streamlit_app_lifecycle.delay")
     def test_user_stopped_sandbox_is_not_restarted(self, lifecycle_delay):

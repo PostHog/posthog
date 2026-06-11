@@ -210,10 +210,10 @@ def _wait_for_health(sandbox: SandboxBase, url: str, name: str, max_attempts: in
     return False
 
 
-def _schedule_restart_count_reset(app_id: str) -> None:
+def _schedule_restart_count_reset(app_id: str, team_id: int) -> None:
     """Defer the restart_count reset so a brief RUNNING bounce can't wipe the counter."""
     reset_streamlit_app_restart_count_if_stable.apply_async(
-        args=[app_id],
+        kwargs={"app_id": app_id, "team_id": team_id},
         countdown=RESTART_COUNT_STABILITY_SECONDS,
     )
 
@@ -394,7 +394,7 @@ class AppRuntimeService:
             else:
                 logger.warning("sandbox_record_deleted_during_start", app_id=str(app.id))
 
-            _schedule_restart_count_reset(str(app.id))
+            _schedule_restart_count_reset(str(app.id), app.team_id)
 
             return sandbox_record
 
