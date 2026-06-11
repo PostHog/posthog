@@ -41,7 +41,7 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
-from products.notebooks.backend import collab
+from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
@@ -219,7 +219,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 locked_instance.last_modified_at = now()
                 locked_instance.last_modified_by = self.context["request"].user
 
-                update_diff: collab.MarkdownDiff | None = None
+                update_diff: markdown_collab.MarkdownDiff | None = None
                 if "content" in validated_data:
                     if validated_data.get("version") != locked_instance.version:
                         raise Conflict("Someone else edited the Notebook")
@@ -228,7 +228,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     content = validated_data.get("content")
                     if isinstance(content, dict):
                         validated_data["content"] = annotate_python_nodes(content)
-                    update_diff = collab.build_markdown_update_diff(
+                    update_diff = markdown_collab.build_markdown_update_diff(
                         locked_instance.content, validated_data.get("content")
                     )
                     should_publish_update = True
@@ -239,7 +239,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     notify_notebook_id = str(updated_notebook.short_id)
                     notify_version = updated_notebook.version
                     transaction.on_commit(
-                        lambda: collab.publish_notebook_update(
+                        lambda: markdown_collab.publish_notebook_update(
                             notify_team_id, notify_notebook_id, notify_version, diff=update_diff
                         )
                     )
@@ -397,7 +397,7 @@ class NotebookMarkdownSaveSerializer(serializers.Serializer):
     )
 
     def validate_content(self, value: Any) -> Any:
-        if collab.get_markdown_notebook_markdown(value) is None:
+        if markdown_collab.get_markdown_notebook_markdown(value) is None:
             raise serializers.ValidationError("Content must be a markdown notebook document.")
         return value
 
@@ -965,7 +965,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             locked_notebook = Notebook.objects.select_for_update().get(pk=notebook.pk)
 
             if locked_notebook.version != data["version"]:
-                result = collab.fetch_missed_markdown_updates(
+                result = markdown_collab.fetch_missed_markdown_updates(
                     locked_notebook.team_id,
                     str(locked_notebook.short_id),
                     last_seen_version=data["version"],
@@ -973,8 +973,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 )
             else:
                 annotated_content = annotate_python_nodes(submitted_content)
-                diff = collab.build_markdown_update_diff(locked_notebook.content, annotated_content)
-                result = collab.submit_markdown_update(
+                diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, annotated_content)
+                result = markdown_collab.submit_markdown_update(
                     locked_notebook.team_id,
                     str(locked_notebook.short_id),
                     client_id=data["client_id"],
@@ -1069,7 +1069,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self.get_object()
         user = cast(User, request.user)
 
-        collab.publish_presence(
+        presence.publish_presence(
             notebook.team_id,
             str(notebook.short_id),
             client_id=data["client_id"],
@@ -1098,9 +1098,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # On WSGI (tests, fallback) async_to_sync bridges it via a worker thread + queue.
         response = StreamingHttpResponse(
             streaming_content=(
-                collab.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
+                collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
                 if SERVER_GATEWAY_INTERFACE == "ASGI"
-                else async_to_sync(lambda: collab.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id))
+                else async_to_sync(
+                    lambda: collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
+                )
             ),
             content_type=ServerSentEventRenderer.media_type,
         )

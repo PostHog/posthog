@@ -15,7 +15,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.notebooks.backend import collab
+from products.notebooks.backend import presence
 from products.notebooks.backend.collab import SubmitResult, submit_steps
 from products.notebooks.backend.models import Notebook
 
@@ -299,8 +299,8 @@ _TEST_STREAM_LIFETIME = 0.3
 _TEST_STREAM_BLOCK_MS = 50
 
 
-@patch("products.notebooks.backend.collab.STREAM_LIFETIME_SECONDS", _TEST_STREAM_LIFETIME)
-@patch("products.notebooks.backend.collab.STREAM_BLOCK_MS", _TEST_STREAM_BLOCK_MS)
+@patch("products.notebooks.backend.collab_stream.STREAM_LIFETIME_SECONDS", _TEST_STREAM_LIFETIME)
+@patch("products.notebooks.backend.collab_stream.STREAM_BLOCK_MS", _TEST_STREAM_BLOCK_MS)
 class TestNotebookCollabStreamAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -495,7 +495,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
 
     def test_stream_skips_presence_older_than_backfill_window(self):
         notebook = self._create_notebook()
-        stream_key = collab.PRESENCE_STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id=notebook["short_id"])
+        stream_key = presence.PRESENCE_STREAM_KEY_PATTERN.format(team_id=self.team.pk, notebook_id=notebook["short_id"])
 
         stale_payload = json.dumps(
             {
@@ -609,7 +609,8 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
         assert nb.text_content == "# Title\n\nHello world"
 
     def test_markdown_save_appends_replayable_diff_to_stream(self):
-        from products.notebooks.backend.collab import STREAM_KEY_PATTERN, apply_utf16_text_changes, markdown_crc
+        from products.notebooks.backend.collab_stream import STREAM_KEY_PATTERN
+        from products.notebooks.backend.markdown_collab import apply_utf16_text_changes, markdown_crc
 
         notebook = self._create_markdown_notebook("# Title\n\nHello")
         self._markdown_save(notebook, version=notebook["version"], markdown="# Title\n\nHello world")
@@ -628,7 +629,7 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
         assert apply_utf16_text_changes("# Title\n\nHello", payload["diff"]) == "# Title\n\nHello world"
 
     def test_markdown_save_conflict_returns_foldable_updates(self):
-        from products.notebooks.backend.collab import apply_utf16_text_changes
+        from products.notebooks.backend.markdown_collab import apply_utf16_text_changes
 
         notebook = self._create_markdown_notebook("base text")
         version = notebook["version"]
@@ -654,7 +655,7 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
 
     @patch("products.notebooks.backend.api.notebook.transaction.on_commit", side_effect=lambda callback: callback())
     def test_markdown_save_conflict_replays_legacy_patch_diff(self, _mock_on_commit):
-        from products.notebooks.backend.collab import apply_utf16_text_changes
+        from products.notebooks.backend.markdown_collab import apply_utf16_text_changes
 
         notebook = self._create_markdown_notebook("base text")
         version = notebook["version"]
@@ -684,7 +685,7 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
         assert response.json()["code"] == "conflict_stale"
 
     def test_markdown_save_with_cursor_broadcasts_author_presence_in_update(self):
-        from products.notebooks.backend.collab import STREAM_KEY_PATTERN
+        from products.notebooks.backend.collab_stream import STREAM_KEY_PATTERN
 
         notebook = self._create_markdown_notebook("# Title\n\nHello")
         response = self.client.post(

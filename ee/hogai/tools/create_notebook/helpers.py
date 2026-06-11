@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from posthog.models import Team, User
 
-from products.notebooks.backend import collab
+from products.notebooks.backend import markdown_collab
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 
@@ -127,11 +127,11 @@ async def save_notebook_to_db(
         await existing_notebook.arefresh_from_db()
         # The base_crc inside the diff lets receivers detect a racing concurrent edit
         # (this path has no version CAS) and fall back to a reload instead of misapplying.
-        await collab.apublish_notebook_update(
+        await markdown_collab.apublish_notebook_update(
             team.id,
             str(existing_notebook.short_id),
             existing_notebook.version,
-            diff=collab.build_markdown_update_diff(previous_content, next_content),
+            diff=markdown_collab.build_markdown_update_diff(previous_content, next_content),
         )
         return existing_notebook
 
@@ -177,7 +177,7 @@ async def save_notebook_to_db(
         notebook.version += 1
         notebook.last_modified_by = user
         await notebook.asave(update_fields=["content", "title", "version", "last_modified_by", "last_modified_at"])
-        await collab.apublish_notebook_update(team.id, str(notebook.short_id), notebook.version)
+        await markdown_collab.apublish_notebook_update(team.id, str(notebook.short_id), notebook.version)
 
     return notebook
 

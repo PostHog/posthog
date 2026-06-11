@@ -7,25 +7,21 @@ from parameterized import parameterized
 
 from posthog import redis
 
-from products.notebooks.backend.collab import (
+from products.notebooks.backend.collab import StepEntry, submit_steps
+from products.notebooks.backend.collab_stream import STREAM_KEY_PATTERN, STREAM_MAX_LENGTH
+from products.notebooks.backend.markdown_collab import (
     MAX_PUBLISHED_DIFF_BYTES,
-    PRESENCE_STREAM_KEY_PATTERN,
-    PRESENCE_TTL_SECONDS,
-    STREAM_KEY_PATTERN,
-    STREAM_MAX_LENGTH,
     MarkdownDiff,
-    StepEntry,
     apply_utf16_text_changes,
     build_markdown_update_diff,
     fetch_missed_markdown_updates,
     get_markdown_notebook_markdown,
     markdown_crc,
     publish_notebook_update,
-    publish_presence,
     submit_markdown_update,
-    submit_steps,
     utf16_single_span_diff,
 )
+from products.notebooks.backend.presence import PRESENCE_STREAM_KEY_PATTERN, PRESENCE_TTL_SECONDS, publish_presence
 
 
 def markdown_doc(markdown: str) -> dict:
