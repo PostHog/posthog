@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -1457,8 +1458,8 @@ export const experimentLogic = kea<experimentLogicType>([
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
-            // Load metrics for launched experiments (sets up auto-refresh once the load completes).
-            // Shows cached results immediately, then force-refreshes once if the experiment is warming up.
+            // Load metrics for launched experiments (will set up auto-refresh after load completes).
+            // refreshExperimentResults branches on the recalculation feature flag internally.
             if (experiment && isLaunched(experiment)) {
                 actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual', true)
             }
@@ -1598,11 +1599,18 @@ export const experimentLogic = kea<experimentLogicType>([
 
             let caughtError = false
             try {
-                await Promise.all([
-                    asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
-                    asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
-                    asyncActions.loadExposures(forceRefresh),
-                ])
+                const recalculationFlow = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+                if (recalculationFlow) {
+                    // Metric results come from experimentMetricsLogic (mounted by the metrics view);
+                    // here we only refresh exposures, which still live in experimentLogic.
+                    await asyncActions.loadExposures(forceRefresh)
+                } else {
+                    await Promise.all([
+                        asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
+                        asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
+                        asyncActions.loadExposures(forceRefresh),
+                    ])
+                }
             } catch (error) {
                 caughtError = true
                 throw error
