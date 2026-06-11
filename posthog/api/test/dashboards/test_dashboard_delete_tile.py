@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, patch
 
 from django.test import override_settings
 
@@ -53,6 +54,40 @@ class TestDashboardDeleteTile(APIBaseTest):
         assert self.dashboard_api.get_dashboard(dashboard_id)["tiles"] == []
         insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
         assert insight_response.status_code == status.HTTP_200_OK
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_delete_text_tile_fires_tile_removed_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello world")
+        tile_id = dashboard_json["tiles"][0]["id"]
+        mock_report_user_action.reset_mock()
+
+        self._delete_tile(dashboard_id, tile_id)
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile removed",
+            {"tile_type": "text", "insight_type": None, "dashboard_id": dashboard_id},
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_delete_insight_tile_fires_tile_removed_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_insight({"name": "insight", "dashboards": [dashboard_id]})
+        tile_id = self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]["id"]
+        mock_report_user_action.reset_mock()
+
+        self._delete_tile(dashboard_id, tile_id)
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile removed",
+            {"tile_type": "insight", "insight_type": None, "dashboard_id": dashboard_id},
+            team=ANY,
+            request=ANY,
+        )
 
     def _setup_unknown_tile_id(self) -> tuple[int, int]:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
