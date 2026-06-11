@@ -16,7 +16,10 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.subscription import Subscription, get_unsubscribe_token
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import generate_ai_report
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportResult,
+    generate_ai_report,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 
 from ee.tasks.subscriptions.slack_subscriptions import (
@@ -158,7 +161,7 @@ def _resolve_subscription_actors(subscription: Subscription) -> tuple[Team, User
     return subscription.team, subscription.created_by
 
 
-async def generate_ai_subscription_markdown(subscription: Subscription) -> str:
+async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
     team, user = await database_sync_to_async(_resolve_subscription_actors, thread_sensitive=False)(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
     if user is None:
@@ -320,7 +323,7 @@ async def send_slack_ai_subscription_report(
 
 
 __all__ = [
-    "generate_ai_subscription_markdown",
+    "build_ai_subscription_report",
     "render_ai_email_html",
     "send_email_ai_subscription_report",
     "send_slack_ai_subscription_report",
