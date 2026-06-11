@@ -23,10 +23,31 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 
 from products.metrics.backend.facade.api import list_metric_names, run_metric_query, team_has_metrics
-from products.metrics.backend.facade.contracts import MetricQueryClause, MetricQueryRequest
-from products.metrics.backend.facade.enums import MetricAggregation
+from products.metrics.backend.facade.contracts import MetricFilter, MetricQueryClause, MetricQueryRequest
+from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
 
 __all__ = ["MetricsViewSet"]
+
+
+class _MetricFilterSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        max_length=255,
+        help_text="Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
+    )
+    op = serializers.ChoiceField(
+        choices=["eq", "neq", "regex", "not_regex"],
+        default="eq",
+        help_text="Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.",
+    )
+    value = serializers.CharField(
+        allow_blank=True,
+        help_text="Value to compare against. For regex operators this is the pattern.",
+    )
+    scope = serializers.ChoiceField(
+        choices=["resource", "attribute", "auto"],
+        default="auto",
+        help_text="Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.",
+    )
 
 
 class _MetricQueryBodySerializer(serializers.Serializer):
@@ -38,6 +59,12 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         choices=["sum", "avg", "count", "p95"],
         default="sum",
         help_text="Aggregation applied per time bucket.",
+    )
+    filters = _MetricFilterSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Label predicates ANDed together. Rows must satisfy every filter.",
     )
     dateFrom = serializers.DateTimeField(
         help_text="Lower bound (inclusive) for the query range. ISO 8601.",
@@ -167,6 +194,16 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         else:
             aggregation, quantile = MetricAggregation(aggregation_raw), None
 
+        filters = tuple(
+            MetricFilter(
+                key=f["key"],
+                op=FilterOp(f["op"]),
+                value=f["value"],
+                scope=AttributeScope(f["scope"]),
+            )
+            for f in query_data.get("filters") or []
+        )
+
         date_to: dt.datetime = query_data.get("dateTo") or timezone.now()
         try:
             metric_request = MetricQueryRequest(
@@ -176,6 +213,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         metric_name=query_data["metricName"],
                         aggregation=aggregation,
                         quantile=quantile,
+                        filters=filters,
                     ),
                 ),
                 date_from=query_data["dateFrom"],

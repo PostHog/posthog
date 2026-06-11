@@ -9,6 +9,7 @@ pipeline yet.
 """
 
 import datetime as dt
+from collections.abc import Sequence
 from typing import Any, Literal
 
 from posthog.hogql import ast
@@ -17,6 +18,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
+
+from products.metrics.backend.facade.contracts import MetricFilter
+from products.metrics.backend.facade.enums import FilterOp
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
@@ -120,6 +124,35 @@ def _interval_expr(name: str) -> ast.Call:
     raise ValueError(f"Unknown interval: {name!r}")
 
 
+def _filter_condition(filter: MetricFilter) -> ast.Expr:
+    """One label predicate as a HogQL boolean expression.
+
+    Missing map keys resolve to `''`, so `neq`/`not_regex` also match rows
+    that lack the key entirely — same as Prometheus negative matchers.
+    """
+    field = attribute_field(filter.key, scope=filter.scope.value)
+    placeholders: dict[str, ast.Expr] = {"field": field, "value": ast.Constant(value=filter.value)}
+    if filter.op == FilterOp.EQ:
+        return parse_expr("{field} = {value}", placeholders=placeholders)
+    if filter.op == FilterOp.NEQ:
+        return parse_expr("{field} != {value}", placeholders=placeholders)
+    if filter.op == FilterOp.REGEX:
+        return parse_expr("match({field}, {value})", placeholders=placeholders)
+    if filter.op == FilterOp.NOT_REGEX:
+        return parse_expr("not match({field}, {value})", placeholders=placeholders)
+    raise ValueError(f"Unsupported filter op: {filter.op!r}")
+
+
+def _filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
+    """AND of all filter conditions; TRUE when there are none."""
+    if not filters:
+        return ast.Constant(value=True)
+    conditions = [_filter_condition(f) for f in filters]
+    if len(conditions) == 1:
+        return conditions[0]
+    return ast.And(exprs=conditions)
+
+
 class MetricQueryRunner:
     def __init__(
         self,
@@ -128,6 +161,7 @@ class MetricQueryRunner:
         aggregation: str,
         date_from: dt.datetime,
         date_to: dt.datetime,
+        filters: Sequence[MetricFilter] = (),
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
@@ -139,6 +173,7 @@ class MetricQueryRunner:
         self.aggregation = aggregation
         self.date_from = date_from
         self.date_to = date_to
+        self.filters = tuple(filters)
         self.interval = _pick_interval(date_from, date_to)
 
     def run(self) -> list[dict[str, Any]]:
@@ -153,6 +188,7 @@ class MetricQueryRunner:
                 WHERE metric_name = {metric_name}
                   AND timestamp >= {date_from}
                   AND timestamp < {date_to}
+                  AND {filters}
                 GROUP BY time
                 ORDER BY time ASC
                 LIMIT 10000
@@ -163,6 +199,7 @@ class MetricQueryRunner:
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
+                "filters": _filters_expr(self.filters),
             },
         )
         assert isinstance(query, ast.SelectQuery)
