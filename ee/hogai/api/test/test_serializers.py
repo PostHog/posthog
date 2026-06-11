@@ -13,6 +13,7 @@ from posthog.schema import (
 )
 
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+from products.tasks.backend.models import Task
 
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
@@ -232,6 +233,118 @@ class TestConversationSerializers(APIBaseTest):
 
         # aget_state should only be called once though
         self.assertEqual(mock_get_state.call_count, 1)
+
+
+class TestConversationSerializerRuntimeMessages(APIBaseTest):
+    def test_sandbox_conversation_returns_empty_messages(self):
+        """Sandbox conversations don't persist messages Django-side — `messages` is always empty."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="Sandbox conversation",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            messages_json=[{"type": "ai", "content": "should be ignored on the sandbox path"}],
+        )
+
+        # aget_state must never be invoked for a sandbox conversation — the guard short-circuits first.
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+            data = ConversationSerializer(
+                conversation,
+                context={"team": self.team, "user": self.user},
+            ).data
+
+        self.assertEqual(data["messages"], [])
+        self.assertEqual(data["agent_runtime"], Conversation.AgentRuntime.SANDBOX.value)
+        mock_get_state.assert_not_called()
+
+    def test_langgraph_conversation_returns_populated_messages(self):
+        """LangGraph conversations keep today's behavior — messages come from the graph state."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="LangGraph conversation",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+
+        state = AssistantState(messages=[AssistantMessage(content="Hello from LangGraph", type="ai")])
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+
+            class MockSnapshot:
+                values = state.model_dump()
+                tasks = []
+
+            mock_get_state.return_value = MockSnapshot()
+
+            data = ConversationSerializer(
+                conversation,
+                context={"team": self.team, "user": self.user},
+            ).data
+
+        self.assertEqual(data["agent_runtime"], Conversation.AgentRuntime.LANGGRAPH.value)
+        self.assertEqual(len(data["messages"]), 1)
+        self.assertEqual(data["messages"][0]["content"], "Hello from LangGraph")
+
+
+class TestConversationSerializerTaskField(APIBaseTest):
+    def _serialize(self, conversation: Conversation) -> dict:
+        return ConversationSerializer(conversation, context={"team": self.team, "user": self.user}).data
+
+    def _sandbox_conversation(self, task: Task | None = None) -> Conversation:
+        return Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+        )
+
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+
+    def test_task_is_null_before_first_message(self):
+        # A sandbox conversation gets its Task FK on the first message, not at creation.
+        data = self._serialize(self._sandbox_conversation())
+        self.assertIsNone(data["task"])
+        self.assertTrue(data["is_sandbox"])
+
+    def test_langgraph_conversation_has_null_task_and_is_not_sandbox(self):
+        conversation = Conversation.objects.create(user=self.user, team=self.team, type=Conversation.Type.ASSISTANT)
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+
+            class MockSnapshot:
+                values = AssistantState(messages=[]).model_dump()
+                tasks = []
+
+            mock_get_state.return_value = MockSnapshot()
+            data = self._serialize(conversation)
+
+        self.assertIsNone(data["task"])
+        self.assertFalse(data["is_sandbox"])
+
+    def test_task_current_run_id_null_when_task_has_no_runs(self):
+        task = self._task()
+        data = self._serialize(self._sandbox_conversation(task))
+        self.assertEqual(data["task"], {"id": str(task.id), "current_run_id": None})
+
+    def test_task_reports_latest_run(self):
+        task = self._task()
+        first = task.create_run(mode="interactive")
+        latest = task.create_run(mode="interactive")
+
+        data = self._serialize(self._sandbox_conversation(task))
+
+        self.assertEqual(data["task"], {"id": str(task.id), "current_run_id": str(latest.id)})
+        self.assertNotEqual(data["task"]["current_run_id"], str(first.id))
 
 
 class TestConversationSerializerArtifactEnrichment(APIBaseTest):
