@@ -31,7 +31,7 @@ class TestGitLabSource:
 
         assert config.name.value == "GitLab"
         assert config.label == "GitLab"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/gitlab.svg"
 

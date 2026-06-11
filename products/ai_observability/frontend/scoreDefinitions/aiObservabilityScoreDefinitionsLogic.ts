@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -82,14 +82,11 @@ function getUrlFilters(filters: ScoreDefinitionFilters): Record<string, unknown>
     }
 }
 
-export interface AIObservabilityScoreDefinitionsLogicProps {
-    tabId?: string
-}
+export type AIObservabilityScoreDefinitionsLogicProps = Record<string, never>
 
 export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefinitionsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'scoreDefinitions', 'aiObservabilityScoreDefinitionsLogic']),
     props({} as AIObservabilityScoreDefinitionsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<ScoreDefinitionFilters>, merge: boolean = true, debounce: boolean = true) => ({
@@ -278,7 +275,14 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
             }
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // This logic owns the bare params (search, page, ...) — pass everyone
+                // else's through (review_*, queue_*, shared filters) instead of stripping them.
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
     })),

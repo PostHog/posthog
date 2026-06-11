@@ -196,7 +196,7 @@ async def _ingest_event_lines(
     return result
 
 
-async def _iter_request_lines(receive: ASGIReceive) -> AsyncGenerator[str, None]:
+async def _iter_request_lines(receive: ASGIReceive) -> AsyncGenerator[str]:
     """Yield NDJSON request lines with bounded event-loop work per request."""
     buffer = b""
     request_size = 0

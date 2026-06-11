@@ -5,6 +5,7 @@ import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
+    getAdvertisedOAuthScopes,
     getToolDefinitions,
     getRequiredFeatureFlags,
     getToolsForFeatures,
@@ -393,6 +394,38 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     })
 })
 
+describe('getAdvertisedOAuthScopes', () => {
+    const supported = new Set<string>(OAUTH_SCOPES_SUPPORTED)
+    const advertised = getAdvertisedOAuthScopes()
+    const advertisedSet = new Set(advertised)
+
+    it('stays a subset of OAUTH_SCOPES_SUPPORTED so nothing is rejected at /authorize', () => {
+        const outside = advertised.filter((s) => !supported.has(s))
+        expect(outside, `advertised scopes not grantable by the AS: ${outside.join(', ')}`).toEqual([])
+    })
+
+    it('keeps the identity scopes that ride every authorize', () => {
+        for (const scope of OAUTH_SCOPES_SUPPORTED.filter((s) => !s.includes(':'))) {
+            expect(advertisedSet.has(scope), `missing identity scope: ${scope}`).toBe(true)
+        }
+    })
+
+    it('covers every grantable scope the tool catalog requires', () => {
+        const required = new Set<string>()
+        for (const def of Object.values(getToolDefinitions())) {
+            for (const scope of def.required_scopes) {
+                required.add(scope)
+            }
+        }
+        const missing = [...required].filter((s) => supported.has(s) && !advertisedSet.has(s)).sort()
+        expect(missing, `tool-required scopes dropped from the advertised list: ${missing.join(', ')}`).toEqual([])
+    })
+
+    it('narrows the full grantable set rather than mirroring it', () => {
+        expect(advertised.length).toBeLessThan(OAUTH_SCOPES_SUPPORTED.length)
+    })
+})
+
 describe('Tool Filtering - excludeTools', () => {
     const excludeTests = [
         {
@@ -713,9 +746,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'dashboard-widgets',
                 'heatmaps-mcp',
                 'marketing-analytics-mcp',
+                'product-business-knowledge',
             ])
         )
-        expect(flags).toHaveLength(14)
+        expect(flags).toHaveLength(15)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

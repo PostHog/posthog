@@ -92,6 +92,32 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.save()
         return holdout
 
+    def test_deleted_feature_flag_tombstone_uses_original_key_in_prepared_query(self):
+        feature_flag = self.create_feature_flag(key="deleted-funnels-flag")
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        original_key = feature_flag.key
+        feature_flag.key = f"{original_key}:deleted:{feature_flag.id}"
+        feature_flag.deleted = True
+        feature_flag.save(update_fields=["key", "deleted"])
+
+        query_runner = ExperimentFunnelsQueryRunner(
+            query=ExperimentFunnelsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentFunnelsQuery",
+                funnels_query=FunnelsQuery(
+                    series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+                    dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+                ),
+            ),
+            team=self.team,
+        )
+
+        assert query_runner.prepared_funnels_query.breakdownFilter is not None
+        self.assertEqual(
+            query_runner.prepared_funnels_query.breakdownFilter.breakdown,
+            f"$feature/{original_key}",
+        )
+
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):
         feature_flag = self.create_feature_flag()
