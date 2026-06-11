@@ -9,9 +9,9 @@ goes through the write-scoped config `create` endpoint.
 
 from __future__ import annotations
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.skills.backend.models.skills import LLMSkill
 
 
 def register_missing_configs(team_id: int) -> set[str]:

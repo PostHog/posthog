@@ -25,7 +25,6 @@ from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
-from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
 
