@@ -67,7 +67,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(token: Optional[str]) -> dict[str, Any]:
-        url = f"{FULLSTORY_BASE_URL}/v2/users"
+        url = f"{FULLSTORY_BASE_URL}/v2/{endpoint}"
         if token:
             url = f"{url}?{urlencode({'page_token': token})}"
         response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
