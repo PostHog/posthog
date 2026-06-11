@@ -50,10 +50,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
-from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
 from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1291,6 +1289,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if being_undeleted:
             self._undo_delete_related_tiles(instance)
 
+        # Soft-delete transition (false -> true). All channels (web/MCP/API) delete via this PATCH path,
+        # so this is the single place to capture deletes. Snapshot tile counts before _delete_related_tiles
+        # runs below — otherwise get_analytics_metadata()'s item_count would read 0 post-deletion.
+        being_deleted = not instance.deleted and validated_data.get("deleted", False)
+        tile_count_at_deletion = instance.tiles.count() if being_deleted else None
+        item_count_at_deletion = instance.tiles.exclude(insight=None).count() if being_deleted else None
+
         initial_data = dict(self.initial_data)
 
         if validated_data.get("deleted", False):
@@ -1348,13 +1353,26 @@ class DashboardSerializer(DashboardMetadataSerializer):
             self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:
-            report_user_action(
-                user,
-                "dashboard updated",
-                instance.get_analytics_metadata(),
-                team=instance.team,
-                request=self.context["request"],
-            )
+            if being_deleted:
+                report_user_action(
+                    user,
+                    "dashboard deleted",
+                    {
+                        **instance.get_analytics_metadata(),
+                        "item_count": item_count_at_deletion,  # override post-delete 0 with pre-delete snapshot
+                        "tile_count": tile_count_at_deletion,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
+            else:
+                report_user_action(
+                    user,
+                    "dashboard updated",
+                    instance.get_analytics_metadata(),
+                    team=instance.team,
+                    request=self.context["request"],
+                )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
@@ -2835,59 +2853,3 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
-
-
-@mutable_receiver(model_activity_signal, sender=DashboardWidget)
-def handle_dashboard_widget_change(
-    sender: Any,
-    scope: str,
-    before_update: DashboardWidget | None,
-    after_update: DashboardWidget | None,
-    activity: str,
-    user: User | None,
-    was_impersonated: bool = False,
-    **kwargs: Any,
-) -> None:
-    instance = after_update or before_update
-    if instance is None:
-        return
-    organization_id = Team.objects.values_list("organization_id", flat=True).filter(pk=instance.team_id).first()
-    log_activity(
-        organization_id=organization_id,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(cast(ActivityScope, scope), previous=before_update, current=after_update),
-            name=instance.name or instance.widget_type,
-        ),
-    )
-
-
-@mutable_receiver(model_activity_signal, sender=Dashboard)
-def handle_dashboard_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    if before_update and after_update:
-        before_deleted = getattr(before_update, "deleted", None)
-        after_deleted = getattr(after_update, "deleted", None)
-        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
-            activity = "restored" if after_deleted is False else "deleted"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-            type="dashboard",
-        ),
-    )

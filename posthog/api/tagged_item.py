@@ -1,6 +1,5 @@
-import dataclasses
-from collections.abc import Callable, Sequence
-from typing import Any, Literal, Optional, cast
+from collections.abc import Sequence
+from typing import Any, cast
 
 from django.db import models
 from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
@@ -12,15 +11,6 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import Tag, TaggedItem
-from posthog.models.activity_logging.activity_log import (
-    ActivityContextBase,
-    Change,
-    Detail,
-    changes_between,
-    log_activity,
-)
-from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tag import tagify
 from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 
@@ -290,136 +280,4 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def list(self, request, *args, **kwargs) -> response.Response:
         return response.Response(
             Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
-        )
-
-
-@dataclasses.dataclass(frozen=True)
-class TagContext(ActivityContextBase):
-    team_id: int
-    name: str
-
-
-@dataclasses.dataclass(frozen=True)
-class TaggedItemContext(ActivityContextBase):
-    tag_name: str
-    tag_id: str
-    team_id: int
-    related_object_type: Optional[str] = None
-    related_object_id: Optional[str] = None
-    related_object_name: Optional[str] = None
-
-
-@mutable_receiver(model_activity_signal, sender=Tag)
-def handle_tag_change(sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs):
-    context = TagContext(
-        team_id=after_update.team_id,
-        name=after_update.name,
-    )
-
-    log_activity(
-        organization_id=after_update.team.organization_id if after_update.team else None,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-            context=context,
-        ),
-    )
-
-
-@dataclasses.dataclass(frozen=True)
-class RelatedObjectActivityLogger:
-    """How to mirror a TaggedItem activity onto a related object's activity stream.
-
-    `scope` is used as both the `log_activity(scope=...)` and `Change.type` value.
-    `resolve_name` derives the display name for the activity row; the default
-    just returns the precomputed `related_object_name`.
-    """
-
-    scope: str
-    resolve_name: Callable[[TaggedItem, Optional[str]], Optional[str]] = lambda tagged_item, default_name: default_name
-
-
-RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
-    "ticket": RelatedObjectActivityLogger(
-        scope="Ticket",
-        resolve_name=lambda tagged_item, default_name: (
-            f"Ticket #{tagged_item.ticket.ticket_number}" if tagged_item.ticket else default_name
-        ),
-    ),
-    "account": RelatedObjectActivityLogger(scope="Account"),
-    "endpoint": RelatedObjectActivityLogger(scope="Endpoint"),
-}
-
-
-@mutable_receiver(model_activity_signal, sender=TaggedItem)
-def handle_tagged_item_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    # Use after_update for create/update, before_update for delete
-    tagged_item = after_update or before_update
-
-    if not tagged_item or not tagged_item.tag:
-        return
-
-    related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(tagged_item)
-
-    context = TaggedItemContext(
-        tag_name=tagged_item.tag.name,
-        tag_id=str(tagged_item.tag.id),
-        team_id=tagged_item.tag.team_id,
-        related_object_type=related_object_type,
-        related_object_id=related_object_id,
-        related_object_name=related_object_name,
-    )
-
-    team = tagged_item.tag.team
-    organization_id = team.organization_id if team else None
-    team_id = tagged_item.tag.team_id
-
-    log_activity(
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=tagged_item.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=tagged_item.tag.name,
-            context=context,
-        ),
-    )
-
-    # Mirror the tag change onto the related object's own activity stream
-    # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
-    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object_type or "")
-    if related_logger and related_object_id:
-        tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
-        log_activity(
-            organization_id=organization_id,
-            team_id=team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=related_object_id,
-            scope=related_logger.scope,
-            activity="updated",
-            detail=Detail(
-                name=related_logger.resolve_name(tagged_item, related_object_name),
-                changes=[
-                    Change(
-                        type=related_logger.scope,
-                        field="tag",
-                        action=tag_action,
-                        after=tagged_item.tag.name if activity == "created" else None,
-                        before=tagged_item.tag.name if activity == "deleted" else None,
-                    )
-                ],
-            ),
         )
