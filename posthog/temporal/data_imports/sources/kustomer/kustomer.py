@@ -2,7 +2,7 @@ import re
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -49,6 +49,20 @@ def _base_url(org_name: str) -> str:
     return f"https://{_clean_org_name(org_name)}.api.kustomerapp.com"
 
 
+def _ensure_same_origin(url: str, base_url: str) -> str:
+    """Reject pagination/resume URLs that leave the org host.
+
+    `links.next` is server-controlled and `urljoin` follows absolute URLs
+    verbatim, so a tampered response could otherwise point our authenticated
+    request (which carries the API key in its Bearer header) at an external host
+    and leak the key. Compare the full origin (scheme + netloc), not a prefix, so
+    look-alike hosts like `org.api.kustomerapp.com.evil.com` are rejected too."""
+    parsed, base = urlparse(url), urlparse(base_url)
+    if (parsed.scheme, parsed.netloc) != (base.scheme, base.netloc):
+        raise ValueError(f"Kustomer URL {url!r} does not stay on the expected host {base_url!r}")
+    return url
+
+
 def validate_credentials(org_name: str, api_key: str) -> bool:
     """Confirm the API key and org are valid with a cheap one-customer probe.
 
@@ -77,7 +91,9 @@ def get_rows(
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
-        url: str = resume_config.next_url
+        # Re-validate the persisted URL so a tampered Redis state can't redirect
+        # our authenticated request off-host.
+        url: str = _ensure_same_origin(resume_config.next_url, base_url)
         logger.debug(f"Kustomer: resuming {endpoint} from URL: {url}")
     else:
         url = f"{base_url}{config.path}?{urlencode({'page[size]': PAGE_SIZE})}"
@@ -113,8 +129,10 @@ def get_rows(
         if not next_link or not items:
             break
 
-        # links.next is typically a relative path; absolutize against the org host.
-        next_url = urljoin(base_url, next_link)
+        # links.next is typically a relative path; absolutize against the org
+        # host and pin to that origin so an absolute off-host URL can't leak the
+        # API key.
+        next_url = _ensure_same_origin(urljoin(base_url, next_link), base_url)
         # Save state AFTER yielding the page so a crash re-yields the last page
         # (merge dedupes on primary key) rather than skipping it.
         resumable_source_manager.save_state(KustomerResumeConfig(next_url=next_url))

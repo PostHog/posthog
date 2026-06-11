@@ -121,6 +121,34 @@ class TestGetRows:
 
         assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
 
+    @pytest.mark.parametrize(
+        "next_link",
+        [
+            "https://attacker.com/steal",
+            "//attacker.com/steal",
+            "http://myorg.api.kustomerapp.com/v1/customers",  # downgraded scheme
+            "https://myorg.api.kustomerapp.com.evil.com/v1/customers",  # look-alike host
+        ],
+    )
+    @mock.patch("posthog.temporal.data_imports.sources.kustomer.kustomer.make_tracked_session")
+    def test_off_host_next_link_is_rejected(self, mock_session, next_link):
+        mock_session.return_value.get.return_value = _response([{"id": "1"}], next_link=next_link)
+
+        manager = _make_manager()
+        with pytest.raises(ValueError):
+            list(get_rows("myorg", "key", "customers", mock.MagicMock(), manager))
+
+        manager.save_state.assert_not_called()
+
+    @mock.patch("posthog.temporal.data_imports.sources.kustomer.kustomer.make_tracked_session")
+    def test_off_host_resume_state_is_rejected(self, mock_session):
+        manager = _make_manager(KustomerResumeConfig(next_url="https://attacker.com/steal"))
+
+        with pytest.raises(ValueError):
+            list(get_rows("myorg", "key", "customers", mock.MagicMock(), manager))
+
+        mock_session.return_value.get.assert_not_called()
+
     @mock.patch("posthog.temporal.data_imports.sources.kustomer.kustomer.make_tracked_session")
     def test_empty_page_with_next_link_stops(self, mock_session):
         mock_session.return_value.get.return_value = _response([], next_link="/v1/customers?page%5Bafter%5D=loop")
