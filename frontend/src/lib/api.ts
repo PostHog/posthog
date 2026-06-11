@@ -5119,6 +5119,29 @@ const api = {
                 }
                 return ''
             },
+            /**
+             * Fetch the assembled resume-chain ACP log for a run (the products/tasks `logs/`
+             * endpoint returns JSONL — one `StoredLogEntry` per line, concatenated server-side
+             * across the entire resume chain). Used to bootstrap the sandbox stream before
+             * opening SSE.
+             */
+            async getLogEntries(taskId: Task['id'], runId: TaskRun['id']): Promise<Record<string, any>[]> {
+                const response = await new ApiRequest().taskRun(taskId, runId).withAction('logs').getResponse()
+                const text = await response.text()
+                const entries: Record<string, any>[] = []
+                for (const line of text.split('\n')) {
+                    const trimmed = line.trim()
+                    if (!trimmed) {
+                        continue
+                    }
+                    try {
+                        entries.push(JSON.parse(trimmed))
+                    } catch {
+                        // Skip unparseable lines — the stream is best-effort historical replay.
+                    }
+                }
+                return entries
+            },
         },
     },
 
@@ -6636,7 +6659,6 @@ const api = {
          * Sandbox-runtime message routing endpoint (`agent_runtime === 'sandbox'`). Non-streaming:
          * wraps + dedupes context, creates/continues the backing products/tasks Run, and returns the
          * IDs the frontend needs to open SSE directly against the products/tasks stream endpoint.
-         * See docs/internal/posthog-ai-migration/02_CORE.md § 4.
          */
         sandbox(
             conversationId: string,
@@ -6661,7 +6683,7 @@ const api = {
          * so the first turn goes through the conversation-create endpoint with `is_sandbox: true`,
          * which creates the conversation and routes to `handle_sandbox_message`, returning the same
          * run IDs (not an SSE stream). Read them directly so the frontend can bootstrap the sandbox
-         * stream. Follow-ups use `sandbox()`. See 02_CORE.md §§ 3, 4.
+         * stream. Follow-ups use `sandbox()`.
          */
         async sandboxCreate(data: {
             content: string

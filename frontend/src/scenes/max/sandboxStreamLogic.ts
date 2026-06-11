@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
+import api from 'lib/api'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
@@ -16,6 +17,66 @@ export type SandboxRunStatus = 'queued' | 'in_progress' | 'completed' | 'failed'
 
 export interface SandboxStreamLogicProps {
     conversationId: string
+}
+
+/** Reconnect/backoff constants for the SSE drop-recovery loop. */
+export const MAX_SSE_RECONNECT_ATTEMPTS = 5
+export const SSE_RECONNECT_BASE_DELAY_MS = 2_000
+export const SSE_RECONNECT_MAX_DELAY_MS = 30_000
+
+const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled'])
+
+function isTerminalRunStatus(status: string | null | undefined): boolean {
+    return status != null && TERMINAL_RUN_STATUSES.has(status)
+}
+
+/** Capped exponential backoff: 2s / 4s / 8s / 16s / 30s. `attempt` is 1-based. */
+export function reconnectDelayMs(attempt: number): number {
+    const delay = SSE_RECONNECT_BASE_DELAY_MS * 2 ** (attempt - 1)
+    return Math.min(delay, SSE_RECONNECT_MAX_DELAY_MS)
+}
+
+export interface StreamErrorEnvelope {
+    errorTitle: string
+    errorMessage?: string
+    retryable: boolean
+}
+
+/**
+ * HTTP status → user-visible error envelope for refetch/open failures. Cloud-agent also emits
+ * some of these as `event: error` frames; those carry their own envelope and bypass this table.
+ */
+export function mapHttpStatusToStreamError(status: number | undefined): StreamErrorEnvelope {
+    switch (status) {
+        case 401:
+            return { errorTitle: 'Cloud authentication expired', retryable: true }
+        case 403:
+            return { errorTitle: 'Cloud access denied', retryable: true }
+        case 404:
+            return { errorTitle: 'Conversation backing run not found', retryable: false }
+        case 406:
+            return { errorTitle: 'Cloud stream unavailable', retryable: true }
+        default:
+            return { errorTitle: 'Cloud stream failed', retryable: true }
+    }
+}
+
+/** Stable serialized-JSON hash of a StoredLogEntry for content-dedup. */
+function hashLogEntry(entry: StoredLogEntry): string {
+    return JSON.stringify(entry)
+}
+
+/** Refetch the run's status; on failure return the mapped error envelope instead. */
+async function fetchRunStatus(
+    taskId: string,
+    runId: string
+): Promise<{ status: string | null } | { error: StreamErrorEnvelope }> {
+    try {
+        const run: { status?: string } = await api.tasks.runs.get(taskId, runId)
+        return { status: run.status ?? null }
+    } catch (error) {
+        return { error: mapHttpStatusToStreamError((error as { status?: number })?.status) }
+    }
 }
 
 /** Matches `mcp__posthog__exec` (and plugin/regional variants). Ported from Twig posthog-exec-display.ts. */
@@ -106,8 +167,9 @@ function mapAcpStatus(status: unknown): ToolInvocationStatus {
  * SSE loop — the sandbox path never enters the LangGraph EventSource loop.
  *
  * Covers open/close, `data.type === 'notification'` → `ingestAcpFrame` dispatch, terminal status,
- * and stream-error capture. Reconnect/backoff and content dedup are intentionally not implemented
- * here yet.
+ * and stream-error capture, plus the reconnect/backoff loop on SSE drops, content-dedup against
+ * the `logs/` replay, HTTP-status error mapping, and the `bootstrapRun` history-replay-then-SSE
+ * helper.
  *
  * Keyed by conversation id so concurrent conversations keep independent stream state and
  * EventSource connections.
@@ -120,12 +182,23 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         values: [projectLogic, ['currentProjectId']],
     })),
     actions({
+        /**
+         * Bootstrap an existing run on conversation open: replay history from the products/tasks
+         * `logs/` endpoint, then open SSE if the run is non-terminal. `justCreatedRun` skips the
+         * `logs/` round-trip (fresh-run fast path — nothing historical to assemble).
+         */
+        bootstrapRun: (payload: { taskId: string; runId: string; justCreatedRun?: boolean }) => payload,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean }) => payload,
         closeSse: true,
         sseConnecting: true,
         sseOpened: true,
+        sseReconnecting: (attempt: number) => ({ attempt }),
+        /** Internal: an SSE drop initiates the refetch + backoff loop. */
+        sseDropped: true,
         /** Frame ingestion — called by the SSE listener and by products/tasks `logs/` replay. */
         ingestAcpFrame: (entry: StoredLogEntry) => ({ entry }),
+        /** Internal: records an entry's serialized hash so reconnect replay can dedup it. */
+        markEntryIngested: (hash: string) => ({ hash }),
         ingestPermissionRequest: (record: PermissionRequestRecord) => ({ record }),
         handleTerminalStatus: (status: { status: SandboxRunStatus; errorMessage?: string | null }) => status,
         handleStreamError: (envelope: { errorTitle: string; errorMessage?: string; retryable: boolean }) => envelope,
@@ -149,15 +222,41 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             {
                 sseConnecting: () => 'connecting',
                 sseOpened: () => 'open',
+                sseReconnecting: () => 'reconnecting',
                 closeSse: () => 'closed',
                 handleStreamError: () => 'error',
                 reset: () => 'idle',
             },
         ],
+        reconnectAttempt: [
+            0,
+            {
+                sseReconnecting: (_, { attempt }) => attempt,
+                // A successful (re)connection clears the counter; bootstrapping a run starts fresh.
+                sseOpened: () => 0,
+                bootstrapRun: () => 0,
+                reset: () => 0,
+            },
+        ],
+        // Serialized-JSON hashes of entries already ingested (from `logs/` replay or live SSE) so a
+        // reconnect with `?start=latest` doesn't double-fold history.
+        ingestedEntryHashes: [
+            new Set<string>(),
+            {
+                markEntryIngested: (state, { hash }) => {
+                    const next = new Set(state)
+                    next.add(hash)
+                    return next
+                },
+                reset: () => new Set<string>(),
+            },
+        ],
         currentRunStatus: [
             null as SandboxRunStatus | null,
             {
-                openSseForRun: () => 'queued',
+                // A reconnect reopens the same in-flight run — keep its known status rather than
+                // flickering back to queued; only a fresh open (no/terminal status) resets.
+                openSseForRun: (state) => (state && !isTerminalRunStatus(state) ? state : 'queued'),
                 handleTerminalStatus: (_, { status }) => status,
                 reset: () => null,
             },
@@ -275,6 +374,44 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         ],
     }),
     listeners(({ values, actions, cache }) => ({
+        bootstrapRun: async ({ taskId, runId, justCreatedRun }, breakpoint) => {
+            const projectId = values.currentProjectId
+            if (projectId === null) {
+                actions.handleStreamError({ errorTitle: 'No current project', retryable: false })
+                return
+            }
+
+            // Fresh-run fast path: nothing historical to assemble — go straight to SSE.
+            if (justCreatedRun) {
+                actions.openSseForRun({ taskId, runId, startLatest: false })
+                return
+            }
+
+            // Existing run: replay the assembled resume-chain log, then refetch the run to decide on SSE.
+            let entries: Record<string, any>[]
+            try {
+                entries = await api.tasks.runs.getLogEntries(taskId, runId)
+            } catch (error) {
+                actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
+                return
+            }
+            breakpoint()
+            entries.forEach((entry) => actions.ingestAcpFrame(entry as unknown as StoredLogEntry))
+
+            const result = await fetchRunStatus(taskId, runId)
+            breakpoint()
+            if ('error' in result) {
+                actions.handleStreamError(result.error)
+                return
+            }
+            if (isTerminalRunStatus(result.status)) {
+                // Read-only history — surface the terminal status, do not open SSE.
+                actions.handleTerminalStatus({ status: result.status as SandboxRunStatus })
+                return
+            }
+            // Non-terminal: open SSE from the latest point, deduping against the replayed history.
+            actions.openSseForRun({ taskId, runId, startLatest: true })
+        },
         openSseForRun: ({ taskId, runId, startLatest }) => {
             const projectId = values.currentProjectId
             if (projectId === null) {
@@ -282,9 +419,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
 
-            actions.sseConnecting()
+            // Track the active run so the reconnect loop can refetch it on a drop.
+            cache.activeRun = { taskId, runId }
 
-            // Replace any prior connection — reconnect/backoff layers on top of this later.
+            actions.sseConnecting()
+            cache.disposables.dispose('reconnect-backoff')
+
+            // Replace any prior connection.
             cache.disposables.dispose('event-source')
             // pauseOnPageHidden: false — a live SSE connection must survive tab hides; re-running
             // setup on show would replay the stream from the top and duplicate thread state.
@@ -318,7 +459,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                                 break
                         }
                     }
-                    // Named `event: error` frames sent by the stream endpoint.
+                    // `EventSource` fires `error` both for named `event: error` envelopes (carrying
+                    // `data`) and for transient connection drops (no `data`). Surface the former
+                    // verbatim; treat the latter as a drop and run the refetch + backoff loop.
                     eventSource.addEventListener('error', (event: MessageEvent<string>): void => {
                         if (typeof event.data === 'string' && event.data.length > 0) {
                             try {
@@ -331,7 +474,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                             } catch {
                                 actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
                             }
+                            return
                         }
+                        // Connection drop — take over manual reconnection (the native auto-retry would
+                        // bypass our refetch + capped-backoff logic).
+                        actions.sseDropped()
                     })
 
                     return () => eventSource.close()
@@ -340,10 +487,72 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 { pauseOnPageHidden: false }
             )
         },
+        sseDropped: async (_, breakpoint) => {
+            const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            if (!activeRun) {
+                return
+            }
+            // Stop the native EventSource so its built-in auto-retry doesn't race our loop.
+            cache.disposables.dispose('event-source')
+
+            // First refetch the run to detect terminal state.
+            const result = await fetchRunStatus(activeRun.taskId, activeRun.runId)
+            breakpoint()
+            // The stream was closed or replaced while the refetch was in flight — drop this loop.
+            if (cache.activeRun !== activeRun) {
+                return
+            }
+            if ('error' in result) {
+                actions.handleStreamError(result.error)
+                return
+            }
+
+            // Terminal → final terminal-status action + close.
+            if (isTerminalRunStatus(result.status)) {
+                actions.handleTerminalStatus({ status: result.status as SandboxRunStatus })
+                return
+            }
+
+            // Non-terminal → capped exponential backoff; attempts exhausted surface a retryable error.
+            const attempt = values.reconnectAttempt + 1
+            if (attempt > MAX_SSE_RECONNECT_ATTEMPTS) {
+                actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
+                return
+            }
+            actions.sseReconnecting(attempt)
+            // pauseOnPageHidden: false — the SSE connection survives tab hides, so a drop in a
+            // hidden tab must also reconnect there; a paused timer would stall until refocus.
+            cache.disposables.add(
+                (): (() => void) => {
+                    const timer = window.setTimeout(() => {
+                        // Reopen with a full replay (no start=latest): frames emitted while
+                        // disconnected are re-delivered and the content-dedup drops the
+                        // already-ingested ones, so the gap is filled losslessly.
+                        actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: false })
+                    }, reconnectDelayMs(attempt))
+                    return () => clearTimeout(timer)
+                },
+                'reconnect-backoff',
+                { pauseOnPageHidden: false }
+            )
+        },
+        handleTerminalStatus: ({ status }) => {
+            // The wire emits task_run_state for non-terminal transitions too (e.g. queued →
+            // in_progress) — only an actually-terminal run has no more frames to stream.
+            if (!isTerminalRunStatus(status)) {
+                return
+            }
+            cache.disposables.dispose('reconnect-backoff')
+            cache.disposables.dispose('event-source')
+        },
         closeSse: () => {
+            cache.activeRun = undefined
+            cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
         },
         reset: () => {
+            cache.activeRun = undefined
+            cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
         },
         ingestAcpFrame: ({ entry }) => {
@@ -351,6 +560,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             if (!notification) {
                 return
             }
+            // Content-dedup: a reconnect with `?start=latest` may replay frames already folded in from
+            // the `logs/` bootstrap (Redis-stream IDs aren't comparable to S3-log IDs). Match on
+            // serialized JSON and drop repeats before they mutate thread state.
+            const hash = hashLogEntry(entry)
+            if (values.ingestedEntryHashes.has(hash)) {
+                return
+            }
+            actions.markEntryIngested(hash)
             const method = notification.method
             const params = (notification.params ?? {}) as Record<string, any>
 
