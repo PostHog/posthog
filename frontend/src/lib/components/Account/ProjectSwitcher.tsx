@@ -15,7 +15,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { globalModalsLogic } from '~/layout/GlobalModals'
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { AvailableFeature, TeamBasicType } from '~/types'
 

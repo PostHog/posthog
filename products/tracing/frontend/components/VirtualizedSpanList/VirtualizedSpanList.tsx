@@ -9,7 +9,7 @@ import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { cn } from 'lib/utils/css-classes'
 
-import { formatDuration } from '../../TraceFlameChart'
+import { formatDuration } from '../../TraceWaterfallView'
 import type { TracingOrderBy, TracingOrderDirection } from '../../tracingFiltersLogic'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
