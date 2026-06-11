@@ -11,7 +11,7 @@ from tenacity import RetryCallState
 from posthog.temporal.data_imports.sources.notion.notion import (
     MAX_BLOCK_DEPTH,
     MAX_CHILD_PAGES_PER_PARENT,
-    MAX_RETRY_WAIT_SECONDS,
+    MAX_RETRY_AFTER_WAIT_SECONDS,
     NOTION_VERSION,
     NotionResumeConfig,
     NotionRetryableError,
@@ -193,9 +193,15 @@ class TestNotion:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=3.0))
         assert _wait_strategy(cast(RetryCallState, state)) == 3.0
 
+    def test_wait_strategy_honors_long_retry_after(self) -> None:
+        # A multi-minute Retry-After (observed: 336s) must be honored in full, not clamped to the
+        # short exponential-backoff cap - clamping guaranteed every retry re-hit the 429.
+        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=336.0))
+        assert _wait_strategy(cast(RetryCallState, state)) == 336.0
+
     def test_wait_strategy_caps_retry_after(self) -> None:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=10_000.0))
-        assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_WAIT_SECONDS
+        assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_AFTER_WAIT_SECONDS
 
     def test_comments_stream_respects_page_cap(self) -> None:
         # First call is the page search (one page, then done); every subsequent /v1/comments
