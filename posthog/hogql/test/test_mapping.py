@@ -315,6 +315,16 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
         assert response.results is not None
         assert response.results[0] == (0.0, 2.5, 0.0)
 
+    def test_to_float_or_default_single_arg(self):
+        # Pre-#58714 single-arg form is degenerate (equivalent to toFloatOrZero);
+        # preserved so saved HogQL queries written before #58714 keep working.
+        response = execute_hogql_query(
+            "SELECT toFloatOrDefault('2.5'), toFloatOrDefault('bla'), toFloatOrDefault(NULL)",
+            self.team,
+        )
+        assert response.results is not None
+        assert response.results[0] == (2.5, 0.0, None)
+
     def test_map_function_with_multiple_key_value_pairs(self):
         """Test that the map function accepts multiple key-value pairs."""
         response = execute_hogql_query(

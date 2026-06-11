@@ -79,6 +79,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
                 }
 
+                // Batch-triggered invocations arrive with an empty event.distinct_id because the
+                // blast-radius query returns UUIDs only. The person lookup above resolves one
+                // distinct_id for us (when the person has any), so backfill it here so templates
+                // defaulting to `{event.distinct_id}` resolve at hog runtime.
+                if (!hogFlowInvocationState.event.distinct_id && person?.distinct_id) {
+                    hogFlowInvocationState.event.distinct_id = person.distinct_id
+                }
+
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
                     person: person ?? undefined,

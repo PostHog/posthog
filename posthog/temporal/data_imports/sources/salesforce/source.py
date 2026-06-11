@@ -32,6 +32,11 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             "400 Client Error: Bad Request for url": None,
             "403 Client Error: Forbidden for url": None,
             "inactive organization": None,
+            # SalesforceAuthRequestError.raise_from_response formats token-refresh failures as
+            # "<code> Client Error: <reason>: <error_description>", so the "... for url" patterns
+            # above never match it. Key off the stable error_description returned by Salesforce
+            # when the refresh token is expired/revoked — reconnecting is the only fix.
+            "expired access/refresh token": "Your Salesforce connection has expired or been revoked. Please reconnect the source.",
         }
 
     def get_schemas(

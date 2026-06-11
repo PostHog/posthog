@@ -34,22 +34,68 @@ export class PersonPropertiesSizeViolationError extends Error {
     readonly isRetriable = false
 }
 
-export interface PersonRepository {
-    fetchPerson(
-        teamId: Team['id'],
-        distinctId: string,
-        options?: { forUpdate?: boolean; useReadReplica?: boolean }
-    ): Promise<InternalPerson | undefined>
+/**
+ * Read-only person lookups backed by personhog gRPC. Used by services that
+ * only need to fetch person data (CDP, error tracking, future pipelines).
+ * Always uses eventual consistency. Independent of PersonRepository — the
+ * two interfaces have different parameter shapes reflecting their different
+ * backends and consumers.
+ */
+export interface PersonReadRepository {
+    fetchPerson(teamId: Team['id'], distinctId: string, callerTag?: string): Promise<InternalPerson | undefined>
 
     fetchPersonsByDistinctIds(
         teamPersons: { teamId: TeamId; distinctId: string }[],
-        useReadReplica?: boolean
+        callerTag?: string
     ): Promise<InternalPersonWithDistinctId[]>
 
     fetchPersonsByPersonIds(
         teamPersons: { teamId: TeamId; personId: string }[],
-        useReadReplica?: boolean
+        callerTag?: string
     ): Promise<InternalPerson[]>
+
+    fetchDistinctIdsForPersons(
+        teamId: TeamId,
+        personIntIds: string[],
+        options?: { limitPerPerson?: number },
+        callerTag?: string
+    ): Promise<Record<string, string[]>>
+}
+
+/**
+ * Full person repository with read and write operations. Used by the
+ * ingestion pipeline which creates, updates, merges, and deletes persons.
+ * Postgres-backed with support for consistency control and row locking.
+ */
+export interface PersonRepository {
+    fetchPerson(
+        teamId: Team['id'],
+        distinctId: string,
+        options?: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string }
+    ): Promise<InternalPerson | undefined>
+
+    fetchPersonsByDistinctIds(
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica?: boolean,
+        callerTag?: string
+    ): Promise<InternalPersonWithDistinctId[]>
+
+    fetchPersonsByPersonIds(
+        teamPersons: { teamId: TeamId; personId: string }[],
+        useReadReplica?: boolean,
+        callerTag?: string
+    ): Promise<InternalPerson[]>
+
+    /**
+     * Fetch up to ``limitPerPerson`` distinct_ids for each given int person_id (single team).
+     * Returns a record keyed by int person_id as a string (matching InternalPerson.id).
+     * Persons with no distinct_ids will be absent from the result.
+     */
+    fetchDistinctIdsForPersons(
+        teamId: TeamId,
+        personIntIds: string[],
+        options?: { limitPerPerson?: number; useReadReplica?: boolean }
+    ): Promise<Record<string, string[]>>
 
     createPerson(
         createdAt: DateTime,

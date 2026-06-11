@@ -13,3 +13,17 @@ export function getCupedSelection(cuped: CupedConfig): CupedSelection {
 export function resolveCupedEnabled(cuped: CupedConfig, teamDefaultEnabled: boolean): boolean {
     return cuped?.enabled === undefined ? teamDefaultEnabled : !!cuped.enabled
 }
+
+export function resolveCupedLookbackDays(
+    cuped: CupedConfig,
+    teamDefaultLookbackDays: number | null | undefined,
+    fallbackLookbackDays: number
+): number {
+    if (typeof cuped?.lookback_days === 'number') {
+        return cuped.lookback_days
+    }
+    if (typeof teamDefaultLookbackDays === 'number') {
+        return teamDefaultLookbackDays
+    }
+    return fallbackLookbackDays
+}

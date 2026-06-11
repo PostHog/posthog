@@ -45,7 +45,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ee.models import Conversation
+from products.posthog_ai.backend.models.assistant import Conversation
 
 
 class ArtifactRefMessage(BaseAssistantMessage):
@@ -615,6 +615,7 @@ class UpdateAction(BaseModel):
 class ConversationTitleAction(BaseModel):
     type: Literal["CONVERSATION_TITLE"] = "CONVERSATION_TITLE"
     title: str
+    topic: str | None = None
 
 
 AssistantActionUnion = (

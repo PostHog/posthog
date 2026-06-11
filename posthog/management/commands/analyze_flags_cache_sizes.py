@@ -7,12 +7,13 @@ import json
 import statistics
 
 from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
-from posthog.models.feature_flag.flags_cache import (
+from posthog.models.team import Team
+
+from products.feature_flags.backend.flags_cache import (
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
     _get_feature_flags_for_service,
     _get_feature_flags_for_teams_batch,
 )
-from posthog.models.team import Team
 
 
 class Command(BaseHyperCacheCommand):

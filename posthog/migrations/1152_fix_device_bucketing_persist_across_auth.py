@@ -81,7 +81,7 @@ def _invalidate_flag_caches(team_ids):
     """Mirror the post_save receivers in flags_cache.py and local_evaluation.py
     so flag evaluation services pick up the new state — bulk_update bypasses
     those signals."""
-    from posthog.tasks.feature_flags import update_team_flags_cache, update_team_service_flags_cache
+    from products.feature_flags.backend.tasks import update_team_flags_cache, update_team_service_flags_cache
 
     for team_id in team_ids:
         update_team_flags_cache.delay(team_id)

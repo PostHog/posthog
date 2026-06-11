@@ -41,7 +41,7 @@ export const getProductToursListUrl = (projectId: string, params?: ProductToursL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -226,9 +226,9 @@ export const getProductToursPublishDraftCreateUrl = (projectId: string, id: stri
 
 /**
  * Commit draft to live tour. Runs full validation and triggers side effects.
-
-Accepts an optional body payload. If provided, merges it into the draft
-before publishing so the caller can save + publish in a single request.
+ *
+ * Accepts an optional body payload. If provided, merges it into the draft
+ * before publishing so the caller can save + publish in a single request.
  */
 export const productToursPublishDraftCreate = async (
     projectId: string,

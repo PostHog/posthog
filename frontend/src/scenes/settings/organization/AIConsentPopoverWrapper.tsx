@@ -28,7 +28,7 @@ export function AIConsentPopoverContent({
                 <Tooltip title={getExternalAIProvidersTooltipTitle()}>
                     <dfn>external AI providers</dfn>
                 </Tooltip>
-                . <i>Your data won't be used for training models.</i>
+                . <i>Your data won't be used for training third-party models.</i>
             </p>
             <div className="flex gap-1.5 self-end">
                 <LemonButton data-attr="ai-consent-cancel" type="secondary" size="xsmall" onClick={onDismiss}>

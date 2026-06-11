@@ -10,16 +10,15 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
-from requests import HTTPError
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.schema import ProductKey
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
 from posthog.api.documentation import extend_schema
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -224,7 +223,6 @@ class CreateGroupSerializer(serializers.ModelSerializer):
         fields = ["group_type_index", "group_key", "group_properties"]
 
 
-@extend_schema(tags=["core"])
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     queryset = Group.objects.all()  # nosemgrep: no-direct-persons-db-orm
@@ -282,7 +280,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             "$group_set": group_properties or group.group_properties,
         }
         try:
-            capture_internal(
+            result = capture_internal_routed(
                 token=self.team.api_token,
                 event_name="$groupidentify",
                 event_source="ee_ch_views_groups",
@@ -290,15 +288,16 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 timestamp=timezone.now(),
                 properties=properties,
                 process_person_profile=False,
-            ).raise_for_status()
-        except HTTPError as error:
+            )
+            result.raise_for_status()
+        except CaptureRoutedError as error:
             raise TriggerGroupIdentifyException(
                 exception_data={
                     "code": f"Failed to submit {operation} event.",
                     "detail": "capture_http_error",
                     "type": "capture_http_error",
                 },
-                status_code=error.response.status_code,
+                status_code=error.status_code or 502,
             )
         except Exception:
             raise TriggerGroupIdentifyException(
@@ -630,18 +629,18 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             }
 
             try:
-                resp = capture_internal(
+                routed_result = capture_internal_routed(
                     token=self.team.api_token,
                     event_name=event_name,
                     event_source="ee_ch_views_groups",
                     distinct_id=team_uuid_as_distinct_id,
                     timestamp=timestamp,
                     properties=properties,
-                    process_person_profile=False,  # don't process person profile
+                    process_person_profile=False,
                 )
-                resp.raise_for_status()
+                routed_result.raise_for_status()
 
-            except HTTPError as e:
+            except CaptureRoutedError as e:
                 return response.Response(
                     {
                         "attr": "$unset",
@@ -649,7 +648,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                         "detail": "capture_http_error",
                         "type": "capture_http_error",
                     },
-                    status=e.response.status_code,
+                    status=e.status_code or 502,
                 )
             except Exception:
                 return response.Response(
@@ -951,14 +950,7 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
             )
 
 
-@extend_schema_view(
-    list=extend_schema(tags=["customer_analytics"]),
-    create=extend_schema(tags=["customer_analytics"]),
-    retrieve=extend_schema(tags=["customer_analytics"]),
-    update=extend_schema(tags=["customer_analytics"]),
-    partial_update=extend_schema(tags=["customer_analytics"]),
-    destroy=extend_schema(tags=["customer_analytics"]),
-)
+@extend_schema(extensions={"x-product": "customer_analytics"})
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "usage_metric"
     queryset = GroupUsageMetric.objects.all()

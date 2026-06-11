@@ -141,6 +141,7 @@ ORDER BY "context.columns.count" DESC
             query_type="session_attribution_query",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             filters=HogQLFilters(dateRange=self.query.filters.dateRange, properties=self.query.filters.properties)

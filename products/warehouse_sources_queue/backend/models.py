@@ -45,6 +45,7 @@ class SourceBatch(UUIDModel):
         indexes = [
             models.Index(fields=["team_id", "schema_id"], name="sb_team_schema_idx"),
             models.Index(fields=["run_uuid"], name="sb_run_uuid_idx"),
+            models.Index(fields=["run_uuid", "batch_index"], name="sb_run_uuid_bi_idx"),
         ]
 
 

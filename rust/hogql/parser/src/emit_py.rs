@@ -309,14 +309,19 @@ impl<'py> PyEmitter<'py> {
 
     /// Construct a node by invoking `class(**kwargs)`. Wraps the result in [`PyAst`] with `positions_locked = false`.
     fn build(&self, class: &Bound<'py, PyAny>, kwargs: &Bound<'py, PyDict>) -> PyAst {
-        let obj = class
-            .call(PyTuple::empty_bound(self.py), Some(kwargs))
-            .expect("ast class construction failed (validate kwargs / class shape)")
-            .unbind();
-        PyAst {
-            obj,
-            positions_locked: false,
-            rust_sentinels: None,
+        match class.call(PyTuple::empty_bound(self.py), Some(kwargs)) {
+            Ok(obj) => PyAst {
+                obj: obj.unbind(),
+                positions_locked: false,
+                rust_sentinels: None,
+            },
+            // A dataclass constructor / `__post_init__` raised. Restore the original Python
+            // exception so `run_py` re-raises it verbatim (the json backends surface the same
+            // raw exception from `deserialize_ast`), then unwind out of the deep parse via panic.
+            Err(err) => {
+                err.restore(self.py);
+                panic!("ast construction raised; original exception restored for run_py");
+            }
         }
     }
 
@@ -763,12 +768,13 @@ impl<'py> Emitter for PyEmitter<'py> {
         self.build(&self.cls_variable_declaration, &kw)
     }
     fn catch_clause(&self, var: PyAst, ty: PyAst, body: PyAst) -> PyAst {
-        // cpp emits this as a `[var, type, body]` JSON array — we mirror the shape on Py since `TryCatchStatement.catches` is `list[list[Expr | Type | Block]]`.
-        let list = PyList::empty_bound(self.py);
-        list.append(var.obj).unwrap();
-        list.append(ty.obj).unwrap();
-        list.append(body.obj).unwrap();
-        self.wrap_prim(list.into_any().unbind())
+        // cpp emits this as a `[var, type, body]` JSON array; the Python AST types
+        // `TryCatchStatement.catches` as `list[tuple[Optional[str], Optional[str], Statement]]`
+        // (matching what `CloningVisitor.visit_try_catch_statement` builds and what
+        // `json_ast._TUPLE_INNER_FIELDS` now deserialises cpp/rust-json arrays into).
+        // Build a tuple here so `rust-py` produces the canonical shape directly.
+        let pair = PyTuple::new_bound(self.py, [var.obj, ty.obj, body.obj]);
+        self.wrap_prim(pair.into_any().unbind())
     }
 
     // ===== Query / clause builders =====
@@ -1214,14 +1220,13 @@ impl<'py> Emitter for PyEmitter<'py> {
         ) {
             if let Ok(post_init) = bound.getattr("__post_init__") {
                 if let Err(py_err) = post_init.call0() {
-                    // Panic with the inner Python message only (not the `PyErr` Debug repr); `run_py`'s `catch_unwind` converts the panic to a `ParseError::not_implemented` envelope.
-                    let msg = py_err
-                        .value_bound(self.py)
-                        .str()
-                        .ok()
-                        .and_then(|s| s.to_str().ok().map(str::to_string))
-                        .unwrap_or_else(|| "ast dataclass validation failed".to_string());
-                    panic!("{msg}");
+                    // Restore the original exception so `run_py` re-raises it verbatim — rust-py then
+                    // surfaces the same exception the json backends do (which run this `__post_init__`
+                    // check inside `cls(**kwargs)`), instead of a wrapped `not_implemented` envelope.
+                    py_err.restore(self.py);
+                    panic!(
+                        "dataclass __post_init__ raised; original exception restored for run_py"
+                    );
                 }
             }
         }

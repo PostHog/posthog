@@ -18,10 +18,10 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
-from posthog.models import Insight
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES, AlertEvaluationResult
 
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.models.insight import Insight
 
 
 # TODO: move the TrendResult UI type to schema.ts and use that instead

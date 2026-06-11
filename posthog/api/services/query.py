@@ -177,7 +177,7 @@ def process_query_model(
             joins=join_models,
         )
 
-    query_runner = get_query_runner_or_none(query, team, limit_context=limit_context)
+    query_runner = get_query_runner_or_none(query, team, limit_context=limit_context, user=user)
     if query_runner is None:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(

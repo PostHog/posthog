@@ -1,33 +1,32 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { Breadcrumb } from '~/types'
 
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
-import { DEFAULT_DATE_RANGE, DEFAULT_ORDER_BY, DEFAULT_SERVICE_NAMES, tracingFiltersLogic } from './tracingFiltersLogic'
+import {
+    DEFAULT_DATE_RANGE,
+    DEFAULT_ORDER_BY,
+    DEFAULT_ORDER_DIRECTION,
+    DEFAULT_SERVICE_NAMES,
+    tracingFiltersLogic,
+} from './tracingFiltersLogic'
 import type { tracingSceneLogicType } from './tracingSceneLogicType'
 import type { Span } from './types'
 
-export interface TracingSceneLogicProps {
-    tabId?: string
-}
-
 export const tracingSceneLogic = kea<tracingSceneLogicType>([
-    props({} as TracingSceneLogicProps),
     path(['products', 'tracing', 'frontend', 'tracingSceneLogic']),
-    tabAwareScene(),
 
-    connect((p: TracingSceneLogicProps) => ({
+    connect(() => ({
         values: [
-            tracingDataLogic({ tabId: p.tabId }),
+            tracingDataLogic(),
             [
                 'spans',
                 'spansLoading',
@@ -43,19 +42,24 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'aggregationLoading',
                 'spanTree',
                 'spanTreeLoading',
+                'visibleRowDateRange',
+                'durationHistogramData',
+                'durationHistogramLoading',
+                'visibleRowDurationRange',
+                'isDurationMode',
             ],
-            tracingFiltersLogic({ tabId: p.tabId }),
+            tracingFiltersLogic(),
             ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs'],
         ],
         actions: [
-            tracingDataLogic({ tabId: p.tabId }),
-            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation', 'fetchSpanTree'],
-            tracingFiltersLogic({ tabId: p.tabId }),
+            tracingDataLogic(),
+            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation', 'fetchSpanTree', 'setVisibleRowRange'],
+            tracingFiltersLogic(),
             [
                 'setDateRange',
                 'setServiceNames',
                 'setFilterGroup',
-                'setOrderBy',
+                'setSort',
                 'setCompareMode',
                 'setOverlayWindows',
                 'setFilters',
@@ -64,19 +68,37 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     })),
 
     actions({
-        openTraceModal: (traceId: string) => ({ traceId }),
-        closeTraceModal: true,
+        toggleExpandSpan: (uuid: string) => ({ uuid }),
+        openTrace: (traceId: string) => ({ traceId }),
+        closeTrace: true,
         openCompareFlame: (spanName: string, serviceName: string) => ({ spanName, serviceName }),
         closeCompareFlame: true,
         syncUrlAndRunQuery: true,
+        handleFilterChange: (filterType: string, extraProps?: Record<string, unknown>) => ({ filterType, extraProps }),
     }),
 
     reducers({
+        expandedSpanIds: [
+            {} as Record<string, boolean>,
+            {
+                toggleExpandSpan: (state, { uuid }) => {
+                    const next = { ...state }
+                    if (next[uuid]) {
+                        delete next[uuid]
+                    } else {
+                        next[uuid] = true
+                    }
+                    return next
+                },
+                // Drop stale expansion state whenever the span list is refetched.
+                runQuery: () => ({}),
+            },
+        ],
         selectedTraceId: [
             null as string | null,
             {
-                openTraceModal: (_, { traceId }) => traceId,
-                closeTraceModal: () => null,
+                openTrace: (_, { traceId }) => traceId,
+                closeTrace: () => null,
             },
         ],
         compareFlameSpanName: [
@@ -96,7 +118,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     }),
 
     selectors({
-        isTraceModalOpen: [
+        isTraceOpen: [
             (s) => [s.selectedTraceId],
             (selectedTraceId: string | null): boolean => selectedTraceId !== null,
         ],
@@ -127,7 +149,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        openTraceModal: ({ traceId }) => {
+        openTrace: ({ traceId }) => {
+            posthog.capture('tracing trace opened')
             const prefetchedSpans = values.spans.filter((s: Span) => s.trace_id === traceId)
             if (prefetchedSpans.length >= PREFETCH_SPANS) {
                 actions.loadTraceSpans(traceId)
@@ -136,21 +159,16 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         openCompareFlame: ({ spanName, serviceName }) => {
             actions.fetchSpanTree({ spanName, serviceName })
         },
-        setDateRange: () => {
+        handleFilterChange: ({ filterType, extraProps }) => {
+            posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.syncUrlAndRunQuery()
         },
-        setServiceNames: () => {
-            actions.syncUrlAndRunQuery()
-        },
-        setFilterGroup: () => {
-            actions.syncUrlAndRunQuery()
-        },
-        setOrderBy: () => {
-            actions.syncUrlAndRunQuery()
-        },
-        setCompareMode: () => {
-            actions.syncUrlAndRunQuery()
-        },
+        setDateRange: () => actions.handleFilterChange('date_range'),
+        setServiceNames: () => actions.handleFilterChange('service_names'),
+        setFilterGroup: () => actions.handleFilterChange('filter_group'),
+        setSort: ({ orderBy, orderDirection }) =>
+            actions.handleFilterChange('sort', { column: orderBy, direction: orderDirection }),
+        setCompareMode: ({ compareMode }) => actions.handleFilterChange('compare_mode', { enabled: compareMode }),
         setOverlayWindows: () => {
             // Overlay drags only refetch the aggregation — the sparkline canvas range
             // stays fixed while the user moves windows around within it. If the compare-flame
@@ -168,7 +186,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/tracing': (_, searchParams) => {
             const filtersFromUrl: Record<string, any> = {}
             let hasChanges = false
@@ -224,6 +242,13 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 }
             }
 
+            if (searchParams.orderDirection) {
+                if (searchParams.orderDirection !== values.filters.orderDirection) {
+                    filtersFromUrl.orderDirection = searchParams.orderDirection
+                    hasChanges = true
+                }
+            }
+
             const compareFromUrl = searchParams.compare === 'true' || searchParams.compare === true
             if (compareFromUrl !== values.filters.compareMode) {
                 filtersFromUrl.compareMode = compareFromUrl
@@ -238,7 +263,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values, actions }) => {
+    trackedActionToUrl(({ values, actions }) => {
         const buildUrl = (): [string, Params, Record<string, any>, { replace: boolean }] => {
             const searchParams: Params = {}
 
@@ -253,6 +278,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             }
             if (values.filters.orderBy !== DEFAULT_ORDER_BY) {
                 searchParams.orderBy = values.filters.orderBy
+            }
+            if (values.filters.orderDirection !== DEFAULT_ORDER_DIRECTION) {
+                searchParams.orderDirection = values.filters.orderDirection
             }
             if (values.filters.compareMode) {
                 searchParams.compare = 'true'

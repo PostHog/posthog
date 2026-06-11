@@ -405,7 +405,6 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
         deleteBranchingLogic,
         editingSurvey,
         loadSurvey,
-        setEditingLanguage,
         setSelectedPageIndex,
         setSurveyManualErrors,
         setSurveyValue,
@@ -418,7 +417,7 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
     const activeLanguage = surveyTranslationsEnabled ? editingLanguage : null
     // Translation-aware view of the survey for the canvas to render. Edits made
     // on the canvas still flow through surveyLogic against the raw survey, so
-    // text edits while a non-default language is active won't write to the
+    // text edits while a translation is being edited won't write to the
     // wrong field — but they also won't update translations. Use the
     // Translations section below the canvas for that.
     const previewSurvey = useMemo(
@@ -596,27 +595,17 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                             </p>
                             <h2 className="mb-0 text-base font-semibold">Translations</h2>
                             <p className="mb-0 text-xs text-secondary">
-                                Localize the hosted survey without changing the default flow.
+                                Localize the hosted survey without changing its structure.
                             </p>
                         </div>
                         <div className="flex flex-col gap-3">
                             {editingLanguage ? (
                                 <div className="rounded border border-warning bg-warning-highlight p-3 text-sm">
-                                    Editing translated survey content. Question order and settings stay in the default
+                                    Editing translated survey content. Question order and settings stay in the original
                                     language.
                                 </div>
                             ) : null}
                             <SurveyTranslations />
-                            {editingLanguage ? (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => setEditingLanguage(null)}
-                                    className="w-max"
-                                >
-                                    Edit default language
-                                </LemonButton>
-                            ) : null}
                         </div>
                     </section>
                 ) : null}

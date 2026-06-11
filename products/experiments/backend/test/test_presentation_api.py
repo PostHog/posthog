@@ -13,17 +13,22 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -33,6 +38,43 @@ class TestExperimentCRUD(APILicensedTest):
     # List experiments
     def test_can_list_experiments(self):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            (None, None),
+            (None, []),
+            ([], None),
+        ]
+    )
+    def test_can_list_experiments_with_null_metrics(self, metrics: list | None, metrics_secondary: list | None) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="null-metrics-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Null metrics experiment",
+            feature_flag=flag,
+            metrics=metrics,
+            metrics_secondary=metrics_secondary,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_can_list_eligible_feature_flags(self) -> None:
@@ -126,6 +168,92 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["status"], expected_status)
+
+    def _create_experiment_with_metric_event(self, name: str, flag_key: str, event: str) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=flag_key,
+            name=f"Flag for {flag_key}",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        return Experiment.objects.create(
+            team=self.team,
+            name=name,
+            feature_flag=flag,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}}
+            ],
+        )
+
+    def test_can_filter_experiments_by_event(self) -> None:
+        purchase_experiment = self._create_experiment_with_metric_event("Purchase", "purchase-flag", "purchase")
+        self._create_experiment_with_metric_event("Signup", "signup-flag", "signup")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=purchase")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], purchase_experiment.id)
+
+    def test_filter_by_event_resolves_actions(self) -> None:
+        action = Action.objects.create(team=self.team, name="Checked out", steps_json=[{"event": "checkout"}])
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="action-flag",
+            name="Flag for action-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Action experiment",
+            feature_flag=flag,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+            ],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=checkout")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], experiment.id)
+
+    def test_filter_by_event_matches_saved_metric(self) -> None:
+        experiment = self._create_experiment_with_metric_event("Saved metric", "saved-metric-flag", "primary_event")
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Conversion",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "saved_event"},
+            },
+        )
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=saved_event")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], experiment.id)
 
     def test_getting_experiments_is_not_nplus1(self) -> None:
         self.client.post(
@@ -260,6 +388,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
                 "has_description": False,
+                "has_conclusion_comment": False,
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": "new",
@@ -3486,6 +3615,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
                 "has_description": False,
+                "has_conclusion_comment": False,
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": expected_mode,
@@ -5273,6 +5403,42 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
 
         # Verify the fix: the update activity log should NOT show the first user
         self.assertNotEqual(update_logs[0].user, self.user)
+
+    def test_web_experiment_activity_logging_excludes_parameters_through_main_endpoint(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Web experiment activity logging flag",
+            key="web-experiment-activity-logging",
+            filters={},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Web experiment activity logging",
+            description="Original description",
+            type=Experiment.ExperimentType.WEB,
+            parameters={},
+            feature_flag=feature_flag,
+        )
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {
+                "description": "Updated through the main experiments endpoint",
+                "parameters": None,
+            },
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        activity_log = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment.id), activity="updated"
+        ).latest("created_at")
+        assert activity_log.detail is not None
+
+        change_fields = [change["field"] for change in activity_log.detail["changes"]]
+        self.assertIn("description", change_fields)
+        self.assertNotIn("parameters", change_fields)
 
     def test_experiment_saved_metric_activity_logging_shows_correct_user_for_updates(self):
         """Test that experiment saved metric activity logs show the correct user for both creation and updates."""

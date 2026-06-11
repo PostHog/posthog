@@ -46,6 +46,7 @@ use crate::{
         flag_definitions_cache::FlagDefinitionsCache,
         flag_group_type_mapping::GroupTypeCacheManager,
     },
+    handler::body_logger::BodyLogger,
     metrics::{
         buckets::bucket_overrides,
         consts::{
@@ -104,9 +105,12 @@ pub struct State {
     pub auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     /// Provider for realtime/behavioral cohort membership lookups
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
-    /// Shadow-keyspace billing aggregator. See `crate::billing` for the
-    /// dual-write contract.
-    pub billing_aggregator: Option<Arc<BillingAggregator>>,
+    /// Authoritative writer for the production billing keyspace. See
+    /// `crate::billing` for the aggregation/flush contract.
+    pub billing_aggregator: Arc<BillingAggregator>,
+    /// Per-team request/response body logging for `/flags`. Refreshed
+    /// every ~60s from `posthog_instancesetting`.
+    pub body_logger: Arc<BodyLogger>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -131,7 +135,7 @@ pub fn router(
     team_negative_cache: NegativeCache,
     auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
-    billing_aggregator: Option<Arc<BillingAggregator>>,
+    billing_aggregator: Arc<BillingAggregator>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -200,6 +204,16 @@ pub fn router(
     // (sub-ms) build cost on its hot path.
     bot_detection::warm_caches();
 
+    let body_logger = Arc::new(BodyLogger::new(
+        config.flags_log_bodies_teams.clone(),
+        config.flags_log_bodies_request_max_bytes,
+    ));
+
+    // 1 query per pod per interval regardless of /flags RPS.
+    body_logger
+        .clone()
+        .spawn_refresh_task(database_pools.non_persons_reader.clone());
+
     let state = State {
         redis_client,
         dedicated_redis_client,
@@ -225,6 +239,7 @@ pub fn router(
         cohort_membership_provider,
         auth_token_cache,
         billing_aggregator,
+        body_logger,
     };
 
     // Very permissive CORS policy, as old SDK versions

@@ -9,7 +9,7 @@
  */
 /**
  * * `private` - Private (only visible to creator)
- * `shared` - Shared with team
+ * * `shared` - Shared with team
  */
 export type VisibilityEnumApi = (typeof VisibilityEnumApi)[keyof typeof VisibilityEnumApi]
 
@@ -78,7 +78,10 @@ export interface ElementApi {
      * @nullable
      */
     tag_name?: string | null
-    /** @nullable */
+    /**
+     * @nullable
+     * @items.maxLength 200
+     */
     attr_class?: string[] | null
     /**
      * @maxLength 10000
@@ -131,7 +134,10 @@ export interface PatchedElementApi {
      * @nullable
      */
     tag_name?: string | null
-    /** @nullable */
+    /**
+     * @nullable
+     * @items.maxLength 200
+     */
     attr_class?: string[] | null
     /**
      * @maxLength 10000
@@ -220,6 +226,11 @@ export interface BreakdownFilterApi {
     breakdowns?: BreakdownApi[] | null
 }
 
+export interface CalendarHeatmapFilterApi {
+    /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
+    bucketBySessionStart?: boolean | null
+}
+
 export interface CompareFilterApi {
     /** Whether to compare the current date range to a previous date range. */
     compare?: boolean | null
@@ -237,7 +248,7 @@ export interface CustomEventConversionGoalApi {
 
 export interface DateRangeApi {
     /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
-  -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+     * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
     date_from?: string | null
     /** End of the date range. Same format as date_from. Omit or null for "now". */
     date_to?: string | null
@@ -356,6 +367,7 @@ export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
 export const ParserModeApi = {
     CppOnly: 'cpp_only',
     CppWithRustShadow: 'cpp_with_rust_shadow',
+    CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
     RustWithCppShadow: 'rust_with_cpp_shadow',
     RustOnly: 'rust_only',
     RustPyOnly: 'rust_py_only',
@@ -426,12 +438,13 @@ export interface HogQLQueryModifiersApi {
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
-    /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
     propertyGroupsMode?: PropertyGroupsModeApi | null
+    pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
@@ -777,6 +790,21 @@ export interface QueryTimingApi {
     t: number
 }
 
+export interface DataWarehouseSyncWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Name of the ExternalDataSchema responsible for syncing the table */
+    schema_name: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
+    /** Source type, e.g. "Stripe", "Hubspot" */
+    source_type: string
+    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+    status: string
+    /** Name of the warehouse table the warning refers to */
+    table_name: string
+}
+
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
@@ -791,11 +819,15 @@ export interface TrendsQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: TrendsQueryResponseApiResultsItem[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
@@ -1497,14 +1529,14 @@ export type TrendsFilterApiResultCustomizations =
 
 export interface TrendsFilterApi {
     /** Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.
-
-  - `numeric` (default): raw numbers, e.g. `1,234`.
-  - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
-  - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
-  - `percentage`: values are already in the 0-100 range; appends `%`.
-  - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
-  - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
-  - `short`: compact notation for large counts (`1.2K`, `3.4M`). */
+     *
+     * - `numeric` (default): raw numbers, e.g. `1,234`.
+     * - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
+     * - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
+     * - `percentage`: values are already in the 0-100 range; appends `%`.
+     * - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
+     * - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
+     * - `short`: compact notation for large counts (`1.2K`, `3.4M`). */
     aggregationAxisFormat?: AggregationAxisFormatApi | null
     /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
     aggregationAxisPostfix?: string | null
@@ -1533,6 +1565,7 @@ export interface TrendsFilterApi {
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: TrendsFilterApiResultCustomizations
     showAlertThresholdLines?: boolean | null
+    showAnnotations?: boolean | null
     showConfidenceIntervals?: boolean | null
     showLabelsOnSeries?: boolean | null
     showLegend?: boolean | null
@@ -1542,6 +1575,12 @@ export interface TrendsFilterApi {
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     smoothingIntervals?: number | null
+    /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
+    stackBreakdownValues?: boolean | null
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: string | null
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: string | null
     yAxisScaleType?: YAxisScaleTypeApi | null
 }
 
@@ -1550,6 +1589,8 @@ export interface TrendsQueryApi {
     aggregation_group_type_index?: number | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Properties specific to the calendar heatmap display variant. Only consulted when `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise. */
+    calendarHeatmapFilter?: CalendarHeatmapFilterApi | null
     /** Compare to date range */
     compareFilter?: CompareFilterApi | null
     /** Whether we should be comparing against a specific conversion goal */
@@ -1848,9 +1889,13 @@ export interface FunnelsFilterApi {
     /** Goal Lines */
     goalLines?: GoalLineApi[] | null
     hiddenLegendBreakdowns?: string[] | null
+    /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
+    hideIncompleteConversionWindowPeriods?: boolean | null
     layout?: FunnelLayoutApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
+    /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
+    showAnnotations?: boolean | null
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
@@ -1866,11 +1911,15 @@ export interface FunnelsQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export type FunnelsDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
@@ -2035,16 +2084,20 @@ export interface RetentionQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: RetentionResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
-export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
+export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
 
-export const AggregationPropertyType1Api = {
+export const AggregationPropertyTypeApi = {
     Event: 'event',
     Person: 'person',
     DataWarehouse: 'data_warehouse',
@@ -2168,7 +2221,7 @@ export interface RetentionFilterApi {
     /** The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string | null
     /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyType1Api | null
+    aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
@@ -2316,11 +2369,15 @@ export interface PathsQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: PathsLinkApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface PathsQueryApi {
@@ -2385,11 +2442,15 @@ export interface StickinessQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: StickinessQueryResponseApiResultsItem[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export type StickinessComputationModeApi =
@@ -2502,6 +2563,8 @@ export const LifecycleToggleApi = {
 
 export interface LifecycleFilterApi {
     showLegend?: boolean | null
+    /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
+    showPercentagesOnSeries?: boolean | null
     showValuesOnSeries?: boolean | null
     stacked?: boolean | null
     toggledLifecycles?: LifecycleToggleApi[] | null
@@ -2518,11 +2581,15 @@ export interface LifecycleQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: LifecycleQueryResponseApiResultsItem[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export type LifecycleDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
@@ -2739,6 +2806,8 @@ export interface WebStatsTableQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -2746,7 +2815,10 @@ export interface WebStatsTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface WebAnalyticsSamplingApi {
@@ -2790,6 +2862,8 @@ export interface WebStatsTableQueryApi {
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -2824,6 +2898,8 @@ export interface WebOverviewQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: WebOverviewItemApi[]
@@ -2832,6 +2908,8 @@ export interface WebOverviewQueryResponseApi {
     timings?: QueryTimingApi[] | null
     usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface WebOverviewQueryApi {
@@ -2949,12 +3027,16 @@ export interface ResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response1Api {
@@ -2971,12 +3053,16 @@ export interface Response1Api {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: string[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response2Api {
@@ -2993,12 +3079,16 @@ export interface Response2Api {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface HogQLNoticeApi {
@@ -3050,6 +3140,8 @@ export interface Response3Api {
     query?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -3057,6 +3149,8 @@ export interface Response3Api {
     timings?: QueryTimingApi[] | null
     /** Types of returned columns */
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response4Api {
@@ -3070,6 +3164,8 @@ export interface Response4Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: WebOverviewItemApi[]
@@ -3078,6 +3174,8 @@ export interface Response4Api {
     timings?: QueryTimingApi[] | null
     usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response5Api {
@@ -3093,6 +3191,8 @@ export interface Response5Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -3100,7 +3200,10 @@ export interface Response5Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response6Api {
@@ -3116,6 +3219,8 @@ export interface Response6Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -3123,6 +3228,38 @@ export interface Response6Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
+}
+
+export interface Response7Api {
+    columns?: unknown[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[]
+    samplingRate?: SamplingRateApi | null
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types?: unknown[] | null
+    /** Whether the response was served from the lazy precompute path. */
+    usedLazyPrecompute?: boolean | null
+    /** Whether the response was served from a precomputed table. */
+    usedPreAggregatedTables?: boolean | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface WebVitalsPathBreakdownResultItemApi {
@@ -3145,6 +3282,8 @@ export interface Response8Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     /**
@@ -3154,6 +3293,9 @@ export interface Response8Api {
     results: WebVitalsPathBreakdownResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response9Api {
@@ -3169,12 +3311,16 @@ export interface Response9Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response10Api {
@@ -3190,12 +3336,16 @@ export interface Response10Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response11Api {
@@ -3208,11 +3358,15 @@ export interface Response11Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response12Api {
@@ -3225,11 +3379,15 @@ export interface Response12Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface RevenueAnalyticsMRRQueryResultItemApi {
@@ -3250,11 +3408,15 @@ export interface Response13Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: RevenueAnalyticsMRRQueryResultItemApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export type RevenueAnalyticsOverviewItemKeyApi =
@@ -3280,11 +3442,15 @@ export interface Response14Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: RevenueAnalyticsOverviewItemApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response15Api {
@@ -3297,11 +3463,15 @@ export interface Response15Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response16Api {
@@ -3317,12 +3487,16 @@ export interface Response16Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface MarketingAnalyticsItemApi {
@@ -3348,6 +3522,8 @@ export interface Response18Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: MarketingAnalyticsItemApi[][]
@@ -3355,6 +3531,8 @@ export interface Response18Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export type Response19ApiResults = { [key: string]: MarketingAnalyticsItemApi }
@@ -3368,12 +3546,16 @@ export interface Response19Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: Response19ApiResults
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response20Api {
@@ -3389,6 +3571,8 @@ export interface Response20Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: MarketingAnalyticsItemApi[][]
@@ -3396,6 +3580,8 @@ export interface Response20Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface VolumeBucketApi {
@@ -3433,13 +3619,13 @@ export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof Integr
 
 export const IntegrationKindApi = {
     Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
     Snapchat: 'snapchat',
@@ -3533,11 +3719,15 @@ export interface Response21Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: ErrorTrackingIssueApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface PopulationApi {
@@ -3576,11 +3766,15 @@ export interface Response22Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: ErrorTrackingCorrelatedIssueApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export type ExperimentSignificanceCodeApi =
@@ -3617,6 +3811,8 @@ export interface Response23Api {
     significant: boolean
     stats_version?: number | null
     variants: ExperimentVariantFunnelsBaseStatsApi[]
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface ExperimentVariantTrendsBaseStatsApi {
@@ -3644,6 +3840,8 @@ export interface Response24Api {
     significant: boolean
     stats_version?: number | null
     variants: ExperimentVariantTrendsBaseStatsApi[]
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export type AIEventTypeApi = (typeof AIEventTypeApi)[keyof typeof AIEventTypeApi]
@@ -3717,11 +3915,15 @@ export interface Response25Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: LLMTraceApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface Response26Api {
@@ -3737,12 +3939,44 @@ export interface Response26Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
+}
+
+export interface Response27Api {
+    columns: unknown[]
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: 'AccountsQuery'
+    limit: number
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[][]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types: string[]
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export type TaxonomicFilterGroupTypeApi = (typeof TaxonomicFilterGroupTypeApi)[keyof typeof TaxonomicFilterGroupTypeApi]
@@ -3880,12 +4114,16 @@ export interface EventsQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export type CompareApi = (typeof CompareApi)[keyof typeof CompareApi]
@@ -3909,12 +4147,16 @@ export interface ActorsQueryResponseApi {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: string[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface InsightActorsQueryApi {
@@ -4170,12 +4412,16 @@ export interface FunnelCorrelationResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: FunnelCorrelationResultApi
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface FunnelCorrelationQueryApi {
@@ -4369,12 +4615,14 @@ export interface ExperimentMeanMetricApi {
     ignore_zeros?: boolean | null
     isSharedMetric?: boolean | null
     kind?: 'ExperimentMetric'
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
     lower_bound_percentile?: number | null
     metric_type?: 'mean'
     name?: string | null
     response?: ExperimentMeanMetricApiResponse
     sharedMetricId?: number | null
     source: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
     upper_bound_percentile?: number | null
     uuid?: string | null
     /** version of the node, used for schema migrations */
@@ -4402,6 +4650,14 @@ export interface ExperimentFunnelMetricApi {
     version?: number | null
 }
 
+export interface ExperimentMetricOutlierHandlingApi {
+    ignore_zeros?: boolean | null
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
+}
+
 export type ExperimentRatioMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentRatioMetricApi {
@@ -4409,6 +4665,7 @@ export interface ExperimentRatioMetricApi {
     conversion_window?: number | null
     conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
     denominator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     fingerprint?: string | null
     goal?: ExperimentMetricGoalApi | null
     isSharedMetric?: boolean | null
@@ -4416,6 +4673,7 @@ export interface ExperimentRatioMetricApi {
     metric_type?: 'ratio'
     name?: string | null
     numerator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     response?: ExperimentRatioMetricApiResponse
     sharedMetricId?: number | null
     uuid?: string | null
@@ -4573,6 +4831,8 @@ export interface ExperimentQueryResponseApi {
     stats_version?: number | null
     variant_results?: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[] | null
     variants?: ExperimentVariantTrendsBaseStatsApi[] | ExperimentVariantFunnelsBaseStatsApi[] | null
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface ExperimentQueryApi {
@@ -4682,6 +4942,8 @@ export interface HogQLQueryResponseApi {
     query?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -4689,6 +4951,8 @@ export interface HogQLQueryResponseApi {
     timings?: QueryTimingApi[] | null
     /** Types of returned columns */
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface HogQLVariableApi {
@@ -4709,7 +4973,7 @@ export type HogQLQueryApiValues = { [key: string]: unknown } | null
 export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null
 
 export interface HogQLQueryApi {
-    /** Optional direct external data source id for running against a specific source */
+    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
     connectionId?: string | null
     explain?: boolean | null
     filters?: HogQLFiltersApi | null
@@ -4777,12 +5041,16 @@ export interface GroupsQueryResponseApi {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface GroupsQueryApi {
@@ -4815,6 +5083,8 @@ export interface WebExternalClicksTableQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -4822,6 +5092,8 @@ export interface WebExternalClicksTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface WebExternalClicksTableQueryApi {
@@ -4872,6 +5144,8 @@ export interface WebGoalsQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -4879,6 +5153,12 @@ export interface WebGoalsQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Whether the response was served from the lazy precompute path. */
+    usedLazyPrecompute?: boolean | null
+    /** Whether the response was served from a precomputed table. */
+    usedPreAggregatedTables?: boolean | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface WebGoalsQueryApi {
@@ -4911,6 +5191,8 @@ export interface WebGoalsQueryApi {
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web_goals_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -4983,6 +5265,8 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     /**
@@ -4992,6 +5276,9 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     results: WebVitalsPathBreakdownResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface WebVitalsPathBreakdownQueryApi {
@@ -5030,6 +5317,8 @@ export interface WebVitalsPathBreakdownQueryApi {
      */
     thresholds: number[]
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -5065,12 +5354,16 @@ export interface SessionAttributionExplorerQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface SessionAttributionExplorerQueryApi {
@@ -5100,12 +5393,16 @@ export interface SessionsQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface SessionsQueryApi {
@@ -5239,11 +5536,15 @@ export interface RevenueAnalyticsGrossRevenueQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface RevenueAnalyticsGrossRevenueQueryApi {
@@ -5270,11 +5571,15 @@ export interface RevenueAnalyticsMetricsQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface RevenueAnalyticsMetricsQueryApi {
@@ -5301,11 +5606,15 @@ export interface RevenueAnalyticsMRRQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: RevenueAnalyticsMRRQueryResultItemApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface RevenueAnalyticsMRRQueryApi {
@@ -5331,11 +5640,15 @@ export interface RevenueAnalyticsOverviewQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: RevenueAnalyticsOverviewItemApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface RevenueAnalyticsOverviewQueryApi {
@@ -5368,11 +5681,15 @@ export interface RevenueAnalyticsTopCustomersQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface RevenueAnalyticsTopCustomersQueryApi {
@@ -5401,12 +5718,16 @@ export interface RevenueExampleEventsQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface RevenueExampleEventsQueryApi {
@@ -5434,12 +5755,16 @@ export interface RevenueExampleDataWarehouseTablesQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface RevenueExampleDataWarehouseTablesQueryApi {
@@ -5755,6 +6080,8 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: MarketingAnalyticsItemApi[][]
@@ -5762,6 +6089,8 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface MarketingAnalyticsTableQueryApi {
@@ -5823,12 +6152,16 @@ export interface MarketingAnalyticsAggregatedQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: MarketingAnalyticsAggregatedQueryResponseApiResults
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface MarketingAnalyticsAggregatedQueryApi {
@@ -5884,6 +6217,8 @@ export interface NonIntegratedConversionsTableQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: MarketingAnalyticsItemApi[][]
@@ -5891,6 +6226,8 @@ export interface NonIntegratedConversionsTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface NonIntegratedConversionsTableQueryApi {
@@ -5982,11 +6319,15 @@ export interface ErrorTrackingQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: ErrorTrackingIssueApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface ErrorTrackingQueryApi {
@@ -6043,11 +6384,15 @@ export interface ErrorTrackingIssueCorrelationQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: ErrorTrackingCorrelatedIssueApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface ErrorTrackingIssueCorrelationQueryApi {
@@ -6078,6 +6423,8 @@ export interface ExperimentFunnelsQueryResponseApi {
     significant: boolean
     stats_version?: number | null
     variants: ExperimentVariantFunnelsBaseStatsApi[]
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface ExperimentFunnelsQueryApi {
@@ -6113,6 +6460,8 @@ export interface ExperimentTrendsQueryResponseApi {
     significant: boolean
     stats_version?: number | null
     variants: ExperimentVariantTrendsBaseStatsApi[]
+    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface ExperimentTrendsQueryApi {
@@ -6144,11 +6493,15 @@ export interface TracesQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: LLMTraceApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface TracesQueryApi {
@@ -6211,11 +6564,15 @@ export interface TraceQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: LLMTraceApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface TraceQueryApi {
@@ -6303,12 +6660,16 @@ export interface EndpointsUsageTableQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
 export interface EndpointsUsageTableQueryApi {
@@ -6330,6 +6691,61 @@ export interface EndpointsUsageTableQueryApi {
     version?: number | null
 }
 
+export interface AccountsQueryResponseApi {
+    columns: unknown[]
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: 'AccountsQuery'
+    limit: number
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[][]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types: string[]
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
+}
+
+export interface AccountsQueryApi {
+    /** Match accounts whose account executive is any of these user ids (OR semantics). */
+    accountExecutive?: number[] | null
+    /** Match accounts whose account owner is any of these user ids (OR semantics). */
+    accountOwner?: number[] | null
+    allRolesUnassigned?: boolean | null
+    /** Match accounts whose CSM is any of these user ids (OR semantics). */
+    csm?: number[] | null
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: string | null
+    kind?: 'AccountsQuery'
+    limit?: number | null
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+    metrics?: string[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    orderBy?: string[] | null
+    response?: AccountsQueryResponseApi | null
+    search?: string | null
+    select?: string[] | null
+    tagNames?: string[] | null
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type DataTableNodeApiResponse =
     | { [key: string]: unknown }
     | ResponseApi
@@ -6339,6 +6755,7 @@ export type DataTableNodeApiResponse =
     | Response4Api
     | Response5Api
     | Response6Api
+    | Response7Api
     | Response8Api
     | Response9Api
     | Response10Api
@@ -6357,6 +6774,7 @@ export type DataTableNodeApiResponse =
     | Response24Api
     | Response25Api
     | Response26Api
+    | Response27Api
     | null
 
 export interface DataTableNodeApi {
@@ -6463,6 +6881,7 @@ export interface DataTableNodeApi {
         | TracesQueryApi
         | TraceQueryApi
         | EndpointsUsageTableQueryApi
+        | AccountsQueryApi
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -6665,10 +7084,10 @@ export interface HogQueryApi {
 
 /**
  * The query definition for this insight. The `kind` field determines the query type:
-- `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
-- `DataVisualizationNode` — SQL insights using HogQL
-- `DataTableNode` — raw data tables
-- `HogQuery` — Hog language queries
+ * - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
+ * - `DataVisualizationNode` — SQL insights using HogQL
+ * - `DataTableNode` — raw data tables
+ * - `HogQuery` — Hog language queries
  */
 export type _InsightQuerySchemaApi = InsightVizNodeApi | DataTableNodeApi | DataVisualizationNodeApi | HogQueryApi
 
@@ -6681,13 +7100,13 @@ export interface DashboardTileBasicApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -6742,6 +7161,13 @@ export const EffectivePrivilegeLevelEnumApi = {
     Number37: 37,
 } as const
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 /**
  * @nullable
  */
@@ -6775,21 +7201,21 @@ export interface InsightApi {
     order?: number | null
     deleted?: boolean
     /**
-          DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
-          A dashboard ID for each of the dashboards that this insight is displayed on.
-           */
+     *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+     *         A dashboard ID for each of the dashboards that this insight is displayed on.
+     *          */
     dashboards?: number[]
     /**
-      A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
-       */
+     *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+     *      */
     readonly dashboard_tiles: readonly DashboardTileBasicApi[]
     /**
      *
-      The datetime this insight's results were generated.
-      If added to one or more dashboards the insight can be refreshed separately on each.
-      Returns the appropriate last_refresh datetime for the context the insight is viewed in
-      (see from_dashboard query parameter).
-
+     *     The datetime this insight's results were generated.
+     *     If added to one or more dashboards the insight can be refreshed separately on each.
+     *     Returns the appropriate last_refresh datetime for the context the insight is viewed in
+     *     (see from_dashboard query parameter).
+     *
      * @nullable
      */
     readonly last_refresh: string | null
@@ -6800,9 +7226,9 @@ export interface InsightApi {
     readonly cache_target_age: string | null
     /**
      *
-      The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
-      by querying the database.
-
+     *     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+     *     by querying the database.
+     *
      * @nullable
      */
     readonly next_allowed_client_refresh: string | null
@@ -6849,6 +7275,8 @@ export interface InsightApi {
     readonly alerts: readonly unknown[]
     /** @nullable */
     readonly last_viewed_at: string | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedInsightListApi {
@@ -6893,21 +7321,21 @@ export interface PatchedInsightApi {
     order?: number | null
     deleted?: boolean
     /**
-          DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
-          A dashboard ID for each of the dashboards that this insight is displayed on.
-           */
+     *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+     *         A dashboard ID for each of the dashboards that this insight is displayed on.
+     *          */
     dashboards?: number[]
     /**
-      A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
-       */
+     *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+     *      */
     readonly dashboard_tiles?: readonly DashboardTileBasicApi[]
     /**
      *
-      The datetime this insight's results were generated.
-      If added to one or more dashboards the insight can be refreshed separately on each.
-      Returns the appropriate last_refresh datetime for the context the insight is viewed in
-      (see from_dashboard query parameter).
-
+     *     The datetime this insight's results were generated.
+     *     If added to one or more dashboards the insight can be refreshed separately on each.
+     *     Returns the appropriate last_refresh datetime for the context the insight is viewed in
+     *     (see from_dashboard query parameter).
+     *
      * @nullable
      */
     readonly last_refresh?: string | null
@@ -6918,9 +7346,9 @@ export interface PatchedInsightApi {
     readonly cache_target_age?: string | null
     /**
      *
-      The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
-      by querying the database.
-
+     *     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+     *     by querying the database.
+     *
      * @nullable
      */
     readonly next_allowed_client_refresh?: string | null
@@ -6967,6 +7395,8 @@ export interface PatchedInsightApi {
     readonly alerts?: readonly unknown[]
     /** @nullable */
     readonly last_viewed_at?: string | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
 export interface ChangeApi {
@@ -7029,8 +7459,8 @@ export interface ActivityLogPaginatedResponseApi {
 
 /**
  * * `add` - add
- * `remove` - remove
- * `set` - set
+ * * `remove` - remove
+ * * `set` - set
  */
 export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
 
@@ -7047,10 +7477,10 @@ export interface BulkUpdateTagsRequestApi {
      */
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
-
-  * `add` - add
-  * `remove` - remove
-  * `set` - set */
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
@@ -7112,6 +7542,8 @@ export interface TrendingInsightApi {
     readonly user_access_level: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
     /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
     readonly view_count: number
     /** Up to 3 of the most recent users who viewed this insight in the time window. */
@@ -7214,23 +7646,23 @@ export type InsightsListParams = {
      */
     offset?: number
     /**
- *
-Whether to refresh the retrieved insights, how aggressively, and if sync or async:
-- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
-- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
-- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
-- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-- `'force_async'` - kick off background calculation, even if fresh results are already cached
-Background calculation can be tracked using the `query_status` response field.
- */
+     *
+     * Whether to refresh the retrieved insights, how aggressively, and if sync or async:
+     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
+     * Background calculation can be tracked using the `query_status` response field.
+     */
     refresh?: InsightsListRefresh
     /**
      * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
      */
     saved?: boolean
     /**
-     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string
     short_id?: string
@@ -7294,22 +7726,22 @@ export type InsightsRetrieveParams = {
     filters_override?: string
     format?: InsightsRetrieveFormat
     /**
- *
-Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
-When set, the specified dashboard's filters and date range override will be applied.
- */
+     *
+     * Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
+     * When set, the specified dashboard's filters and date range override will be applied.
+     */
     from_dashboard?: number
     /**
- *
-Whether to refresh the insight, how aggresively, and if sync or async:
-- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
-- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
-- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
-- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-- `'force_async'` - kick off background calculation, even if fresh results are already cached
-Background calculation can be tracked using the `query_status` response field.
- */
+     *
+     * Whether to refresh the insight, how aggresively, and if sync or async:
+     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
+     * Background calculation can be tracked using the `query_status` response field.
+     */
     refresh?: InsightsRetrieveRefresh
     /**
      * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.

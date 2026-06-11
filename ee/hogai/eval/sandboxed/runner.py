@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import time
 import uuid
+import asyncio
 import logging
+import subprocess
 from dataclasses import dataclass
 
 from products.tasks.backend.services.custom_prompt_internals import (
@@ -17,6 +19,41 @@ from .config import AgentArtifacts, SandboxedEvalCase
 logger = logging.getLogger(__name__)
 
 __all__ = ["run_eval_case"]
+
+
+def _cleanup_case_containers(task_id: str) -> None:
+    """Force-remove any sandbox container created for this case's task.
+
+    Eval cases return as soon as ``poll_for_turn`` sees ``end_turn``, but the
+    ``ProcessTaskWorkflow`` finally block that calls ``cleanup_sandbox`` runs
+    asynchronously and can lag — or get cancelled when the temporal worker is
+    shut down at session end. With 16GB-per-sandbox defaults and
+    ``max_concurrency=2`` cases, accumulated containers exhaust host memory.
+
+    Match by name prefix ``task-sandbox-{task_id}-`` (see
+    ``get_sandbox_name_for_task`` and ``DockerSandbox.create``) so we never
+    touch a concurrently-running case's container.
+    """
+    name_prefix = f"task-sandbox-{task_id}-"
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--filter", f"name={name_prefix}", "--format", "{{.ID}}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except Exception:
+        logger.warning("Failed to list sandbox containers for task %s", task_id, exc_info=True)
+        return
+
+    for container_id in result.stdout.strip().splitlines():
+        if not container_id:
+            continue
+        logger.info("Cleaning up eval container %s for task %s", container_id, task_id)
+        try:
+            subprocess.run(["docker", "rm", "-f", container_id], capture_output=True, timeout=30)
+        except Exception:
+            logger.warning("Failed to remove sandbox container %s", container_id, exc_info=True)
 
 
 @dataclass
@@ -34,6 +71,7 @@ async def run_eval_case(
     trace_id = str(uuid.uuid4())
     logger.info("Starting eval case '%s' (trace=%s) with prompt: %.100s...", case.name, trace_id, case.prompt)
     start = time.monotonic()
+    task = None
     try:
         # Eval is a test harness — direct use of internals (instead of MTS) is intentional:
         # the agent isn't asked for structured JSON, and we need full_log for artifact parsing.
@@ -60,6 +98,9 @@ async def run_eval_case(
             artifacts=AgentArtifacts(exit_code=1, stderr=str(e), duration_seconds=duration),
             trace_id=trace_id,
         )
+    finally:
+        if task is not None:
+            await asyncio.to_thread(_cleanup_case_containers, str(task.id))
 
 
 def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:

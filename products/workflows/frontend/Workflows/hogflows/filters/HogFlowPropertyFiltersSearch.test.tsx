@@ -53,7 +53,7 @@ describe('HogFlowPropertyFilters search', () => {
         groupsModel.mount()
         propertyDefinitionsModel.mount()
         recentTaxonomicFiltersLogic.mount()
-        mountedWorkflowLogic = workflowLogic({ id: 'new', tabId: 'default' })
+        mountedWorkflowLogic = workflowLogic({ id: 'new' })
         unmountWorkflowLogic = mountedWorkflowLogic.mount()
     })
 

@@ -20,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
     job_channel,
@@ -31,12 +32,14 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     DEFAULT_TTL_SCHEDULE,
     DEFAULT_WAIT_TIMEOUT_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
+    PREAGGREGATION_INSERT_QUORUM,
     LazyComputationExecutor,
     LazyComputationResult,
     LazyComputationTable,
     QueryInfo,
     TtlSchedule,
     _build_manual_insert_sql,
+    _get_insert_settings,
     build_lazy_computation_insert_sql,
     compute_query_hash,
     create_lazy_computation_job,
@@ -45,6 +48,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     find_missing_contiguous_windows,
     is_non_retryable_error,
     parse_ttl_schedule,
+    run_lazy_computation_insert,
     split_ranges_by_ttl,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
@@ -2379,6 +2383,251 @@ class TestPubsubAndStaleDetection(BaseTest):
             assert mock_publish.call_args[0][1] == "failed"
 
 
+class TestJobLifecycleCounters(BaseTest):
+    """Counters that answer "how many jobs were we creating vs finishing" — the
+    framework runs jobs synchronously, so PENDING is just "INSERT in flight" and
+    a periodic gauge sample misses everything that started and finished between
+    scrapes. These counters fire at the exact PG transitions so
+    `rate(created) - rate(finished)` reflects real throughput."""
+
+    TABLE = LazyComputationTable.PREAGGREGATION_RESULTS
+
+    def _query_info(self) -> QueryInfo:
+        query = parse_select(
+            "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return QueryInfo(query=query, table=self.TABLE, timezone="UTC")
+
+    @staticmethod
+    def _delta(metric, labels: dict[str, str], before: float) -> float:
+        sample = metric.labels(**labels)._value.get()
+        return sample - before
+
+    def test_full_miss_increments_created_miss_and_finished_ready(self):
+        """A fresh range with no pre-existing READY data is a full miss — the
+        single job created here must land on the `cache_state="miss"` series so
+        miss-execution / miss-job rates can be cross-divided downstream."""
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+        )
+
+        miss_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(cache_state="miss", table=str(self.TABLE))._value.get()
+        ready_before = LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(outcome="ready", table=str(self.TABLE))._value.get()
+
+        executor = LazyComputationExecutor()
+        result = executor.execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 4, 1, tzinfo=UTC),
+            end=datetime(2024, 4, 2, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+
+        assert result.ready is True
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+                {"cache_state": "miss", "table": str(self.TABLE)},
+                miss_before,
+            )
+            == 1.0
+        )
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+                {"outcome": "ready", "table": str(self.TABLE)},
+                ready_before,
+            )
+            == 1.0
+        )
+
+    def test_partial_hit_increments_created_partial_hit(self):
+        """When the requested range partially overlaps a pre-existing READY job,
+        the executor only creates the missing-window job — and that job belongs
+        to the `partial_hit` series, not `miss`. This is how downstream tells
+        "we are recomputing 1 day on top of 6 cached" apart from "fresh 7-day
+        miss"."""
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+        )
+
+        query_info = self._query_info()
+        query_hash = compute_query_hash(query_info)
+
+        # Seed a READY job covering Jan 1 only; request Jan 1–3, forcing the
+        # executor to create exactly one new job (Jan 2–3) with prior coverage
+        # already present.
+        PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 8, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 8, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+            expires_at=django_timezone.now() + timedelta(days=7),
+            computed_at=django_timezone.now(),
+        )
+
+        miss_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(cache_state="miss", table=str(self.TABLE))._value.get()
+        partial_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(
+            cache_state="partial_hit", table=str(self.TABLE)
+        )._value.get()
+
+        executor = LazyComputationExecutor()
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 8, 1, tzinfo=UTC),
+            end=datetime(2024, 8, 3, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+
+        assert result.ready is True
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+                {"cache_state": "partial_hit", "table": str(self.TABLE)},
+                partial_before,
+            )
+            == 1.0
+        )
+        # And critically: the miss series did NOT move — a partial hit must not
+        # contaminate the miss-execution / miss-job ratio.
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+                {"cache_state": "miss", "table": str(self.TABLE)},
+                miss_before,
+            )
+            == 0.0
+        )
+
+    def test_failed_insert_increments_created_and_finished_failed(self):
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+        )
+
+        miss_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(cache_state="miss", table=str(self.TABLE))._value.get()
+        failed_before = LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+            outcome="failed", table=str(self.TABLE)
+        )._value.get()
+
+        executor = LazyComputationExecutor(max_retries=0)
+        result = executor.execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 5, 1, tzinfo=UTC),
+            end=datetime(2024, 5, 2, tzinfo=UTC),
+            run_insert=lambda t, j: (_ for _ in ()).throw(Exception("boom")),
+        )
+
+        assert result.ready is False
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+                {"cache_state": "miss", "table": str(self.TABLE)},
+                miss_before,
+            )
+            == 1.0
+        )
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+                {"outcome": "failed", "table": str(self.TABLE)},
+                failed_before,
+            )
+            == 1.0
+        )
+
+    def test_integrity_error_on_create_does_not_increment_created(self):
+        """Two executors racing on the same range produce one row in PG, not two —
+        the loser's IntegrityError path must not double-count creates."""
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+        )
+
+        miss_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(cache_state="miss", table=str(self.TABLE))._value.get()
+
+        # Range has no existing coverage, so the executor enters the create path
+        # on every loop iteration. Patching `create_lazy_computation_job` to
+        # always raise IntegrityError simulates losing the partial-unique-index
+        # race on every attempt; the executor times out shortly after.
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
+            side_effect=IntegrityError("partial unique index race"),
+        ):
+            executor = LazyComputationExecutor(wait_timeout_seconds=0.2, poll_interval_seconds=0.05)
+            result = executor.execute(
+                team=self.team,
+                query_info=self._query_info(),
+                start=datetime(2024, 6, 1, tzinfo=UTC),
+                end=datetime(2024, 6, 2, tzinfo=UTC),
+                run_insert=lambda t, j: None,
+            )
+            assert result.ready is False  # Timed out: every create attempt lost the race.
+
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
+                {"cache_state": "miss", "table": str(self.TABLE)},
+                miss_before,
+            )
+            == 0.0
+        )
+
+    def test_stale_mark_increments_finished_stale(self):
+        """When execute() finds a PENDING job whose owner has crashed, the
+        winning waiter both flips the row to FAILED and bumps
+        `finished{stale}`. Losing waiters take the same branch and see
+        `marked=False`, so no double-count is possible."""
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+        )
+
+        # Seed a PENDING job older than the executor's CH-start grace period,
+        # with no Redis heartbeat: _is_job_stale returns True on the first pass.
+        query_info = self._query_info()
+        query_hash = compute_query_hash(query_info)
+        pending_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 7, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 7, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        PreaggregationJob.objects.filter(id=pending_job.id).update(
+            created_at=django_timezone.now() - timedelta(seconds=10),
+        )
+
+        stale_before = LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(outcome="stale", table=str(self.TABLE))._value.get()
+
+        executor = LazyComputationExecutor(
+            wait_timeout_seconds=0.5,
+            poll_interval_seconds=0.05,
+            ch_start_grace_period_seconds=1,
+            max_retries=0,
+        )
+        executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 7, 1, tzinfo=UTC),
+            end=datetime(2024, 7, 2, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL,
+                {"outcome": "stale", "table": str(self.TABLE)},
+                stale_before,
+            )
+            == 1.0
+        )
+
+
 class TestIsNonRetryableError(BaseTest):
     @parameterized.expand(
         [
@@ -2427,3 +2676,76 @@ class TestIsNonRetryableError(BaseTest):
     def test_generic_exception_is_retryable(self):
         error = Exception("Something went wrong")
         assert is_non_retryable_error(error) is False
+
+
+class TestInsertSettings(BaseTest):
+    def test_insert_settings_guarantee_read_your_writes(self):
+        settings = _get_insert_settings(self.team.pk)
+
+        # The executor marks jobs READY the moment the INSERT returns, which is only sound if
+        # the distributed write is synchronous. Production profiles default to async, so this
+        # must be set per-query — a missing value here means readers race the distribution queue.
+        assert settings["insert_distributed_sync"] == 1
+        assert settings["insert_quorum"] == PREAGGREGATION_INSERT_QUORUM
+        assert settings["load_balancing"] == "in_order"
+        assert settings["max_execution_time"] == HOGQL_INCREASED_MAX_EXECUTION_TIME
+        assert "readonly" not in settings
+
+
+class TestInsertSettingsAppliedToInserts(BaseTest):
+    INSERT_QUERY = """
+        SELECT
+            toStartOfDay(timestamp) as time_window_start,
+            [] as breakdown_value,
+            uniqExactState(person_id) as uniq_exact_state
+        FROM events
+        WHERE event = '$pageview'
+            AND timestamp >= {time_window_min}
+            AND timestamp < {time_window_max}
+        GROUP BY time_window_start
+    """
+
+    def test_manual_insert_path_passes_insert_settings_to_clickhouse(self):
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+        ) as mock_execute:
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+
+        assert result.ready is True
+        # Bind the assertion to the INSERT specifically, so the test doesn't break (or silently
+        # check the wrong call) if the executor flow ever issues other queries around the insert.
+        insert_calls = [c for c in mock_execute.call_args_list if c.args[0].lstrip().startswith("INSERT")]
+        assert len(insert_calls) == 1  # one missing range -> one INSERT
+        assert insert_calls[0].kwargs["settings"] == _get_insert_settings(self.team.pk)
+
+    def test_ast_insert_path_passes_insert_settings_to_clickhouse(self):
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        query = parse_select(
+            self.INSERT_QUERY,
+            placeholders={
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 2, tzinfo=UTC)),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+        ) as mock_execute:
+            run_lazy_computation_insert(self.team, job, query_info)
+
+        assert mock_execute.call_count == 1
+        assert mock_execute.call_args.kwargs["settings"] == _get_insert_settings(self.team.pk)

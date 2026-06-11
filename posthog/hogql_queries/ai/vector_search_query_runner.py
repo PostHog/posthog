@@ -34,6 +34,7 @@ class VectorSearchQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[VectorSea
                 query_type="VectorSearchQuery",
                 query=query,
                 team=self.team,
+                user=self.user,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
@@ -79,7 +80,7 @@ class VectorSearchQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[VectorSea
                 exprs=[
                     base_filter,
                     parse_expr(
-                        "JSONExtractUInt(properties, 'embedding_version') = {version}",
+                        "toInt(properties.embedding_version) = {version}",
                         {"version": ast.Constant(value=self.query.embeddingVersion)},
                     ),
                 ]

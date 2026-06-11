@@ -10,7 +10,6 @@ class ScannerType(models.TextChoices):
     CLASSIFIER = "classifier", "Classifier"
     SCORER = "scorer", "Scorer"
     SUMMARIZER = "summarizer", "Summarizer"
-    INDEXER = "indexer", "Indexer"
 
 
 class ScannerProvider(models.TextChoices):
@@ -61,6 +60,13 @@ class ReplayScanner(UUIDModel):
     last_swept_at = models.DateTimeField(
         default=timezone.now,
         help_text="Watermark for the scanner schedule's last fire; mirrors Temporal schedule state for recovery.",
+    )
+    last_seen_session_id = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

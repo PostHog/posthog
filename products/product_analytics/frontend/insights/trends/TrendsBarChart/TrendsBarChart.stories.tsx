@@ -341,3 +341,115 @@ const AGGREGATED_COMPARE_BREAKDOWN_INSIGHT = {
 export const AggregatedCompareBreakdown: Story = {
     render: () => renderTrendsBarChart(AGGREGATED_COMPARE_BREAKDOWN_INSIGHT),
 }
+
+// Stacked bar in 100% mode with value labels enabled. Pre-fix this snapshot showed a 0%–1%
+// y-axis, raw-count value labels (e.g. "22,865%"), and a clipped top-segment label. After
+// the fix the y-axis runs 0%–100%, labels show each segment's share, and the topmost label
+// sits inside its segment.
+const PERCENT_STACK_BREAKDOWN_INSIGHT = {
+    id: 202,
+    short_id: 'barPercentStack',
+    name: 'Pageviews by browser (100% stacked)',
+    derived_name: 'Pageview count',
+    filters: {},
+    last_refresh: '2023-07-11T12:00:00Z',
+    refreshing: false,
+    saved: true,
+    is_sample: false,
+    description: '',
+    tags: [],
+    favorited: false,
+    created_at: '2023-07-11T12:00:00Z',
+    updated_at: '2023-07-11T12:00:00Z',
+    last_modified_at: '2023-07-11T12:00:00Z',
+    dashboards: [],
+    dashboard_tiles: [],
+    result: [
+        {
+            action: ACTION,
+            label: 'Chrome',
+            count: 14000,
+            data: [4000, 3500, 3000, 1500, 1200, 600, 200],
+            labels: CURRENT_LABELS,
+            days: CURRENT_DAYS,
+            breakdown_value: 'Chrome',
+            filter: {
+                date_from: '2023-07-04T00:00:00Z',
+                date_to: '2023-07-10T23:59:59Z',
+                display: 'ActionsBar',
+                insight: 'TRENDS',
+                interval: 'day',
+            },
+        },
+        {
+            action: ACTION,
+            label: 'Safari',
+            count: 6500,
+            data: [400, 800, 1500, 1800, 1500, 400, 100],
+            labels: CURRENT_LABELS,
+            days: CURRENT_DAYS,
+            breakdown_value: 'Safari',
+            filter: {
+                date_from: '2023-07-04T00:00:00Z',
+                date_to: '2023-07-10T23:59:59Z',
+                display: 'ActionsBar',
+                insight: 'TRENDS',
+                interval: 'day',
+            },
+        },
+        {
+            action: ACTION,
+            label: 'Firefox',
+            count: 2200,
+            data: [200, 250, 300, 500, 500, 350, 100],
+            labels: CURRENT_LABELS,
+            days: CURRENT_DAYS,
+            breakdown_value: 'Firefox',
+            filter: {
+                date_from: '2023-07-04T00:00:00Z',
+                date_to: '2023-07-10T23:59:59Z',
+                display: 'ActionsBar',
+                insight: 'TRENDS',
+                interval: 'day',
+            },
+        },
+        {
+            action: ACTION,
+            label: 'Edge',
+            count: 900,
+            data: [80, 120, 150, 200, 200, 100, 50],
+            labels: CURRENT_LABELS,
+            days: CURRENT_DAYS,
+            breakdown_value: 'Edge',
+            filter: {
+                date_from: '2023-07-04T00:00:00Z',
+                date_to: '2023-07-10T23:59:59Z',
+                display: 'ActionsBar',
+                insight: 'TRENDS',
+                interval: 'day',
+            },
+        },
+    ],
+    query: {
+        kind: 'InsightVizNode',
+        source: {
+            dateRange: { date_from: '2023-07-04', date_to: '2023-07-10' },
+            filterTestAccounts: false,
+            interval: 'day',
+            kind: 'TrendsQuery',
+            series: [{ event: '$pageview', kind: 'EventsNode', math: 'total', name: '$pageview' }],
+            trendsFilter: {
+                display: 'ActionsBar',
+                showPercentStackView: true,
+                showValuesOnSeries: true,
+            },
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+            version: 2,
+        },
+        full: true,
+    },
+}
+
+export const PercentStackBreakdown: Story = {
+    render: () => renderTrendsBarChart(PERCENT_STACK_BREAKDOWN_INSIGHT),
+}

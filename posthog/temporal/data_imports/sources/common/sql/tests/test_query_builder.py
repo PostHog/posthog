@@ -106,6 +106,53 @@ class TestSelectAllIncremental:
         assert "ORDER BY" not in result.sql
 
 
+class TestSelectAllEnabledColumns:
+    builder = SelectQueryBuilder(quoter=BacktickIdentifierQuoter())
+
+    def test_none_emits_select_star(self) -> None:
+        result = self.builder.select_all(schema="db", table_name="t", enabled_columns=None)
+        assert result.sql.startswith("SELECT * FROM ")
+
+    def test_subset_projects_and_keeps_pks(self) -> None:
+        result = self.builder.select_all(
+            schema="db",
+            table_name="t",
+            enabled_columns=["email"],
+            primary_keys=["id"],
+        )
+        assert result.sql.startswith("SELECT `email`, `id` FROM ")
+
+    def test_subset_keeps_incremental_field(self) -> None:
+        result = self.builder.select_all(
+            schema="db",
+            table_name="t",
+            enabled_columns=["email"],
+            primary_keys=["id"],
+            incremental_field="updated_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            incremental_last_value=datetime.datetime(2025, 1, 1),
+        )
+        # Order: enabled first, PKs next, then incremental.
+        assert result.sql.startswith("SELECT `email`, `id`, `updated_at` FROM ")
+        assert "WHERE `updated_at` > %(incremental_value)s" in result.sql
+
+    def test_empty_list_with_no_pk_falls_back_to_star(self) -> None:
+        result = self.builder.select_all(schema="db", table_name="t", enabled_columns=[])
+        assert result.sql.startswith("SELECT * FROM ")
+
+    def test_empty_list_keeps_pks_and_incremental(self) -> None:
+        result = self.builder.select_all(
+            schema="db",
+            table_name="t",
+            enabled_columns=[],
+            primary_keys=["id"],
+            incremental_field="updated_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            incremental_last_value=datetime.datetime(2025, 1, 1),
+        )
+        assert result.sql.startswith("SELECT `id`, `updated_at` FROM ")
+
+
 class TestParamStyles:
     def test_qmark_style_emits_question_mark(self) -> None:
         builder = SelectQueryBuilder(quoter=AnsiIdentifierQuoter(), param_style=ParamStyle.QMARK)

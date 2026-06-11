@@ -183,3 +183,37 @@ class TestUrlValidation:
         monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
         ok, err = uv.is_url_allowed("http://xn--n3h.com/")
         assert ok and err is None
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # urlparse extracts "example.com", but requests/urllib3 connect to 169.254.169.254.
+            "http://169.254.169.254\\@example.com/latest/meta-data/",
+            # Same trick, percent-encoded backslash. Browsers decode and follow to localhost.
+            "http://localhost%5C@example.com/",
+            "http://127.0.0.1\\@example.com/",
+            "https://attacker.com\\@example.com/",
+        ],
+    )
+    def test_backslash_authority_bypass_blocked(self, url, monkeypatch):
+        """Backslash (raw or %5c) before @ breaks urlparse-vs-client agreement on the host."""
+
+        def fake_resolve(host: str):
+            return {ipaddress.ip_address("93.184.216.34")}
+
+        monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
+        ok, err = uv.is_url_allowed(url)
+        assert not ok
+        assert err == "Invalid URL: ambiguous authority"
+
+    @pytest.mark.parametrize(
+        "url,expected",
+        [
+            ("http://example.com/", False),
+            ("http://example.com/path\\with-backslash", True),
+            ("http://example.com%5Cpath", True),
+            ("http://attacker.com\\@example.com", True),
+        ],
+    )
+    def test_has_authority_bypass_chars(self, url, expected):
+        assert uv.has_authority_bypass_chars(url) is expected

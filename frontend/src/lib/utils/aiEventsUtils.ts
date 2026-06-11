@@ -35,7 +35,7 @@ export async function hasRecentAIEvents(): Promise<boolean> {
         {
             kind: NodeKind.HogQLQuery,
             query: hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 3 HOUR LIMIT 1`,
-            tags: { productKey: ProductKey.LLM_ANALYTICS },
+            tags: { productKey: ProductKey.AI_OBSERVABILITY },
         },
         { refresh: 'force_blocking' }
     )

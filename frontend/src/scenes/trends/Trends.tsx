@@ -35,9 +35,18 @@ const TrendsBarChart = lazy(() =>
     }))
 )
 const StickinessLineChart = lazy(() =>
-    import('products/product_analytics/frontend/insights/trends/StickinessLineChart/StickinessLineChart').then((m) => ({
-        default: m.StickinessLineChart,
-    }))
+    import('products/product_analytics/frontend/insights/stickiness/StickinessLineChart/StickinessLineChart').then(
+        (m) => ({
+            default: m.StickinessLineChart,
+        })
+    )
+)
+const StickinessBarChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/stickiness/StickinessBarChart/StickinessBarChart').then(
+        (m) => ({
+            default: m.StickinessBarChart,
+        })
+    )
 )
 const TrendsPieChart = lazy(() =>
     import('products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart').then((m) => ({
@@ -103,7 +112,10 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
             if (hogChartsTrendsEnabled) {
-                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
+                return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
+            }
+            if (hogChartsStickinessEnabled) {
+                return <StickinessBarChart context={context} />
             }
             return <ActionsLineGraph {...commonProps} />
         }
@@ -131,7 +143,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         }
         if (display === ChartDisplayType.ActionsBarValue) {
             if (hogChartsTrendsEnabled) {
-                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
+                return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
             }
             return <ActionsHorizontalBar {...commonProps} />
         }

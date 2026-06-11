@@ -4,7 +4,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot
+from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
@@ -265,3 +266,56 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["count"] == 101
         assert len(data["results"]) == 100
         assert data["next"] is not None
+
+
+class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    def _url(self, session_id: str) -> str:
+        return f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/generate_intent/"
+
+    def test_requires_authentication(self) -> None:
+        self.client.logout()
+        response = self.client.post(self._url("abc"))
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_staff_only_in_cloud(self) -> None:
+        with self.is_cloud(True):
+            response = self.client.post(self._url("abc"))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_returns_cached_intent_in_response_shape(self) -> None:
+        session_id = "session-123"
+        MCPSession.objects.create(team=self.team, session_id=session_id, intent="A persisted summary.")
+
+        response = self.client.post(self._url(session_id))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
+
+    def test_generates_and_persists_when_empty(self) -> None:
+        session_id = "session-fresh"
+        # Mock the two primitives so the endpoint path runs without ClickHouse or a real LLM call.
+        with (
+            patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
+            patch.object(intent_generation, "summarize_intents", return_value="Generated summary."),
+        ):
+            response = self.client.post(self._url(session_id))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"session_id": session_id, "intent": "Generated summary."}
+        assert MCPSession.objects.get(team=self.team, session_id=session_id).intent == "Generated summary."
+
+    def test_returns_503_when_generation_unavailable(self) -> None:
+        session_id = "session-unavailable"
+        with (
+            patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
+            patch.object(
+                intent_generation,
+                "summarize_intents",
+                side_effect=intent_generation.IntentGenerationUnavailable("LLM down"),
+            ),
+        ):
+            response = self.client.post(self._url(session_id))
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        # Nothing persisted when generation fails.
+        assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()

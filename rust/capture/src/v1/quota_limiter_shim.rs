@@ -104,6 +104,8 @@ mod tests {
     use tracing::Level;
     use uuid::Uuid;
 
+    use crate::config::EnvelopeCompression;
+
     use crate::config::{CaptureMode, Config, KafkaConfig};
     use crate::v1::analytics::types::{Event, Options};
 
@@ -116,6 +118,7 @@ mod tests {
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
             global_rate_limit_enabled: false,
+            global_rate_limit_dry_run: false,
             global_rate_limit_window_interval_secs: 60,
             global_rate_limit_sync_interval_secs: 15,
             global_rate_limit_tick_interval_ms: 1000,
@@ -204,6 +207,7 @@ mod tests {
                 kafka_metrics_producer_max_retries: None,
                 kafka_metrics_topic_metadata_refresh_interval_ms: None,
                 kafka_metrics_metadata_max_age_ms: None,
+                kafka_replay_envelope_compression: EnvelopeCompression::None,
             },
             otel_url: None,
             otel_sampling_rate: 0.0,
@@ -223,7 +227,6 @@ mod tests {
             ai_s3_region: "us-east-1".to_string(),
             ai_s3_access_key_id: None,
             ai_s3_secret_access_key: None,
-            request_timeout_seconds: Some(10),
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,

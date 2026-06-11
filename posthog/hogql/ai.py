@@ -756,6 +756,28 @@ return returnEvent"""
 
 
 TRANSFORMATION_LIMITATIONS_MESSAGE = """PostHog Transformations can only modify individual incoming events. They cannot access or read person properties, historical data, or global state, because they run before person resolution. Their only purpose is to transform the structure of a single event (e.g., add properties, rename fields, enrich data) before ingestion. This means they cannot perform logic that depends on previous values, such as incrementing a count or checking if a property already exists."""
+
+TRANSFORMATION_STRUCTURE_MESSAGE = """A Hog transformation is a top-level script, NOT a wrapped function.
+
+Required contract:
+- `event` is available as an implicit global - do NOT declare parameters or wrap the top level in a function
+- Code runs once per incoming event
+- End with `return event` (or a modified copy) to keep the event, or `return null` to drop it
+- You MAY define helper functions with `fun name(args) { ... }` and call them from the top level, but the main logic must live at the top level
+
+DO NOT produce a script like this - it defines an unused function and is a no-op at runtime (this shape is for site destinations/site apps, not transformations):
+
+    fun onEvent(event) {
+        // ...
+        return event
+    }
+
+Correct structure:
+
+    let returnEvent := event
+    // ...modifications on returnEvent...
+    return returnEvent
+"""
 DESTINATION_LIMITATIONS_MESSAGE = """PostHog Destinations have access to the event properties, including person properties and group properties. Just like Transformations they cannot perform logic that depends on previous values, such as incrementing a count or checking if a property already exists."""
 
 HOG_GRAMMAR_MESSAGE = """

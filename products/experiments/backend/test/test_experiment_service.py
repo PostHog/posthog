@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -16,13 +17,11 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
-from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.models import FeatureFlag, Team
-from posthog.models.cohort import Cohort
-from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from posthog.models import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
@@ -33,6 +32,9 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -1118,6 +1120,19 @@ class TestExperimentService(APIBaseTest):
 
         assert updated.name == "Same Key OK"
         assert updated.get_feature_flag_key() == experiment.feature_flag.key
+
+    def test_get_feature_flag_key_strips_tombstone_for_deleted_flag(self):
+        experiment = self._create_draft_experiment(flag_key="tombstone-key-flag")
+        flag = experiment.feature_flag
+
+        flag.deleted = True
+        flag.key = flag.tombstoned_key()
+        flag.save()
+        experiment.refresh_from_db()
+
+        # The serializer (feature_flag_key) and analytics read through this method, so it
+        # must surface the original key rather than leaking the ":deleted:<id>" tombstone.
+        assert experiment.get_feature_flag_key() == "tombstone-key-flag"
 
     def test_update_experiment_rejects_different_feature_flag_key(self):
         experiment = self._create_draft_experiment()
@@ -3002,7 +3017,7 @@ class TestExperimentService(APIBaseTest):
         assert "does not have a start date" in str(ctx.exception)
 
     def test_create_exposure_cohort_duplicate_raises(self):
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         self._create_flag(key="cohort-dup")
         service = self._service()
@@ -4220,6 +4235,8 @@ class TestExperimentService(APIBaseTest):
         [
             ("created_at",),
             ("-created_at",),
+            ("created_by",),
+            ("-created_by",),
             ("name",),
             ("-name",),
             ("start_date",),
@@ -4258,6 +4275,26 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             service.launch_experiment(experiment)
         assert "deleted" in str(ctx.exception.detail).lower()
+
+    def test_update_experiment_launch_via_start_date_with_deleted_flag_raises(self):
+        """Launching a draft by PATCHing start_date must reject a deleted flag, like the launch action."""
+        experiment = self._create_launchable_experiment(
+            name="PATCH Launch Deleted Flag",
+            feature_flag_key="patch-launch-deleted-flag",
+        )
+        experiment.feature_flag.deleted = True
+        experiment.feature_flag.save()
+
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"start_date": timezone.now()})
+        assert "deleted" in str(ctx.exception.detail).lower()
+
+        # The flag must not have been activated, and the experiment must stay a draft
+        experiment.refresh_from_db()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.start_date is None
+        assert experiment.feature_flag.active is False
 
     @parameterized.expand(
         [
@@ -4894,3 +4931,144 @@ class TestExperimentService(APIBaseTest):
                     ],
                 },
             )
+
+    VARIANT_KEYS = ["control", "test"]
+
+    @parameterized.expand(
+        [
+            ("valid_baseline_control", {"baseline_variant_key": "control"}, VARIANT_KEYS, False),
+            ("valid_baseline_test", {"baseline_variant_key": "test"}, VARIANT_KEYS, False),
+            ("unknown_baseline", {"baseline_variant_key": "nonexistent"}, VARIANT_KEYS, True),
+            ("baseline_absent", {"method": "bayesian"}, VARIANT_KEYS, False),
+            ("none_stats_config", None, VARIANT_KEYS, False),
+            ("empty_stats_config", {}, VARIANT_KEYS, False),
+            ("unknown_baseline_no_variant_keys", {"baseline_variant_key": "nonexistent"}, None, False),
+            ("unknown_baseline_empty_variant_keys", {"baseline_variant_key": "nonexistent"}, [], False),
+        ]
+    )
+    def test_validate_stats_config_baseline_variant_key(
+        self,
+        _name: str,
+        stats_config: dict | None,
+        variant_keys: list[str] | None,
+        expect_error: bool,
+    ) -> None:
+        if expect_error:
+            with self.assertRaises(ValidationError):
+                ExperimentService.validate_stats_config(stats_config, variant_keys)
+        else:
+            ExperimentService.validate_stats_config(stats_config, variant_keys)
+
+    def test_create_experiment_validates_baseline_against_resolved_default_variants(self) -> None:
+        service = self._service()
+
+        # No parameters.feature_flag_variants supplied: the new flag falls back to
+        # DEFAULT_VARIANTS (control/test), so a baseline that isn't one must be rejected.
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad baseline new flag",
+                feature_flag_key="baseline-default-variants",
+                stats_config={"baseline_variant_key": "nonexistent"},
+            )
+        assert not FeatureFlag.objects.filter(key="baseline-default-variants", team_id=self.team.id).exists()
+
+    def test_create_experiment_validates_baseline_against_existing_flag_variants(self) -> None:
+        self._create_flag(
+            key="baseline-existing-flag",
+            variants=[
+                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                {"key": "variant-a", "name": "Variant A", "rollout_percentage": 50},
+            ],
+        )
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Existing flag baseline",
+            feature_flag_key="baseline-existing-flag",
+            stats_config={"baseline_variant_key": "variant-a"},
+        )
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["baseline_variant_key"] == "variant-a"
+
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Existing flag bad baseline",
+                feature_flag_key="baseline-existing-flag",
+                stats_config={"baseline_variant_key": "test"},
+            )
+
+    def test_update_experiment_revalidates_baseline_when_variants_change(self) -> None:
+        self._create_flag(
+            key="baseline-update-flag",
+            variants=[
+                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                {"key": "test", "name": "Test", "rollout_percentage": 50},
+            ],
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Update baseline experiment",
+            feature_flag_key="baseline-update-flag",
+            stats_config={"baseline_variant_key": "test"},
+        )
+
+        # A variants-only edit that removes the current baseline ("test") must be rejected,
+        # even though stats_config is absent from the update payload.
+        with self.assertRaises(ValidationError):
+            service.update_experiment(
+                experiment,
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "variant-b", "rollout_percentage": 50},
+                        ]
+                    }
+                },
+            )
+
+
+class TestValidateExperimentParametersExcludedVariants:
+    def _base_params(self) -> dict[str, Any]:
+        return {
+            "feature_flag_variants": [
+                {"key": "control", "rollout_percentage": 50},
+                {"key": "test-1", "rollout_percentage": 25},
+                {"key": "test-2", "rollout_percentage": 25},
+            ]
+        }
+
+    @pytest.mark.parametrize(
+        "extra_params",
+        [
+            {},
+            {"excluded_variants": []},
+            {"excluded_variants": ["test-2"]},
+            {"excluded_variants": ["test-2", "test-2"]},
+        ],
+    )
+    def test_valid_excluded_variants(self, extra_params: dict[str, Any]):
+        ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+
+    @pytest.mark.parametrize(
+        "extra_params,match",
+        [
+            ({"excluded_variants": ["does-not-exist"]}, "unknown variants"),
+            ({"excluded_variants": ["control"]}, "baseline variant cannot be excluded"),
+            ({"excluded_variants": ["holdout-42"]}, "cannot exclude holdout"),
+            ({"excluded_variants": ["test-1", "test-2"]}, "at least one test variant"),
+            ({"excluded_variants": "test-2"}, "must be a list of strings"),
+            ({"excluded_variants": [123]}, "must be a list of strings"),
+            (
+                {"stats_config": {"baseline_variant_key": "test-1"}, "excluded_variants": ["test-1"]},
+                "baseline variant cannot be excluded",
+            ),
+        ],
+    )
+    def test_invalid_excluded_variants_raises(self, extra_params: dict[str, Any], match: str):
+        with pytest.raises(ValidationError, match=match):
+            ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+
+    def test_excluded_variants_without_feature_flag_variants_raises(self):
+        with pytest.raises(ValidationError, match="requires feature_flag_variants in the same request"):
+            ExperimentService.validate_experiment_parameters({"excluded_variants": ["test-1"]})

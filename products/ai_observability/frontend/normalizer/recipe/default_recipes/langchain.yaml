@@ -1,0 +1,15 @@
+# LangChain / LangGraph: `type` instead of `role`. `.content` may be an arbitrary
+# object, so it goes through `stringify` (strings/arrays pass through unchanged).
+
+id: langchain
+
+rules:
+    - on:
+          role: { exists: false }
+          type: { in: [human, ai, tool, system, context] }
+          content: { exists: true }
+      emit:
+          content:
+              stringify: $.content
+          toolCalls: $.tool_calls
+          toolCallId: $.tool_call_id

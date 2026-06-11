@@ -4,12 +4,14 @@ from enum import Enum
 from posthog.models import Team, User
 
 from products.notebooks.backend.models import Notebook
+from products.posthog_ai.backend.models.assistant import AgentArtifact
 
+from ee.hogai.artifacts.handlers.visualization import VisualizationHandler
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.types import StoredBlock, StoredNotebookArtifactContent, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
 from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc
-from ee.models.assistant import AgentArtifact
+from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
 class ArtifactStatus(Enum):
@@ -57,6 +59,7 @@ async def save_notebook_to_db(
     artifact: AgentArtifact,
     blocks: Sequence[StoredBlock],
     title: str,
+    state_messages: Sequence[AssistantMessageUnion],
 ) -> Notebook:
     """
     Save or update a real Notebook record with the same short_id as the artifact.
@@ -64,19 +67,17 @@ async def save_notebook_to_db(
     If a Notebook with the artifact's short_id already exists, update its content.
     Otherwise, create a new Notebook.
     """
-    # Pre-fetch all referenced visualization artifacts to avoid sync ORM calls in the closure
+    # Resolve viz refs through the unified handler (state → AgentArtifact → Insight),
+    # matching the chat preview. A direct AgentArtifact query misses state-only charts.
     ref_ids = [block.artifact_id for block in blocks if isinstance(block, VisualizationRefBlock)]
     viz_lookup: dict[str, dict] = {}
     if ref_ids:
-        viz_artifacts = AgentArtifact.objects.filter(short_id__in=ref_ids, team=team)
-        async for viz_artifact in viz_artifacts:
-            data = viz_artifact.data
-            if data.get("content_type") != "visualization":
+        viz_handler = VisualizationHandler()
+        results = await viz_handler.alist(team, ref_ids, state_messages)
+        for ref_id, result in zip(ref_ids, results):
+            if result is None or result.content.query is None:
                 continue
-            query = data.get("query")
-            name = data.get("name")
-            if not query:
-                continue
+            query = result.content.query.model_dump(mode="json", exclude_none=True)
             kind = query.get("kind", "")
             if kind == "DataVisualizationNode":
                 # Already a top-level SQL chart node, do not double-wrap.
@@ -85,7 +86,7 @@ async def save_notebook_to_db(
                 notebook_query = {"kind": "DataVisualizationNode", "source": query}
             else:
                 notebook_query = {"kind": "InsightVizNode", "source": query}
-            viz_lookup[viz_artifact.short_id] = {"query": notebook_query, "name": name}
+            viz_lookup[ref_id] = {"query": notebook_query, "name": result.content.name}
 
     def resolve_visualization(artifact_id: str) -> dict | None:
         return viz_lookup.get(artifact_id)

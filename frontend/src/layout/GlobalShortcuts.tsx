@@ -8,7 +8,6 @@ import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
-import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -31,7 +30,6 @@ export function GlobalShortcuts(): null {
     const { toggleHelpMenu } = useActions(helpMenuLogic)
     const { toggleAccountMenu, toggleProjectSwitcher, toggleOrgSwitcher } = useActions(newAccountMenuLogic)
     const { openSuperpowers } = useActions(superpowersLogic)
-    const { toggleHealthMenu } = useActions(healthMenuLogic)
     const { toggleTheme } = useActions(themeLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -116,14 +114,6 @@ export function GlobalShortcuts(): null {
         intent: 'Toggle help menu',
         interaction: 'function',
         callback: () => toggleHelpMenu(),
-    })
-
-    useAppShortcut({
-        name: 'toggle-health-menu',
-        keybind: [keyBinds.healthMenu],
-        intent: 'Toggle health menu',
-        interaction: 'function',
-        callback: () => toggleHealthMenu(),
     })
 
     useAppShortcut({

@@ -535,6 +535,12 @@ export interface AssistantTrendsFilter {
      */
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
 
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
+
     /**
      * Whether to show alert threshold lines on the chart.
      * @default false
@@ -882,7 +888,7 @@ export interface AssistantRetentionFilter {
      * The type of property to aggregate on (event or person). Defaults to event.
      * @default event
      */
-    aggregationPropertyType?: 'event' | 'person'
+    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
 }
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
@@ -1137,6 +1143,28 @@ export interface AssistantPathsFilter {
      * Filters out high-traffic paths to focus on less common journeys.
      */
     maxEdgeWeight?: integer
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **departed from** a specific
+     * node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"2_https://example.com/pricing"`.
+     * Take the value verbatim from a `source` field of a `query-paths` result row. Combine with
+     * `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the
+     * path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.
+     */
+    pathStartKey?: string
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific
+     * node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"3_https://example.com/checkout"`.
+     * Take the value verbatim from a `target` field of a `query-paths` result row. Combine with
+     * `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by
+     * non-actors paths queries.
+     */
+    pathEndKey?: string
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific
+     * node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with
+     * `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.
+     */
+    pathDropoffKey?: string
 }
 
 export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
@@ -1285,6 +1313,32 @@ export interface AssistantLifecycleActorsQuery {
      * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
      */
     status: AssistantLifecycleStatus
+}
+
+/**
+ * Drills into a paths insight to list the persons behind it. Returned rows are `distinct_id`,
+ * `name`, `email`, `event_count`, and optionally matched session recordings.
+ *
+ * There are no per-cell selectors like `day` or `series` — everything is configured on the `source`
+ * paths query. Two modes:
+ * - Whole path: set `pathsFilter.startPoint` / `endPoint` (plus `includeEventTypes`, date range,
+ *   property filters) to return every actor on that path.
+ * - Specific node/edge: set `pathsFilter.pathEndKey` (arrived at a node), `pathStartKey` (departed
+ *   from a node), both together (a single `source → target` edge), or `pathDropoffKey` (dropped off).
+ *   The key value is `<stepIndex>_<value>`, taken verbatim from a `query-paths` result row's
+ *   `target` / `source`.
+ */
+export interface AssistantPathsActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source paths insight query whose actors we are listing. */
+    source: AssistantPathsQuery
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
 }
 
 /**
@@ -1485,11 +1539,42 @@ export type AssistantDataVisualizationDisplayType =
 export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
     yAxisPosition?: 'left' | 'right'
+    /**
+     * Override how this individual series is rendered, independent of the chart-level `display` type.
+     * Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`.
+     * `auto` follows the chart-level display type.
+     */
+    displayType?: 'auto' | 'line' | 'bar' | 'area'
+    /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
+    trendLine?: boolean
+    /** Custom label for this series, shown in the legend and tooltips instead of the column name. */
+    label?: string
+    /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
+    color?: string
+}
+
+export interface AssistantDataVisualizationAxisFormatting {
+    /** Text prepended to each value (e.g. `$`). */
+    prefix?: string
+    /** Text appended to each value (e.g. `%` or ` ms`). */
+    suffix?: string
+    /**
+     * Number formatting style.
+     * - `none` — no formatting.
+     * - `number` — thousands separators (e.g. `1,234`).
+     * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
+     * - `percent` — render the value as a percentage.
+     */
+    style?: 'none' | 'number' | 'short' | 'percent'
+    /** Number of decimal places to display. */
+    decimalPlaces?: number
 }
 
 export interface AssistantDataVisualizationAxisSettings {
     /** Display settings for a plotted Y series. */
     display?: AssistantDataVisualizationAxisDisplaySettings
+    /** Number-formatting settings for the values on this axis or series. */
+    formatting?: AssistantDataVisualizationAxisFormatting
 }
 
 export interface AssistantDataVisualizationAxis {
@@ -1541,6 +1626,8 @@ export interface AssistantDataVisualizationChartSettings {
     stackBars100?: boolean
     /** Show the chart legend. */
     showLegend?: boolean
+    /** Render each data point's value as a label directly on the series. */
+    showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
     showNullsAsZero?: boolean
 }

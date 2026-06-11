@@ -68,7 +68,7 @@ def derive_detector_event_fields(detector_config: dict | None) -> dict:
 # @deprecated("AlertConfiguration should be used instead.")
 class Alert(models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=100)
     target_value = models.TextField()
@@ -85,7 +85,7 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255, blank=True)
     configuration = models.JSONField(default=dict)
@@ -110,7 +110,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     ALERTS_ALLOWED_ON_FREE_TIER = 5
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255, blank=True)
     subscribed_users = models.ManyToManyField(

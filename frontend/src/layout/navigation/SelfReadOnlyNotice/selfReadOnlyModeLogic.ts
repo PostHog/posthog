@@ -14,11 +14,21 @@ export const ESCALATION_OPTIONS = [
     { seconds: 300, label: 'Allow for 5 min' },
 ] as const
 
-const METHOD_TO_VERB: Record<string, string> = {
-    POST: 'create',
-    PUT: 'edit',
-    PATCH: 'edit',
-    DELETE: 'delete',
+// Filters `$exception` events whose chain contains a ReadOnlyModeError so the
+// read-only feature doesn't spam error tracking for blocks-by-design. The
+// chain walk catches wrapped errors (e.g. `new Error('...', { cause: e })`).
+// Exported for unit testing.
+export function dropReadOnlyExceptions<T extends { event?: string; properties?: Record<string, any> } | null>(
+    event: T
+): T | null {
+    if (!event || event.event !== '$exception') {
+        return event
+    }
+    const list = (event.properties?.$exception_list ?? []) as Array<{ type?: string }>
+    if (list.some((ex) => ex?.type === 'ReadOnlyModeError')) {
+        return null
+    }
+    return event
 }
 
 export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
@@ -77,12 +87,9 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
             lemonToast.info('Back to read-only mode.', { toastId: 'read-only-resumed' })
             posthog.capture?.('read_only_ended')
         },
+        // Analytics-only — the user-visible toast is no longer fired here. Catch blocks
+        // that match `e instanceof ApiError` already surface `ReadOnlyModeError.detail`.
         notifyBlocked: ({ method }) => {
-            const verb = METHOD_TO_VERB[method] ?? 'change'
-            lemonToast.warning(
-                `Read-only mode is on — that ${verb} was blocked. Ask Max or the MCP to make the change for you.`,
-                { toastId: 'read-only-blocked' }
-            )
             posthog.capture?.('read_only_write_blocked', { method })
         },
     })),
@@ -94,10 +101,25 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
         // "path not in store" error on the next mutation.
         setReadOnlyGetter(() => selfReadOnlyModeLogic.findMounted()?.values.isReadOnly ?? false)
         setReadOnlyNotifier((method) => actions.notifyBlocked(method))
+
+        // Central error-tracking filter — drops any `$exception` event whose
+        // chain contains a ReadOnlyModeError. Catches direct captures *and*
+        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). No
+        // existing code sets `before_send`, so we own this config slot.
+        posthog.set_config({ before_send: dropReadOnlyExceptions })
+
+        // The user-facing toast for blocked writes is shown by the standard
+        // `e instanceof ApiError → lemonToast.error(e.detail)` pattern that
+        // every write call-site already implements. ReadOnlyModeError extends
+        // ApiError and carries a method-specific `detail`, so no extra hook
+        // is needed.
     }),
 
     beforeUnmount(() => {
         setReadOnlyGetter(null)
         setReadOnlyNotifier(null)
+        // Releasing ownership of `before_send` — if PostHog adds another filter
+        // here in the future, it should compose rather than be clobbered.
+        posthog.set_config({ before_send: undefined })
     }),
 ])
