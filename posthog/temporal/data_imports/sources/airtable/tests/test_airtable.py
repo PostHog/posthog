@@ -143,14 +143,14 @@ class TestGetRowsRecords:
         assert formula == 'IS_AFTER(CREATED_TIME(), "2024-01-02T00:00:00.000Z")'
 
     @mock.patch("posthog.temporal.data_imports.sources.airtable.airtable.make_tracked_session")
-    def test_table_without_id_is_skipped(self, mock_session):
+    def test_table_without_id_fails_loudly(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _response({"bases": [{"id": "app1"}]}),
             _response({"tables": [{"name": "broken"}]}),
         ]
 
-        assert list(get_rows("pat", "records", mock.MagicMock())) == []
-        assert mock_session.return_value.get.call_count == 2
+        with pytest.raises(KeyError):
+            list(get_rows("pat", "records", mock.MagicMock()))
 
     @mock.patch("posthog.temporal.data_imports.sources.airtable.airtable.make_tracked_session")
     def test_empty_everything_yields_nothing(self, mock_session):

@@ -109,7 +109,7 @@ def get_rows(
         yield from iterate_bases()
         return
 
-    base_ids = [base["id"] for page in iterate_bases() for base in page if base.get("id")]
+    base_ids = [base["id"] for page in iterate_bases() for base in page]
 
     if endpoint == "tables":
         for base_id in base_ids:
@@ -127,12 +127,10 @@ def get_rows(
 
     for base_id in base_ids:
         for table in tables_for_base(base_id):
-            table_id = table.get("id")
-            if not table_id:
-                continue
+            table_id = table["id"]
             offset = None
             while True:
-                params = {"pageSize": PAGE_SIZE}
+                params: dict[str, Any] = {"pageSize": PAGE_SIZE}
                 if created_after is not None:
                     params["filterByFormula"] = f'IS_AFTER(CREATED_TIME(), "{created_after}")'
                 if offset:
