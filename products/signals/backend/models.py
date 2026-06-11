@@ -631,12 +631,12 @@ class SignalReportArtefact(UUIDModel):
 
 
 class SignalReportTask(UUIDModel):
-    """Associates a `tasks.Task` with a report — a plain, unlabelled link.
+    """Deprecated: task↔report association now lives entirely in `task_run` artefacts.
 
-    A task's *purpose* is not stored here: it is derived from the report's artefacts (its
-    `task_run` entry, commits, notes, …). Tasks associate freely — the pipeline links the tasks
-    it spawns, and a running agent can associate its own task with any report it decides its
-    work relates to.
+    No longer read or written anywhere — `SignalReportArtefact` rows of type `task_run` (whose
+    `task` attribution FK is always the task they record) are the sole source of association.
+    Kept only so existing rows survive the rolling deploy; run `backfill_task_run_artefacts` to
+    convert any remaining rows, then drop the table in a follow-up migration.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)

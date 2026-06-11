@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from django.db import transaction
 
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
@@ -92,11 +92,6 @@ def create_custom_agent_ready_report(
             )
 
         if task_id is not None:
-            SignalReportTask.objects.create(
-                team_id=team_id,
-                report=report,
-                task_id=task_id,
-            )
             product, type = agent_identifier
             append_task_run_artefact(
                 team_id=team_id,

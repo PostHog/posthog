@@ -3,58 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 24 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-export const SignalsReportsListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    ordering: zod
-        .string()
-        .optional()
-        .describe(
-            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
-        ),
-    priority: zod
-        .string()
-        .optional()
-        .describe(
-            'Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.'
-        ),
-    search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
-    source_product: zod
-        .string()
-        .optional()
-        .describe(
-            'Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).'
-        ),
-    status: zod
-        .string()
-        .optional()
-        .describe(
-            'Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.'
-        ),
-    suggested_reviewers: zod
-        .string()
-        .optional()
-        .describe(
-            'Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.'
-        ),
-    task_id: zod
-        .string()
-        .optional()
-        .describe("Only reports associated with this task (via the report's task associations)."),
-})
 
 export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this signal report.'),
@@ -232,53 +184,6 @@ export const SignalsReportArtefactsDestroyParams = /* @__PURE__ */ zod.object({
         ),
     report_id: zod.string(),
 })
-
-/**
- * Associate a task with this report. Idempotent — re-associating an already-linked task returns the existing association. Omit task_id to associate the calling agent's own task (derived from the X-PostHog-Task-Id header). A new association also appends a `task_run` artefact to the report's activity log so the link is visible in the work log.
- * @summary Associate a task with a report
- */
-export const SignalsReportTasksCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    report_id: zod.string(),
-})
-
-export const SignalsReportTasksCreateHeader = /* @__PURE__ */ zod.object({
-    'X-PostHog-Task-Id': zod
-        .string()
-        .optional()
-        .describe(
-            "The calling agent's own task id (set automatically for sandbox agents). Used when the body omits task_id — 'associate me with this report'."
-        ),
-})
-
-export const SignalsReportTasksCreateBody = /* @__PURE__ */ zod
-    .object({
-        task_id: zod
-            .uuid()
-            .nullish()
-            .describe(
-                "Task to associate with the report (must belong to this project). Omit to associate the calling agent's own task, derived from the X-PostHog-Task-Id header."
-            ),
-        product: zod
-            .string()
-            .optional()
-            .describe(
-                "Product identifier for the task_run activity-log entry (lowercase letters, numbers, underscores, hyphens). Defaults to 'tasks'."
-            ),
-        type: zod
-            .string()
-            .optional()
-            .describe(
-                "Task type within the product for the task_run activity-log entry (same format). Defaults to 'agent_run'."
-            ),
-    })
-    .describe(
-        "Body for associating a task with a report.\n\nThe association is unlabelled — the task's purpose is derived from the report's artefacts.\nA new association also appends a `task_run` artefact to the report's activity log, labelled\nwith `product` / `type` (the custom-agent identifier convention)."
-    )
 
 /**
  * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout.

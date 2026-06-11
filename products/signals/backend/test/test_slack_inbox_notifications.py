@@ -13,7 +13,6 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalReportTask,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -28,6 +27,7 @@ from products.signals.backend.slack_inbox_notifications import (
     _summary_excerpt,
     dispatch_inbox_item_notifications,
 )
+from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -354,10 +354,12 @@ def _create_implementation_task_with_run(
         description="Fix the bug",
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
     )
-    SignalReportTask.objects.create(
-        team=team,
-        report=report,
-        task=task,
+    append_task_run_artefact(
+        team_id=team.id,
+        report_id=str(report.id),
+        product="signals",
+        type="implementation",
+        task_id=str(task.id),
     )
     TaskRun.objects.create(
         team=team,

@@ -9,6 +9,7 @@ from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_REPO_SELECTION,
     TASK_RUN_TYPE_RESEARCH,
+    append_task_run_artefact,
 )
 from products.tasks.backend.models import Task
 
@@ -93,15 +94,37 @@ class TestBackfillTaskRunArtefacts(BaseTest):
         # Nothing for our team's report, since we scoped to a different (non-existent) team.
         assert self._task_run_artefacts(report) == []
 
-    def test_skips_rows_without_legacy_relationship(self):
-        # Post-labelling-removal rows carry no relationship — their task_run artefact was written
-        # at creation time, so the backfill must leave them alone.
+    def test_unlabelled_rows_get_default_identifiers(self):
+        # Artefacts are the sole source of association now, so unlabelled rows missing a
+        # task_run artefact get one with the generic default identifiers.
         report = self._report()
-        SignalReportTask.objects.create(team=self.team, report=report, task=self._task())
+        task = self._task()
+        SignalReportTask.objects.create(team=self.team, report=report, task=task)
 
         call_command("backfill_task_run_artefacts")
 
-        assert self._task_run_artefacts(report) == []
+        artefacts = self._task_run_artefacts(report)
+        assert len(artefacts) == 1
+        content = json.loads(artefacts[0].content)
+        assert content["task_id"] == str(task.id)
+        assert content["product"] == "tasks"
+        assert content["type"] == "agent_run"
+
+    def test_unlabelled_row_with_existing_artefact_is_skipped(self):
+        report = self._report()
+        task = self._task()
+        SignalReportTask.objects.create(team=self.team, report=report, task=task)
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="tasks",
+            type="agent_run",
+            task_id=str(task.id),
+        )
+
+        call_command("backfill_task_run_artefacts")
+
+        assert len(self._task_run_artefacts(report)) == 1
 
     def test_backfilled_artefacts_are_attributed_to_the_task(self):
         report = self._report()

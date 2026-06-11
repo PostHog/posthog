@@ -75,22 +75,28 @@ per pushed commit per associated report, automatically, after each successful si
 The artefact viewset's `diff` action renders a commit's unified diff on demand via
 `GitHubIntegration.get_commit_diff` (single-commit GitHub API, `diff` media type, 1 MB cap).
 
-### Task↔report association (`SignalReportTask`)
+### Task↔report association: `task_run` artefacts
 
-A plain, unlabelled link (unique per `(report, task)`). The legacy `relationship` column is
-nullable, no longer read or written; the column drop is a follow-up migration. Purpose is derived
-from `task_run` artefacts: the built-in pipeline writes `product="signals"` with `type` in
-`{research, implementation, repo_selection}` (`TASK_RUN_TYPE_*` constants); custom agents supply
-their own `identifier()` pair.
+There is no link table in use — a `task_run` artefact IS the association (its `task` attribution
+FK is always the task it records). The built-in pipeline writes `product="signals"` with `type`
+in `{research, implementation, repo_selection}` (`TASK_RUN_TYPE_*` constants); custom agents
+supply their own `identifier()` pair; free-form associations default to `tasks/agent_run`.
 
+- **Associate via the artefact endpoint**: POST a `task_run` artefact — `content.task_id`
+  defaults to the `X-PostHog-Task-Id` header ("associate me"), `product`/`type` default to
+  `tasks`/`agent_run`, the named task must belong to the team, attribution is always the
+  recorded task, and re-associating an already-linked task is idempotent (returns the existing
+  entry). The reports list accepts `?task_id=` (artefact-derived) so an agent or the commit hook
+  can find the reports a task works against.
 - **Auto-start idempotency** (`auto_start.py`): "implementation already started" :=
   an implementation `task_run` artefact exists (`has_signals_task_run`), checked and written
   inside the report-row `select_for_update` transaction so concurrent evaluations can't double-start.
   The manual "start implementation" path (tasks API with a `signal_report`) writes the same artefact.
-- **`implementation_pr_url`** is the newest PR produced by any associated task's runs.
-- **Free-form association**: `POST /signals/reports/{id}/tasks/` associates a task (body `task_id`,
-  defaulting to the header — "associate me"); idempotent. The reports list accepts `?task_id=` so an
-  agent (or the commit hook) can find the reports a task works against.
+- **`implementation_pr_url`** is the newest PR produced by any associated task's runs
+  (artefact-derived, both in the viewset annotation and `implementation_pr.py`).
+- `SignalReportTask` is deprecated: no longer read or written; `backfill_task_run_artefacts`
+  converts any remaining rows (labelled → `signals/<type>`, unlabelled without an artefact →
+  `tasks/agent_run`); the table drop is a follow-up migration.
 
 ## Write surface
 

@@ -13,7 +13,8 @@ from social_django.models import UserSocialAuth
 from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -502,10 +503,12 @@ class TestSignalReportListAPI(APIBaseTest):
             description="Fix the bug",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        SignalReportTask.objects.create(
-            team=self.team,
-            report=report,
-            task=task,
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(task.id),
         )
         run_output = output if output is not None else ({"pr_url": pr_url} if pr_url else None)
         run = TaskRun.objects.create(
@@ -568,10 +571,12 @@ class TestSignalReportListAPI(APIBaseTest):
             description="Fix the bug",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        SignalReportTask.objects.create(
-            team=self.team,
-            report=report,
-            task=task,
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(task.id),
         )
         old_run = TaskRun.objects.create(
             team=self.team,
@@ -813,11 +818,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert report.status == SignalReport.Status.POTENTIAL
 
 
-class TestSignalReportTaskAssociationAPI(APIBaseTest):
-    """The unlabelled task↔report association surface: POST tasks/ + the reports task_id filter."""
+class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
+    """task_run artefacts ARE the task↔report association: associate-me defaults + the reports task_id filter."""
 
-    def _tasks_url(self, report_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/tasks/"
+    def _artefacts_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
 
     def _create_report(self, team=None) -> SignalReport:
         return SignalReport.objects.create(
@@ -837,99 +842,78 @@ class TestSignalReportTaskAssociationAPI(APIBaseTest):
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
 
+    def _associate(self, report: SignalReport, content: dict, **extra):
+        return self.client.post(
+            self._artefacts_url(str(report.id)),
+            data=json.dumps({"artefact_type": "task_run", "content": content}),
+            content_type="application/json",
+            **extra,
+        )
+
     def test_associate_task_by_body(self):
         report = self._create_report()
         task = self._create_task()
 
-        response = self.client.post(
-            self._tasks_url(str(report.id)),
-            data=json.dumps({"task_id": str(task.id)}),
-            content_type="application/json",
-        )
+        response = self._associate(report, {"task_id": str(task.id)})
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         body = response.json()
-        assert body["task_id"] == str(task.id)
-        assert "relationship" not in body
-        assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
+        assert body["content"]["task_id"] == str(task.id)
+        # product/type default to the generic agent-run identifiers.
+        assert body["content"]["product"] == "tasks"
+        assert body["content"]["type"] == "agent_run"
+        artefact = SignalReportArtefact.objects.get(id=body["id"])
+        # The entry is attributed to the task it records.
+        assert str(artefact.task_id) == str(task.id)
 
     def test_associate_is_idempotent(self):
         report = self._create_report()
         task = self._create_task()
-        body = json.dumps({"task_id": str(task.id)})
 
-        first = self.client.post(self._tasks_url(str(report.id)), data=body, content_type="application/json")
-        second = self.client.post(self._tasks_url(str(report.id)), data=body, content_type="application/json")
+        first = self._associate(report, {"task_id": str(task.id)})
+        second = self._associate(report, {"task_id": str(task.id)})
         assert first.status_code == status.HTTP_201_CREATED
         assert second.status_code == status.HTTP_200_OK
         assert second.json()["id"] == first.json()["id"]
-        assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
-
-    def test_associate_records_task_run_artefact_once(self):
-        report = self._create_report()
-        task = self._create_task()
-        body = json.dumps({"task_id": str(task.id)})
-
-        self.client.post(self._tasks_url(str(report.id)), data=body, content_type="application/json")
-        self.client.post(self._tasks_url(str(report.id)), data=body, content_type="application/json")
-
-        artefacts = SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN)
-        assert artefacts.count() == 1
-        content = json.loads(artefacts[0].content)
-        assert content["task_id"] == str(task.id)
-        assert content["product"] == "tasks"
-        assert content["type"] == "agent_run"
-        # The entry is attributed to the task it records.
-        assert str(artefacts[0].task_id) == str(task.id)
+        assert (
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).count()
+            == 1
+        )
 
     def test_associate_with_custom_product_and_type(self):
         report = self._create_report()
         task = self._create_task()
 
-        response = self.client.post(
-            self._tasks_url(str(report.id)),
-            data=json.dumps({"task_id": str(task.id), "product": "billing", "type": "anomaly_scan"}),
-            content_type="application/json",
-        )
+        response = self._associate(report, {"task_id": str(task.id), "product": "billing", "type": "anomaly_scan"})
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         artefact = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN)
         content = json.loads(artefact.content)
         assert content["product"] == "billing"
         assert content["type"] == "anomaly_scan"
 
-    def test_associate_with_invalid_product_returns_400_and_no_link(self):
+    def test_associate_with_invalid_product_returns_400(self):
         report = self._create_report()
         task = self._create_task()
 
-        response = self.client.post(
-            self._tasks_url(str(report.id)),
-            data=json.dumps({"task_id": str(task.id), "product": "Not Valid!"}),
-            content_type="application/json",
-        )
+        response = self._associate(report, {"task_id": str(task.id), "product": "Not Valid!"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not SignalReportTask.objects.filter(report=report, task=task).exists()
         assert not SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN
         ).exists()
 
     def test_associate_defaults_to_header_task(self):
-        # "Associate me with this report" — a running agent's own task comes from the header.
+        # "Associate me with this report" — empty content, the agent's own task comes from the header.
         report = self._create_report()
         task = self._create_task()
 
-        response = self.client.post(
-            self._tasks_url(str(report.id)),
-            data=json.dumps({}),
-            content_type="application/json",
-            headers={"X-PostHog-Task-Id": str(task.id)},
-        )
+        response = self._associate(report, {}, headers={"X-PostHog-Task-Id": str(task.id)})
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert SignalReportTask.objects.filter(report=report, task=task).exists()
+        artefact = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN)
+        assert json.loads(artefact.content)["task_id"] == str(task.id)
+        assert str(artefact.task_id) == str(task.id)
 
     def test_associate_without_task_returns_400(self):
         report = self._create_report()
-        response = self.client.post(
-            self._tasks_url(str(report.id)), data=json.dumps({}), content_type="application/json"
-        )
+        response = self._associate(report, {})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_associate_foreign_team_task_returns_400(self):
@@ -937,13 +921,9 @@ class TestSignalReportTaskAssociationAPI(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         foreign_task = self._create_task(team=other_team)
 
-        response = self.client.post(
-            self._tasks_url(str(report.id)),
-            data=json.dumps({"task_id": str(foreign_task.id)}),
-            content_type="application/json",
-        )
+        response = self._associate(report, {"task_id": str(foreign_task.id)})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not SignalReportTask.objects.filter(report=report).exists()
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
 
     def test_associate_on_deleted_report_returns_404(self):
         report = self._create_report()
@@ -951,29 +931,20 @@ class TestSignalReportTaskAssociationAPI(APIBaseTest):
         report.save(update_fields=["status"])
         task = self._create_task()
 
-        response = self.client.post(
-            self._tasks_url(str(report.id)),
-            data=json.dumps({"task_id": str(task.id)}),
-            content_type="application/json",
-        )
+        response = self._associate(report, {"task_id": str(task.id)})
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_task_list_has_no_relationship_field(self):
-        report = self._create_report()
-        task = self._create_task()
-        SignalReportTask.objects.create(team=self.team, report=report, task=task)
-
-        response = self.client.get(self._tasks_url(str(report.id)))
-        assert response.status_code == status.HTTP_200_OK
-        rows = response.json()["results"]
-        assert len(rows) == 1
-        assert set(rows[0].keys()) == {"id", "report_id", "task_id", "created_at"}
 
     def test_reports_list_filters_by_task_id(self):
         report = self._create_report()
         other_report = self._create_report()
         task = self._create_task()
-        SignalReportTask.objects.create(team=self.team, report=report, task=task)
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="tasks",
+            type="agent_run",
+            task_id=str(task.id),
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}")
         assert response.status_code == status.HTTP_200_OK

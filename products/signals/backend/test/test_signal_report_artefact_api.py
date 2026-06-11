@@ -653,7 +653,6 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
                 "commit",
                 {"repository": "PostHog/posthog", "branch": "fix/foo", "commit_sha": "abc123f", "message": "fix"},
             ),
-            ("task_run", {"task_id": "abc", "product": "signals", "type": "research"}),
             ("note", {"note": "a free-form note"}),
         ]
     )

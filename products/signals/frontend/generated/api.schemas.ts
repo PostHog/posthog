@@ -273,33 +273,6 @@ export interface CommitDiffResponseApi {
 }
 
 /**
- * Body for associating a task with a report.
- *
- * The association is unlabelled — the task's purpose is derived from the report's artefacts.
- * A new association also appends a `task_run` artefact to the report's activity log, labelled
- * with `product` / `type` (the custom-agent identifier convention).
- */
-export interface SignalReportTaskCreateApi {
-    /**
-     * Task to associate with the report (must belong to this project). Omit to associate the calling agent's own task, derived from the X-PostHog-Task-Id header.
-     * @nullable
-     */
-    task_id?: string | null
-    /** Product identifier for the task_run activity-log entry (lowercase letters, numbers, underscores, hyphens). Defaults to 'tasks'. */
-    product?: string
-    /** Task type within the product for the task_run activity-log entry (same format). Defaults to 'agent_run'. */
-    type?: string
-}
-
-export interface SignalReportTaskApi {
-    readonly id: string
-    /** The report this task is associated with. */
-    readonly report_id: string
-    readonly task_id: string
-    readonly created_at: string
-}
-
-/**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row

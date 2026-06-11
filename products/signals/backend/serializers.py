@@ -14,7 +14,6 @@ from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalReportTask,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -232,46 +231,6 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
                 )
             },
         }
-
-
-class SignalReportTaskSerializer(serializers.ModelSerializer):
-    report_id = serializers.UUIDField(read_only=True, help_text="The report this task is associated with.")
-
-    class Meta:
-        model = SignalReportTask
-        fields = ["id", "report_id", "task_id", "created_at"]
-        read_only_fields = fields
-
-
-class SignalReportTaskCreateSerializer(serializers.Serializer):
-    """Body for associating a task with a report.
-
-    The association is unlabelled — the task's purpose is derived from the report's artefacts.
-    A new association also appends a `task_run` artefact to the report's activity log, labelled
-    with `product` / `type` (the custom-agent identifier convention).
-    """
-
-    task_id = serializers.UUIDField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Task to associate with the report (must belong to this project). Omit to associate "
-            "the calling agent's own task, derived from the X-PostHog-Task-Id header."
-        ),
-    )
-    product = serializers.CharField(
-        required=False,
-        help_text=(
-            "Product identifier for the task_run activity-log entry (lowercase letters, numbers, "
-            "underscores, hyphens). Defaults to 'tasks'."
-        ),
-    )
-    type = serializers.CharField(
-        required=False,
-        help_text=(
-            "Task type within the product for the task_run activity-log entry (same format). Defaults to 'agent_run'."
-        ),
-    )
 
 
 class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
@@ -540,10 +499,15 @@ class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict) -> dict:
         # Per-type schema validation, for known types only — unknown types get the view's
-        # dedicated "unknown artefact type" 400 rather than a schema error here. The model
-        # helper re-validates as a backstop for non-API writers.
+        # dedicated "unknown artefact type" 400 rather than a schema error here. task_run is
+        # also skipped: the view normalizes it first (task_id from the header, default
+        # product/type) and the model helper validates the normalized content. The model
+        # helper re-validates everything as a backstop for non-API writers.
         artefact_type = attrs.get("artefact_type")
-        if artefact_type in SignalReportArtefact.ArtefactType.values:
+        if (
+            artefact_type in SignalReportArtefact.ArtefactType.values
+            and artefact_type != SignalReportArtefact.ArtefactType.TASK_RUN
+        ):
             try:
                 validate_artefact_content(artefact_type, attrs["content"])
             except ArtefactContentValidationError as e:

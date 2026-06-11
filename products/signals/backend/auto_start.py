@@ -14,7 +14,6 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
-    SignalReportTask,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -130,11 +129,6 @@ def _create_implementation_task_if_absent(
             signal_report_id=report_id,
             posthog_mcp_scopes="signals_report",
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
-        )
-        SignalReportTask.objects.create(
-            team_id=team_id,
-            report_id=report_id,
-            task=task,
         )
         task_run = task.runs.order_by("-created_at").first()
         if task_run is None:

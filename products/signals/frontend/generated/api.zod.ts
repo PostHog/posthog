@@ -104,35 +104,6 @@ export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Associate a task with this report. Idempotent — re-associating an already-linked task returns the existing association. Omit task_id to associate the calling agent's own task (derived from the X-PostHog-Task-Id header). A new association also appends a `task_run` artefact to the report's activity log so the link is visible in the work log.
- * @summary Associate a task with a report
- */
-export const SignalsReportTasksCreateBody = /* @__PURE__ */ zod
-    .object({
-        task_id: zod
-            .uuid()
-            .nullish()
-            .describe(
-                "Task to associate with the report (must belong to this project). Omit to associate the calling agent's own task, derived from the X-PostHog-Task-Id header."
-            ),
-        product: zod
-            .string()
-            .optional()
-            .describe(
-                "Product identifier for the task_run activity-log entry (lowercase letters, numbers, underscores, hyphens). Defaults to 'tasks'."
-            ),
-        type: zod
-            .string()
-            .optional()
-            .describe(
-                "Task type within the product for the task_run activity-log entry (same format). Defaults to 'agent_run'."
-            ),
-    })
-    .describe(
-        "Body for associating a task with a report.\n\nThe association is unlabelled — the task's purpose is derived from the report's artefacts.\nA new association also appends a `task_run` artefact to the report's activity log, labelled\nwith `product` \/ `type` (the custom-agent identifier convention)."
-    )
-
-/**
  * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */

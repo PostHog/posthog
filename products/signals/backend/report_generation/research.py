@@ -504,20 +504,15 @@ async def run_multi_turn_research(
     # - otherwise an orphaned sandbox can keep running until the workflow inactivity timeout
 
     try:
-        # Record the research task association immediately after task creation
+        # Record the research task association immediately after task creation — the task_run
+        # artefact IS the task↔report association.
         if signal_report_id:
-            from products.signals.backend.models import SignalReportTask
             from products.signals.backend.task_run_artefacts import (
                 SIGNALS_PRODUCT,
                 TASK_RUN_TYPE_RESEARCH,
                 aappend_task_run_artefact,
             )
 
-            await SignalReportTask.objects.acreate(
-                team_id=context.team_id,
-                report_id=signal_report_id,
-                task_id=str(session.task.id),
-            )
             await aappend_task_run_artefact(
                 team_id=context.team_id,
                 report_id=signal_report_id,

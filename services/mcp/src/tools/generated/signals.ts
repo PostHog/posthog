@@ -11,9 +11,6 @@ import {
     SignalsReportArtefactsPartialUpdateBody,
     SignalsReportArtefactsPartialUpdateParams,
     SignalsReportArtefactsRetrieveParams,
-    SignalsReportTasksCreateBody,
-    SignalsReportTasksCreateParams,
-    SignalsReportsListQueryParams,
     SignalsReportsRetrieveParams,
     SignalsReportsStateCreateBody,
     SignalsReportsStateCreateParams,
@@ -113,96 +110,6 @@ const inboxReportArtefactsUpdate = (): ToolBase<
     },
 })
 
-const InboxReportTasksCreateSchema = SignalsReportTasksCreateParams.omit({ project_id: true }).extend(
-    SignalsReportTasksCreateBody.shape
-)
-
-const inboxReportTasksCreate = (): ToolBase<
-    typeof InboxReportTasksCreateSchema,
-    WithPostHogUrl<Schemas.SignalReportTask>
-> => ({
-    name: 'inbox-report-tasks-create',
-    schema: InboxReportTasksCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportTasksCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.task_id !== undefined) {
-            body['task_id'] = params.task_id
-        }
-        if (params.product !== undefined) {
-            body['product'] = params.product
-        }
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        const result = await context.api.request<Schemas.SignalReportTask>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/tasks/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/inbox/${result.report_id}`)
-    },
-})
-
-const InboxReportsListSchema = SignalsReportsListQueryParams
-
-const inboxReportsList = (): ToolBase<
-    typeof InboxReportsListSchema,
-    WithPostHogUrl<Schemas.PaginatedSignalReportList>
-> => ({
-    name: 'inbox-reports-list',
-    schema: InboxReportsListSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSignalReportList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-                ordering: params.ordering,
-                priority: params.priority,
-                search: params.search,
-                source_product: params.source_product,
-                status: params.status,
-                suggested_reviewers: params.suggested_reviewers,
-                task_id: params.task_id,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'title',
-                    'summary',
-                    'status',
-                    'priority',
-                    'actionability',
-                    'already_addressed',
-                    'signal_count',
-                    'total_weight',
-                    'source_products',
-                    'is_suggested_reviewer',
-                    'implementation_pr_url',
-                    'created_at',
-                    'updated_at',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(
-            context,
-            {
-                ...filtered,
-                results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
-                ),
-            },
-            '/inbox'
-        )
-    },
-})
-
 const InboxReportsRetrieveSchema = SignalsReportsRetrieveParams.omit({ project_id: true })
 
 const inboxReportsRetrieve = (): ToolBase<
@@ -219,7 +126,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            "If this report prompts you to do work: first associate your task with the report (inbox-report-tasks-create, once), then log the work as artefacts as you go via inbox-report-artefacts-create — notes, code references, diffs, and commits pushed outside git_signed_commit (signed pushes are recorded automatically). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version to re-assess. See those tools' descriptions for content shapes."
+            'If this report prompts you to do work: first associate your task by appending a task_run artefact via inbox-report-artefacts-create (content {} suffices — your own task id is filled in automatically), then log the work as artefacts as you go — notes, code references, diffs, and commits pushed outside git_signed_commit (signed pushes are recorded automatically). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version to re-assess. See the tool descriptions for content shapes.'
         )
     },
 })
@@ -702,8 +609,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,
     'inbox-report-artefacts-delete': inboxReportArtefactsDelete,
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
-    'inbox-report-tasks-create': inboxReportTasksCreate,
-    'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-source-configs-create': inboxSourceConfigsCreate,

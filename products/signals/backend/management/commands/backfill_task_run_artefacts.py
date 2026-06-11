@@ -56,19 +56,17 @@ class Command(BaseCommand):
         created = 0
         skipped = 0
         for report_task in report_tasks.iterator():
-            # Legacy SignalReportTask rows are all signals-pipeline runs: product is `signals`,
-            # type is the legacy relationship label (research / implementation / repo_selection).
-            # Rows without one (created after labelling was removed) need no backfill — their
-            # task_run artefact was written at creation time.
+            # Labelled legacy rows are signals-pipeline runs: product is `signals`, type is the
+            # legacy relationship label (research / implementation / repo_selection). Unlabelled
+            # rows usually had their artefact written at creation time; any that didn't (free-form
+            # associations from the brief link-only window) get the generic default identifiers,
+            # since artefacts are now the sole source of task↔report association.
             task_type = report_task.relationship
-            if task_type not in valid_types:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"Skipping SignalReportTask {report_task.id}: no/unknown legacy relationship '{task_type}'."
-                    )
-                )
-                skipped += 1
-                continue
+            if task_type in valid_types:
+                product = SIGNALS_PRODUCT
+            else:
+                product = "tasks"
+                task_type = "agent_run"
 
             task_id = str(report_task.task_id)
             report_id = str(report_task.report_id)
@@ -79,7 +77,7 @@ class Command(BaseCommand):
             if dry_run:
                 self.stdout.write(
                     f"[dry-run] would create task_run artefact for report {report_id} "
-                    f"(task {task_id}, {SIGNALS_PRODUCT}/{task_type})"
+                    f"(task {task_id}, {product}/{task_type})"
                 )
                 created += 1
                 continue
@@ -87,7 +85,7 @@ class Command(BaseCommand):
             artefact = append_task_run_artefact(
                 team_id=report_task.team_id,
                 report_id=report_id,
-                product=SIGNALS_PRODUCT,
+                product=product,
                 type=task_type,
                 task_id=task_id,
             )

@@ -12,7 +12,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.signals.backend.models import InvalidStatusTransition, SignalReport
+from products.signals.backend.models import InvalidStatusTransition, SignalReport, SignalReportArtefact
 from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -196,7 +196,11 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
     since GitHub retries 5xx responses and we've already acknowledged the PR event.
     """
     reports = (
-        SignalReport.objects.filter(report_tasks__task_id=task_id)
+        SignalReport.objects.filter(
+            id__in=SignalReportArtefact.objects.filter(
+                type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task_id
+            ).values("report_id")
+        )
         .exclude(
             status__in=[
                 SignalReport.Status.RESOLVED,

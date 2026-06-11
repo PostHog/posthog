@@ -15,7 +15,6 @@ from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
-from products.signals.backend.models import SignalReportTask
 from products.signals.backend.task_run_artefacts import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -246,11 +245,6 @@ class TaskSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             task = super().create(validated_data)
             if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-                SignalReportTask.objects.get_or_create(
-                    team_id=task.team_id,
-                    report_id=task.signal_report_id,
-                    task=task,
-                )
                 append_task_run_artefact(
                     team_id=task.team_id,
                     report_id=str(task.signal_report_id),

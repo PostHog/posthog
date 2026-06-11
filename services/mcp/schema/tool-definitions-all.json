@@ -3070,7 +3070,7 @@
         "feature_flag": "heatmaps-mcp"
     },
     "inbox-report-artefacts-create": {
-        "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines: file_path, start_line, end_line, contents, relevance_note), `code_diff` (a unified diff for one file: file_path, diff, relevance_note), `line_reference` (a single line: file_path, line, note), `commit` (one pushed commit: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit, so only create one yourself for commits pushed by other means), `task_run` (a reference to a tasks.Task run: task_id, run_id, product, type), `note` (free-form: note). Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Returns the created artefact including its id.",
+        "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines: file_path, start_line, end_line, contents, relevance_note), `code_diff` (a unified diff for one file: file_path, diff, relevance_note), `line_reference` (a single line: file_path, line, note), `commit` (one pushed commit: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit, so only create one yourself for commits pushed by other means), `task_run` (associates a tasks.Task with the report — this IS the task↔report association: content.task_id defaults to your own task, product/type label the run and default to tasks/agent_run, and re-associating an already-linked task is idempotent, returning the existing entry), `note` (free-form: note). Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Returns the created artefact including its id.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Append an artefact to a report",
@@ -3137,34 +3137,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "inbox-report-tasks-create": {
-        "description": "Associate a task with a signal report. If, while working, you query a report (e.g. via inbox-reports-list / inbox-reports-retrieve) and decide your current work relates to it, call this with no arguments beyond the report id — your own task is associated automatically — and then record your work on the report with inbox-report-artefacts-create (commits you push via git_signed_commit are recorded automatically). A new association is also recorded in the report's activity log as a task_run artefact; optionally pass `product` and `type` to label it (defaults: tasks / agent_run). A task may be associated with multiple reports. Idempotent: re-associating an already-linked task returns the existing association.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Associate a task with a report",
-        "title": "Associate a task with a report",
-        "required_scopes": ["task:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "inbox-reports-list": {
-        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which reports you are already working against). For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "List signal reports",
-        "title": "List signal reports",
-        "required_scopes": ["task:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "inbox-reports-retrieve": {

@@ -27,10 +27,8 @@ from django.db.models.functions import Cast, Coalesce
 
 import structlog
 from asgiref.sync import async_to_sync
-from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
-from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -57,11 +55,11 @@ from products.signals.backend.artefact_schemas import ArtefactContentValidationE
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
+    ArtefactAttribution,
     AutonomyPriority,
     InvalidStatusTransition,
     SignalReport,
     SignalReportArtefact,
-    SignalReportTask,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -80,8 +78,6 @@ from products.signals.backend.serializers import (
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
     SignalReportSerializer,
-    SignalReportTaskCreateSerializer,
-    SignalReportTaskSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
@@ -92,7 +88,6 @@ from products.signals.backend.task_attribution import (
     resolve_request_attribution,
     resolve_task_id_from_header,
 )
-from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
     BackfillErrorTrackingWorkflow,
@@ -522,6 +517,8 @@ class SignalReportViewSet(
     def _apply_signal_report_task_filter(self, queryset):
         # Reports a given task is associated with — used by running agents ("which reports am I
         # working against?") and by the agent harness to fan commit artefacts out to them.
+        # Association is derived from `task_run` artefacts (their `task` attribution FK is always
+        # the task they record) — artefacts are the sole source of task↔report association.
         task_filter = self.request.query_params.get("task_id")
         if not task_filter:
             return queryset
@@ -529,7 +526,13 @@ class SignalReportViewSet(
             task_uuid = uuid.UUID(task_filter.strip())
         except (ValueError, AttributeError) as e:
             raise serializers.ValidationError({"task_id": f"Invalid task UUID: {e}"})
-        return queryset.filter(report_tasks__task_id=task_uuid)
+        return queryset.filter(
+            id__in=SignalReportArtefact.objects.filter(
+                team=self.team,
+                type=SignalReportArtefact.ArtefactType.TASK_RUN,
+                task_id=task_uuid,
+            ).values("report_id")
+        )
 
     def _apply_signal_report_priority_filter(self, queryset):
         # Filters on the `priority_rank` annotation, which must be applied first.
@@ -669,12 +672,17 @@ class SignalReportViewSet(
 
     def _annotate_implementation_pr_url(self, queryset):
         # Find the latest TaskRun output->pr_url across the tasks associated with each report.
-        # Associations are unlabelled (a task's purpose is derived from artefacts), so this is
-        # simply "the newest PR produced by any task working on this report".
-        # Path: SignalReportTask -> Task -> TaskRun(latest with a pr_url) -> output->'pr_url'
+        # Association is derived from `task_run` artefacts — "the newest PR produced by any task
+        # working on this report". Path: task_run artefact -> task -> TaskRun(latest with a
+        # pr_url) -> output->'pr_url'. The artefact queryset is nested one level deeper than the
+        # TaskRun subquery, hence the double OuterRef back to the report.
         latest_impl_pr_url = Subquery(
             TaskRun.objects.filter(
-                task__signal_report_tasks__report_id=OuterRef("id"),
+                task_id__in=SignalReportArtefact.objects.filter(
+                    report_id=OuterRef(OuterRef("id")),
+                    type=SignalReportArtefact.ArtefactType.TASK_RUN,
+                    task_id__isnull=False,
+                ).values("task_id"),
                 output__pr_url__isnull=False,
             )
             .exclude(output__pr_url="")
@@ -1296,13 +1304,53 @@ class SignalReportArtefactViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        content = request.validated_data["content"]
+        attribution = resolve_request_attribution(request, self.team.id)
+        if artefact_type == SignalReportArtefact.ArtefactType.TASK_RUN:
+            # task_run artefacts are the task↔report association itself, so they get
+            # associate-me ergonomics: content.task_id defaults to the calling agent's task
+            # (the header), product/type default to a generic agent-run label, the named task
+            # must belong to this project, attribution is always the recorded task, and
+            # re-associating an already-linked task is idempotent (returns the existing entry).
+            if not isinstance(content, dict):
+                return Response(
+                    {"error": "task_run content must be a JSON object."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            task_id = content.get("task_id") or resolve_task_id_from_header(request, self.team.id)
+            if not task_id:
+                return Response(
+                    {"error": "Provide content.task_id, or call with an X-PostHog-Task-Id header."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not Task.objects.filter(id=task_id, team=self.team).exists():
+                return Response(
+                    {"error": "Unknown task for this project."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            content = {**content, "task_id": str(task_id)}
+            content.setdefault("product", "tasks")
+            content.setdefault("type", "agent_run")
+            existing = (
+                SignalReportArtefact.objects.filter(
+                    team=self.team,
+                    report_id=report_id,
+                    type=SignalReportArtefact.ArtefactType.TASK_RUN,
+                    task_id=task_id,
+                )
+                .order_by("created_at")
+                .first()
+            )
+            if existing is not None:
+                return Response(self._write_response_data(existing), status=status.HTTP_200_OK)
+            attribution = ArtefactAttribution.from_task(str(task_id))
         try:
             artefact = SignalReportArtefact.append(
                 team_id=self.team.id,
                 report_id=report_id,
                 type=artefact_type,
-                content=request.validated_data["content"],
-                attribution=resolve_request_attribution(request, self.team.id),
+                content=content,
+                attribution=attribution,
             )
         except ArtefactContentValidationError as e:
             return Response(
@@ -1457,118 +1505,6 @@ class SignalReportArtefactViewSet(
                 "diff": result["diff"],
                 "truncated": result.get("truncated", False),
             }
-        )
-
-
-@extend_schema_view(list=extend_schema(exclude=True))
-class SignalReportTaskViewSet(
-    TeamAndOrgViewSetMixin,
-    mixins.ListModelMixin,
-    mixins.CreateModelMixin,
-    viewsets.GenericViewSet,
-):
-    """Tasks associated with a signal report.
-
-    Associations are unlabelled — a task's purpose is derived from the report's artefacts (its
-    `task_run` entry, commits, notes, …), not stored on the link. POST lets any caller — notably
-    a running agent that decides its current work relates to this report — associate a task, then
-    start producing artefacts against the report.
-    """
-
-    serializer_class = SignalReportTaskSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
-    queryset = SignalReportTask.objects.all().order_by("-created_at")
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["task_id", "created_at"]
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(report_id=self.parents_query_dict["report_id"], team=self.team)
-
-    @validated_request(
-        request_serializer=SignalReportTaskCreateSerializer,
-        responses={
-            201: OpenApiResponse(response=SignalReportTaskSerializer, description="Task associated with the report."),
-            200: OpenApiResponse(response=SignalReportTaskSerializer, description="Association already existed."),
-            400: OpenApiResponse(
-                description="No task to associate (neither body task_id nor X-PostHog-Task-Id header), "
-                "or the task does not belong to this project."
-            ),
-            404: OpenApiResponse(description="Report not found for this project."),
-        },
-        parameters=[
-            OpenApiParameter(
-                name=TASK_ID_HEADER,
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.HEADER,
-                required=False,
-                description=(
-                    "The calling agent's own task id (set automatically for sandbox agents). Used when "
-                    "the body omits task_id — 'associate me with this report'."
-                ),
-            ),
-        ],
-        summary="Associate a task with a report",
-        description=(
-            "Associate a task with this report. Idempotent — re-associating an already-linked task "
-            "returns the existing association. Omit task_id to associate the calling agent's own task "
-            "(derived from the X-PostHog-Task-Id header). A new association also appends a `task_run` "
-            "artefact to the report's activity log so the link is visible in the work log."
-        ),
-        operation_id="signals_report_tasks_create",
-    )
-    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        report_id = self.parents_query_dict["report_id"]
-        # Mirror the artefact viewset: a deleted / foreign report must not accept associations.
-        report_exists = (
-            SignalReport.objects.filter(id=report_id, team=self.team)
-            .exclude(status=SignalReport.Status.DELETED)
-            .exists()
-        )
-        if not report_exists:
-            raise NotFound()
-        task_id = request.validated_data.get("task_id")
-        if task_id is not None and not Task.objects.filter(id=task_id, team=self.team).exists():
-            return Response(
-                {"error": "Unknown task for this project."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if task_id is None:
-            task_id = resolve_task_id_from_header(request, self.team.id)
-        if task_id is None:
-            return Response(
-                {"error": "Provide task_id in the body, or call with an X-PostHog-Task-Id header."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        link, created = SignalReportTask.objects.get_or_create(
-            team_id=self.team.id,
-            report_id=report_id,
-            task_id=str(task_id),
-        )
-        if created:
-            # The association itself is a unit of work — record it in the activity log so the
-            # link is visible there too (the Runs section reads the link rows directly).
-            # Pipeline-created associations (auto-start, tasks API) write their own task_run
-            # artefact at creation, so only new free-form links land here.
-            try:
-                append_task_run_artefact(
-                    team_id=self.team.id,
-                    report_id=str(report_id),
-                    product=request.validated_data.get("product") or "tasks",
-                    type=request.validated_data.get("type") or "agent_run",
-                    task_id=str(task_id),
-                )
-            except (ArtefactContentValidationError, PydanticValidationError) as e:
-                # Invalid product/type identifiers — surface as a 400 rather than a broken link.
-                link.delete()
-                return Response(
-                    {"error": f"invalid task_run product/type: {e}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        return Response(
-            SignalReportTaskSerializer(link).data,
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
 

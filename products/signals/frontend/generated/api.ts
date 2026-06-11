@@ -31,8 +31,6 @@ import type {
     SignalReportArtefactLogCreateApi,
     SignalReportArtefactWriteResponseApi,
     SignalReportStateRequestApi,
-    SignalReportTaskApi,
-    SignalReportTaskCreateApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutEmissionApi,
@@ -354,28 +352,6 @@ export const signalsReportArtefactsDiff = async (
     return apiMutator<CommitDiffResponseApi>(getSignalsReportArtefactsDiffUrl(projectId, reportId, id), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getSignalsReportTasksCreateUrl = (projectId: string, reportId: string) => {
-    return `/api/projects/${projectId}/signals/reports/${reportId}/tasks/`
-}
-
-/**
- * Associate a task with this report. Idempotent — re-associating an already-linked task returns the existing association. Omit task_id to associate the calling agent's own task (derived from the X-PostHog-Task-Id header). A new association also appends a `task_run` artefact to the report's activity log so the link is visible in the work log.
- * @summary Associate a task with a report
- */
-export const signalsReportTasksCreate = async (
-    projectId: string,
-    reportId: string,
-    signalReportTaskCreateApi?: SignalReportTaskCreateApi,
-    options?: RequestInit
-): Promise<SignalReportTaskApi> => {
-    return apiMutator<SignalReportTaskApi>(getSignalsReportTasksCreateUrl(projectId, reportId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalReportTaskCreateApi),
     })
 }
 
