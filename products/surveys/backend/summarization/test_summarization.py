@@ -144,7 +144,8 @@ class TestSummarizeWithGemini:
         properties = call_kwargs["posthog_properties"]
         assert properties["$ai_billable"] is True
         assert properties["team_id"] == 42
-        assert properties["ai_product"] == "survey_summary"
+        assert properties["ai_product"] == "surveys"
+        assert properties["ai_feature"] == "survey_summary"
         assert call_kwargs["posthog_groups"] == {"project": "42", "instance": "https://us.posthog.com"}
 
     @patch("products.surveys.backend.llm.client.create_gemini_client")

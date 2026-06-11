@@ -4308,8 +4308,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         [
             ("slack_app",),
             ("product_analytics",),
-            ("survey_summary",),
-            ("survey_translation",),
+            ("surveys",),
             ("subscriptions",),
         ]
     )
