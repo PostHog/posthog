@@ -67,6 +67,7 @@ from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.jwt import AgentInternalAudience, encode_agent_internal_jwt
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.security.outbound_proxy import internal_requests
 
 from .db import WRITER_DB
 from .janitor_client import JanitorClient, JanitorClientError, default_client
@@ -800,7 +801,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             body_bytes = json.dumps(request.data).encode("utf-8") if request.data else b""
             forwarded_headers["content-type"] = "application/json"
         try:
-            upstream = requests.request(
+            # The ingress is an in-cluster service — use the internal session so the
+            # call bypasses HTTP(S)_PROXY (smokescreen blocks private IPs → 407).
+            upstream = internal_requests.request(
                 method=request.method or "GET",
                 url=upstream_url,
                 headers=forwarded_headers,
