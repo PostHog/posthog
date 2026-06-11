@@ -1839,6 +1839,51 @@ def _repo_info(repo_root: Path) -> list[tuple[str, str]]:
     return pairs
 
 
+def _normalize_arch(value: str) -> str:
+    """Map the many spellings of an architecture to a canonical token."""
+    v = value.lower()
+    if v in {"arm64", "aarch64"}:
+        return "arm64"
+    if v in {"x86_64", "x86-64", "amd64"}:
+        return "x86_64"
+    return v
+
+
+def _binary_arches(path: str) -> set[str]:
+    """Best-effort set of architectures a binary contains, via ``file``.
+
+    Empty when ``file`` is unavailable or the arch is indeterminate — callers
+    must treat empty as "unknown", not "mismatch", to avoid false alarms.
+    """
+    out = _run_output(["file", "-b", path])
+    if not out:
+        return set()
+    lowered = out.lower()
+    return {_normalize_arch(token) for token in ("arm64", "aarch64", "x86_64", "x86-64", "amd64") if token in lowered}
+
+
+def _phrocs_info() -> tuple[str, str]:
+    """Diagnose phrocs, which powers the ``hogli start`` TUI.
+
+    A blank ``hogli start`` screen most often traces back to phrocs being
+    missing, present-but-unrunnable, or built for the wrong architecture
+    (e.g. an x86_64 binary under Rosetta on Apple Silicon), so surface all
+    three explicitly rather than just the version.
+    """
+    path = shutil.which("phrocs")
+    if not path:
+        return ("phrocs", "MISSING — `hogli start` TUI needs it (see tools/phrocs/install.sh)")
+
+    version = _run_output([path, "--version"]) or "installed (--version failed — binary may be broken)"
+
+    arches = _binary_arches(path)
+    host = _normalize_arch(platform.machine())
+    arch_label = f" [{'/'.join(sorted(arches))}]" if arches else ""
+    mismatch = f" — ARCH MISMATCH vs host {host}; likely blank-TUI cause" if arches and host not in arches else ""
+
+    return ("phrocs", f"{version}{arch_label} ({path}){mismatch}")
+
+
 def _toolchain_info(repo_root: Path) -> list[tuple[str, str]]:
     """Collect runtime/toolchain versions relevant to running the dev stack."""
     pairs: list[tuple[str, str]] = [("python", f"{platform.python_version()} ({sys.executable})")]
@@ -1869,11 +1914,7 @@ def _toolchain_info(repo_root: Path) -> list[tuple[str, str]]:
     docker_ver = _run_output(["docker", "version", "--format", "{{.Server.Version}}"], timeout=3.0)
     pairs.append(("docker", f"{docker_ver} (daemon running)" if docker_ver else "daemon not responding"))
 
-    phrocs_path = shutil.which("phrocs")
-    if phrocs_path:
-        pairs.append(("phrocs", f"{_run_output([phrocs_path, '--version']) or 'installed'} ({phrocs_path})"))
-    else:
-        pairs.append(("phrocs", "MISSING — `hogli start` TUI needs it (see tools/phrocs/install.sh)"))
+    pairs.append(_phrocs_info())
 
     return pairs
 
@@ -1966,7 +2007,13 @@ def _build_report(repo_root: Path, manifest: _ManifestLike) -> str:
     with ThreadPoolExecutor(max_workers=len(sections)) as pool:
         futures = {pool.submit(collect): i for i, (_, collect) in enumerate(sections)}
         for future in as_completed(futures):
-            collected[futures[future]] = future.result()
+            idx = futures[future]
+            try:
+                collected[idx] = future.result()
+            except Exception as exc:
+                # A diagnostic is run precisely when the env misbehaves — one
+                # collector blowing up must not sink the whole report.
+                collected[idx] = [("error", f"{type(exc).__name__}: {str(exc)[:120]}")]
 
     for (title, _), pairs in zip(sections, collected):
         lines.append("")
@@ -1997,7 +2044,7 @@ def _copy_to_clipboard(text: str) -> str | None:
         if shutil.which(cmd[0]) is None:
             continue
         try:
-            result = subprocess.run(cmd, input=text, text=True, check=False)
+            result = subprocess.run(cmd, input=text, text=True, capture_output=True, check=False)
         except (OSError, subprocess.SubprocessError):
             continue
         if result.returncode == 0:

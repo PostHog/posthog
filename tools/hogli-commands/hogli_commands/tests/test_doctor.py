@@ -3,10 +3,13 @@ from types import SimpleNamespace
 import pytest
 
 from hogli_commands.doctor import (
+    _binary_arches,
     _collect_import_targets,
     _copy_to_clipboard,
     _format_kv_block,
     _is_excluded,
+    _normalize_arch,
+    _phrocs_info,
     _probe_command_imports,
 )
 
@@ -153,3 +156,101 @@ def test_copy_to_clipboard_uses_first_available_tool(monkeypatch: pytest.MonkeyP
     assert _copy_to_clipboard("hello") == "pbcopy"
     assert captured["cmd"] == ["pbcopy"]
     assert captured["input"] == "hello"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("arm64", "arm64"),
+        ("aarch64", "arm64"),
+        ("x86_64", "x86_64"),
+        ("x86-64", "x86_64"),
+        ("amd64", "x86_64"),
+        ("AMD64", "x86_64"),
+        ("riscv64", "riscv64"),
+    ],
+)
+def test_normalize_arch(value: str, expected: str) -> None:
+    assert _normalize_arch(value) == expected
+
+
+def test_binary_arches_parses_file_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "hogli_commands.doctor._run_output",
+        lambda *_: "Mach-O 64-bit executable arm64",
+    )
+    assert _binary_arches("/opt/homebrew/bin/phrocs") == {"arm64"}
+
+
+def test_binary_arches_handles_universal_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "hogli_commands.doctor._run_output",
+        lambda *_: "Mach-O universal binary with 2 architectures: [x86_64] [arm64]",
+    )
+    assert _binary_arches("/usr/local/bin/phrocs") == {"x86_64", "arm64"}
+
+
+def test_binary_arches_empty_when_file_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("hogli_commands.doctor._run_output", lambda *_: None)
+    assert _binary_arches("/opt/homebrew/bin/phrocs") == set()
+
+
+def _patch_phrocs(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    which: str | None,
+    version: str | None,
+    file_out: str | None,
+    machine: str,
+) -> None:
+    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: which)
+    monkeypatch.setattr("hogli_commands.doctor.platform.machine", lambda: machine)
+
+    def fake_run_output(cmd: list[str], *_a: object, **_k: object) -> str | None:
+        return file_out if cmd[0] == "file" else version
+
+    monkeypatch.setattr("hogli_commands.doctor._run_output", fake_run_output)
+
+
+def test_phrocs_info_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_phrocs(monkeypatch, which=None, version=None, file_out=None, machine="arm64")
+    _, value = _phrocs_info()
+    assert value.startswith("MISSING")
+
+
+def test_phrocs_info_healthy_matching_arch(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_phrocs(
+        monkeypatch,
+        which="/opt/homebrew/bin/phrocs",
+        version="phrocs 1.0.8 (abc, 2026-04-14)",
+        file_out="Mach-O 64-bit executable arm64",
+        machine="arm64",
+    )
+    _, value = _phrocs_info()
+    assert "phrocs 1.0.8" in value
+    assert "[arm64]" in value
+    assert "MISMATCH" not in value
+
+
+def test_phrocs_info_flags_arch_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_phrocs(
+        monkeypatch,
+        which="/usr/local/bin/phrocs",
+        version="phrocs 1.0.8 (abc, 2026-04-14)",
+        file_out="Mach-O 64-bit executable x86_64",
+        machine="arm64",
+    )
+    _, value = _phrocs_info()
+    assert "ARCH MISMATCH vs host arm64" in value
+
+
+def test_phrocs_info_flags_broken_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_phrocs(
+        monkeypatch,
+        which="/opt/homebrew/bin/phrocs",
+        version=None,
+        file_out="Mach-O 64-bit executable arm64",
+        machine="arm64",
+    )
+    _, value = _phrocs_info()
+    assert "--version failed" in value
