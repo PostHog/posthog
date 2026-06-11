@@ -114,7 +114,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         ):
             region = config.use_custom_region.region
         auth = resolve_bigquery_auth(config, team_id)
-        with impl.connect(config, auth=auth, location=region) as conn:
+        with impl.connect(config, auth=auth, location=region, team_id=team_id) as conn:
             columns_by_table = impl.get_columns(conn, config, names)
             if not columns_by_table:
                 return []

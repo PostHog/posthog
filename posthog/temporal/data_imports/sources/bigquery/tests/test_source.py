@@ -269,6 +269,52 @@ def test_resolve_bigquery_auth_uses_impersonation_when_integration_has_no_key():
     )
 
 
+def test_bigquery_connect_resolves_integration_auth_when_team_id_is_provided():
+    config = BigQuerySourceConfig.from_dict(
+        {
+            "dataset_id": "dataset-id",
+            "google_cloud_service_account_integration_id": 42,
+        }
+    )
+    auth = BigQueryAuthInfo(
+        project_id="project-id",
+        credentials=mock.MagicMock(spec=google_auth_credentials.Credentials),
+    )
+    mocked_client = mock.MagicMock()
+    mocked_client_cm = mock.MagicMock()
+    mocked_client_cm.__enter__.return_value = mocked_client
+    mocked_client_cm.__exit__.return_value = None
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.resolve_bigquery_auth",
+            return_value=auth,
+        ) as mock_resolve_auth,
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.bigquery_client",
+            return_value=mocked_client_cm,
+        ) as mock_bigquery_client,
+    ):
+        with BigQueryImplementation().connect(config, team_id=1) as conn:
+            assert conn is mocked_client
+
+    mock_resolve_auth.assert_called_once_with(config, 1)
+    mock_bigquery_client.assert_called_once_with("project-id", None, auth.credentials)
+
+
+def test_bigquery_connect_requires_team_id_argument():
+    config = BigQuerySourceConfig.from_dict(
+        {
+            "dataset_id": "dataset-id",
+            "google_cloud_service_account_integration_id": 42,
+        }
+    )
+
+    with pytest.raises(TypeError):
+        with BigQueryImplementation().connect(config):
+            pass
+
+
 @pytest.mark.parametrize(
     "dataset_project,temporary_dataset,expected_dataset_project_id,expected_destination_dataset_id",
     [

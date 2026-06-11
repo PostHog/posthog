@@ -561,13 +561,14 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     def connect(
         self,
         config: BigQuerySourceConfig,
+        team_id: int,
         auth: BigQueryAuthInfo | None = None,
         location: str | None = None,
     ) -> Iterator[bigquery.Client]:
         region = _resolve_region(config)
         resolved_location = location if location is not None else region
         if auth is None:
-            auth = _resolve_auth_from_key_file(config)
+            auth = resolve_bigquery_auth(config, team_id)
 
         with bigquery_client(auth.project_id, resolved_location, auth.credentials) as bq:
             yield bq
