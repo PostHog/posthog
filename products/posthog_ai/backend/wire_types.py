@@ -71,6 +71,8 @@ class UserMessageParams(TypedDict):
     agent-server echoed it into the log (plain string or ACP content blocks)."""
 
     content: NotRequired[str | list[dict[str, Any]]]
+    # Carries `attached_context` — the full undeduped context recorded with the message.
+    _meta: NotRequired[dict[str, Any]]
 
 
 def is_user_message_params(params: object, method: str | None) -> TypeGuard[UserMessageParams]:
