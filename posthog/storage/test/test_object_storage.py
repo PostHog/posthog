@@ -213,3 +213,18 @@ class TestStorage(APIBaseTest):
 
         with self.assertRaises(ObjectStorageError):
             storage.read_bytes("test-bucket", "test-key")
+
+    def test_delete_objects_batches_keys_and_returns_failures(self) -> None:
+        mock_client = MagicMock()
+        mock_client.delete_objects.side_effect = [
+            {"Errors": [{"Key": "key-2"}]},
+            {},
+        ]
+        storage = ObjectStorage(mock_client)
+
+        failed_keys = storage.delete_objects("test-bucket", [f"key-{index}" for index in range(1001)])
+
+        assert failed_keys == ["key-2"]
+        assert mock_client.delete_objects.call_count == 2
+        assert len(mock_client.delete_objects.call_args_list[0].kwargs["Delete"]["Objects"]) == 1000
+        assert len(mock_client.delete_objects.call_args_list[1].kwargs["Delete"]["Objects"]) == 1
