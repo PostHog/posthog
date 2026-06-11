@@ -313,6 +313,9 @@ class OAuthApplication(AbstractApplication):
         # Skip the extra query for saves that can't touch scopes (e.g. CIMD metadata refreshes).
         if update_fields is not None and "scopes" not in update_fields:
             return None
+        # Full saves deliberately pay one pk lookup even when scopes end up unchanged: only the
+        # DB has the persisted value, and an in-memory snapshot could miss writes from other
+        # code paths. OAuth app saves are infrequent enough that this is fine.
         return OAuthApplication.objects.filter(pk=self.pk).first()
 
     def _send_scopes_change_signal(self, is_create: bool, before_update: "OAuthApplication | None") -> None:
