@@ -1990,13 +1990,18 @@ def _tail(path: Path, lines: int) -> list[str]:
 
 
 def _iso_mtime(path: Path) -> str:
-    return datetime.fromtimestamp(path.stat().st_mtime, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Diagnostics run when the env misbehaves, so the file can vanish between an
+    # exists() check and this stat() — degrade instead of sinking the report.
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except OSError:
+        return "unavailable"
 
 
 def _phrocs_runtime_pairs(repo_root: Path) -> list[tuple[str, str]]:
-    """Opt-in (``--verbose``) phrocs/start runtime state — the layer past the
-    binary that explains a blank or broken ``hogli start`` TUI: the generated
-    config phrocs renders, its IPC socket, and the terminal it draws into.
+    """phrocs/start runtime state — the layer past the binary that explains a
+    blank or broken ``hogli start`` TUI: the generated config phrocs renders,
+    its IPC socket, and the terminal it draws into.
     """
     config = _generated_config_path(repo_root)
     pairs: list[tuple[str, str]] = []
@@ -2124,7 +2129,12 @@ def _build_report(repo_root: Path, manifest: _ManifestLike) -> str:
                 # A diagnostic is run precisely when the env misbehaves — one
                 # collector blowing up must not sink the whole report.
                 collected[idx] = [("error", f"{type(exc).__name__}: {str(exc)[:120]}")]
-        probed, failures = probe_future.result()
+        try:
+            probed, failures = probe_future.result()
+        except Exception as exc:
+            # Same invariant as the section collectors above: the import probe
+            # blowing up must not sink the whole report.
+            probed, failures = 0, [("import probe", f"{type(exc).__name__}: {str(exc)[:120]}")]
 
     for (title, _), pairs in zip(sections, collected):
         lines.append("")

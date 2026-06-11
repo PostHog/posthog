@@ -77,13 +77,19 @@ def test_is_excluded_empty_string() -> None:
     assert _is_excluded("") is False
 
 
-def test_format_kv_block_aligns_values() -> None:
-    block = _format_kv_block([("os", "macOS"), ("term_program", "iTerm")])
-    assert block == ["os            macOS", "term_program  iTerm"]
-
-
-def test_format_kv_block_empty() -> None:
-    assert _format_kv_block([]) == []
+@pytest.mark.parametrize(
+    ("pairs", "expected"),
+    [
+        pytest.param(
+            [("os", "macOS"), ("term_program", "iTerm")],
+            ["os            macOS", "term_program  iTerm"],
+            id="aligns-values",
+        ),
+        pytest.param([], [], id="empty"),
+    ],
+)
+def test_format_kv_block(pairs: list[tuple[str, str]], expected: list[str]) -> None:
+    assert _format_kv_block(pairs) == expected
 
 
 class _FakeManifest:
@@ -121,28 +127,36 @@ def test_collect_import_targets_extracts_click_and_boot_modules() -> None:
     assert not any(label == "bad:format" for label, _, _ in targets)
 
 
-def test_probe_command_imports_reports_all_ok() -> None:
-    manifest = _FakeManifest({"doctor": {"click": "hogli_commands.doctor:doctor"}})
-    probed, failures = _probe_command_imports(manifest)
+@pytest.mark.parametrize(
+    ("commands", "expected_failure"),
+    [
+        pytest.param(
+            {"doctor": {"click": "hogli_commands.doctor:doctor"}},
+            None,
+            id="all-ok",
+        ),
+        pytest.param(
+            {"ghost": {"click": "hogli_commands.does_not_exist:thing"}},
+            ("ghost", "ModuleNotFoundError"),
+            id="missing-module",
+        ),
+        pytest.param(
+            {"typo": {"click": "hogli_commands.doctor:not_a_real_command"}},
+            ("typo", "missing attribute 'not_a_real_command'"),
+            id="missing-attribute",
+        ),
+    ],
+)
+def test_probe_command_imports(commands: dict[str, dict], expected_failure: tuple[str, str] | None) -> None:
+    probed, failures = _probe_command_imports(_FakeManifest(commands))
     assert probed == 1
-    assert failures == []
-
-
-def test_probe_command_imports_flags_missing_module() -> None:
-    manifest = _FakeManifest({"ghost": {"click": "hogli_commands.does_not_exist:thing"}})
-    probed, failures = _probe_command_imports(manifest)
-    assert probed == 1
+    if expected_failure is None:
+        assert failures == []
+        return
     assert len(failures) == 1
     label, error = failures[0]
-    assert label == "ghost"
-    assert "ModuleNotFoundError" in error
-
-
-def test_probe_command_imports_flags_missing_attribute() -> None:
-    manifest = _FakeManifest({"typo": {"click": "hogli_commands.doctor:not_a_real_command"}})
-    probed, failures = _probe_command_imports(manifest)
-    assert probed == 1
-    assert failures == [("typo", "missing attribute 'not_a_real_command'")]
+    assert label == expected_failure[0]
+    assert expected_failure[1] in error
 
 
 def test_get_process_cwds_skips_lsof_for_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
