@@ -21,6 +21,11 @@ class TestRampSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.RAMP
 
+    def test_environment_is_a_connection_host_field(self):
+        # Changing environment retargets where the stored client secret is sent, so it must force
+        # re-entering secrets.
+        assert self.source.connection_host_fields == ["environment"]
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 

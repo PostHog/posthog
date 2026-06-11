@@ -32,6 +32,12 @@ class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.RAMP
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # ``environment`` picks api.ramp.com vs demo-api.ramp.com, so changing it retargets where the
+        # stored client secret is sent — require re-entering secrets when it changes.
+        return ["environment"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.ramp.com/developer/v1/token": "Ramp authentication failed. Please check your client ID and client secret.",
