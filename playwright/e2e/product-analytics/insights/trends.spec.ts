@@ -366,6 +366,41 @@ test.describe('Trends insights', () => {
         })
     })
 
+    test('Open persons modal and navigate to events explorer via "View events"', async ({ page }) => {
+        const insight = new InsightPage(page)
+
+        await test.step('create a Number chart so the aggregated value is clickable', async () => {
+            await insight.goToNewTrends()
+            await insight.trends.waitForChart()
+            await insight.trends.selectChartType(/^Number/)
+            await expect(insight.trends.boldNumber).toContainText(pageviews.expected.total)
+        })
+
+        await test.step('click the value to open the persons modal', async () => {
+            await insight.trends.boldNumber.click()
+            await expect(insight.personsModal).toBeVisible()
+        })
+
+        await test.step('"View events" targets the events explorer, not /insights/new', async () => {
+            // Regression guard: this drill-down used to go to /insights/new, where the insight scene
+            // could drop the query and fall back to a default Trends insight. It must point at the
+            // events explorer, which reads the query synchronously from the #q= hash.
+            const href = await insight.personsModalViewEventsButton.getAttribute('href')
+            expect(href).toContain('/activity/explore')
+            expect(href).toContain('#q=')
+            expect(href).not.toContain('/insights/new')
+        })
+
+        await test.step('clicking it opens the events explorer with an events table', async () => {
+            const popupPromise = page.context().waitForEvent('page')
+            await insight.personsModalViewEventsButton.click()
+            const eventsTab = await popupPromise
+            await expect(eventsTab).toHaveURL(/\/activity\/explore/)
+            // The explorer renders an events DataTable — confirm we did not land on a Trends chart.
+            await expect(eventsTab.locator('.DataTable')).toBeVisible({ timeout: 30000 })
+        })
+    })
+
     test('Export insight data as CSV and XLSX', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()

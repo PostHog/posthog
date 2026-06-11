@@ -23,6 +23,10 @@ export class InsightPage {
     readonly topBarName: Locator
     readonly activeTab: Locator
 
+    // persons modal (drill-down)
+    readonly personsModal: Locator
+    readonly personsModalViewEventsButton: Locator
+
     readonly trends: TrendsInsight
     readonly funnels: FunnelsInsight
     readonly retention: RetentionInsight
@@ -39,6 +43,9 @@ export class InsightPage {
         this.cancelButton = page.getByTestId('insight-cancel-edit-button')
         this.topBarName = page.getByTestId('scene-name')
         this.activeTab = page.locator('.LemonTabs__tab--active')
+
+        this.personsModal = page.getByTestId('persons-modal')
+        this.personsModalViewEventsButton = page.getByTestId('person-modal-view-events')
 
         this.trends = new TrendsInsight(page)
         this.funnels = new FunnelsInsight(page)
