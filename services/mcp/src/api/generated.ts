@@ -20431,6 +20431,8 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** @nullable */
       readonly batch_export_id: string | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     /**
@@ -20482,6 +20484,8 @@ export namespace Schemas {
       readonly status: HogFunctionStatus | null;
       /** @nullable */
       readonly execution_order: number | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface HogInvocationResult {
@@ -30782,6 +30786,8 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** @nullable */
       readonly batch_export_id?: string | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     /**
@@ -39711,6 +39717,30 @@ export namespace Schemas {
          */
       readonly last_run_at: string | null;
       readonly created_at: string;
+    }
+
+    /**
+     * Request body for registering a scout config without waiting for the coordinator tick.
+     *
+     * Upsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already
+     * registered the row, the provided tunables are applied to it instead.
+     */
+    export interface SignalScoutConfigCreate {
+      /**
+         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+         * @maxLength 200
+         */
+      skill_name: string;
+      /** Whether this scout runs on its schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). Defaults to 60 (hourly).
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
     }
 
     /**
@@ -53976,6 +54006,17 @@ export namespace Schemas {
      * Filter to a single workflow (e.g. 'onboarding').
      */
     workflow_id?: string;
+    };
+
+    export type WizardSessionsLatestRetrieveParams = {
+    /**
+     * Filter to a single skill within the workflow (e.g. 'nextjs').
+     */
+    skill_id?: string;
+    /**
+     * Filter to a single workflow (e.g. 'posthog-integration').
+     */
+    workflow_id: string;
     };
 
     export type WizardSessionsStreamRetrieveParams = {
