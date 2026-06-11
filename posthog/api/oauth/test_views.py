@@ -3383,6 +3383,81 @@ class TestOAuthAPI(APIBaseTest):
             "swept when their refresh token is revoked",
         )
 
+    @freeze_time("2025-01-01 00:00:00")
+    def test_dcr_refresh_token_revoke_from_other_client_does_not_sweep_session(self):
+        # RFC 7009 §2.1: the server verifies the token was issued to the requesting
+        # client. A different dynamic client presenting app A's refresh token must not
+        # trigger the (user, application) session sweep for app A.
+        self.public_application.is_dcr_client = True
+        self.public_application.save()
+
+        other_dynamic_application = OAuthApplication.objects.create(
+            name="Other Dynamic App",
+            client_id="other_dynamic_client_id",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+            is_dcr_client=True,
+        )
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+        refresh_token = token_response.json()["refresh_token"]
+
+        refresh_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": self.public_application.client_id,
+            },
+        )
+        refresh_issued_access_token = refresh_response.json()["access_token"]
+        self.assertTrue(OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists())
+
+        revoke_response = self.post(
+            "/oauth/revoke/",
+            {
+                "token": refresh_token,
+                "client_id": other_dynamic_application.client_id,
+            },
+        )
+        self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
+
+        self.assertTrue(
+            OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists(),
+            "a dynamic client presenting another app's refresh token must not sweep "
+            "that app's (user, application) access-token family",
+        )
+
     @freeze_time("2026-01-01 00:00:00")
     def test_dcr_non_rotating_refresh_racing_app_revoke_is_rejected(self):
         # The non-rotating (DCR) refresh path passes the presented token via

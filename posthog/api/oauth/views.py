@@ -575,9 +575,16 @@ class OAuthValidator(OAuth2Validator):
         omitted, ``refresh_token``, and (incorrect) ``access_token`` hints
         alike; a single indexed lookup is cheap and the cost of getting this
         wrong is leaving compromised tokens valid.
+
+        The sweep only fires when the presented token belongs to the
+        authenticated client (RFC 7009 §2.1: the server verifies the token was
+        issued to the requesting client). Without that binding, any dynamic
+        client that learned another app's refresh token could revoke that
+        app's entire ``(user, application)`` session instead of just the one
+        token upstream would revoke.
         """
         rt = OAuthRefreshToken.objects.filter(token=token, revoked__isnull=True).first()
-        if rt and self._is_dynamic_client(request):
+        if rt and self._is_dynamic_client(request) and rt.application_id == getattr(request.client, "pk", None):
             revoke_oauth_session(refresh_token=rt)
             return
         return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
