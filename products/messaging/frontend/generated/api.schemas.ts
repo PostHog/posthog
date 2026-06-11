@@ -117,12 +117,12 @@ export type EmailTemplateApiDesignBody = {
 }
 
 /**
- * Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.
+ * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
  */
 export type EmailTemplateApiDesign = {
     /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
     counters?: EmailTemplateApiDesignCounters
-    /** Unlayer schema version, e.g. 16. */
+    /** Design schema version, e.g. 16. */
     schemaVersion: number
     body: EmailTemplateApiDesignBody
 }
@@ -134,7 +134,7 @@ export interface EmailTemplateApi {
     text?: string
     /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
     html?: string
-    /** Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill. */
+    /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
     design?: EmailTemplateApiDesign
 }
 

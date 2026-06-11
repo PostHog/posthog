@@ -6840,7 +6840,7 @@
         }
     },
     "workflows-create-email-template": {
-        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a plain-text fallback, and content.email.design (Unlayer design JSON — full schema in the designing-email-templates skill). The server renders the sent email from the design with Unlayer's own renderer, and the template opens as editable blocks in PostHog's visual editor. Liquid personalization is supported throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design inline in this call exactly as authored. After creating, call workflows-show-email-template so the user sees the result.",
+        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a plain-text fallback, and content.email.design (the design JSON for PostHog's visual email editor — full schema in the designing-email-templates skill). The server renders the sent email from the design, and the template opens as editable blocks in the editor. Liquid personalization is supported throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design inline in this call exactly as authored. To the user, call it the template's design. After creating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create email template",
@@ -7078,7 +7078,7 @@
         }
     },
     "workflows-update-email-template": {
-        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result.",
+        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update email template",

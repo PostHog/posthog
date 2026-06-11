@@ -1,6 +1,6 @@
 ---
 name: designing-email-templates
-description: 'Author, save, and edit email templates in the PostHog workflows library — compose Unlayer design JSON with Liquid personalization and create and round-trip-edit templates over MCP. Use when asked to design, build, update, or fix an email template for workflows, broadcasts, or campaigns.'
+description: 'Author, save, and edit email templates in the PostHog workflows library — compose email design JSON with Liquid personalization and create and round-trip-edit templates over MCP. Use when asked to design, build, update, or fix an email template for workflows, broadcasts, or campaigns.'
 ---
 
 # Designing email templates
@@ -9,7 +9,9 @@ Use this skill when creating or editing email templates for PostHog workflows �
 
 ## How authoring works
 
-You author **Unlayer design JSON** (`content.email.design`) and save it with `workflows-create-email-template`. The server renders the sent email from your design with Unlayer's own renderer — the same one PostHog's visual editor uses — so the template opens as editable blocks for humans and sends exactly what the design describes. Schema and a working example in [references/unlayer-design-json.md](references/unlayer-design-json.md).
+You author the **design JSON** (`content.email.design`) and save it with `workflows-create-email-template`. The server renders the sent email from your design with the same renderer PostHog's visual editor uses, so the template opens as editable blocks for humans and sends exactly what the design describes. Schema and a working example in [references/unlayer-design-json.md](references/unlayer-design-json.md).
+
+When talking to the user, call it the template's **design** — the design document format is an internal implementation detail. Always share the template's `_posthogUrl` edit link in your reply after creating or updating, so the user can open it in PostHog directly.
 
 Read [references/design-guidelines.md](references/design-guidelines.md) before composing — it covers committing to a design direction, typography, color, and the patterns that make an email look designed rather than generated. For one fragment the block editor can't express, use an `html`-type content block inside the design.
 

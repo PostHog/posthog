@@ -76,7 +76,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                                     .describe(
                                         'Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.'
                                     ),
-                                schemaVersion: zod.number().describe('Unlayer schema version, e.g. 16.'),
+                                schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
                                 body: zod.object({
                                     id: zod.string().optional().describe('Any unique string.'),
                                     rows: zod
@@ -96,7 +96,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             })
                             .optional()
                             .describe(
-                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
+                                "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
                             ),
                     }),
                     zod.null(),
@@ -184,7 +184,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     .describe(
                                         'Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.'
                                     ),
-                                schemaVersion: zod.number().describe('Unlayer schema version, e.g. 16.'),
+                                schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
                                 body: zod.object({
                                     id: zod.string().optional().describe('Any unique string.'),
                                     rows: zod
@@ -204,7 +204,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             })
                             .optional()
                             .describe(
-                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
+                                "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
                             ),
                     }),
                     zod.null(),
