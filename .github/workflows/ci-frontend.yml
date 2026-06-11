@@ -265,6 +265,61 @@ jobs:
                         "event_type": ${{ toJSON(github.event_name) }}
                       }
 
+    frontend-eager-graph:
+        name: Frontend eager graph budgets
+        needs: [changes]
+        if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'merge_group'
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  filter: blob:none
+
+            # Unrebased branches predate the check script — skip everything (including
+            # the build) rather than failing PRs that haven't picked it up yet.
+            - name: Check script availability
+              id: script
+              run: echo "present=$([ -f frontend/bin/check-eager-graph.mjs ] && echo true || echo false)" >> $GITHUB_OUTPUT
+
+            - name: Install pnpm
+              if: steps.script.outputs.present == 'true'
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Set up Node.js
+              if: steps.script.outputs.present == 'true'
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              if: steps.script.outputs.present == 'true'
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+            - name: Restore pnpm cache
+              if: steps.script.outputs.present == 'true'
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
+
+            - name: Install package.json dependencies with pnpm
+              if: steps.script.outputs.present == 'true'
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build app
+              if: steps.script.outputs.present == 'true'
+              run: pnpm --filter=@posthog/frontend build
+
+            - name: Check eager graph budgets
+              if: steps.script.outputs.present == 'true'
+              run: node frontend/bin/check-eager-graph.mjs
+
     frontend-typescript-checks:
         name: Frontend typechecking
         needs: [changes]
