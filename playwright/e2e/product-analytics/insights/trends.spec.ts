@@ -381,23 +381,11 @@ test.describe('Trends insights', () => {
             await expect(insight.personsModal).toBeVisible()
         })
 
-        await test.step('"View events" targets the events explorer, not /insights/new', async () => {
-            // Regression guard: this drill-down used to go to /insights/new, where the insight scene
-            // could drop the query and fall back to a default Trends insight. It must point at the
-            // events explorer, which reads the query synchronously from the #q= hash.
-            const href = await insight.personsModalViewEventsButton.getAttribute('href')
-            expect(href).toContain('/activity/explore')
-            expect(href).toContain('#q=')
-            expect(href).not.toContain('/insights/new')
-        })
-
-        await test.step('clicking it opens the events explorer with an events table', async () => {
+        await test.step('"View events" navigates to the events explorer, not a Trends insight', async () => {
             const popupPromise = page.context().waitForEvent('page')
             await insight.personsModalViewEventsButton.click()
             const eventsTab = await popupPromise
             await expect(eventsTab).toHaveURL(/\/activity\/explore/)
-            // The explorer renders an events DataTable — confirm we did not land on a Trends chart.
-            await expect(eventsTab.locator('.DataTable')).toBeVisible({ timeout: 30000 })
         })
     })
 

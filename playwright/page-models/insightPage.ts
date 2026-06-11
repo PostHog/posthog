@@ -23,7 +23,6 @@ export class InsightPage {
     readonly topBarName: Locator
     readonly activeTab: Locator
 
-    // persons modal (drill-down)
     readonly personsModal: Locator
     readonly personsModalViewEventsButton: Locator
 
