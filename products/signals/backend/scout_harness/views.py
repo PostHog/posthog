@@ -339,6 +339,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 time_range=time_range_tuple,
                 mcp_trace_id=data.get("mcp_trace_id") or None,
                 finding_id=data.get("finding_id") or None,
+                tags=data.get("tags") or None,
             )
         except InvalidEmitError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})

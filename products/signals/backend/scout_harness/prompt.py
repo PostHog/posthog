@@ -77,9 +77,13 @@ When you call `signals-scout-emit-signal`:
 - `confidence` ∈ [0, 1] — your certainty the finding is real. This is the emit
   gate: below ~0.65, prefer a scratchpad entry over emitting.
 - `evidence` — list of citations, capped at 20 entries.
+- `tags` — optional category slugs for the finding; see *Tagging your findings*
+  below.
 - `finding_id` — a stable id for this finding, echoed into the signal for
   traceability. It does NOT dedupe: emitting the same id twice creates two
   signals, so emit each finding exactly once and never retry an emit.
+
+{tag_vocabulary}
 
 # Writing the description (how it renders in the inbox)
 
@@ -163,7 +167,45 @@ Respond at end_turn with a single JSON object matching this schema:
 """
 
 
-def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_at: datetime) -> str:
+_TAG_GUIDANCE = """# Tagging your findings
+
+Attach 1-5 `tags` to each emit — lowercase kebab-case slugs naming the
+*category* of the finding (`cost-spike`, `silent-failure`, `tracking-gap`),
+not the specific entity (that's what `dedupe_keys` and evidence ids are for).
+Tags are how structure emerges from the signals you and your peers emit, so
+treat the vocabulary as something you own and evolve:
+
+- **Reuse before coining.** If an existing tag fits, use it — consistency is
+  what makes tags queryable. Usage counts below show your current vocabulary.
+- **Coin freely when a genuinely new category emerges.** The vocabulary should
+  evolve as the project does; don't force a finding into an ill-fitting tag.
+- Near-miss formats are normalized to slugs at emit, but aim for clean slugs.
+"""
+
+_TAG_VOCABULARY_EMPTY = """You have no tag history yet — this run starts the vocabulary. Coin slugs for
+the categories you actually find."""
+
+
+def render_tag_vocabulary(tag_usage: list[tuple[str, int]] | None) -> str:
+    """Render the *Tagging your findings* prompt section.
+
+    `tag_usage` is `(tag, emit_count)` pairs, most-used first — the scout's own
+    recent vocabulary as computed by `tools.emit.recent_tag_usage`.
+    """
+    if not tag_usage:
+        return _TAG_GUIDANCE + "\n" + _TAG_VOCABULARY_EMPTY
+    lines = "\n".join(f"- `{tag}` ({count})" for tag, count in tag_usage)
+    return f"{_TAG_GUIDANCE}\nYour recent tag usage (tag, times used):\n\n{lines}"
+
+
+def build_run_prompt(
+    skill: LoadedSkill,
+    *,
+    run_id: str,
+    team_id: int,
+    started_at: datetime,
+    tag_usage: list[tuple[str, int]] | None = None,
+) -> str:
     """Render the opening prompt for one scout run.
 
     `run_id` is the UUID of the `SignalScoutRun` row the harness inserted before
@@ -183,7 +225,7 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
     """
     started_at_iso = started_at.replace(microsecond=0).isoformat()
     schema_json = json.dumps(SignalScoutRunSummary.model_json_schema(), indent=2)
-    tail = _BASE_PROMPT_TAIL.format(schema_json=schema_json)
+    tail = _BASE_PROMPT_TAIL.format(schema_json=schema_json, tag_vocabulary=render_tag_vocabulary(tag_usage))
     return f"""{_BASE_PROMPT_INTRO}
 # Your run identity
 

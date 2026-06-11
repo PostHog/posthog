@@ -14723,6 +14723,12 @@ export namespace Schemas {
       severity?: AutonomyPriorityEnum | null;
       /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
       dedupe_keys?: string[];
+      /**
+         * Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse your existing vocabulary (shown in your run prompt) when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row.
+         * @maxItems 10
+         * @items.maxLength 50
+         */
+      tags?: string[];
       /** Optional time window the finding refers to. */
       time_range?: TimeRange | null;
       /**
@@ -39643,6 +39649,8 @@ export namespace Schemas {
        * * `P3` - P3
        * * `P4` - P4 */
       severity: AutonomyPriorityEnum | null;
+      /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). Empty list when the run set none. */
+      tags: string[];
       /** Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store. */
       source_id: string;
       /** ISO-8601 timestamp the finding was emitted. */

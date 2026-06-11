@@ -167,6 +167,31 @@ class TestPromptBuilder(BaseTest):
         # agent-feedback tool so the scout system improves over time.
         assert "Report operational friction" in prompt
         assert "agent-feedback" in prompt
+        # Tag guidance always renders; with no usage passed it states the cold-start case.
+        assert "Tagging your findings" in prompt
+        assert "no tag history yet" in prompt
+
+    def test_renders_tag_vocabulary_with_usage_counts(self) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="Errors scout",
+            body="watch for spikes",
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-errors")
+        prompt = build_run_prompt(
+            loaded,
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            tag_usage=[("cost-spike", 14), ("silent-failure", 3)],
+        )
+        # The scout's own vocabulary renders with usage counts so it gravitates to
+        # reuse, and the cold-start copy is absent.
+        assert "Tagging your findings" in prompt
+        assert "- `cost-spike` (14)" in prompt
+        assert "- `silent-failure` (3)" in prompt
+        assert "no tag history yet" not in prompt
         # The base prompt teaches scouts to format the description for the inbox
         # surface (markdown, front-loaded into the ~300-char collapsed preview),
         # while leaving a skill body free to impose its own structure.

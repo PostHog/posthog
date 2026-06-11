@@ -29,12 +29,16 @@ from products.signals.backend.scout_harness.tools import (
 )
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
+    MAX_TAG_LENGTH,
+    MAX_TAGS_PER_FINDING,
     SCOUT_SIGNAL_WEIGHT,
     SOURCE_PRODUCT,
     SOURCE_TYPE,
     _build_extra,
     _validate_inputs,
     emit_finding_sync,
+    normalize_tags,
+    recent_tag_usage,
 )
 from products.signals.backend.scout_harness.tools.runs import MAX_FAILURE_REASON_LENGTH, MAX_RUN_SEARCH_LIMIT
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -473,6 +477,55 @@ class TestValidateEmitInputs:
         _validate_inputs("ok", 0.5, [], "x" * MAX_FINDING_ID_LENGTH)
 
 
+class TestNormalizeTags:
+    """Pure normalization — no DB."""
+
+    @parameterized.expand(
+        [
+            ("already_clean", ["cost-spike"], ["cost-spike"]),
+            ("uppercase", ["Cost-Spike"], ["cost-spike"]),
+            ("spaces", ["cost spike"], ["cost-spike"]),
+            ("underscores", ["cost_spike"], ["cost-spike"]),
+            ("mixed_separators_and_case", ["  Cost _ Spike  "], ["cost-spike"]),
+            ("invalid_chars_stripped", ["cost!spike?"], ["costspike"]),
+            ("hyphen_runs_collapsed", ["cost--spike", "-edge-"], ["cost-spike", "edge"]),
+            (
+                "dedupes_post_normalization",
+                ["cost-spike", "Cost Spike", "silent-failure"],
+                ["cost-spike", "silent-failure"],
+            ),
+            ("preserves_first_seen_order", ["b-tag", "a-tag"], ["b-tag", "a-tag"]),
+        ]
+    )
+    def test_normalizes_to_slugs(self, _name: str, raw: list[str], expected: list[str]) -> None:
+        assert normalize_tags(raw) == expected
+
+    @parameterized.expand([("none", None), ("empty", [])])
+    def test_no_tags_returns_none(self, _name: str, raw: list[str] | None) -> None:
+        assert normalize_tags(raw) is None
+
+    @parameterized.expand([("only_punctuation", ["!!!"]), ("whitespace", ["   "]), ("only_hyphens", ["---"])])
+    def test_unsalvageable_tag_raises(self, _name: str, raw: list[str]) -> None:
+        with pytest.raises(InvalidEmitError):
+            normalize_tags(raw)
+
+    def test_too_many_tags_raises(self) -> None:
+        with pytest.raises(InvalidEmitError):
+            normalize_tags([f"tag-{i}" for i in range(MAX_TAGS_PER_FINDING + 1)])
+
+    def test_at_capacity_passes(self) -> None:
+        tags = [f"tag-{i}" for i in range(MAX_TAGS_PER_FINDING)]
+        assert normalize_tags(tags) == tags
+
+    def test_overlong_tag_raises(self) -> None:
+        with pytest.raises(InvalidEmitError):
+            normalize_tags(["a" * (MAX_TAG_LENGTH + 1)])
+
+    def test_tag_at_max_length_passes(self) -> None:
+        tag = "a" * MAX_TAG_LENGTH
+        assert normalize_tags([tag]) == [tag]
+
+
 class TestBuildEmitExtra:
     """Pure shaping — no DB. Asserts the dict matches what `SignalsScoutSignalExtra` expects."""
 
@@ -490,6 +543,7 @@ class TestBuildEmitExtra:
             dedupe_keys=None,
             time_range=None,
             mcp_trace_id=None,
+            tags=None,
         )
 
     def test_minimal_extra_has_only_required_fields(self) -> None:
@@ -505,7 +559,7 @@ class TestBuildEmitExtra:
         ]
         # Optional fields omitted, not None — pydantic with extra="forbid" tolerates absence
         # but rejects unexpected keys, so omission is the right shape.
-        for opt in ("hypothesis", "severity", "dedupe_keys", "time_range", "mcp_trace_id"):
+        for opt in ("hypothesis", "severity", "dedupe_keys", "time_range", "mcp_trace_id", "tags"):
             assert opt not in extra
 
     def test_skill_version_cast_to_float(self) -> None:
@@ -528,12 +582,14 @@ class TestBuildEmitExtra:
             dedupe_keys=["checkout-500-spike"],
             time_range=("2026-04-29T00:00:00Z", "2026-04-30T00:00:00Z"),
             mcp_trace_id="trace-abc",
+            tags=["cost-spike", "post-deploy-regression"],
         )
         assert extra["hypothesis"] == "checkout post-deploy regression"
         assert extra["severity"] == "P1"
         assert extra["dedupe_keys"] == ["checkout-500-spike"]
         assert extra["time_range"] == {"date_from": "2026-04-29T00:00:00Z", "date_to": "2026-04-30T00:00:00Z"}
         assert extra["mcp_trace_id"] == "trace-abc"
+        assert extra["tags"] == ["cost-spike", "post-deploy-regression"]
 
     def test_built_extra_validates_against_schema_variant(self) -> None:
         """Round-trip: the extra we build must pass `SignalsScoutSignalInput` validation
@@ -541,6 +597,7 @@ class TestBuildEmitExtra:
         from posthog.schema import SignalsScoutSignalInput
 
         extra = self._minimal()
+        extra["tags"] = ["cost-spike"]
         SignalsScoutSignalInput.model_validate(
             {
                 "source_product": SOURCE_PRODUCT,
@@ -827,6 +884,7 @@ async def test_emit_finding_persists_emission_rows(ateam_emit, arun_emit):
             evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
             severity="P1",
             finding_id="f-emit",
+            tags=["post-deploy-regression"],
         )
 
     rows = await database_sync_to_async(lambda: list(SignalScoutEmission.all_teams.filter(scout_run=arun_emit)))()
@@ -838,7 +896,49 @@ async def test_emit_finding_persists_emission_rows(ateam_emit, arun_emit):
     assert emission.weight == SCOUT_SIGNAL_WEIGHT
     assert emission.confidence == 0.85
     assert emission.severity == "P1"
+    assert emission.tags == ["post-deploy-regression"]
     assert emission.source_id == f"run:{arun_emit.id}:finding:f-emit"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_normalizes_tags_into_extra_and_emission_row(ateam_emit, arun_emit):
+    # Messy agent-supplied tags reach both persistence surfaces (signal `extra` and the
+    # emission row) already normalized, so the vocabulary converges on slugs.
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="Checkout 500s post-deploy",
+            confidence=0.85,
+            evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
+            finding_id="f-tags",
+            tags=["Cost Spike", "cost_spike", "silent-failure"],
+        )
+
+    assert mock_emit.await_args is not None
+    assert mock_emit.await_args.kwargs["extra"]["tags"] == ["cost-spike", "silent-failure"]
+    emission = await database_sync_to_async(SignalScoutEmission.all_teams.get)(scout_run=arun_emit)
+    assert emission.tags == ["cost-spike", "silent-failure"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_without_tags_omits_extra_field_and_defaults_row_empty(ateam_emit, arun_emit):
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="Checkout 500s post-deploy",
+            confidence=0.85,
+            evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
+            finding_id="f-no-tags",
+        )
+
+    assert mock_emit.await_args is not None
+    assert "tags" not in mock_emit.await_args.kwargs["extra"]
+    emission = await database_sync_to_async(SignalScoutEmission.all_teams.get)(scout_run=arun_emit)
+    assert emission.tags == []
 
 
 @pytest.mark.asyncio
@@ -977,3 +1077,60 @@ def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
             )
     mock_emit.assert_not_called()
+
+
+class TestRecentTagUsage(BaseTest):
+    def _emission(self, run: SignalScoutRun, tags: list[str], finding_id: str) -> SignalScoutEmission:
+        return SignalScoutEmission.all_teams.create(
+            team=self.team,
+            scout_run=run,
+            finding_id=finding_id,
+            description="d",
+            weight=1.0,
+            confidence=0.8,
+            source_id=f"run:{run.id}:finding:{finding_id}",
+            tags=tags,
+        )
+
+    def test_aggregates_counts_most_used_first(self) -> None:
+        run = _create_run(self.team)
+        self._emission(run, ["cost-spike", "silent-failure"], "f1")
+        self._emission(run, ["cost-spike"], "f2")
+        usage = recent_tag_usage(team_id=self.team.id, skill_name="signals-scout-errors")
+        assert usage == [("cost-spike", 2), ("silent-failure", 1)]
+
+    def test_scoped_to_skill_name(self) -> None:
+        errors_run = _create_run(self.team, skill_name="signals-scout-errors")
+        logs_run = _create_run(self.team, skill_name="signals-scout-logs")
+        self._emission(errors_run, ["cost-spike"], "f1")
+        self._emission(logs_run, ["log-burst"], "f2")
+        usage = recent_tag_usage(team_id=self.team.id, skill_name="signals-scout-errors")
+        assert usage == [("cost-spike", 1)]
+
+    def test_does_not_leak_other_teams(self) -> None:
+        from posthog.models import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        with team_scope(other_team.id, canonical=True):
+            other_run = _create_run(other_team)
+            SignalScoutEmission.all_teams.create(
+                team=other_team,
+                scout_run=other_run,
+                finding_id="f-other",
+                description="d",
+                weight=1.0,
+                confidence=0.8,
+                source_id=f"run:{other_run.id}:finding:f-other",
+                tags=["foreign-tag"],
+            )
+        assert recent_tag_usage(team_id=self.team.id, skill_name="signals-scout-errors") == []
+
+    def test_empty_without_emissions(self) -> None:
+        assert recent_tag_usage(team_id=self.team.id, skill_name="signals-scout-errors") == []
+
+    def test_tolerates_untagged_emissions(self) -> None:
+        run = _create_run(self.team)
+        self._emission(run, [], "f1")
+        self._emission(run, ["cost-spike"], "f2")
+        usage = recent_tag_usage(team_id=self.team.id, skill_name="signals-scout-errors")
+        assert usage == [("cost-spike", 1)]
