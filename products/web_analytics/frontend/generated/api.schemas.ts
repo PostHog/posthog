@@ -271,9 +271,9 @@ export interface PatchedSavedHeatmapRequestApi {
  * * `Up` - Up
  * * `Down` - Down
  */
-export type DirectionEnumApi = (typeof DirectionEnumApi)[keyof typeof DirectionEnumApi]
+export type WoWChangeDirectionEnumApi = (typeof WoWChangeDirectionEnumApi)[keyof typeof WoWChangeDirectionEnumApi]
 
-export const DirectionEnumApi = {
+export const WoWChangeDirectionEnumApi = {
     Up: 'Up',
     Down: 'Down',
 } as const
@@ -285,7 +285,7 @@ export interface WoWChangeApi {
      *
      * * `Up` - Up
      * * `Down` - Down */
-    direction: DirectionEnumApi
+    direction: WoWChangeDirectionEnumApi
     /** Hex color indicating whether the change is a positive or negative signal. */
     color: string
     /** Short label, e.g. 'Up 12%'. */
