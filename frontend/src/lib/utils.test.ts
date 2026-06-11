@@ -1,6 +1,7 @@
 import tk from 'timekeeper'
 
 import { dayjs } from 'lib/dayjs'
+import { shortTimeZone } from 'lib/utils/timezones'
 
 import {
     areDatesValidForInterval,
@@ -16,7 +17,6 @@ import {
     isLessThan2Days,
     isURL,
     parseTagsFilter,
-    shortTimeZone,
     toParams,
 } from './utils'
 
