@@ -9,7 +9,7 @@ import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } 
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs } from 'lib/dayjs'
-import { ceilMsToClosestSecond, humanFriendlyDuration } from 'lib/utils'
+import { ceilMsToClosestSecond, humanFriendlyDuration } from 'lib/utils/durations'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'

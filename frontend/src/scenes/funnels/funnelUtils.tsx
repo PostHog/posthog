@@ -1,6 +1,6 @@
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { clamp, percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'

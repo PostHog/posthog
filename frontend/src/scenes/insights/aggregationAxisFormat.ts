@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import { compactNumber, humanFriendlyCurrency, humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 

@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'

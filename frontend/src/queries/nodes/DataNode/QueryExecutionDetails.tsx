@@ -6,7 +6,7 @@ import { IconChip } from '@posthog/icons'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyMilliseconds } from 'lib/utils'
+import { humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { humanizeBytes } from 'lib/utils/numbers'
 
 import { dataNodeLogic } from './dataNodeLogic'

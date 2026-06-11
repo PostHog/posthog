@@ -11,7 +11,7 @@ import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { teamLogic } from 'scenes/teamLogic'
 

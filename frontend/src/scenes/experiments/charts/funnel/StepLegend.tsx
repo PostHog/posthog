@@ -4,7 +4,7 @@ import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 

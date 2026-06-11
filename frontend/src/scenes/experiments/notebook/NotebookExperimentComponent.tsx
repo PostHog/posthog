@@ -6,7 +6,7 @@ import { LemonBanner, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDiff } from 'lib/utils'
+import { humanFriendlyDiff } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {

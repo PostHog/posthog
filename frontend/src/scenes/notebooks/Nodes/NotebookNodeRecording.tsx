@@ -6,7 +6,7 @@ import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
