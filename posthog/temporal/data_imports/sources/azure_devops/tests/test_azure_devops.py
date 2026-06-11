@@ -207,6 +207,55 @@ class TestGetRows:
         assert parse_qs(urlparse(url).query)["continuationToken"] == ["tok_resume"]
 
     @mock.patch("posthog.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session")
+    def test_work_item_revisions_resume_does_not_send_start_date_time(self, mock_session):
+        # A continuationToken fully encodes the stream position; pairing it with
+        # startDateTime would reset the stream to the watermark on resume.
+        mock_session.return_value.get.return_value = _response({"values": [], "isLastBatch": True})
+
+        manager = _make_manager(AzureDevOpsResumeConfig(continuation_token="tok_resume"))
+        list(
+            get_rows(
+                "myorg",
+                "pat",
+                "work_item_revisions",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+        )
+
+        query = parse_qs(urlparse(mock_session.return_value.get.call_args.args[0]).query)
+        assert query["continuationToken"] == ["tok_resume"]
+        assert "startDateTime" not in query
+
+    @mock.patch("posthog.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session")
+    def test_project_enumeration_does_not_carry_endpoint_incremental_param(self, mock_session):
+        # Project enumeration is independent of the data endpoint being synced,
+        # so the builds incremental filter must not leak into it.
+        mock_session.return_value.get.side_effect = [
+            _response({"value": [{"id": "p1", "name": "Alpha"}]}),
+            _response({"value": []}),
+        ]
+
+        manager = _make_manager()
+        list(
+            get_rows(
+                "myorg",
+                "pat",
+                "builds",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+        )
+
+        projects_url = mock_session.return_value.get.call_args_list[0].args[0]
+        assert urlparse(projects_url).path == "/myorg/_apis/projects"
+        assert "minTime" not in parse_qs(urlparse(projects_url).query)
+
+    @mock.patch("posthog.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session")
     def test_sign_in_page_raises_auth_error(self, mock_session):
         response = mock.MagicMock()
         response.status_code = 203

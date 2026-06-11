@@ -4,19 +4,18 @@ from typing import Literal, Optional
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
+# Azure DevOps mixes pagination styles per endpoint, dispatched by name in
+# azure_devops.py:
+# - projects/builds: continuationToken via the x-ms-continuationtoken header
+# - pull_requests: $top/$skip offset paging
+# - work_item_revisions: body continuationToken + isLastBatch (reporting endpoint)
+# - repositories: single per-project response
 @dataclass
 class AzureDevOpsEndpointConfig:
     name: str
     # Path template under https://dev.azure.com/{organization}; `{project}` is
     # substituted during the per-project fan-out.
     path: str
-    # Azure DevOps mixes pagination styles per endpoint:
-    # - "header_token": continuationToken via the x-ms-continuationtoken header
-    # - "skip": $top/$skip offset paging (git pull requests)
-    # - "batch_token": body continuationToken + isLastBatch (reporting endpoints)
-    # - "none": single response (per-project repository lists)
-    pagination: Literal["header_token", "skip", "batch_token", "none"]
-    project_scoped: bool = False
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Query param that pushes the incremental cursor server-side.
@@ -30,19 +29,14 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
     "projects": AzureDevOpsEndpointConfig(
         name="projects",
         path="/_apis/projects",
-        pagination="header_token",
     ),
     "repositories": AzureDevOpsEndpointConfig(
         name="repositories",
         path="/{project}/_apis/git/repositories",
-        pagination="none",
-        project_scoped=True,
     ),
     "builds": AzureDevOpsEndpointConfig(
         name="builds",
         path="/{project}/_apis/build/builds",
-        pagination="header_token",
-        project_scoped=True,
         partition_key="queueTime",
         # minTime filters on queue time; queryOrder=queueTimeAscending keeps
         # the watermark monotonic.
@@ -59,8 +53,6 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
     "pull_requests": AzureDevOpsEndpointConfig(
         name="pull_requests",
         path="/{project}/_apis/git/pullrequests",
-        pagination="skip",
-        project_scoped=True,
         primary_keys=["pullRequestId"],
         partition_key="creationDate",
         incremental_param="searchCriteria.minTime",
@@ -79,7 +71,6 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
     "work_item_revisions": AzureDevOpsEndpointConfig(
         name="work_item_revisions",
         path="/_apis/wit/reporting/workitemrevisions",
-        pagination="batch_token",
         # Revisions are append-only; (id, rev) identifies one revision.
         primary_keys=["id", "rev"],
         partition_key="changed_date",

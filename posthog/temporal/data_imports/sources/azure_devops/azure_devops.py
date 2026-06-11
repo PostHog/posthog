@@ -141,10 +141,12 @@ def get_rows(
             params[config.incremental_param] = incremental_value
         return params
 
-    def iterate_header_token(path: str, extra: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+    def iterate_header_token(
+        path: str, extra: dict[str, Any], use_base_params: bool = True
+    ) -> Iterator[list[dict[str, Any]]]:
         token: Optional[str] = None
         while True:
-            params = {**base_params(), **extra, "$top": PAGE_SIZE}
+            params = {**(base_params() if use_base_params else {}), **extra, "$top": PAGE_SIZE}
             if token:
                 params["continuationToken"] = token
             response = fetch(path, params)
@@ -168,8 +170,10 @@ def get_rows(
             skip += PAGE_SIZE
 
     def project_names() -> list[str]:
+        # Project enumeration is independent of the data endpoint being synced,
+        # so it must not carry that endpoint's incremental filter.
         names: list[str] = []
-        for page in iterate_header_token("/_apis/projects", {}):
+        for page in iterate_header_token("/_apis/projects", {}, use_base_params=False):
             names.extend(item["name"] for item in page if item.get("name"))
         return names
 
@@ -209,9 +213,10 @@ def get_rows(
         logger.debug(f"Azure DevOps: resuming {endpoint} from continuation token")
 
     while True:
-        params = base_params()
-        if token:
-            params["continuationToken"] = token
+        # A continuationToken fully encodes the stream position, so once we have
+        # one (from a resumed run or the previous batch) it must be sent alone —
+        # pairing it with startDateTime would reset the stream to the watermark.
+        params = {"continuationToken": token} if token else base_params()
         body = fetch(config.path, params).json()
         items = [_flatten_revision(item) for item in (body.get("values", []) or [])]
 

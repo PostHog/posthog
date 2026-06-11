@@ -30,6 +30,12 @@ class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResu
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AZUREDEVOPS
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The PAT is sent to dev.azure.com/<organization>, so retargeting the
+        # organization must force re-entry of the token.
+        return ["organization"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "the personal access token is invalid or expired": "Azure DevOps authentication failed. Please check your personal access token (it may have expired).",

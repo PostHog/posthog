@@ -33,6 +33,11 @@ class TestAzureDevOpsSource:
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["organization", "personal_access_token"]
 
+    def test_connection_host_fields_includes_organization(self):
+        # The PAT is sent to dev.azure.com/<organization>, so retargeting the
+        # organization must force re-entry of the token.
+        assert self.source.connection_host_fields == ["organization"]
+
     def test_pat_field_is_secret_password(self):
         config = self.source.get_source_config
         token_field = next(
