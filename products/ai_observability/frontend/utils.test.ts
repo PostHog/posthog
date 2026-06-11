@@ -30,8 +30,8 @@ const recipe = new RecipeNormalizer()
 const IMPLS = [
     {
         name: 'recipe',
-        normalizeMessage: (r: unknown, d: string) => recipe.normalizeMessage(r, d),
-        normalizeMessages: (m: unknown, d: string, t?: unknown) => recipe.normalizeMessages(m, d, t),
+        normalizeMessage: (r: unknown, d: string) => recipe.normalizeMessage(r, d).messages,
+        normalizeMessages: (m: unknown, d: string, t?: unknown) => recipe.normalizeMessages(m, d, t).messages,
     },
 ] as const
 

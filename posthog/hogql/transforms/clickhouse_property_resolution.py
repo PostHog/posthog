@@ -35,6 +35,13 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.type_system import (
+    ComparisonCompatibility,
+    comparison_compatibility,
+    constant_type_from_runtime_type,
+    parse_sql_runtime_type,
+    runtime_type_from_constant_type,
+)
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import CloningVisitor
 
@@ -68,6 +75,9 @@ class MaterializedPropertySource:
     kind: Literal["materialized_column", "dmat", "property_group"]
     column: str
     is_nullable: bool
+    # The column's physical ClickHouse type (e.g. "Nullable(Float64)"); None means the string default. Typed columns
+    # skip the string sentinel scrubbing and can be compared bare when the value side is type-compatible.
+    column_type: str | None = None
     # Index metadata the comparison optimizations consult to keep the column index-eligible.
     has_minmax_index: bool = False
     has_ngram_lower_index: bool = False
@@ -130,6 +140,7 @@ def resolve_materialized_property_source(
             kind="materialized_column",
             column=materialized_column.name,
             is_nullable=materialized_column.is_nullable,
+            column_type=materialized_column.type,
             has_minmax_index=materialized_column.has_minmax_index,
             has_ngram_lower_index=materialized_column.has_ngram_lower_index,
             has_bloom_filter_index=materialized_column.has_bloom_filter_index,
@@ -279,6 +290,11 @@ def _materialized_head_expr(
     if source.is_nullable or (is_single and first_key in AI_BLOOM_FILTER_PROPERTIES):
         return column_field
 
+    # A typed (non-string) column has no string sentinels to scrub — wrapping it in nullIf(col, '') would not even
+    # type-check in ClickHouse — so it is read bare as well.
+    if not _is_string_column(source):
+        return column_field
+
     # Non-nullable materialized column: scrub the '' / 'null' string sentinels back to NULL.
     scrubbed_empty = ast.Call(name="nullIf", args=[column_field, _sentinel("")])
     if materialization_mode == MaterializationMode.LEGACY_NULL_AS_STRING:
@@ -306,9 +322,11 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
     # directly and skip the wasted drop-then-extract. (The column resolvers also decline, so comparisons over a
     # restricted property never read the backing column either; their operand falls through to this same NULL.)
     if first_key in restricted_property_keys_for_table_type(field_type.table_type, context):
+        _record_property_usage(context, None)
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
     source = resolve_materialized_property_source(field_type, first_key, context)
+    _record_property_usage(context, source.kind if source is not None else None)
     if source is None:
         return None
 
@@ -358,6 +376,46 @@ def _coalesce_empty(expr: ast.Expr) -> ast.Call:
 
 def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
     return expr if isinstance(expr, ast.Constant) and isinstance(expr.value, str) else None
+
+
+def _column_constant_type(source: MaterializedPropertySource) -> ast.ConstantType:
+    """The backing column's physical ClickHouse type as a ConstantType; an untyped column is the string default."""
+    return constant_type_from_runtime_type(parse_sql_runtime_type(source.column_type or "String"))
+
+
+def _is_string_column(source: MaterializedPropertySource) -> bool:
+    return isinstance(_column_constant_type(source), ast.StringType)
+
+
+# Comparison compatibilities the rewrites accept: provably comparable as-is, or via a cast ClickHouse does cheaply.
+_OPTIMIZER_COMPATIBLE_COMPARISONS = {
+    ComparisonCompatibility.DEFINITELY_COMPATIBLE,
+    ComparisonCompatibility.CHEAP_CAST,
+}
+
+
+def _record_range_rewrite(context: HogQLContext, result: str) -> None:
+    if context.type_observability is None:
+        return
+    context.type_observability.record_materialized_range_rewrite(result)
+    if result.startswith("fired"):
+        # A fired rewrite reads the materialized column directly, bypassing the value-substitution path that normally
+        # accounts for the materialized access, so record the usage here.
+        context.type_observability.record_materialized_property_usage("materialized_column")
+
+
+_USAGE_BY_SOURCE_KIND = {
+    "materialized_column": "materialized_column",
+    "dmat": "dynamic_materialized_column",
+    "property_group": "property_group",
+}
+
+
+def _record_property_usage(context: HogQLContext, kind: str | None) -> None:
+    """Record how a property value read was served: from a backing column kind, or "json" when none backs it."""
+    if context.type_observability is None:
+        return
+    context.type_observability.record_materialized_property_usage(_USAGE_BY_SOURCE_KIND.get(kind or "", "json"))
 
 
 @dataclass(frozen=True)
@@ -570,7 +628,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 return None
 
         source = resolve_materialized_property_source(field_type, property_name, self.context)
-        if source is None or source.kind not in ("materialized_column", "dmat"):
+        if source is None or source.kind not in ("materialized_column", "dmat") or not _is_string_column(source):
             return None
         return _OptimizableProperty(
             field_type=field_type,
@@ -585,7 +643,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         field_type, property_name = single
         source = resolve_materialized_property_source(field_type, property_name, self.context)
-        if source is None or source.kind not in ("materialized_column", "dmat"):
+        if source is None or source.kind not in ("materialized_column", "dmat") or not _is_string_column(source):
             return None
         return _OptimizableProperty(
             field_type=field_type,
@@ -768,18 +826,101 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         # the column is always the left operand here, so only that side is handled.
         prop = self._materialized_string_property(node.left)
-        if prop is None or not isinstance(node.right, ast.Constant) or node.right.value is None:
+        if prop is None:
+            return self._optimize_typed_materialized_range(node, op_name)
+        if not isinstance(node.right, ast.Constant) or node.right.value is None:
+            _record_range_rewrite(self.context, "skipped")
             return None
         if self._is_ai_column(prop.source):
+            _record_range_rewrite(self.context, "skipped")
             return None
 
         cmp = _call(op_name, [prop.bare_column(), _const(node.right.value)])
         if prop.source.is_nullable:
+            _record_range_rewrite(self.context, "fired_compare")
             return _call("and", [cmp, prop.is_not_null()])
         # Non-nullable: exclude the '' / 'null' sentinels inline so the bare comparison stays index-eligible.
+        _record_range_rewrite(self.context, "fired_compare")
         clauses: list[ast.Expr] = [cmp]
         clauses.extend(_call("notEquals", [prop.bare_column(), _sentinel(s)]) for s in MAT_COL_NULL_SENTINELS)
         return _call("and", clauses)
+
+    def _optimize_typed_materialized_range(self, node: ast.CompareOperation, op_name: str) -> ast.Expr | None:
+        """Range over a property backed by a typed (non-string) materialized column: compare the bare column.
+
+        A typed column stores the property in its real type (e.g. `Nullable(Float64)`, `Nullable(DateTime64)`), so when
+        the property's semantic type matches the column and the value side is comparable, the comparison can read the
+        bare column — no cast wrapper, no sentinel scrub — which keeps it eligible for the column's minmax index. A
+        string value compared against a DateTime column is converted with `toDateTime64(value, 6, tz)` so the column
+        side stays bare. Only nullable typed columns rewrite: a non-nullable typed column stores the ClickHouse type
+        default for a missing property, and a bare comparison could not tell a real default from a missing value.
+        """
+        single = self._single_key_property(node.left)
+        if single is None:
+            return None
+        field_type, property_name = single
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        if source is None or source.kind != "materialized_column" or _is_string_column(source):
+            return None
+
+        physical = _column_constant_type(source)
+        semantic = self._operand_semantic_type(node.left)
+        if semantic is None or comparison_compatibility(semantic, physical) not in _OPTIMIZER_COMPATIBLE_COMPARISONS:
+            _record_range_rewrite(self.context, "skipped")
+            return None
+
+        right_constant = node.right if isinstance(node.right, ast.Constant) else None
+        if right_constant is not None and right_constant.value is None:
+            _record_range_rewrite(self.context, "skipped")
+            return None
+
+        value_type = self._operand_semantic_type(node.right)
+        converts_to_datetime = (
+            right_constant is not None
+            and value_type is not None
+            and runtime_type_from_constant_type(physical).family == "datetime"
+            and runtime_type_from_constant_type(value_type).family == "string"
+        )
+        if not converts_to_datetime and (
+            value_type is None
+            or comparison_compatibility(physical, value_type) not in _OPTIMIZER_COMPATIBLE_COMPARISONS
+        ):
+            _record_range_rewrite(self.context, "skipped")
+            return None
+
+        if not source.is_nullable:
+            _record_range_rewrite(self.context, "skipped")
+            return None
+
+        right_expr = cast(ast.Expr, self.visit(node.right))
+        if converts_to_datetime:
+            right_expr = _call("toDateTime64", [right_expr, _const(6), ast.Constant(value=self._project_timezone())])
+
+        column = _OptimizableProperty(field_type=field_type, key=property_name, source=source)
+        cmp = _call(op_name, [column.bare_column(), right_expr])
+        _record_range_rewrite(self.context, "fired_compare")
+        return _call("and", [cmp, column.is_not_null()])
+
+    def _operand_semantic_type(self, expr: ast.Expr) -> ast.ConstantType | None:
+        """The semantic type of a comparison operand: the property's registered type for a property read (read off the
+        resolver's `PropertyType` binding, which survives the swapper's cast wrapper), or the expression's own resolved
+        type. A bare lowered JSON read is semantically a string."""
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if isinstance(expr, ast.JSONFieldAccess):
+            return expr.type if expr.type is not None else ast.StringType(nullable=True)
+        expr_type = resolve_field_type(expr)
+        if expr_type is None:
+            return None
+        try:
+            return expr_type.resolve_constant_type(self.context)
+        except Exception:
+            return None
+
+    def _project_timezone(self) -> str:
+        if self.context.modifiers.convertToProjectTimezone is False:
+            return "UTC"
+        return self.context.database.get_timezone() if self.context.database else "UTC"
 
     def _optimize_materialized_ilike(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):
