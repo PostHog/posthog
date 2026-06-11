@@ -289,9 +289,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     if (idx === -1) {
                         return [...state, { id, type: 'assistant_message', text: delta, complete: false }]
                     }
-                    if (state[idx].complete) {
-                        // Never reopen a finalized buffer — a post-finalize chunk is a new message
-                        // (the wire may omit messageId), so start a fresh bubble with a unique id.
+                    // Continue the matched buffer only if it is still the thread tail. A finalized
+                    // buffer, or one with another item appended after it (a tool call, separator,
+                    // error), must not absorb the chunk — text resuming after a tool call is its own
+                    // message and has to render in chronological order. The wire often omits
+                    // messageId, so a fresh bubble gets a uniquified id.
+                    if (state[idx].complete || idx !== state.length - 1) {
                         return [
                             ...state,
                             { id: `${id}@${state.length}`, type: 'assistant_message', text: delta, complete: false },

@@ -208,6 +208,39 @@ describe('sandboxStreamLogic', () => {
             expect(assistantItems[0].id).not.toEqual(assistantItems[1].id)
         })
 
+        it('keeps text before and after a tool call as separate items in wire order', async () => {
+            // Real wire pattern: streamed text, a tool call, then more streamed text — all in one
+            // turn with no agent_message finalize between them and no messageId on any chunk.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Let me ' } }),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'check.' } }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't1',
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    rawInput: { command: 'tools' },
+                    status: 'in_progress',
+                }),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'All ' } }),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'set.' } }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.map((item) => item.type)).toEqual([
+                'assistant_message',
+                'tool_invocation',
+                'assistant_message',
+            ])
+            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistantItems[0].text).toEqual('Let me check.')
+            expect(assistantItems[1].text).toEqual('All set.')
+            expect(assistantItems[0].id).not.toEqual(assistantItems[1].id)
+        })
+
         it('starts a new bubble for a chunk arriving after finalize instead of mutating the finalized one', async () => {
             const frames: StoredLogEntry[] = [
                 sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'Done' } }),
