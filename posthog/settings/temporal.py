@@ -131,3 +131,6 @@ SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS: int = get_from_env(
 SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS: int = get_from_env(
     "SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS", 30, type_cast=int
 )
+
+# Incoming webhook for experiment precompute canary divergence alerts. Unset: Slack alerting is skipped.
+EXPERIMENT_CANARY_SLACK_WEBHOOK_URL: str = os.getenv("EXPERIMENT_CANARY_SLACK_WEBHOOK_URL", "")
