@@ -115,6 +115,34 @@ describe('aiObservabilitySharedLogic', () => {
         })
     })
 
+    it('preserves params owned by other logics when rewriting the URL', () => {
+        // review_* / human_reviews_tab ride along on tab links — applying shared
+        // state must not strip them
+        router.actions.push(urls.aiObservabilityGenerations(), {
+            date_from: '-14d',
+            review_search: 'needs review',
+            human_reviews_tab: 'reviews',
+        })
+
+        expectLogic(logic).toMatchValues({
+            dateFilter: { dateFrom: '-14d', dateTo: null },
+        })
+        expect(router.values.searchParams).toMatchObject({
+            review_search: 'needs review',
+            human_reviews_tab: 'reviews',
+        })
+    })
+
+    it('strips stale trace-view params while keeping foreign params', () => {
+        router.actions.push(urls.aiObservabilityTraces(), {
+            event: 'event-1',
+            timestamp: '2026-01-01',
+            review_search: 'abc',
+        })
+
+        expect(router.values.searchParams).toEqual({ review_search: 'abc' })
+    })
+
     it('should reset filters when switching tabs without params', () => {
         // Set some filters first
         logic.actions.setPropertyFilters([

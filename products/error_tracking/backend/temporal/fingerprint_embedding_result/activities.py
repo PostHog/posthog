@@ -280,6 +280,7 @@ async def merge_similar_fingerprints_activity(
         query_duration_seconds = time.monotonic() - start
         query_duration_ms = query_duration_seconds * 1000
 
+        # Keep emitting candidate metrics for every run; merging is gated separately by configuration.
         _report_closest_fingerprint_metrics(team, inputs, closest_fingerprints, model_name, query_duration_ms)
         merged_count = await database_sync_to_async(_merge_fingerprint_into_closest_issue)(
             team,
