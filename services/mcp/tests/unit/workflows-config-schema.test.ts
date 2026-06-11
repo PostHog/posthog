@@ -49,6 +49,57 @@ describe('workflows create schema — action config', () => {
         expect(result.data.actions[1]?.config).toEqual(waitConfig)
     })
 
+    it('accepts an events-only wait (no condition) and preserves config verbatim', () => {
+        // The runtime supports waits with only events to wait for; 'condition' must not be
+        // schema-required, or agents would be nudged into adding an empty condition to satisfy it.
+        const waitConfig = {
+            events: [
+                {
+                    filters: { events: [{ id: 'purchase', name: 'purchase', type: 'events', order: 0 }] },
+                },
+            ],
+            max_wait_duration: '1h',
+        }
+        const result = HogFlowsCreateBody.safeParse({
+            name: 'Events-only wait workflow',
+            actions: [
+                triggerAction,
+                { id: 'wait_1', name: 'Wait for purchase', type: 'wait_until_condition', config: waitConfig },
+            ],
+        })
+
+        expect(result.success).toBe(true)
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        expect(result.data.actions[1]?.config).toEqual(waitConfig)
+    })
+
+    it('accepts an empty condition and preserves it (runtime ignores it, relying on events/timeout)', () => {
+        const waitConfig = {
+            condition: { filters: {} },
+            events: [
+                {
+                    filters: { events: [{ id: 'purchase', name: 'purchase', type: 'events', order: 0 }] },
+                },
+            ],
+            max_wait_duration: '30m',
+        }
+        const result = HogFlowsCreateBody.safeParse({
+            name: 'Empty condition wait workflow',
+            actions: [
+                triggerAction,
+                { id: 'wait_1', name: 'Wait for purchase', type: 'wait_until_condition', config: waitConfig },
+            ],
+        })
+
+        expect(result.success).toBe(true)
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        expect(result.data.actions[1]?.config).toEqual(waitConfig)
+    })
+
     it('preserves other action type configs verbatim', () => {
         const functionConfig = {
             template_id: 'template-webhook',

@@ -375,8 +375,8 @@ export interface HogFlowEdgeApi {
 export type HogFlowActionApiConfig =
     | { [key: string]: unknown }
     | {
-          /** Property-based wait condition; continues when the person matches. */
-          condition: {
+          /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
+          condition?: {
               /** Property conditions, e.g. {properties: [{key, value, operator, type}]}. */
               filters?: HogFunctionFiltersApi | null
               /** Optional display name. */

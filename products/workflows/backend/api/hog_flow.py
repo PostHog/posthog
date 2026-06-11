@@ -185,12 +185,19 @@ HOG_FLOW_ACTION_CONFIG_SCHEMA = {
         },
         {
             "type": "object",
-            "description": "Config for type='wait_until_condition'.",
-            "required": ["condition", "max_wait_duration"],
+            "description": (
+                "Config for type='wait_until_condition'. Provide 'condition' and/or 'events' — an "
+                "events-only wait (no condition) is valid."
+            ),
+            "required": ["max_wait_duration"],
             "properties": {
                 "condition": {
                     "type": "object",
-                    "description": "Property-based wait condition; continues when the person matches.",
+                    "description": (
+                        "Property-based wait condition; continues when the person matches. A condition "
+                        "with no property filters is ignored — the wait then relies on 'events' and the "
+                        "max_wait_duration timeout."
+                    ),
                     "properties": {
                         "filters": {
                             "anyOf": [{"$ref": "#/components/schemas/HogFunctionFilters"}, {"type": "null"}],

@@ -628,7 +628,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                         name: zod.string().optional().describe('Optional display name.'),
                                     })
-                                    .describe('Property-based wait condition; continues when the person matches.'),
+                                    .optional()
+                                    .describe(
+                                        "Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout."
+                                    ),
                                 events: zod
                                     .array(
                                         zod.object({
@@ -677,7 +680,9 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                                     .string()
                                     .describe("'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay)."),
                             })
-                            .describe("Config for type='wait_until_condition'."),
+                            .describe(
+                                "Config for type='wait_until_condition'. Provide 'condition' and\/or 'events' — an events-only wait (no condition) is valid."
+                            ),
                     ])
                     .describe(
                         "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. exit: {reason}."
@@ -942,7 +947,10 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                                             ),
                                         name: zod.string().optional().describe('Optional display name.'),
                                     })
-                                    .describe('Property-based wait condition; continues when the person matches.'),
+                                    .optional()
+                                    .describe(
+                                        "Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout."
+                                    ),
                                 events: zod
                                     .array(
                                         zod.object({
@@ -991,7 +999,9 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                                     .string()
                                     .describe("'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay)."),
                             })
-                            .describe("Config for type='wait_until_condition'."),
+                            .describe(
+                                "Config for type='wait_until_condition'. Provide 'condition' and\/or 'events' — an events-only wait (no condition) is valid."
+                            ),
                     ])
                     .describe(
                         "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. exit: {reason}."
@@ -1258,7 +1268,10 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             ),
                                         name: zod.string().optional().describe('Optional display name.'),
                                     })
-                                    .describe('Property-based wait condition; continues when the person matches.'),
+                                    .optional()
+                                    .describe(
+                                        "Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout."
+                                    ),
                                 events: zod
                                     .array(
                                         zod.object({
@@ -1307,7 +1320,9 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     .string()
                                     .describe("'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay)."),
                             })
-                            .describe("Config for type='wait_until_condition'."),
+                            .describe(
+                                "Config for type='wait_until_condition'. Provide 'condition' and\/or 'events' — an events-only wait (no condition) is valid."
+                            ),
                     ])
                     .describe(
                         "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. exit: {reason}."
@@ -1668,8 +1683,9 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                                     ),
                                                 name: zod.string().optional().describe('Optional display name.'),
                                             })
+                                            .optional()
                                             .describe(
-                                                'Property-based wait condition; continues when the person matches.'
+                                                "Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout."
                                             ),
                                         events: zod
                                             .array(
@@ -1725,7 +1741,9 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                                 "'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay)."
                                             ),
                                     })
-                                    .describe("Config for type='wait_until_condition'."),
+                                    .describe(
+                                        "Config for type='wait_until_condition'. Provide 'condition' and\/or 'events' — an events-only wait (no condition) is valid."
+                                    ),
                             ])
                             .describe(
                                 "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. exit: {reason}."
@@ -2087,7 +2105,10 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                         name: zod.string().optional().describe('Optional display name.'),
                                     })
-                                    .describe('Property-based wait condition; continues when the person matches.'),
+                                    .optional()
+                                    .describe(
+                                        "Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout."
+                                    ),
                                 events: zod
                                     .array(
                                         zod.object({
@@ -2136,7 +2157,9 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                                     .string()
                                     .describe("'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay)."),
                             })
-                            .describe("Config for type='wait_until_condition'."),
+                            .describe(
+                                "Config for type='wait_until_condition'. Provide 'condition' and\/or 'events' — an events-only wait (no condition) is valid."
+                            ),
                     ])
                     .describe(
                         "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. exit: {reason}."
