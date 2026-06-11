@@ -1935,6 +1935,9 @@ importers:
       simple-statistics:
         specifier: ^7.8.3
         version: 7.8.8
+      tailwindcss:
+        specifier: ^4.0.0
+        version: 4.2.4
     devDependencies:
       '@posthog/quill-tokens':
         specifier: workspace:*
