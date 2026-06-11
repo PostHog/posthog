@@ -81,6 +81,10 @@ export function themeFromCssVars(options: ThemeFromCssOptions = {}): ChartTheme 
         // Surface-styled like quill's popover, not its inverse hint tooltip — stays dark in dark mode.
         tooltipBackground: readCssVar(style, '--card') ?? readCssVar(style, '--color-bg-surface-primary'),
         tooltipColor: readCssVar(style, '--foreground') ?? readCssVar(style, '--color-text-primary'),
+        // Goal-line label badge: an inverse pill (foreground-colored surface, background-colored
+        // text) so it reads as a marker against the plot, not a surface like the tooltip.
+        referenceLabelBackground: readCssVar(style, '--foreground') ?? readCssVar(style, '--color-bg-surface-tooltip'),
+        referenceLabelColor: readCssVar(style, '--background') ?? readCssVar(style, '--color-text-primary-inverse'),
     }
 }
 

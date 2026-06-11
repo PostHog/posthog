@@ -16,6 +16,9 @@ export function buildTheme(overrides?: Partial<ChartTheme>): ChartTheme {
         tooltipBackground: getColorVar('color-bg-surface-popover'),
         tooltipColor: getColorVar('color-text-primary'),
         tooltipZIndex: 'var(--z-chart-tooltip)',
+        // Goal-line label badge keeps the inverse pill look, unlike the surface-styled tooltip.
+        referenceLabelBackground: graphColors.tooltipBackground ?? undefined,
+        referenceLabelColor: graphColors.tooltipTitle ?? undefined,
     }
 
     if (!overrides) {

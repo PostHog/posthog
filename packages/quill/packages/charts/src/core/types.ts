@@ -8,6 +8,10 @@ export interface ChartTheme {
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
+    /** Reference-line label ("goal line") badge colors. An inverse pill that stays legible on
+     *  any chart background — deliberately distinct from the surface-styled tooltip. */
+    referenceLabelBackground?: string
+    referenceLabelColor?: string
 }
 
 /** Default axis id used when a series doesn't specify one. */

@@ -81,6 +81,31 @@ describe('chart theme', () => {
         expect(theme.tooltipColor).toBe(tooltipColor)
     })
 
+    it.each<{ name: string; vars: Record<string, string>; background: string; color: string }>([
+        {
+            name: 'maps to the inverse pill, preferring quill tokens',
+            vars: {
+                '--foreground': '#fg0000',
+                '--background': '#bg0000',
+                '--color-bg-surface-tooltip': '#appbg0',
+                '--color-text-primary-inverse': '#apptxt',
+            },
+            background: '#fg0000',
+            color: '#bg0000',
+        },
+        {
+            name: 'falls back to the app compat names when quill tokens are absent',
+            vars: { '--color-bg-surface-tooltip': '#appbg0', '--color-text-primary-inverse': '#apptxt' },
+            background: '#appbg0',
+            color: '#apptxt',
+        },
+    ])('reference label $name', ({ vars, background, color }) => {
+        const theme = themeFromCssVars({ root: rootWithVars(vars) })
+
+        expect(theme.referenceLabelBackground).toBe(background)
+        expect(theme.referenceLabelColor).toBe(color)
+    })
+
     it('falls back to DEFAULT_CHART_COLORS for unset color vars', () => {
         const root = rootWithVars({})
 

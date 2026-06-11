@@ -2,7 +2,12 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-import { TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './TooltipSurface'
+
+// Inverse pill for the goal/alert/marker label badge — legible on any chart background and
+// deliberately distinct from the surface-styled tooltip. The theme reader supplies the
+// theme-aware inverse; these are the no-theme fallback.
+const LABEL_FALLBACK_BG = '#1d2330'
+const LABEL_FALLBACK_COLOR = '#ffffff'
 
 export type ReferenceLineOrientation = 'horizontal' | 'vertical'
 export type ReferenceLineVariant = 'goal' | 'alert' | 'marker'
@@ -305,8 +310,8 @@ function ReferenceLineView({
     const { theme } = useChartLayout()
     const resolvedLabelStyle: React.CSSProperties = {
         ...labelStyle,
-        backgroundColor: theme.tooltipBackground ?? TOOLTIP_FALLBACK_BG,
-        color: theme.tooltipColor ?? TOOLTIP_FALLBACK_COLOR,
+        backgroundColor: theme.referenceLabelBackground ?? LABEL_FALLBACK_BG,
+        color: theme.referenceLabelColor ?? LABEL_FALLBACK_COLOR,
     }
     return (
         <>
