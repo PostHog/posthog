@@ -218,7 +218,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
-        setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean) => ({ useWebAnalyticsPrecompute }),
+        setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean | null) => ({ useWebAnalyticsPrecompute }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
