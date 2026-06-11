@@ -12,4 +12,4 @@ rules:
                 regex: ^(Fuse|FuseClass|_Fuse)$
       paths:
           exclude:
-              - frontend/src/lib/utils/fuseSearch.ts
+              - /frontend/src/lib/utils/fuseSearch.ts

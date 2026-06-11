@@ -1115,6 +1115,79 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    describe('promoted properties float to position 0 on search', () => {
+        // The API deliberately returns the promoted property *last* (after the decoys)
+        // so a passing assertion can only mean promotion reordered it, not the server order.
+        // Rows render the property's display label, while the decoys render their raw names.
+        const promotedFixtures: Record<string, { label: string; name: string; decoys: string[] }> = {
+            url: { label: 'Current URL', name: '$current_url', decoys: ['referrer_url', 'initial_url'] },
+            path: { label: 'Path name', name: '$pathname', decoys: ['file_path', 'initial_path'] },
+        }
+
+        beforeEach(() => {
+            // Recents persist to localStorage across tests; a leftover promoted property
+            // from an earlier test would otherwise render before our mock response loads.
+            localStorage.clear()
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': (req: { url: URL }) => {
+                        const search = req.url.searchParams.get('search') ?? ''
+                        const fixture = promotedFixtures[search]
+                        const names = fixture ? [...fixture.decoys, fixture.name] : []
+                        return [
+                            200,
+                            {
+                                results: names.map((name, index) => ({
+                                    ...mockEventPropertyDefinition,
+                                    id: `promoted-fixture-${index}`,
+                                    name,
+                                })),
+                                count: names.length,
+                            },
+                        ]
+                    },
+                    '/api/projects/:team/actions': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+        })
+
+        const rowIndexFor = (text: string): number =>
+            parseInt(
+                (Array.from(document.querySelectorAll('[data-attr^="prop-filter-event_properties-"]'))
+                    .find((el) => el.textContent?.includes(text))
+                    ?.getAttribute('data-attr')
+                    ?.split('-')
+                    .pop() as string) ?? 'NaN'
+            )
+
+        it.each([['url'], ['path']])('searching %p floats the promoted property to row 0', async (searchTerm) => {
+            const { label, decoys } = promotedFixtures[searchTerm]
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties] })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), searchTerm)
+
+            // Activate the event-properties list so we assert on its rows, not the
+            // aggregated Suggested-filters tab that may be active by default.
+            await userEvent.click(screen.getByTestId('taxonomic-tab-event_properties'))
+
+            // Wait on a decoy (only present in our mock response) so we assert order
+            // after the real fetch rendered, not on a leftover/top-match promoted row.
+            await waitFor(() => {
+                expect(rowIndexFor(decoys[0])).toBeGreaterThan(-1)
+            })
+
+            expect(rowIndexFor(label)).toBe(0)
+            // the decoys the API returned first are pushed below the promoted row
+            for (const decoy of decoys) {
+                expect(rowIndexFor(decoy)).toBeGreaterThan(0)
+            }
+        })
+    })
+
     describe('log attribute value-match indicator', () => {
         const mockLogAttributes = {
             results: [
@@ -1306,5 +1379,106 @@ describe('TaxonomicFilter', () => {
                 expect(allText).not.toContain(forbidden)
             }
         })
+    })
+
+    describe('reveal barrier and recent matches in SuggestedFilters search', () => {
+        // These tests cover the SuggestedFilters tab's two-phase reveal: matching recents
+        // surface immediately while every non-meta group renders as a skeleton, then when
+        // either every remote group resolves or the 5s timer fires the barrier opens and
+        // real results replace the skeletons.
+        const seedRecentEvent = (): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'onboarding_completed_recent',
+                item: { id: 'recent-onboarding', name: 'onboarding_completed_recent' },
+            })
+        }
+
+        beforeEach(() => {
+            localStorage.clear()
+            // Slow the events endpoint so the barrier-closed state survives at least one paint
+            // — the default mock resolves synchronously, which collapses the close-then-open
+            // cycle inside a single React batch, making the transient skeleton state invisible
+            // to the DOM in CI. Production latency exceeds this comfortably.
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': async (req) => {
+                        await new Promise((resolve) => setTimeout(resolve, 100))
+                        return mockGetEventDefinitions(req)
+                    },
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/projects/:team/actions': { results: [mockActionDefinition] },
+                    '/api/environments/:team/persons/properties': [
+                        { id: 1, name: 'location', count: 1 },
+                        { id: 2, name: 'role', count: 2 },
+                        { id: 3, name: 'height', count: 3 },
+                    ],
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.clearRecentFilters()
+            seedRecentEvent()
+        })
+
+        const renderWithSuggested = (): void => {
+            render(
+                <Provider>
+                    <TaxonomicFilter
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.SuggestedFilters,
+                            TaxonomicFilterGroupType.Events,
+                            TaxonomicFilterGroupType.Actions,
+                        ]}
+                        onChange={onChangeMock}
+                        onClose={onCloseMock}
+                    />
+                </Provider>
+            )
+        }
+
+        const findSuggestedSkeleton = (): Element | null =>
+            document.querySelector('[data-attr^="prop-skeleton-suggested_filters-"]')
+
+        it('renders a skeleton row per non-meta group while the reveal barrier is closed, then replaces them with real results', async () => {
+            renderWithSuggested()
+
+            const searchField = await screen.findByTestId('taxonomic-filter-searchfield')
+            await userEvent.type(searchField, 'event')
+
+            await waitFor(() => {
+                if (!findSuggestedSkeleton()) {
+                    throw new Error('expected at least one suggested_filters skeleton row')
+                }
+            })
+
+            const testEventRows = await screen.findAllByText('test event', undefined, { timeout: 6000 })
+            expect(testEventRows.length).toBeGreaterThanOrEqual(1)
+
+            await waitFor(
+                () => {
+                    if (findSuggestedSkeleton()) {
+                        throw new Error('expected suggested_filters skeletons to be removed once the barrier opens')
+                    }
+                },
+                { timeout: 6000 }
+            )
+        }, 10000)
+
+        it('a recent that matches the search appears in the SuggestedFilters list even though the barrier gates other groups', async () => {
+            renderWithSuggested()
+
+            const searchField = await screen.findByTestId('taxonomic-filter-searchfield')
+            await userEvent.type(searchField, 'onboarding_completed_recent')
+
+            const matches = await screen.findAllByText('onboarding_completed_recent', undefined, { timeout: 6000 })
+            expect(matches.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
     })
 })

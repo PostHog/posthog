@@ -12,8 +12,9 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.api.test._access_control_base import WarehouseAccessControlTestMixin
-from products.data_warehouse.backend.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 
 MANAGED_VIEWSET_KIND = "revenue_analytics"
 
@@ -33,9 +34,7 @@ class TestDataWarehouseManagedViewSetAccessControl(WarehouseAccessControlTestMix
             ("editor", status.HTTP_200_OK),
         ]
     )
-    @patch(
-        "products.data_warehouse.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views"
-    )
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     def test_enable_access_matrix(self, access_level, expected_status, mock_sync_views):
         # sync_views is heavy (builds HogQL Database, resolves revenue analytics views);
         # we only care about the AC decision here so mock it out.

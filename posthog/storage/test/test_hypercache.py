@@ -10,7 +10,13 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.storage import object_storage
-from posthog.storage.hypercache import DEFAULT_CACHE_MISS_TTL, DEFAULT_CACHE_TTL, HyperCache, HyperCacheStoreMissing
+from posthog.storage.hypercache import (
+    DEFAULT_CACHE_MISS_TTL,
+    DEFAULT_CACHE_TTL,
+    HyperCache,
+    HyperCacheDependencyUnavailable,
+    HyperCacheStoreMissing,
+)
 
 
 class HyperCacheTestBase:
@@ -150,6 +156,76 @@ class TestHyperCacheUpdateCache(HyperCacheTestBase):
         result = hc.update_cache(self.team_id)
 
         assert result is False
+
+
+class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
+    """A load_fn raising HyperCacheDependencyUnavailable skips the write and returns a
+    miss without caching a sentinel."""
+
+    @staticmethod
+    def _load_fn_unavailable(team):
+        raise HyperCacheDependencyUnavailable("persons db down")
+
+    def test_update_cache_returns_false_and_writes_nothing(self):
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with (
+            patch("posthog.storage.hypercache.capture_exception") as mock_capture,
+            patch("posthog.storage.hypercache.HYPERCACHE_REBUILD_SKIPPED_COUNTER") as mock_skipped,
+        ):
+            result = hc.update_cache(self.team_id)
+
+        assert result is False
+        # Nothing written, not even a miss sentinel, so a prior entry survives
+        assert cache.get(hc.get_cache_key(self.team_id)) is None
+        # The source of the failure already reported it, so update_cache does not
+        mock_capture.assert_not_called()
+        # The skip is counted so the refresh/warm path feeds the skip metric, not just
+        # the signal path
+        mock_skipped.labels.assert_called_once_with(namespace="dep_test", reason="dependency_unavailable")
+        mock_skipped.labels.return_value.inc.assert_called_once()
+
+    def test_get_from_cache_returns_transient_miss_without_sentinel(self):
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        result, source = hc.get_from_cache_with_source(self.team_id)
+
+        assert result is None
+        # Distinct from a plain "db" miss so etag-aware callers can fail loud
+        assert source == "dependency_unavailable"
+        # No miss sentinel cached, so the next read retries instead of serving a cached miss
+        assert cache.get(hc.get_cache_key(self.team_id)) is None
+
+    def test_get_if_none_match_raises_when_etag_enabled_and_cold(self):
+        # On a cold cache during an outage, the etag-aware read must surface the typed
+        # signal to the caller (→ retryable 503), not degrade to a silent miss.
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable, enable_etag=True)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with pytest.raises(HyperCacheDependencyUnavailable):
+            hc.get_if_none_match(self.team_id, client_etag=None)
+
+    def test_get_if_none_match_raises_when_etag_disabled_and_cold(self):
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with pytest.raises(HyperCacheDependencyUnavailable):
+            hc.get_if_none_match(self.team_id, client_etag=None)
+
+    def test_get_if_none_match_still_degrades_on_redis_failure(self):
+        # A genuine Redis failure during the etag check must still degrade to full
+        # data — only the dependency-unavailable signal is re-raised.
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=lambda team: {"ok": True}, enable_etag=True)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with patch.object(hc, "get_etag", side_effect=Exception("redis down")):
+            data, etag, modified = hc.get_if_none_match(self.team_id, client_etag=None)
+
+        assert data == {"ok": True}
+        assert etag is None
+        assert modified is True
 
 
 class TestHyperCacheIntegration(HyperCacheTestBase):
@@ -458,6 +534,150 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         assert dedicated_etag is not None
         assert len(dedicated_etag) == 16
         assert default_etag is None
+
+
+class TestHyperCacheSecondaryCache(BaseTest):
+    """Test the secondary_cache_alias dual-write path used during cluster migrations."""
+
+    @property
+    def sample_data(self) -> dict:
+        return {"key": "value", "nested": {"data": "test"}}
+
+    @parameterized.expand(
+        [
+            # (name, enable_etag, input_kind, key_kind)
+            # input_kind: "sample" passes self.sample_data; "missing" passes HyperCacheStoreMissing()
+            # key_kind: which key on the HyperCache to assert against ("cache_key" or "etag_key")
+            ("data_payload", False, "sample", "cache_key"),
+            ("etag_alongside_data", True, "sample", "etag_key"),
+            ("missing_sentinel", False, "missing", "cache_key"),
+        ]
+    )
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-secondary-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-secondary-test-cache",
+            },
+        }
+    )
+    def test_dual_writes_to_both_caches(self, _name, enable_etag, input_kind, key_kind):
+        """Every write branch in _set_cache_value_redis is mirrored to the secondary cache."""
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        data: dict | HyperCacheStoreMissing = self.sample_data if input_kind == "sample" else HyperCacheStoreMissing()
+
+        def load_fn(team):
+            return data
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+            enable_etag=enable_etag,
+        )
+
+        team_id = self.team.id
+        hc.set_cache_value(team_id, data)
+
+        target_key = hc.get_etag_key(team_id) if key_kind == "etag_key" else hc.get_cache_key(team_id)
+        primary_value = caches["flags_dedicated"].get(target_key)
+        secondary_value = caches["default"].get(target_key)
+
+        # Both caches must hold the same value. sort_keys=True ensures byte-for-byte
+        # equality of the serialized payload, which also keeps ETags consistent.
+        assert primary_value is not None
+        assert primary_value == secondary_value
+
+        # Branch-specific shape check on the dual-written value.
+        if input_kind == "missing":
+            assert primary_value == "__missing__"
+        elif key_kind == "etag_key":
+            # 16-char hex hash from HyperCache._compute_etag.
+            assert isinstance(primary_value, str) and len(primary_value) == 16
+        else:
+            assert primary_value == json.dumps(self.sample_data, sort_keys=True)
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-secondary-failure-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-secondary-failure-test-cache",
+            },
+        }
+    )
+    def test_secondary_failure_does_not_block_primary(self):
+        """A broken secondary cache must not raise — primary write stays authoritative."""
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        def load_fn(team):
+            return self.sample_data
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+        )
+
+        team_id = self.team.id
+
+        # Replace the secondary client with one that raises on every write op.
+        broken = Mock()
+        broken.set.side_effect = RuntimeError("secondary down")
+        broken.set_many.side_effect = RuntimeError("secondary down")
+        broken.delete.side_effect = RuntimeError("secondary down")
+        hc.secondary_cache_client = broken
+
+        # Must not raise.
+        hc.set_cache_value(team_id, self.sample_data)
+
+        # Primary cache still got the write.
+        cache_key = hc.get_cache_key(team_id)
+        primary_value = caches["flags_dedicated"].get(cache_key)
+        assert primary_value == json.dumps(self.sample_data, sort_keys=True)
+
+        # The broken secondary received the write attempt.
+        broken.set.assert_called()
+
+    def test_unknown_secondary_alias_falls_back_to_no_op(self):
+        """A secondary_cache_alias not in settings.CACHES is silently ignored."""
+
+        def load_fn(team):
+            return self.sample_data
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            secondary_cache_alias="does_not_exist",
+        )
+
+        assert hc.secondary_cache_client is None
+
+        # set_cache_value should still work via the primary (default) cache.
+        team_id = self.team.id
+        cache.clear()
+        hc.set_cache_value(team_id, self.sample_data)
+        cache_key = hc.get_cache_key(team_id)
+        assert cache.get(cache_key) == json.dumps(self.sample_data, sort_keys=True)
 
 
 class TestHyperCacheBatchGetFromCache(BaseTest):

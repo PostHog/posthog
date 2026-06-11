@@ -21,7 +21,7 @@ pub async fn extract_body_with_timeout(
     payload_size_limit: usize,
     chunk_timeout: Option<Duration>,
     chunk_size_kb: usize,
-    path: &str,
+    path: &'static str,
 ) -> Result<Bytes, Error> {
     let mut stream = body.into_data_stream();
     let mut buf = BytesMut::with_capacity(std::cmp::min(payload_size_limit, chunk_size_kb * 1024));
@@ -31,8 +31,7 @@ pub async fn extract_body_with_timeout(
             Some(timeout) => match tokio::time::timeout(timeout, stream.next()).await {
                 Ok(result) => result,
                 Err(_elapsed) => {
-                    metrics::counter!(CAPTURE_V1_BODY_READ_TIMEOUT, "path" => path.to_string())
-                        .increment(1);
+                    metrics::counter!(CAPTURE_V1_BODY_READ_TIMEOUT, "path" => path).increment(1);
                     return Err(Error::BodyReadTimeout(buf.len()));
                 }
             },
@@ -49,6 +48,14 @@ pub async fn extract_body_with_timeout(
                 buf.put(chunk);
             }
             Some(Err(e)) => {
+                // A body wrapped by axum's DefaultBodyLimit surfaces over-limit
+                // reads as a LengthLimitError in the stream; report those as 413
+                // rather than a generic decoding failure.
+                if error_chain_has_length_limit(&e) {
+                    return Err(Error::PayloadTooLarge(format!(
+                        "Request body exceeds limit of {payload_size_limit} bytes"
+                    )));
+                }
                 return Err(Error::RequestDecodingError(format!(
                     "Error reading request body: {e:#}"
                 )));
@@ -62,6 +69,17 @@ pub async fn extract_body_with_timeout(
         return Err(Error::EmptyBody);
     }
     Ok(bytes)
+}
+
+fn error_chain_has_length_limit(err: &axum::Error) -> bool {
+    let mut source = std::error::Error::source(err);
+    while let Some(e) = source {
+        if e.is::<http_body_util::LengthLimitError>() {
+            return true;
+        }
+        source = e.source();
+    }
+    false
 }
 
 /// Decompress a payload using the specified Content-Encoding.
@@ -199,6 +217,17 @@ mod tests {
             extract_body_with_timeout(body, 1024, timeout, TEST_CHUNK_SIZE_KB, "/test").await;
 
         assert!(matches!(result, Err(Error::BodyReadTimeout(_))));
+    }
+
+    #[tokio::test]
+    async fn extract_body_length_limited_maps_to_payload_too_large() {
+        let inner = Body::from(vec![b'x'; 1024]);
+        let limited = http_body_util::Limited::new(inner, 128);
+        let body = Body::new(limited);
+        // Manual limit (4096) is larger than the Limited wrapper's, so only the
+        // wrapped body's LengthLimitError can trigger the failure.
+        let result = extract_body_with_timeout(body, 4096, None, TEST_CHUNK_SIZE_KB, "/test").await;
+        assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
     }
 
     #[tokio::test]
@@ -455,5 +484,21 @@ mod tests {
         let original = Bytes::from("no encoding, just plain text");
         let result = handler_roundtrip(None, original.clone(), 4096, 4096).await;
         assert_eq!(result.unwrap(), original);
+    }
+
+    #[tokio::test]
+    async fn extract_body_stream_error_returns_decoding_error() {
+        let error_stream = stream::once(async {
+            Err::<Bytes, std::io::Error>(std::io::Error::new(
+                std::io::ErrorKind::ConnectionReset,
+                "simulated stream error",
+            ))
+        });
+        let body = Body::from_stream(error_stream);
+        let result = extract_body_with_timeout(body, 4096, None, TEST_CHUNK_SIZE_KB, "/test").await;
+        assert!(
+            matches!(result, Err(Error::RequestDecodingError(_))),
+            "stream error should surface as RequestDecodingError, got: {result:?}"
+        );
     }
 }

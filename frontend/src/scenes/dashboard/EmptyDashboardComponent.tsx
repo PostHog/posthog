@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlus } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { GraphsHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
@@ -34,14 +35,18 @@ function DashboardEmptyActions({
     canEdit,
     dashboard,
     aiDisabledReason,
+    dashboardWidgetsEnabled,
     onAddInsight,
+    onAddWidget,
     push,
     onOpenAiWithPrompt,
 }: {
     canEdit: boolean
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
     aiDisabledReason: string | false
+    dashboardWidgetsEnabled: boolean
     onAddInsight: () => void
+    onAddWidget: () => void
     push: (path: string) => void
     onOpenAiWithPrompt: (prompt: string) => void
 }): JSX.Element {
@@ -60,21 +65,51 @@ function DashboardEmptyActions({
                           dropdown: {
                               placement: 'bottom-end',
                               overlay: (
-                                  <AccessControlAction
-                                      resourceType={AccessControlResourceType.Dashboard}
-                                      minAccessLevel={AccessControlLevel.Editor}
-                                      userAccessLevel={dashboard.user_access_level}
-                                  >
-                                      <LemonButton
-                                          fullWidth
-                                          onClick={() => {
-                                              push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                          }}
-                                          data-attr="add-text-tile-to-dashboard"
+                                  <>
+                                      <AccessControlAction
+                                          resourceType={AccessControlResourceType.Dashboard}
+                                          minAccessLevel={AccessControlLevel.Editor}
+                                          userAccessLevel={dashboard.user_access_level}
                                       >
-                                          Add text card
-                                      </LemonButton>
-                                  </AccessControlAction>
+                                          <LemonButton
+                                              fullWidth
+                                              onClick={() => {
+                                                  push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                              }}
+                                              data-attr="add-text-tile-to-dashboard"
+                                          >
+                                              Add text card
+                                          </LemonButton>
+                                      </AccessControlAction>
+                                      <AccessControlAction
+                                          resourceType={AccessControlResourceType.Dashboard}
+                                          minAccessLevel={AccessControlLevel.Editor}
+                                          userAccessLevel={dashboard.user_access_level}
+                                      >
+                                          <LemonButton
+                                              fullWidth
+                                              onClick={
+                                                  dashboardWidgetsEnabled
+                                                      ? onAddWidget
+                                                      : () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
+                                              }
+                                              data-attr={
+                                                  dashboardWidgetsEnabled
+                                                      ? 'dashboard-add-widget'
+                                                      : 'dashboard-add-widget-preview'
+                                              }
+                                          >
+                                              Add widget
+                                              <LemonTag
+                                                  type={dashboardWidgetsEnabled ? 'success' : 'warning'}
+                                                  size="small"
+                                                  className="ml-2"
+                                              >
+                                                  {dashboardWidgetsEnabled ? 'NEW' : 'BETA'}
+                                              </LemonTag>
+                                          </LemonButton>
+                                      </AccessControlAction>
+                                  </>
                               ),
                           },
                           disabled: false,
@@ -103,7 +138,8 @@ function DashboardEmptyActions({
 
 function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
-    const { dashboard } = useValues(dashboardLogic)
+    const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
+    const { setAddWidgetModalOpen } = useActions(dashboardLogic)
     const { push } = useActions(router)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
@@ -140,7 +176,9 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
                     canEdit={canEdit}
                     dashboard={dashboard}
                     aiDisabledReason={aiDisabledReason}
+                    dashboardWidgetsEnabled={dashboardWidgetsEnabled}
                     onAddInsight={showAddInsightToDashboardModal}
+                    onAddWidget={() => setAddWidgetModalOpen(true)}
                     push={push}
                     onOpenAiWithPrompt={onOpenAiWithPrompt}
                 />

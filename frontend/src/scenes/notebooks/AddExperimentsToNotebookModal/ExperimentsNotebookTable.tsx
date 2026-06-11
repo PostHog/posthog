@@ -8,7 +8,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 
 import { getExperimentStatus } from '~/scenes/experiments/experimentsLogic'
-import { StatusTag } from '~/scenes/experiments/ExperimentView/components'
+import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
 import { isLegacyExperiment } from '~/scenes/experiments/utils'
 import { notebookLogic } from '~/scenes/notebooks/Notebook/notebookLogic'
 import { NotebookNodeType } from '~/scenes/notebooks/types'

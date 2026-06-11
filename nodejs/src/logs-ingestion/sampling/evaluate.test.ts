@@ -172,7 +172,7 @@ describe('evaluateLogRecord', () => {
             },
         ])
         expect(rs.hasRateLimitRules).toBe(true)
-        expect(rs.rules[0]?.rateLimit).toEqual({ refillPerSecond: 100, poolMax: 300 })
+        expect(rs.rules[0]?.rateLimit).toEqual({ refillPerSecond: 100, poolMax: 300, costUnit: 'records' })
     })
 
     it('classifySamplingRecord defers to rate_limit when first matching rule', () => {
@@ -205,6 +205,87 @@ describe('evaluateLogRecord', () => {
         const rec = baseRecord()
         rec.service_name = 'api'
         expect(classifySamplingRecord(rules, rec).kind).toBe('resolved')
+    })
+
+    describe('rate_limit with config.filter_group', () => {
+        // Same outer envelope shape the drop-rules UI emits, matching the path_drop tests below.
+        const wrap = (inner: object): object => ({ type: 'AND', values: [inner] })
+
+        it('classifySamplingRecord returns rate_limit when filter_group matches', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-fg',
+                    rule_type: 'rate_limit',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        logs_per_second: 10,
+                        filter_group: wrap({
+                            type: 'AND',
+                            values: [{ key: 'service.name', operator: 'exact', value: 'api' }],
+                        }),
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            expect(classifySamplingRecord(rules, rec)).toEqual({ kind: 'rate_limit', ruleId: 'rl-fg' })
+        })
+
+        it('classifySamplingRecord skips rate_limit when filter_group does not match', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-fg',
+                    rule_type: 'rate_limit',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        logs_per_second: 10,
+                        filter_group: wrap({
+                            type: 'AND',
+                            values: [{ key: 'service.name', operator: 'exact', value: 'api' }],
+                        }),
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'other'
+            // Rule has no other scoping, so without filter_group honor, this would return rate_limit
+            // and rate-limit every log on the team. With the fix, it falls through to keep.
+            expect(classifySamplingRecord(rules, rec).kind).toBe('resolved')
+        })
+
+        it('classifySamplingRecord still requires scope_service AND filter_group when both set', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-both',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        logs_per_second: 10,
+                        filter_group: wrap({
+                            type: 'AND',
+                            values: [{ key: 'severity_text', operator: 'exact', value: 'error' }],
+                        }),
+                    },
+                },
+            ])
+            const apiInfo = baseRecord()
+            apiInfo.service_name = 'api'
+            apiInfo.severity_text = 'info'
+            // scope_service matches but filter_group doesn't → skip.
+            expect(classifySamplingRecord(rules, apiInfo).kind).toBe('resolved')
+
+            const apiError = baseRecord()
+            apiError.service_name = 'api'
+            apiError.severity_text = 'error'
+            // Both match → rate_limit.
+            expect(classifySamplingRecord(rules, apiError)).toEqual({ kind: 'rate_limit', ruleId: 'rl-both' })
+        })
     })
 
     it('path_drop match runs before rate_limit in rule order', () => {
@@ -369,6 +450,227 @@ describe('evaluateLogRecord', () => {
                 kind: 'resolved',
                 decision: SAMPLING_DECISION_DROP,
                 ruleId: 'fg',
+            })
+        })
+    })
+
+    describe('deterministic drops outrank rate_limit regardless of priority', () => {
+        // A rate-limit bucket is a finite shared resource; if a record was going to be
+        // dropped anyway by a deterministic rule, charging the bucket for it just
+        // starves legitimate traffic for no reason. So path_drop / severity_sampling
+        // ALWAYS resolve a record before rate_limit can claim it, even when rate_limit
+        // appears first in the priority-ordered rule list.
+
+        it.each([
+            {
+                label: 'path_drop wins when rate_limit appears earlier in rule order',
+                extraRule: {
+                    id: 'pd-second',
+                    rule_type: 'path_drop' as const,
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { patterns: ['/healthz'] },
+                },
+                patchRecord: (_rec: LogRecord) => {},
+                expected: { kind: 'resolved', decision: SAMPLING_DECISION_DROP, ruleId: 'pd-second' },
+            },
+            {
+                label: 'severity_sampling drop wins when rate_limit appears earlier in rule order',
+                extraRule: {
+                    id: 'ss-second',
+                    rule_type: 'severity_sampling' as const,
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        actions: {
+                            DEBUG: { type: 'keep' },
+                            INFO: { type: 'drop' },
+                            WARN: { type: 'keep' },
+                            ERROR: { type: 'keep' },
+                        },
+                    },
+                },
+                patchRecord: (rec: LogRecord) => {
+                    rec.severity_text = 'info'
+                },
+                expected: { kind: 'resolved', decision: SAMPLING_DECISION_DROP, ruleId: 'ss-second' },
+            },
+        ])('$label', ({ extraRule, patchRecord, expected }) => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-first',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                extraRule,
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            patchRecord(rec)
+            expect(classifySamplingRecord(rules, rec)).toEqual(expected)
+        })
+
+        it('severity_sampling drop wins when rate_limit appears earlier in rule order', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-first',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'ss-second',
+                    rule_type: 'severity_sampling',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        actions: {
+                            DEBUG: { type: 'keep' },
+                            INFO: { type: 'drop' },
+                            WARN: { type: 'keep' },
+                            ERROR: { type: 'keep' },
+                        },
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            rec.severity_text = 'info'
+            expect(classifySamplingRecord(rules, rec)).toEqual({
+                kind: 'resolved',
+                decision: SAMPLING_DECISION_DROP,
+                ruleId: 'ss-second',
+            })
+        })
+
+        it('severity_sampling keep wins over later rate_limit (record is preserved, bucket not charged)', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-first',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'ss-second',
+                    rule_type: 'severity_sampling',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        actions: {
+                            DEBUG: { type: 'keep' },
+                            INFO: { type: 'keep' },
+                            WARN: { type: 'keep' },
+                            ERROR: { type: 'keep' },
+                        },
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            expect(classifySamplingRecord(rules, rec)).toEqual({
+                kind: 'resolved',
+                decision: 'keep',
+                ruleId: 'ss-second',
+            })
+        })
+
+        it('rate_limit still wins when no deterministic rule resolves the record', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-first',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'pd-noop',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { patterns: ['/never-matches'] },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            expect(classifySamplingRecord(rules, rec)).toEqual({ kind: 'rate_limit', ruleId: 'rl-first' })
+        })
+
+        it('first matching rate_limit rule wins when multiple rate_limit rules apply and no deterministic rule resolves', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-a',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'rl-b',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 100 },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            expect(classifySamplingRecord(rules, rec)).toEqual({ kind: 'rate_limit', ruleId: 'rl-a' })
+        })
+
+        it('alwaysKeep on a later rule still pre-empts an earlier rate_limit match', () => {
+            // alwaysKeep already short-circuits to KEEP today; this guards against a
+            // future refactor accidentally letting rate_limit win over an explicit
+            // alwaysKeep that sits after it in the priority order.
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-first',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'keep-errors',
+                    rule_type: 'severity_sampling',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        actions: {
+                            DEBUG: { type: 'drop' },
+                            INFO: { type: 'drop' },
+                            WARN: { type: 'keep' },
+                            ERROR: { type: 'keep' },
+                        },
+                        always_keep: { status_gte: 500 },
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            rec.attributes = { 'http.status_code': '503' }
+            expect(classifySamplingRecord(rules, rec)).toEqual({
+                kind: 'resolved',
+                decision: 'keep',
+                ruleId: 'keep-errors',
             })
         })
     })

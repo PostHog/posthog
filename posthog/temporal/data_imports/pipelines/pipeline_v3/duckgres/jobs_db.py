@@ -28,11 +28,15 @@ class DuckgresBatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         limit: int = 50,
+        retry_backoff_base_seconds: int = 0,
     ) -> list[PendingBatch]:
         """Fetch Duckgres-eligible batches whose Delta load has succeeded.
 
         Duckgres has its own sink state. A source batch is eligible only after the
         Delta consumer marks that exact batch row as succeeded.
+
+        ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on the age
+        of the latest Duckgres status row, mirroring the Delta queue's backoff.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -46,7 +50,15 @@ class DuckgresBatchQueue:
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND ds.job_state = 'succeeded'
-                        AND (dgs.batch_id IS NULL OR dgs.job_state = 'waiting_retry')
+                        AND (
+                            dgs.batch_id IS NULL
+                            OR (
+                                dgs.job_state = 'waiting_retry'
+                                AND dgs.created_at <= now() - make_interval(
+                                    secs => %(backoff)s * GREATEST(COALESCE(dgs.attempt, 1), 1)
+                                )
+                            )
+                        )
                         AND (
                             b.is_final_batch = true
                             OR NOT EXISTS (
@@ -102,7 +114,7 @@ class DuckgresBatchQueue:
                 )
                 ORDER BY c.created_at ASC, c.batch_index ASC, c.is_final_batch ASC
                 """,
-                {"limit": limit},
+                {"limit": limit, "backoff": retry_backoff_base_seconds},
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]
@@ -207,7 +219,11 @@ class DuckgresBatchQueue:
         return cursor.rowcount or 0
 
     @staticmethod
-    async def get_stale_executing(conn: psycopg.AsyncConnection[Any]) -> list[PendingBatch]:
+    async def get_stale_executing(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int = 0,
+    ) -> list[PendingBatch]:
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
@@ -219,6 +235,7 @@ class DuckgresBatchQueue:
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND dgs.job_state = 'executing'
+                        AND dgs.created_at <= now() - make_interval(secs => %(grace)s)
                     ORDER BY b.created_at ASC, b.batch_index ASC
                 )
                 SELECT c.*
@@ -228,7 +245,8 @@ class DuckgresBatchQueue:
                     hashtext(c.team_id::text || ':' || c.schema_id)
                 )
                 ORDER BY c.created_at ASC, c.batch_index ASC
-                """
+                """,
+                {"grace": grace_seconds},
             )
             rows = await cur.fetchall()
 

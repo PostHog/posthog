@@ -10,7 +10,7 @@ else:
 
 def serializedATN():
     return [
-        4,1,201,2081,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,
+        4,1,205,2081,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,
         7,6,2,7,7,7,2,8,7,8,2,9,7,9,2,10,7,10,2,11,7,11,2,12,7,12,2,13,7,
         13,2,14,7,14,2,15,7,15,2,16,7,16,2,17,7,17,2,18,7,18,2,19,7,19,2,
         20,7,20,2,21,7,21,2,22,7,22,2,23,7,23,2,24,7,24,2,25,7,25,2,26,7,
@@ -548,8 +548,8 @@ def serializedATN():
         0,1200,1201,5,119,0,0,1201,1202,5,165,0,0,1202,1203,3,154,77,0,1203,
         1204,5,6,0,0,1204,1205,3,138,69,0,1205,1206,5,185,0,0,1206,1523,
         1,0,0,0,1207,1208,5,21,0,0,1208,1523,5,143,0,0,1209,1210,5,56,0,
-        0,1210,1523,5,143,0,0,1211,1212,5,56,0,0,1212,1213,3,154,77,0,1213,
-        1214,3,208,104,0,1214,1523,1,0,0,0,1215,1216,5,104,0,0,1216,1217,
+        0,1210,1211,3,154,77,0,1211,1212,3,208,104,0,1212,1523,1,0,0,0,1213,
+        1214,5,56,0,0,1214,1523,5,143,0,0,1215,1216,5,104,0,0,1216,1217,
         5,165,0,0,1217,1218,3,154,77,0,1218,1219,5,39,0,0,1219,1222,3,154,
         77,0,1220,1221,5,38,0,0,1221,1223,3,154,77,0,1222,1220,1,0,0,0,1222,
         1223,1,0,0,0,1223,1224,1,0,0,0,1224,1225,5,185,0,0,1225,1523,1,0,
@@ -649,7 +649,7 @@ def serializedATN():
         1523,3,156,78,0,1515,1516,3,220,110,0,1516,1517,5,149,0,0,1517,1518,
         3,154,77,3,1518,1523,1,0,0,0,1519,1520,5,160,0,0,1520,1523,5,139,
         0,0,1521,1523,3,176,88,0,1522,1173,1,0,0,0,1522,1193,1,0,0,0,1522,
-        1200,1,0,0,0,1522,1207,1,0,0,0,1522,1209,1,0,0,0,1522,1211,1,0,0,
+        1200,1,0,0,0,1522,1207,1,0,0,0,1522,1209,1,0,0,0,1522,1213,1,0,0,
         0,1522,1215,1,0,0,0,1522,1226,1,0,0,0,1522,1228,1,0,0,0,1522,1236,
         1,0,0,0,1522,1240,1,0,0,0,1522,1270,1,0,0,0,1522,1272,1,0,0,0,1522,
         1298,1,0,0,0,1522,1300,1,0,0,0,1522,1304,1,0,0,0,1522,1319,1,0,0,
@@ -740,7 +740,7 @@ def serializedATN():
         0,1728,1735,3,166,83,0,1729,1735,3,164,82,0,1730,1731,5,163,0,0,
         1731,1732,3,154,77,0,1732,1733,5,183,0,0,1733,1735,1,0,0,0,1734,
         1728,1,0,0,0,1734,1729,1,0,0,0,1734,1730,1,0,0,0,1735,163,1,0,0,
-        0,1736,1737,5,200,0,0,1737,165,1,0,0,0,1738,1739,5,167,0,0,1739,
+        0,1736,1737,5,204,0,0,1737,165,1,0,0,0,1738,1739,5,167,0,0,1739,
         1743,3,220,110,0,1740,1742,3,168,84,0,1741,1740,1,0,0,0,1742,1745,
         1,0,0,0,1743,1741,1,0,0,0,1743,1744,1,0,0,0,1744,1746,1,0,0,0,1745,
         1743,1,0,0,0,1746,1747,5,188,0,0,1747,1768,1,0,0,0,1748,1749,5,167,
@@ -972,7 +972,9 @@ class HogQLParser ( Parser ):
                       "UNDERSCORE", "MULTI_LINE_COMMENT", "SINGLE_LINE_COMMENT", 
                       "WHITESPACE", "UNEXPECTED_CHARACTER", "STRING_TEXT", 
                       "STRING_ESCAPE_TRIGGER", "FULL_STRING_TEXT", "FULL_STRING_ESCAPE_TRIGGER", 
-                      "TAG_WS", "TAGC_WS", "HOGQLX_TEXT_TEXT", "HOGQLX_TEXT_WS" ]
+                      "TAG_MULTI_LINE_COMMENT", "TAG_SINGLE_LINE_COMMENT", 
+                      "TAG_WS", "TAGC_MULTI_LINE_COMMENT", "TAGC_SINGLE_LINE_COMMENT", 
+                      "TAGC_WS", "HOGQLX_TEXT_TEXT", "HOGQLX_TEXT_WS" ]
 
     RULE_program = 0
     RULE_declaration = 1
@@ -1325,10 +1327,14 @@ class HogQLParser ( Parser ):
     STRING_ESCAPE_TRIGGER=195
     FULL_STRING_TEXT=196
     FULL_STRING_ESCAPE_TRIGGER=197
-    TAG_WS=198
-    TAGC_WS=199
-    HOGQLX_TEXT_TEXT=200
-    HOGQLX_TEXT_WS=201
+    TAG_MULTI_LINE_COMMENT=198
+    TAG_SINGLE_LINE_COMMENT=199
+    TAG_WS=200
+    TAGC_MULTI_LINE_COMMENT=201
+    TAGC_SINGLE_LINE_COMMENT=202
+    TAGC_WS=203
+    HOGQLX_TEXT_TEXT=204
+    HOGQLX_TEXT_WS=205
 
     def __init__(self, input:TokenStream, output:TextIO = sys.stdout):
         super().__init__(input, output)
@@ -10091,25 +10097,25 @@ class HogQLParser ( Parser ):
                 pass
 
             elif la_ == 5:
-                localctx = HogQLParser.ColumnExprIntervalStringContext(self, localctx)
+                localctx = HogQLParser.ColumnExprIntervalContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
                 self.state = 1209
                 self.match(HogQLParser.INTERVAL)
                 self.state = 1210
-                self.match(HogQLParser.STRING_LITERAL)
+                self.columnExpr(0)
+                self.state = 1211
+                self.interval()
                 pass
 
             elif la_ == 6:
-                localctx = HogQLParser.ColumnExprIntervalContext(self, localctx)
+                localctx = HogQLParser.ColumnExprIntervalStringContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 1211
-                self.match(HogQLParser.INTERVAL)
-                self.state = 1212
-                self.columnExpr(0)
                 self.state = 1213
-                self.interval()
+                self.match(HogQLParser.INTERVAL)
+                self.state = 1214
+                self.match(HogQLParser.STRING_LITERAL)
                 pass
 
             elif la_ == 7:
@@ -11873,7 +11879,7 @@ class HogQLParser ( Parser ):
                 self.state = 1728
                 self.hogqlxTagElement()
                 pass
-            elif token in [200]:
+            elif token in [204]:
                 self.enterOuterAlt(localctx, 2)
                 self.state = 1729
                 self.hogqlxText()
@@ -12076,7 +12082,7 @@ class HogQLParser ( Parser ):
                 self.state = 1760
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
-                while ((((_la - 163)) & ~0x3f) == 0 and ((1 << (_la - 163)) & 137438953489) != 0):
+                while ((((_la - 163)) & ~0x3f) == 0 and ((1 << (_la - 163)) & 2199023255569) != 0):
                     self.state = 1757
                     self.hogqlxChildElement()
                     self.state = 1762

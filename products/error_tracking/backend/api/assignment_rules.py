@@ -15,7 +15,7 @@ from posthog.event_usage import groups
 
 from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
 
-from .utils import RuleReorderingMixin, generate_byte_code
+from .utils import RuleReorderingMixin, generate_byte_code, generate_match_all_bytecode, has_filter_values
 
 logger = structlog.get_logger(__name__)
 
@@ -133,9 +133,11 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
         assignee = request.validated_data.get("assignee")
 
         if json_filters:
-            parsed_filters = PropertyGroupFilterValue(**json_filters)
             assignment_rule.filters = json_filters
-            assignment_rule.bytecode = generate_byte_code(self.team, parsed_filters)
+            if has_filter_values(json_filters):
+                assignment_rule.bytecode = generate_byte_code(self.team, PropertyGroupFilterValue(**json_filters))
+            else:
+                assignment_rule.bytecode = generate_match_all_bytecode()
 
         if assignee:
             assignment_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
@@ -183,9 +185,10 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
         json_filters = request.validated_data["filters"]
         assignee = request.validated_data["assignee"]
 
-        parsed_filters = PropertyGroupFilterValue(**json_filters)
-
-        bytecode = generate_byte_code(self.team, parsed_filters)
+        if has_filter_values(json_filters):
+            bytecode = generate_byte_code(self.team, PropertyGroupFilterValue(**json_filters))
+        else:
+            bytecode = generate_match_all_bytecode()
 
         assignment_rule = ErrorTrackingAssignmentRule.objects.create(
             team=self.team,

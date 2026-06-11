@@ -1,4 +1,6 @@
+import asyncio
 import os
+from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -231,6 +233,29 @@ class TestAnthropicMessagesEndpoint:
         assert data["id"] == "msg_123"
         assert data["role"] == "assistant"
         assert data["usage"]["input_tokens"] == 10
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_bare_claude_model_is_prefixed_for_litellm_routing(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-opus-4-8",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_args.kwargs["model"] == "anthropic/claude-opus-4-8"
 
     @pytest.mark.parametrize(
         "error_status,error_message,error_type",
@@ -473,7 +498,7 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 200
         call_kwargs = mock_anthropic.call_args.kwargs
-        assert call_kwargs["model"] == "claude-sonnet-4-6"
+        assert call_kwargs["model"] == "anthropic/claude-sonnet-4-6"
         assert "provider" not in call_kwargs
         assert "use_bedrock_fallback" not in call_kwargs
 
@@ -571,6 +596,107 @@ class TestStripServerSideTools:
         self._call(data)
         assert len(data["tools"]) == 1
         assert data["tools"][0]["name"] == "read_data"
+
+
+class TestSanitizeForBedrock:
+    """Unit tests for sanitize_for_bedrock — the allowlist boundary for Anthropic->Bedrock requests."""
+
+    def _call(self, data: dict[str, Any]) -> dict[str, Any]:
+        from llm_gateway.api.anthropic import sanitize_for_bedrock
+
+        return sanitize_for_bedrock(data, model="test-model", product="test")
+
+    def test_drops_anthropic_only_param(self) -> None:
+        data: dict[str, Any] = {
+            "model": "bedrock/us.anthropic.claude-sonnet-4-6",
+            "messages": [{"role": "user", "content": "hi"}],
+            "context_management": {"edits": [{"type": "clear_tool_uses_20250919"}]},
+        }
+        result = self._call(data)
+        assert "context_management" not in result
+        assert result["model"] == "bedrock/us.anthropic.claude-sonnet-4-6"
+        assert result["messages"] == [{"role": "user", "content": "hi"}]
+
+    @pytest.mark.parametrize(
+        "param",
+        [
+            "model",
+            "messages",
+            "system",
+            "max_tokens",
+            "stream",
+            "stop_sequences",
+            "temperature",
+            "top_p",
+            "top_k",
+            "tools",
+            "tool_choice",
+            "thinking",
+            "metadata",
+            "anthropic_version",
+            "anthropic_beta",
+            "output_format",
+            "output_config",
+        ],
+    )
+    def test_keeps_supported_param(self, param: str) -> None:
+        # A valid tools list so the nested server-side-tool stripper leaves it intact.
+        value: Any = [{"name": "t", "input_schema": {"type": "object", "properties": {}}}]
+        data: dict[str, Any] = {"model": "m", param: value}
+        assert param in self._call(data)
+
+    @pytest.mark.parametrize(
+        "param",
+        # Anthropic-only params litellm forwards verbatim but Bedrock rejects, plus an unknown
+        # future param (the case that ends the cat-and-mouse: dropped by default).
+        [
+            "context_management",
+            "inference_geo",
+            "speed",
+            "mcp_servers",
+            "container",
+            "service_tier",
+            "some_future_beta_param",
+        ],
+    )
+    def test_drops_unsupported_param(self, param: str) -> None:
+        data: dict[str, Any] = {"model": "m", param: "value"}
+        assert param not in self._call(data)
+
+    def test_does_not_mutate_input(self) -> None:
+        data: dict[str, Any] = {"model": "m", "context_management": {}}
+        self._call(data)
+        assert "context_management" in data
+
+    def test_increments_metric_per_dropped_param(self) -> None:
+        from llm_gateway.api.anthropic import sanitize_for_bedrock
+        from llm_gateway.metrics.prometheus import BEDROCK_PARAM_STRIPPED
+
+        before = BEDROCK_PARAM_STRIPPED.labels(param="context_management", product="test")._value.get()
+        sanitize_for_bedrock({"model": "m", "context_management": {}}, model="test-model", product="test")
+        after = BEDROCK_PARAM_STRIPPED.labels(param="context_management", product="test")._value.get()
+        assert after == before + 1
+
+    def test_logs_warning_per_dropped_param(self) -> None:
+        from llm_gateway.api.anthropic import sanitize_for_bedrock
+
+        data: dict[str, Any] = {"model": "m", "context_management": {}, "mcp_servers": []}
+        with patch("llm_gateway.api.anthropic.logger") as mock_logger:
+            sanitize_for_bedrock(data, model="test-model", product="test")
+            warned = {call.kwargs["param"] for call in mock_logger.warning.call_args_list}
+        assert {"context_management", "mcp_servers"} <= warned
+
+    def test_still_strips_server_side_tools(self) -> None:
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [
+                {"name": "read_data", "input_schema": {"type": "object", "properties": {}}},
+                {"type": "web_search_20250305", "name": "web_search"},
+            ],
+        }
+        result = self._call(data)
+        assert len(result["tools"]) == 1
+        assert result["tools"][0]["name"] == "read_data"
 
 
 class TestAnthropicCountTokensEndpoint:
@@ -927,3 +1053,342 @@ class TestAnthropicCountTokensEndpoint:
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
         assert "Expected: true or false" in response.json()["error"]["message"]
+
+
+class TestAnthropicCircuitBreakerIntegration:
+    """End-to-end behavior of the Anthropic->Bedrock circuit breaker in /v1/messages."""
+
+    @pytest.fixture
+    def request_body(self) -> dict[str, Any]:
+        return {"model": "claude-sonnet-4-6", "messages": [{"role": "user", "content": "Hi"}]}
+
+    @pytest.fixture
+    def mock_response_dict(self) -> dict[str, Any]:
+        return {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hi!"}],
+            "model": "claude-sonnet-4-6",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+    @pytest.fixture
+    def install_breaker(self, authenticated_client: TestClient):
+        from llm_gateway.circuit_breaker import BreakerDecision
+
+        def _install(*, bypass: bool) -> MagicMock:
+            breaker = MagicMock()
+            breaker.evaluate = AsyncMock(
+                return_value=BreakerDecision(
+                    bypass=bypass,
+                    open=bypass,
+                    failure_rate=0.5 if bypass else 0.0,
+                    total_requests=30,
+                )
+            )
+            breaker.record_outcome = AsyncMock()
+            authenticated_client.app.state.anthropic_circuit_breaker = breaker
+            return breaker
+
+        return _install
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_with_fallback_routes_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=True)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_count == 1
+        forwarded_model = mock_anthropic.call_args.kwargs["model"]
+        # The model is prefixed with 'bedrock/' for litellm routing
+        assert forwarded_model.startswith("bedrock/")
+        bedrock_model = forwarded_model.removeprefix("bedrock/")
+        assert bedrock_model.startswith(("us.anthropic.", "eu.anthropic.", "anthropic."))
+        breaker.record_outcome.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_without_fallback_still_uses_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=True)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        forwarded_model = mock_anthropic.call_args.kwargs["model"]
+        assert forwarded_model == "anthropic/claude-sonnet-4-6"
+        breaker.record_outcome.assert_awaited_with(success=True)
+        breaker.evaluate.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_closed_breaker_routes_to_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        forwarded_model = mock_anthropic.call_args.kwargs["model"]
+        assert forwarded_model == "anthropic/claude-sonnet-4-6"
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_5xx_records_failure(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("Internal error")
+        error.status_code = 503  # type: ignore[attr-defined]
+        error.message = "Internal error"  # type: ignore[attr-defined]
+        error.type = "internal_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 503
+        breaker.record_outcome.assert_awaited_with(success=False)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_4xx_recorded_as_success(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("bad request")
+        error.status_code = 400  # type: ignore[attr-defined]
+        error.message = "bad request"  # type: ignore[attr-defined]
+        error.type = "invalid_request_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_429_recorded_as_failure(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("rate limited")
+        error.status_code = 429  # type: ignore[attr-defined]
+        error.message = "rate limited"  # type: ignore[attr-defined]
+        error.type = "rate_limit_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 429
+        breaker.record_outcome.assert_awaited_with(success=False)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_429_with_fallback_routes_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        mock_response_dict: dict,
+    ) -> None:
+        request_body = {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "Hi"}]}
+        breaker = install_breaker(bypass=False)
+        error = Exception("rate limited")
+        error.status_code = 429  # type: ignore[attr-defined]
+        error.message = "rate limited"  # type: ignore[attr-defined]
+        error.type = "rate_limit_error"  # type: ignore[attr-defined]
+
+        bedrock_response = MagicMock()
+        bedrock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.side_effect = [error, bedrock_response]
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        breaker.record_outcome.assert_awaited_with(success=False)
+        assert mock_anthropic.call_count == 2
+        assert mock_anthropic.call_args_list[0].kwargs["model"] == "anthropic/claude-opus-4-8"
+        assert mock_anthropic.call_args_list[1].kwargs["model"] == "bedrock/us.anthropic.claude-opus-4-8"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_only_param_stripped_before_bedrock_fallback(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        mock_response_dict: dict,
+    ) -> None:
+        """Regression: an Anthropic-only beta param (context_management) used to 400 every Bedrock
+        fallback. The allowlist must drop it on the Bedrock leg while keeping it on the Anthropic leg.
+        """
+        request_body = {
+            "model": "claude-opus-4-8",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "context_management": {"edits": [{"type": "clear_tool_uses_20250919"}]},
+        }
+        install_breaker(bypass=False)
+        error = Exception("internal error")
+        error.status_code = 500  # type: ignore[attr-defined]
+        error.message = "internal error"  # type: ignore[attr-defined]
+        error.type = "internal_error"  # type: ignore[attr-defined]
+
+        bedrock_response = MagicMock()
+        bedrock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.side_effect = [error, bedrock_response]
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_count == 2
+        anthropic_kwargs = mock_anthropic.call_args_list[0].kwargs
+        bedrock_kwargs = mock_anthropic.call_args_list[1].kwargs
+        assert "context_management" in anthropic_kwargs
+        assert "context_management" not in bedrock_kwargs
+
+    def test_streaming_success_records_after_stream_completes(
+        self,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        from fastapi.responses import StreamingResponse
+
+        from llm_gateway.api.anthropic import _wrap_stream_with_breaker
+
+        breaker = install_breaker(bypass=False)
+
+        async def ok_iter() -> AsyncIterator[bytes]:
+            yield b'data: {"type":"message_start"}\n\n'
+            yield b'data: {"type":"message_stop"}\n\n'
+
+        wrapped = _wrap_stream_with_breaker(StreamingResponse(ok_iter()), breaker)
+
+        async def consume() -> list[bytes]:
+            return [chunk async for chunk in wrapped.body_iterator]
+
+        chunks = asyncio.run(consume())
+        assert len(chunks) == 2
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    def test_streaming_mid_stream_failure_records_failure(
+        self,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        """Direct unit test of the stream wrapper — TestClient surfaces stream errors as
+        connection-level failures which makes a true HTTP-level test brittle."""
+        from fastapi.responses import StreamingResponse
+
+        from llm_gateway.api.anthropic import _wrap_stream_with_breaker
+
+        breaker = install_breaker(bypass=False)
+
+        async def failing_iter() -> AsyncIterator[bytes]:
+            yield b'data: {"type":"message_start"}\n\n'
+            raise RuntimeError("upstream dropped")
+
+        wrapped = _wrap_stream_with_breaker(StreamingResponse(failing_iter()), breaker)
+
+        async def consume() -> None:
+            try:
+                async for _ in wrapped.body_iterator:
+                    pass
+            except RuntimeError:
+                pass
+
+        asyncio.run(consume())
+        breaker.record_outcome.assert_awaited_with(success=False)

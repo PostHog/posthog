@@ -377,7 +377,7 @@ def test_map_hosts_by_role() -> None:
         ("host1", "9000", "1", "1", "online", "data"),
         ("host2", "9000", "1", "2", "online", "data"),
         ("host3", "9000", "1", "3", "offline", "data"),
-        ("host4", "9000", "1", "4", "online", "coordinator"),
+        ("host4", "9000", "1", "4", "online", "endpoints"),
     ]
 
     cluster = ClickhouseCluster(bootstrap_client_mock)
@@ -387,41 +387,41 @@ def test_map_hosts_by_role() -> None:
     def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         if host.host_cluster_role == NodeRole.DATA.value.lower():
             times_called[NodeRole.DATA] += 1
-        elif host.host_cluster_role == NodeRole.COORDINATOR.value.lower():
-            times_called[NodeRole.COORDINATOR] += 1
+        elif host.host_cluster_role == NodeRole.ENDPOINTS.value.lower():
+            times_called[NodeRole.ENDPOINTS] += 1
         return lambda: fn(Mock())
 
     with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.DATA).result()
         assert times_called[NodeRole.DATA] == 3
-        assert times_called[NodeRole.COORDINATOR] == 0
+        assert times_called[NodeRole.ENDPOINTS] == 0
         times_called.clear()
 
-        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.COORDINATOR).result()
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ENDPOINTS).result()
         assert times_called[NodeRole.DATA] == 0
-        assert times_called[NodeRole.COORDINATOR] == 1
+        assert times_called[NodeRole.ENDPOINTS] == 1
         times_called.clear()
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
         assert times_called[NodeRole.DATA] == 3
-        assert times_called[NodeRole.COORDINATOR] == 1
+        assert times_called[NodeRole.ENDPOINTS] == 1
         times_called.clear()
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL, workload=Workload.OFFLINE).result()
         assert times_called[NodeRole.DATA] == 1
-        assert times_called[NodeRole.COORDINATOR] == 0
+        assert times_called[NodeRole.ENDPOINTS] == 0
         times_called.clear()
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.DATA, workload=Workload.ONLINE).result()
         assert times_called[NodeRole.DATA] == 2
-        assert times_called[NodeRole.COORDINATOR] == 0
+        assert times_called[NodeRole.ENDPOINTS] == 0
         times_called.clear()
 
 
 def test_map_hosts_with_satellite_clusters() -> None:
     main_cluster_hosts = [
         ("host1", "9000", "1", "1", "online", "data"),
-        ("host2", "9000", "1", "2", "online", "coordinator"),
+        ("host2", "9000", "1", "2", "online", "endpoints"),
     ]
     aux_cluster_hosts = [
         ("aux-host1", "9000", "1", "1", "online", "aux"),
@@ -470,7 +470,7 @@ def test_map_hosts_with_satellite_clusters() -> None:
 
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
         assert times_called["data"] == 1
-        assert times_called["coordinator"] == 1
+        assert times_called["endpoints"] == 1
         assert times_called["aux"] == 2
         assert times_called["sessions"] == 1
         times_called.clear()
@@ -511,7 +511,7 @@ def test_data_cluster_overrides_migrations_cluster_data_nodes() -> None:
     # posthog_migrations has incomplete DATA — only 1 shard
     migrations_cluster_hosts = [
         ("data-partial", "9000", "1", "1", "online", "data"),
-        ("coordinator-1", "9000", "1", "2", "online", "coordinator"),
+        ("endpoints-1", "9000", "1", "2", "online", "endpoints"),
     ]
     # posthog has the full topology — 3 shards
     data_cluster_hosts = [
@@ -540,7 +540,7 @@ def test_data_cluster_overrides_migrations_cluster_data_nodes() -> None:
     # Should have 3 shards from posthog, not 1 from posthog_migrations
     assert cluster.num_shards == 3
 
-    # Coordinator from posthog_migrations should still be in extra_hosts
+    # Host only present in posthog_migrations should still be in extra_hosts
     executed_roles: list[str] = []
 
     def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
@@ -552,8 +552,8 @@ def test_data_cluster_overrides_migrations_cluster_data_nodes() -> None:
         assert executed_roles.count("data") == 4  # all 4 DATA nodes from posthog
         executed_roles.clear()
 
-        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.COORDINATOR).result()
-        assert executed_roles.count("coordinator") == 1  # still from posthog_migrations
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ENDPOINTS).result()
+        assert executed_roles.count("endpoints") == 1  # still from posthog_migrations
 
 
 def test_data_cluster_same_as_migrations_cluster_is_noop() -> None:

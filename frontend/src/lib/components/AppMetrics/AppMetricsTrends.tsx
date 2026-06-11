@@ -1,6 +1,7 @@
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { ChartDisplayType } from '~/types'
 
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
@@ -36,7 +37,7 @@ export function AppMetricsTrends({
                         },
                         data: appMetricsTrends.labels,
                     }}
-                    yData={appMetricsTrends.series.map((x) => {
+                    yData={appMetricsTrends.series.map((x): AxisSeries<number | null> => {
                         const label = metricLabels?.[x.name] ?? x.name
                         return {
                             column: {

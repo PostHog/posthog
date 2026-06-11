@@ -66,8 +66,10 @@ impl RawJavaFrame {
                 vec![self.handle_resolution_error(ProguardError::MissingMap(chunk_id))],
             ),
             Err(ResolveError::ResolutionError(e)) => {
-                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
-                unreachable!("Should not have received error {:?}", e)
+                warn!("Unexpected Proguard symbol resolution error: {:?}", e);
+                Ok(vec![
+                    self.handle_resolution_error(ProguardError::InvalidMapping)
+                ])
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }

@@ -11,6 +11,7 @@ import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
+import { ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
 import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
 
@@ -169,6 +170,11 @@ describe('PersonState.processEvent()', () => {
         mockProducerObserver.resetKafkaProducer()
 
         clickhouse = Clickhouse.create()
+        // Pre-create every topic ClickHouse's Kafka engine tables subscribe to. Otherwise any
+        // table whose topic is missing keeps retrying "Can't get assignment", which saturates
+        // ClickHouse's background scheduler and intermittently starves the consumers this suite
+        // waits on via delayUntilEventIngested — flaky timeouts in CI.
+        await ensureKafkaTopics(await clickhouse.getKafkaEngineTopics())
         await clickhouse.exec('SYSTEM STOP MERGES')
 
         organizationId = await createOrganization(hub.postgres)
@@ -3197,10 +3203,12 @@ describe('PersonState.processEvent()', () => {
 
             // Verify that fetchPerson was called for both users
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, firstUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, secondUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
@@ -3253,10 +3261,12 @@ describe('PersonState.processEvent()', () => {
 
             // Verify that fetchPerson was called for both users
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, firstUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, secondUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 

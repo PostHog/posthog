@@ -14,7 +14,7 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { DEFAULT_MDE } from '~/scenes/experiments/experimentLogic'
+import { DEFAULT_MDE } from '~/scenes/experiments/constants'
 import { legacyExperimentLogic, getInsightType } from '~/scenes/experiments/legacy'
 import { formatUnitByQuantity } from '~/scenes/experiments/utils'
 import { Experiment, InsightType } from '~/types'

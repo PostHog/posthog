@@ -66,7 +66,9 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         assert ordered[1]["id"] == a["id"]
         assert ordered[1]["priority"] == 1
 
-    def test_create_rate_limit_requires_scope_service(self):
+    def test_create_rate_limit_without_scope_service(self):
+        # scope_service is no longer required for rate_limit — the matching
+        # happens through config.filter_group instead.
         response = self.client.post(
             self.base_url,
             self._payload(
@@ -77,8 +79,8 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
             ),
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "scope_service"
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["scope_service"] is None
 
     def test_create_rate_limit_success(self):
         response = self.client.post(
@@ -97,6 +99,45 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         assert body["scope_service"] == "payment-api"
         assert body["config"]["logs_per_second"] == 5000
         assert body["config"]["burst_logs"] == 15000
+
+    def test_create_rate_limit_kb_success(self):
+        # KB-mode is the new shape: cost-per-record is the row's bytes_uncompressed,
+        # matching how billing measures ingested bytes.
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                name="Cap api by bytes",
+                rule_type="rate_limit",
+                scope_service="payment-api",
+                config={"kb_per_second": 500, "burst_kb": 1500},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["config"]["kb_per_second"] == 500
+        assert body["config"]["burst_kb"] == 1500
+
+    # Configs that should be rejected by the rate_limit validator. Keep this list
+    # close to the inverse of `test_create_rate_limit_*_success` — every accepted
+    # shape has a symmetric set of rejection cases here.
+    INVALID_RATE_LIMIT_CONFIGS = [
+        ("both_modes_set", {"logs_per_second": 100, "kb_per_second": 100}),
+        ("neither_mode_set", {}),
+        ("kb_per_second_below_min", {"kb_per_second": 0}),
+        ("kb_per_second_above_max", {"kb_per_second": 1_000_001}),
+        ("burst_kb_below_kb_per_second", {"kb_per_second": 500, "burst_kb": 100}),
+        ("burst_kb_above_max", {"kb_per_second": 1, "burst_kb": 10_000_001}),
+    ]
+
+    @parameterized.expand([(label, payload) for label, payload in INVALID_RATE_LIMIT_CONFIGS])
+    def test_create_rate_limit_rejects_invalid_config(self, _label, invalid_config):
+        response = self.client.post(
+            self.base_url,
+            self._payload(rule_type="rate_limit", scope_service="payment-api", config=invalid_config),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     def test_create_path_drop_with_valid_filter_group(self):
         # The drop-rules UI writes the inner group wrapped in an outer AND envelope.

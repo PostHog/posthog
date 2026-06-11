@@ -725,7 +725,8 @@ class TestLogsAlertAPI(APIBaseTest):
         # which looks up a HogFunctionTemplate by template_id. Seed Slack + webhook.
         from posthog.cdp.templates.hog_function_template import sync_template_to_db
         from posthog.cdp.templates.slack.template_slack import template as template_slack
-        from posthog.models.hog_function_template import HogFunctionTemplate
+
+        from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
         sync_template_to_db(template_slack)
         HogFunctionTemplate.objects.get_or_create(
@@ -747,7 +748,7 @@ class TestLogsAlertAPI(APIBaseTest):
     @patch("products.logs.backend.alerts_api.report_user_action")
     def test_create_slack_destination_creates_one_hog_function_per_event_kind(self, mock_report):
         self._sync_destination_templates()
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         created = self._create_via_api()
         response = self.client.post(
@@ -791,7 +792,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert len(reset_calls) == 1
 
     def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -843,7 +844,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_delete_destination_removes_hog_functions(self):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._sync_destination_templates()
         created = self._create_via_api()

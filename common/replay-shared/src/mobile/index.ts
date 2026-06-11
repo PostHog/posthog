@@ -1,4 +1,4 @@
-import { eventWithTime } from '@posthog/rrweb-types'
+import { eventWithTime } from 'posthog-js/rrweb-types'
 
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
 import { mobileEventWithTime } from './mobile.types'

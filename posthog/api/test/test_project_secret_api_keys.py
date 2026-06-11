@@ -2,7 +2,9 @@ from posthog.test.base import APIBaseTest
 
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
 from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
 class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
@@ -331,3 +333,123 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert logs[0].detail is not None
         assert logs[0].detail["name"] == "delete me"
         assert logs[0].team_id == self.team.id
+
+
+class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.logout()
+
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="pat-with-project-write",
+            user=self.user,
+            scopes=["project:write", "project:read"],
+            secure_value=hash_key_value(token),
+        )
+        self.token = token
+
+    def _auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
+
+    def _create_key(self) -> str:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/",
+            data={"label": "rollable", "scopes": ["endpoint:read"]},
+            content_type="application/json",
+            **self._auth(),
+        )
+        assert response.status_code == 201, response.content
+        return response.json()["id"]
+
+    def test_roll_works_via_pat_with_project_write(self):
+        key_id = self._create_key()
+        original = ProjectSecretAPIKey.objects.get(id=key_id)
+        original_secure_value = original.secure_value
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll/",
+            **self._auth(),
+        )
+
+        assert response.status_code == 200, response.content
+        rolled = response.json()
+        assert rolled["value"] is not None
+        assert rolled["value"].startswith("phs_")
+
+        original.refresh_from_db()
+        assert original.secure_value != original_secure_value
+        assert original.secure_value == hash_key_value(rolled["value"])
+
+    def test_roll_rejected_for_pat_without_project_write(self):
+        key_id = self._create_key()
+
+        readonly_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="pat-readonly",
+            user=self.user,
+            scopes=["project:read"],
+            secure_value=hash_key_value(readonly_token),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll/",
+            HTTP_AUTHORIZATION=f"Bearer {readonly_token}",
+        )
+        assert response.status_code == 403, response.content
+
+    def test_destroy_works_via_pat(self):
+        key_id = self._create_key()
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/",
+            **self._auth(),
+        )
+        assert response.status_code == 204, response.content
+        assert not ProjectSecretAPIKey.objects.filter(id=key_id).exists()
+
+    def test_update_label_via_pat_with_project_write(self):
+        key_id = self._create_key()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/",
+            data={"label": "renamed"},
+            content_type="application/json",
+            **self._auth(),
+        )
+        assert response.status_code == 200, response.content
+        assert ProjectSecretAPIKey.objects.get(id=key_id).label == "renamed"
+
+    def test_update_via_pat_rejected_without_project_write(self):
+        key_id = self._create_key()
+
+        readonly_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="pat-readonly-update",
+            user=self.user,
+            scopes=["project:read"],
+            secure_value=hash_key_value(readonly_token),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/",
+            data={"label": "should-fail"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {readonly_token}",
+        )
+        assert response.status_code == 403, response.content
+        assert ProjectSecretAPIKey.objects.get(id=key_id).label == "rollable"
+
+    def test_full_update_via_pat_with_project_write(self):
+        key_id = self._create_key()
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/",
+            data={"label": "via-put", "scopes": ["endpoint:read"]},
+            content_type="application/json",
+            **self._auth(),
+        )
+        assert response.status_code == 200, response.content
+        assert ProjectSecretAPIKey.objects.get(id=key_id).label == "via-put"

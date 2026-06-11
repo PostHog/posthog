@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { unifiedHealthMenuLogic } from 'lib/components/HealthMenu/unifiedHealthMenuLogic'
+import { healthSummaryLogic } from 'lib/components/HelpMenu/healthSummaryLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -169,7 +169,7 @@ export const healthCategoryDetailLogic = kea<healthCategoryDetailLogicType>([
                     dismissed: true,
                 })
                 actions.loadHealthIssues()
-                unifiedHealthMenuLogic.actions.loadHealthSummary()
+                healthSummaryLogic.actions.loadHealthSummary()
             } catch {
                 lemonToast.error('Failed to dismiss issue')
             }
@@ -180,7 +180,7 @@ export const healthCategoryDetailLogic = kea<healthCategoryDetailLogicType>([
                     dismissed: false,
                 })
                 actions.loadHealthIssues()
-                unifiedHealthMenuLogic.actions.loadHealthSummary()
+                healthSummaryLogic.actions.loadHealthSummary()
             } catch {
                 lemonToast.error('Failed to undismiss issue')
             }

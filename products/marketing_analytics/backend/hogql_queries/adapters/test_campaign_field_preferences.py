@@ -6,7 +6,6 @@ from posthog.schema import DateRange
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.data_warehouse.backend.models import DataWarehouseTable
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import BingAdsAdapter, BingAdsConfig
 from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter, GoogleAdsConfig
@@ -17,6 +16,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads im
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter, MetaAdsConfig
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter, RedditAdsConfig
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter, TikTokAdsConfig
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestCampaignFieldPreferences(BaseTest):

@@ -1,15 +1,7 @@
-from .credential import *
-from .data_modeling_job import *
-from .datawarehouse_managed_viewset import *
-from .datawarehouse_saved_query import *
-from .datawarehouse_saved_query_draft import *
-from .datawarehouse_saved_query_folder import *
-from .external_data_job import *
-from .external_data_schema import *
-from .external_data_source import *
-from .join import *
-from .modeling import *
-from .query_tab_state import *
-from .revenue_analytics_config import *
-from .table import *
-from .team_data_warehouse_config import *
+from .revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+from .team_data_warehouse_config import TeamDataWarehouseConfig
+
+__all__ = [
+    "ExternalDataSourceRevenueAnalyticsConfig",
+    "TeamDataWarehouseConfig",
+]

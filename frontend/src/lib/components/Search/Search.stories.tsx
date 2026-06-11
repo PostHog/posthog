@@ -70,7 +70,7 @@ const MOCK_PRODUCT_RECENTS = [
         path: 'LLM analytics',
         type: 'llm_analytics',
         ref: 'llm_analytics',
-        href: '/project/2/llm-analytics',
+        href: '/project/2/ai-observability',
         last_viewed_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
     },
     {
@@ -241,7 +241,7 @@ export const ProductRecentsAndStarred: Story = {
     parameters: {
         docs: {
             description: {
-                story: 'Recents and starred entries whose `type` matches an entry in `availableOnboardingProducts` render with the manifest brand colour (e.g. green for web analytics, purple for LLM analytics) instead of falling back to `currentColor`. Demonstrates the fix for product icons in recents/starred shortcuts.',
+                story: 'Recents and starred entries whose `type` matches an entry in `availableOnboardingProducts` render with the manifest brand colour (e.g. green for web analytics, purple for AI observability) instead of falling back to `currentColor`. Demonstrates the fix for product icons in recents/starred shortcuts.',
             },
         },
     },

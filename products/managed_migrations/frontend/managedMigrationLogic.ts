@@ -23,6 +23,7 @@ export interface ManagedMigrationForm {
     s3_region?: string
     s3_bucket?: string
     s3_prefix?: string
+    endpoint_url?: string
     // date range specific fields
     start_date?: string
     end_date?: string
@@ -41,6 +42,7 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     s3_region: '',
     s3_bucket: '',
     s3_prefix: '',
+    endpoint_url: '',
     content_type: 'captured',
     start_date: '',
     end_date: '',
@@ -155,6 +157,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         s3_region: values.s3_region,
                         s3_bucket: values.s3_bucket,
                         s3_prefix: values.s3_prefix,
+                        ...(values.endpoint_url ? { endpoint_url: values.endpoint_url } : {}),
                     }
 
                     if (values.content_type === 'amplitude') {

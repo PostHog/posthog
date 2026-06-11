@@ -123,6 +123,23 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             }
         )
 
+    if context.type_observability is not None:
+        context.type_observability.record_property_definition_lookup(
+            property_source="event",
+            known_count=len(event_properties),
+            total_count=len(property_finder.event_properties),
+        )
+        context.type_observability.record_property_definition_lookup(
+            property_source="person",
+            known_count=len(person_properties),
+            total_count=len(property_finder.person_properties),
+        )
+        context.type_observability.record_property_definition_lookup(
+            property_source="group",
+            known_count=len(group_properties),
+            total_count=sum(len(properties) for properties in property_finder.group_properties.values()),
+        )
+
     timezone = context.database.get_timezone() if context and context.database else "UTC"
     context.property_swapper = PropertySwapper(
         timezone=timezone,
@@ -559,7 +576,20 @@ class PropertySwapper(CloningVisitor):
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":
-            return ast.Call(name="toDateTime", args=[node])
+            # Carry the return type so an enclosing toDateTime() resolves its
+            # already-a-datetime overload instead of re-parsing this value
+            # (parseDateTime64BestEffortOrNull only accepts strings). Only
+            # return_type drives overload resolution here; arg_types is an
+            # approximation of the signature and is not re-validated.
+            return ast.Call(
+                name="toDateTime",
+                args=[node],
+                type=ast.CallType(
+                    name="toDateTime",
+                    arg_types=[ast.StringType(nullable=True)],
+                    return_type=ast.DateTimeType(nullable=True),
+                ),
+            )
         if field_type == "Float":
             return ast.Call(name="toFloat", args=[node])
         if field_type == "Boolean":

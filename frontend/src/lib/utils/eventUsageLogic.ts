@@ -97,6 +97,8 @@ export enum DashboardEventSource {
     DashboardVariableOverride = 'dashboard_variable_override',
 }
 
+export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable' | 'quick_filters'
+
 export enum InsightEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -444,8 +446,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             mode: DashboardMode | null,
             source: DashboardEventSource | null,
+            layoutZoom: number | null,
+            layoutEditMode?: boolean
+        ) => ({ dashboard, mode, source, layoutZoom, layoutEditMode }),
+        reportDashboardLayoutEditModeEntered: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            source: DashboardEventSource,
             layoutZoom: number | null
-        ) => ({ dashboard, mode, source, layoutZoom }),
+        ) => ({ dashboard, source, layoutZoom }),
+        reportDashboardFiltersChanged: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            changeType: DashboardFilterChangeType,
+            properties: Record<string, string | number | boolean | null | undefined>
+        ) => ({ dashboard, changeType, properties }),
         reportDashboardLayoutZoomChanged: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             layoutZoom: number,
@@ -506,17 +519,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dateTo,
         }),
         reportDashboardPropertiesChanged: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
-        reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
+        reportDashboardPinToggled: (dashboardId: number, pinned: boolean, source: DashboardEventSource) => ({
+            dashboardId,
             pinned,
             source,
         }),
         reportDashboardFrontEndUpdate: (
+            dashboardId: number | undefined,
             attribute: 'name' | 'description' | 'tags',
             originalLength: number,
             newLength: number
-        ) => ({ attribute, originalLength, newLength }),
-        reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
-        reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
+        ) => ({ dashboardId, attribute, originalLength, newLength }),
+        reportDashboardShareToggled: (dashboardId: number | undefined, isShared: boolean) => ({
+            dashboardId,
+            isShared,
+        }),
+        reportDashboardWhitelabelToggled: (dashboardId: number | undefined, isWhiteLabelled: boolean) => ({
+            dashboardId,
+            isWhiteLabelled,
+        }),
         reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized', layoutZoom: number) => ({
             dashboardId,
             action,
@@ -533,6 +554,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
         reportDashboardInsightLegendToggled: (
+            dashboardId: number | undefined,
+            insightId: number,
+            source: DashboardEventSource
+        ) => ({ dashboardId, insightId, source }),
+        reportDashboardInsightAnnotationsToggled: (
             dashboardId: number | undefined,
             insightId: number,
             source: DashboardEventSource
@@ -899,8 +925,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
         reportOnboardingStarted: (entrypoint: string) => ({ entrypoint }),
-        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey) => ({ stepKey }),
-        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey) => ({ stepKey }),
+        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey, productKey?: string) => ({
+            stepKey,
+            productKey,
+        }),
+        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey, productKey?: string) => ({
+            stepKey,
+            productKey,
+        }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
@@ -1011,6 +1043,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }) => ({ props }),
         reportWebAnalyticsCompareToggled: (props: { enabled: boolean }) => ({ props }),
         reportWebAnalyticsConversionGoalSet: (props: { goal_type: string | null }) => ({ props }),
+        reportWebAnalyticsFocusModeOnboardingShown: true,
+        reportWebAnalyticsFocusModeOnboardingStarted: true,
+        reportWebAnalyticsFocusModeOnboardingSkipped: true,
+        reportWebAnalyticsFocusModeOnboardingCompleted: (props: { concern_count: number }) => ({ props }),
         reportWebAnalyticsPathCleaningToggled: (props: { enabled: boolean }) => ({ props }),
         // Customer Analytics
         reportCustomerAnalyticsDashboardBusinessModeChanged: ({ business_mode }) => ({ business_mode }),
@@ -1083,6 +1119,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             itemCount,
             isAIFirst,
         }),
+        // MCP hints
+        reportMCPHintShown: (surfaceKey: string) => ({ surfaceKey }),
+        reportMCPHintDismissed: (dismissType: 'surface' | 'all', surfaceKey?: string) => ({
+            dismissType,
+            surfaceKey,
+        }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1118,7 +1160,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
 
             let custom_properties_count = 0
             let posthog_properties_count = 0
-            for (const prop of Object.keys(person.properties)) {
+            for (const prop of Object.keys(person.properties ?? {})) {
                 if (PROPERTY_KEYS.includes(prop)) {
                     posthog_properties_count += 1
                 } else {
@@ -1127,9 +1169,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
 
             const properties = {
-                properties_count: Object.keys(person.properties).length,
-                has_email: !!person.properties.email,
-                has_name: !!person.properties.name,
+                properties_count: Object.keys(person.properties ?? {}).length,
+                has_email: !!person.properties?.email,
+                has_name: !!person.properties?.name,
                 custom_properties_count,
                 posthog_properties_count,
             }
@@ -1228,6 +1270,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                         properties[key] += 1
                     }
                     properties.sample_items_count += item.insight.is_sample ? 1 : 0
+                } else if (item.widget) {
+                    if (!properties['widget_tiles_count']) {
+                        properties['widget_tiles_count'] = 1
+                    } else {
+                        properties['widget_tiles_count'] += 1
+                    }
                 } else {
                     if (!properties['text_tiles_count']) {
                         properties['text_tiles_count'] = 1
@@ -1283,13 +1331,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 total_properties: totalProperties,
             })
         },
-        reportDashboardModeToggled: async ({ dashboard, mode, source, layoutZoom }) => {
+        reportDashboardModeToggled: async ({ dashboard, mode, source, layoutZoom, layoutEditMode }) => {
             posthog.capture('dashboard mode toggled', {
                 dashboard_id: dashboard?.id,
                 dashboard: sanitizeDashboard(dashboard),
                 mode,
                 source,
                 layout_zoom: layoutZoom ?? undefined,
+                layout_edit_mode: layoutEditMode ?? undefined,
+            })
+        },
+        reportDashboardLayoutEditModeEntered: async ({ dashboard, source, layoutZoom }) => {
+            posthog.capture('dashboard layout edit mode entered', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                source,
+                layout_zoom: layoutZoom ?? undefined,
+            })
+        },
+        reportDashboardFiltersChanged: async ({ dashboard, changeType, properties }) => {
+            posthog.capture('dashboard filters changed', {
+                dashboard_id: dashboard?.id,
+                change_type: changeType,
+                ...properties,
             })
         },
         reportDashboardLayoutZoomChanged: async ({ dashboard, layoutZoom, source }) => {
@@ -1374,21 +1438,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard: sanitizeDashboard(dashboard),
             })
         },
-        reportDashboardPinToggled: async (payload) => {
-            posthog.capture(`dashboard pin toggled`, payload)
+        reportDashboardPinToggled: async ({ dashboardId, pinned, source }) => {
+            posthog.capture(`dashboard pin toggled`, {
+                dashboard_id: dashboardId,
+                pinned,
+                source,
+            })
         },
-        reportDashboardFrontEndUpdate: async ({ attribute, originalLength, newLength }) => {
+        reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {
             posthog.capture(`dashboard frontend updated`, {
+                dashboard_id: dashboardId,
                 attribute,
                 original_length: originalLength,
                 new_length: newLength,
             })
         },
-        reportDashboardShareToggled: async ({ isShared }) => {
-            posthog.capture(`dashboard share toggled`, { is_shared: isShared })
+        reportDashboardShareToggled: async ({ dashboardId, isShared }) => {
+            posthog.capture(`dashboard share toggled`, { dashboard_id: dashboardId, is_shared: isShared })
         },
-        reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
-            posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
+        reportDashboardWhitelabelToggled: async ({ dashboardId, isWhiteLabelled }) => {
+            posthog.capture(`dashboard whitelabel toggled`, {
+                dashboard_id: dashboardId,
+                is_whitelabelled: isWhiteLabelled,
+            })
         },
         reportDashboardTileRepositioned: async ({ dashboardId, action, layoutZoom }) => {
             posthog.capture('dashboard tile repositioned', {
@@ -1413,6 +1485,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardInsightLegendToggled: async ({ dashboardId, insightId, source }) => {
             posthog.capture('dashboard insight legend toggled', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                source,
+            })
+        },
+        reportDashboardInsightAnnotationsToggled: async ({ dashboardId, insightId, source }) => {
+            posthog.capture('dashboard insight annotations toggled', {
                 dashboard_id: dashboardId,
                 insight_id: insightId,
                 source,
@@ -2123,14 +2202,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 entry_point: entrypoint,
             })
         },
-        reportOnboardingStepCompleted: ({ stepKey }) => {
+        reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step completed', {
                 step_key: stepKey,
+                // Optional — only set when the caller knows which product owns the step.
+                // Lets dashboards split step funnels by product without joining elsewhere.
+                ...(productKey ? { product_key: productKey } : {}),
             })
         },
-        reportOnboardingStepSkipped: ({ stepKey }) => {
+        reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
+                ...(productKey ? { product_key: productKey } : {}),
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
@@ -2317,6 +2400,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportWebAnalyticsConversionGoalSet: ({ props }) => {
             posthog.capture('web analytics conversion goal set', props)
         },
+        reportWebAnalyticsFocusModeOnboardingShown: () => {
+            posthog.capture('web analytics focus mode onboarding shown')
+        },
+        reportWebAnalyticsFocusModeOnboardingStarted: () => {
+            posthog.capture('web analytics focus mode onboarding started')
+        },
+        reportWebAnalyticsFocusModeOnboardingSkipped: () => {
+            posthog.capture('web analytics focus mode onboarding skipped')
+        },
+        reportWebAnalyticsFocusModeOnboardingCompleted: ({ props }) => {
+            posthog.capture('web analytics focus mode onboarding completed', props)
+        },
         reportWebAnalyticsPathCleaningToggled: ({ props }) => {
             posthog.capture('web analytics path cleaning toggled', props)
         },
@@ -2476,6 +2571,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('navbar starred items reordered', {
                 item_count: itemCount,
                 is_ai_first: isAIFirst,
+            })
+        },
+        reportMCPHintShown: ({ surfaceKey }) => {
+            posthog.capture('mcp hint shown', {
+                surface_key: surfaceKey,
+            })
+        },
+        reportMCPHintDismissed: ({ dismissType, surfaceKey }) => {
+            posthog.capture('mcp hint dismissed', {
+                dismiss_type: dismissType,
+                surface_key: surfaceKey,
             })
         },
     })),

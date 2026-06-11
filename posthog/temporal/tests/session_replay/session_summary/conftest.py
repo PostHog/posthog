@@ -12,11 +12,16 @@ from posthog.temporal.session_replay.session_summary.types.inputs import SingleS
 from posthog.temporal.session_replay.session_summary_group.types import SessionGroupSummaryOfSummariesInputs
 from posthog.temporal.session_replay.session_summary_group.workflow import SessionGroupSummaryInputs
 
+from products.replay.backend.models.session_summaries import (
+    ExtraSummaryContext,
+    SessionSummaryRunMeta,
+    SingleSessionSummary,
+)
+
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL, SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
-from ee.hogai.session_summaries.tests.conftest import *
-from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
+from ee.hogai.session_summaries.tests.conftest import *  # noqa: F401, F403  # legacy: pytest fixtures inherited from session-summaries conftest
 
 
 @pytest.fixture
@@ -144,7 +149,7 @@ def mock_patterns_extraction_yaml_response() -> str:
 @pytest.fixture
 def mock_patterns_assignment_yaml_response() -> str:
     """Mock YAML response for pattern assignment"""
-    # All patterns need events assigned to meet the FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO threshold
+    # Cover every pattern so combine_patterns_with_events_context sees full assignments.
     return """patterns:
   - pattern_id: 1
     event_ids: ["abcd1234", "defg4567"]
@@ -197,7 +202,7 @@ class AsyncRedisTestContext(RedisTestContextBase):
 
 
 @pytest_asyncio.fixture
-async def redis_test_setup() -> AsyncGenerator[AsyncRedisTestContext, None]:
+async def redis_test_setup() -> AsyncGenerator[AsyncRedisTestContext]:
     """Async context manager for Redis test setup and cleanup."""
     context = AsyncRedisTestContext()
     try:

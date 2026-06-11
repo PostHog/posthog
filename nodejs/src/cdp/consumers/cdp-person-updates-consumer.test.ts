@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -36,7 +37,8 @@ describe('CDP Person Updates Consumer', () => {
         })
         team = await getFirstTeam(hub.postgres)
 
-        processor = new CdpPersonUpdatesConsumer(hub, createCdpConsumerDeps(hub))
+        const mockJobQueue = createMockJobQueue()
+        processor = new CdpPersonUpdatesConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
         await processor.start()
 
         hogFunction = createHogFunction({

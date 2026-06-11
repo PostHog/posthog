@@ -53,10 +53,6 @@ export default meta
 
 type Story = StoryObj<StoryArgs>
 
-export const SidePanelSettings: Story = {
-    args: { panel: SidePanelTab.Settings },
-}
-
 export const SidePanelNotebooks: Story = {
     args: { panel: SidePanelTab.Notebooks },
 }

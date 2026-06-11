@@ -4,6 +4,7 @@ vi.mock('cloudflare:workers', () => ({
     env: {
         INKEEP_API_KEY: undefined,
         POSTHOG_API_BASE_URL: undefined,
+        POSTHOG_PUBLIC_URL: undefined,
         MCP_APPS_BASE_URL: undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
         POSTHOG_UI_APPS_TOKEN: undefined,
@@ -17,14 +18,15 @@ vi.mock('@shared/guidelines.md', () => ({
     default: '# Guidelines\nTest guidelines content.',
 }))
 
-vi.mock('@/resources/ui-apps', () => ({
-    registerUiAppResources: vi.fn().mockResolvedValue(undefined),
-    withUiApp: <T extends { _meta?: unknown }>(_appKey: string, config: Omit<T, '_meta'>): T => config as T,
-}))
+vi.mock('@/resources/ui-apps', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/resources/ui-apps')>()
+    return {
+        ...actual,
+        registerUiAppResources: vi.fn().mockResolvedValue(undefined),
+    }
+})
 
-vi.mock('@/resources/ui-apps.generated', () => ({
-    UI_APP_REGISTRY: {},
-}))
+vi.mock('@/resources/ui-apps.generated', async (importOriginal) => importOriginal())
 
 vi.mock('@posthog/mcp-analytics', () => ({
     track: vi.fn(),

@@ -15,7 +15,7 @@ from pydantic_avro import AvroBase
 
 from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
 
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,
@@ -116,7 +116,7 @@ class SnapshotLoader:
         content = await response["Body"].read()
         return BytesIO(content)
 
-    def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T, None, None]:
+    def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T]:
         for record in reader(buffer):
             yield schema.model_validate(record)
 

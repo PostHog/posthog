@@ -40,6 +40,7 @@ from posthog.settings.utils import get_list
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
@@ -88,7 +89,7 @@ class TeamManager(models.Manager):
         team = cast("Team", self.create(**kwargs))
 
         # Create internal/test users cohort and set test_account_filters to exclude it
-        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+        from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort
 
         initiating_user_email = initiating_user.email if initiating_user else None
         test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=initiating_user_email)
@@ -126,7 +127,13 @@ class TeamManager(models.Manager):
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards
-        dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
+        default_app_template = DashboardTemplate.original_template()
+        dashboard = Dashboard.objects.db_manager(self.db).create(
+            name="My App Dashboard",
+            pinned=True,
+            team=team,
+            description=default_app_template.dashboard_description or "",
+        )
         create_dashboard_from_template("DEFAULT_APP", dashboard)
         team.primary_dashboard = dashboard
 
@@ -297,7 +304,9 @@ class Team(UUIDTClassicModel):
         default=generate_random_token_project,
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
-    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
+    app_urls: ArrayField = field_access_control(
+        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "project", "admin"
+    )
     name = models.CharField(
         max_length=200,
         default="Default project",
@@ -312,6 +321,8 @@ class Team(UUIDTClassicModel):
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
     onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
+    ingested_production_event = models.BooleanField(default=False, db_default=False)
+    ingested_production_event_last_checked_at = models.DateTimeField(null=True, blank=True)
 
     person_processing_opt_out = field_access_control(models.BooleanField(null=True, default=False), "project", "admin")
     secret_api_token = models.CharField(
@@ -430,6 +441,15 @@ class Team(UUIDTClassicModel):
     # Logs
     logs_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
+    # LLM gateway — per-team admission projection read by the llm-gateway Go
+    # service via a purpose-built HyperCache blob (cache/team_tokens/<token>/
+    # team_metadata/llm_gateway_policy.json). The gateway admits a team only
+    # when llm_gateway_enabled_at is set and llm_gateway_revoked_at is null;
+    # revoke wins over enable. Null enabled_at = not enrolled (default-deny);
+    # null revoked_at = not revoked. Set by internal tooling/admin only.
+    llm_gateway_enabled_at = models.DateTimeField(null=True, blank=True)
+    llm_gateway_revoked_at = models.DateTimeField(null=True, blank=True)
+
     # Heatmaps
     heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
 
@@ -486,7 +506,7 @@ class Team(UUIDTClassicModel):
         models.CharField(null=True, blank=True, max_length=24), "project", "admin"
     )
     signup_token = models.CharField(max_length=200, null=True, blank=True)
-    is_demo = models.BooleanField(default=False)
+    is_demo = field_access_control(models.BooleanField(default=False), "project", "admin")
 
     # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)
@@ -713,6 +733,12 @@ class Team(UUIDTClassicModel):
         return get_or_create_team_extension(
             self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
         )
+
+    @cached_property
+    def workflows_config(self):
+        from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+
+        return get_or_create_team_extension(self, TeamWorkflowsConfig)
 
     @property
     def default_modifiers(self) -> dict:

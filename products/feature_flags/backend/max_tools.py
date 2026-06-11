@@ -7,12 +7,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import FeatureFlagGroupType
 
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
+
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.hogai.tool import MaxTool
 

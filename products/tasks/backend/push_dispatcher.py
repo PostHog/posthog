@@ -21,13 +21,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from django.core.cache import cache
-from django.db import transaction
+from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections, transaction
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
 
+from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
+
+from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL
+from products.tasks.backend.models import TaskPresence
+from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -85,7 +91,8 @@ def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     """
     try:
         _enqueue_inner(task_run, kind=kind, body=body)
-    except Exception:
+    except Exception as exc:
+        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind=kind, reason=_failure_reason(exc)).inc()
         logger.warning(
             "push_dispatcher.enqueue_failed",
             run_id=str(task_run.id),
@@ -95,7 +102,14 @@ def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
         )
 
 
+def _failure_reason(exc: BaseException) -> str:
+    return "db_connection" if isinstance(exc, OperationalError | InterfaceError) else "other"
+
+
 def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
+    if not settings.TEST:
+        close_old_connections()
+
     user = task_run.task.created_by
     if user is None:
         return
@@ -130,12 +144,38 @@ def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
         return
 
     cooldown_key = f"push_notification:{task_run.id}:{kind}"
-    if not cache.add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
+    if not get_tasks_cache().add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
         logger.debug("push_dispatcher.cooldown_hit", run_id=str(task_run.id), kind=kind)
         return
 
     data = {"taskId": str(task_run.task_id), "taskRunId": str(task_run.id)}
+    suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task_run.task_id)
 
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.
-    transaction.on_commit(lambda: send_user_push.delay(user.id, PUSH_TITLE, body, data))
+    transaction.on_commit(lambda: send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed))
+
+
+def _suppressed_push_token_ids_for_task(*, user_id: int, task_id) -> list[str]:
+    """Return all of the user's UserPushToken UUIDs (as strings) when at least one device
+    has beaconed presence for this task — otherwise an empty list.
+
+    The contract documented on the beacon endpoint is "if any device is
+    provably watching, suppress the others". The watching device doesn't need
+    a push either — it's already rendering the task UI in real time — so when
+    any presence row is active we suppress the entire fanout for the user.
+    Computed at enqueue time; the Celery dispatch is essentially instant so
+    the race window against the 30-second beacon cadence is irrelevant.
+
+    ``unscoped`` is the right escape hatch here: the dispatcher fires from a
+    mix of Temporal activities and model methods that don't have the DRF
+    team-context ContextVar set. Both queries are scoped through
+    ``user_id`` and ``task_id`` and the presence rows are tenant-safe by
+    virtue of their FK to a team-scoped Task.
+    """
+    has_active_presence = (
+        TaskPresence.objects.unscoped().filter(task_id=task_id, user_id=user_id, expires_at__gt=timezone.now()).exists()
+    )
+    if not has_active_presence:
+        return []
+    return [str(pid) for pid in UserPushToken.objects.filter(user_id=user_id).values_list("id", flat=True)]

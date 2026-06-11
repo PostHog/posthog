@@ -2,7 +2,10 @@
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
+#include <cerrno>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -862,6 +865,10 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     }
     if (ctx->settingsClause()) {
       throw NotImplementedError("Unsupported: SelectStmt.settingsClause()");
+    }
+    // `selectStmt`-level `(USING? sampleClause)?` is DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` SAMPLE lands on `JoinExpr.sample`); reject rather than silently drop.
+    if (!ctx->sampleClause().empty()) {
+      throw NotImplementedError("Unsupported: SelectStmt.sampleClause()");
     }
 
     return json;
@@ -2874,11 +2881,21 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
       json["value_type"] = "number";
     } else if (!is_hex && !is_binary && (text.find(".") != string::npos || text.find("e") != string::npos)) {
-      try {
-        json["value"] = Json(stod(text));  // Float
-      } catch (const std::out_of_range&) {
+      // `stod` collapses overflow + underflow into the same `out_of_range`; use `strtod` + errno to keep them apart.
+      errno = 0;
+      const char* c_str = text.c_str();
+      char* end = nullptr;
+      double value = std::strtod(c_str, &end);
+      bool consumed_all = end == c_str + text.size();
+      if (!consumed_all) {
+        // Malformed input — defer to `stod` so callers see the historical SyntaxError shape.
+        json["value"] = Json(stod(text));
+      } else if (errno == ERANGE && (value == HUGE_VAL || value == -HUGE_VAL)) {
         json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
         json["value_type"] = "number";
+      } else {
+        // No errno (in range) or `ERANGE` underflow (subnormal / 0) — keep the value.
+        json["value"] = Json(value);
       }
       return json;
     } else if (is_binary) {
@@ -2905,18 +2922,19 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         json["value"] = static_cast<int64_t>(magnitude);
       }
       return json;
+    } else if (is_hex && ctx->floatingLiteral() != nullptr) {
+      // Hex-float literal (e.g. `0x1p4`) — route through `stod`; the integer path's `stoll` would drop the exponent.
+      json["value"] = Json(stod(text));
+      return json;
     } else {
       try {
         // base 10 (not strtoll base 0): leading zeros are no-ops, never octal — "017" → 17, "09" → 9.
         int base = is_hex ? 16 : 10;
         json["value"] = static_cast<int64_t>(stoll(text, nullptr, base));  // Integer
       } catch (const std::out_of_range&) {
-        try {
-          json["value"] = Json(stod(text));  // Too large for int64, use float
-        } catch (const std::out_of_range&) {
-          json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
-          json["value_type"] = "number";
-        }
+        // Beyond Int64 — keep the literal lossless via the `value_type: "number"` string envelope; the deserialiser rebuilds an arbitrary-precision Python int.
+        json["value"] = text;
+        json["value_type"] = "number";
       }
       return json;
     }

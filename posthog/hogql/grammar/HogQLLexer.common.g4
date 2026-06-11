@@ -162,8 +162,9 @@ QUOTED_IDENTIFIER
     | QUOTE_DOUBLE ( ~([\\"]) | ESCAPE_CHAR_COMMON | BACKSLASH QUOTE_DOUBLE | (QUOTE_DOUBLE QUOTE_DOUBLE) )* QUOTE_DOUBLE
     ;
 FLOATING_LITERAL
-    : HEXADECIMAL_LITERAL DOT HEX_DIGIT* (P | E) (PLUS | DASH)? DEC_DIGIT+
-    | HEXADECIMAL_LITERAL (P | E) (PLUS | DASH)? DEC_DIGIT+
+    // Hex-float exponent: strict C99 `p`/`P` only — `e`/`E` stays a hex digit, so `0x1e5` is 485, not a float.
+    : HEXADECIMAL_LITERAL DOT HEX_DIGIT* P (PLUS | DASH)? DEC_DIGIT+
+    | HEXADECIMAL_LITERAL P (PLUS | DASH)? DEC_DIGIT+
     | DECIMAL_LITERAL DOT DEC_DIGIT* E (PLUS | DASH)? DEC_DIGIT+
     | DOT DECIMAL_LITERAL E (PLUS | DASH)? DEC_DIGIT+
     | DECIMAL_LITERAL E (PLUS | DASH)? DEC_DIGIT+
@@ -308,20 +309,29 @@ mode HOGQLX_TAG_OPEN;
 TAG_SELF_CLOSE_GT : '/>' -> type(SLASH_GT), popMode;   // <tag …/>
 TAG_OPEN_GT       :  '>' -> type(GT), popMode, pushMode(HOGQLX_TEXT);   // <tag …>
 
+// Skip comments between attributes — without these, the recoverable lexer error drops the delimiters and re-tokenises the body as phantom attributes.
+TAG_MULTI_LINE_COMMENT  : '/*' .*? '*/'                                -> skip;
+TAG_SINGLE_LINE_COMMENT : ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
+
 // minimal token set; map everything back to the default token types
 TAG_IDENT   : [a-zA-Z_][a-zA-Z0-9_-]* -> type(IDENTIFIER);
 TAG_EQ      : '='                     -> type(EQ_SINGLE);
 TAG_STRING  : STRING_LITERAL          -> type(STRING_LITERAL);
 TAG_WS      : [ \t\r\n]+              -> channel(HIDDEN);
 TAG_LBRACE  : '{'                     -> type(LBRACE), pushMode(DEFAULT_MODE);
+// Catch-all for unmatched bytes (e.g. `#`, `&`, `@`) so the parser fails loudly instead of silently re-tokenising the surrounding text.
+TAG_UNEXPECTED : . -> type(UNEXPECTED_CHARACTER);
 
 
 // ───────── HOGQLX TAG MODE for closing tags ─────────
 mode HOGQLX_TAG_CLOSE;
 
 TAGC_GT     :  '>' -> type(GT), popMode;                // *** no TEXT push ***
+TAGC_MULTI_LINE_COMMENT  : '/*' .*? '*/'                                -> skip;
+TAGC_SINGLE_LINE_COMMENT : ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
 TAGC_IDENT  : [a-zA-Z_][a-zA-Z0-9_-]* -> type(IDENTIFIER);
 TAGC_WS     : [ \t\r\n]+              -> channel(HIDDEN);
+TAGC_UNEXPECTED : . -> type(UNEXPECTED_CHARACTER);
 
 
 // ───────── HOGQLX TEXT MODE ─────────

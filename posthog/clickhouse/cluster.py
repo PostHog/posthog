@@ -9,9 +9,8 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, NamedTuple, Optional, TypeVar
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, Optional, TypeVar
 
-import dagster
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
@@ -20,11 +19,57 @@ from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_po
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
-logger = dagster.get_dagster_logger("clickhouse")
+
+class _LazyDagsterLogger:
+    """Defer `import dagster` (~320ms) off this module's import. cluster.py loads very early at
+    django.setup() (via posthog.errors -> the clickhouse client), but the dagster logger is only
+    needed when a log call actually fires. get_dagster_logger() resolves the dagster run context at
+    emit time, so caching one instance here matches the previous module-level behavior — no change to
+    log routing inside dagster ops, just no dagster import for the web/migrate/shell/celery processes
+    that never log from here.
+    """
+
+    _logger: ClassVar[logging.Logger | None] = None
+
+    def __getattr__(self, name: str) -> Any:
+        if _LazyDagsterLogger._logger is None:
+            import dagster  # noqa: PLC0415
+
+            _LazyDagsterLogger._logger = dagster.get_dagster_logger("clickhouse")
+        return getattr(_LazyDagsterLogger._logger, name)
+
+
+logger = _LazyDagsterLogger()
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
     return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+
+
+# Smoke-test only: when migrating against the multinode docker-compose stack
+# from the host, every docker hostname (`clickhouse-aux`, …) is mapped to
+# 127.0.0.1 via /etc/hosts, but only one container can publish on port 9000 —
+# so without a per-host port override, every role-routed connection lands on
+# whichever container holds 127.0.0.1:9000 (the data node). The compose file
+# publishes each satellite on a distinct host port; this map mirrors that.
+#
+# Canonical source: `docker-compose.multinode-clickhouse.yml` (per-service
+# `ports:` blocks). Keep this map in sync when adding or renumbering nodes.
+_MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
+    "clickhouse-data": ("localhost", 9000),
+    "clickhouse-ai-events": ("localhost", 9100),
+    "clickhouse-aux": ("localhost", 9200),
+    "clickhouse-ops": ("localhost", 9300),
+    "clickhouse-sessions": ("localhost", 9400),
+}
+
+
+def _resolve_connection_target(host_name: str, port: int | None) -> tuple[str, int | None]:
+    if settings.MULTINODE_CLICKHOUSE:
+        override = _MULTINODE_HOST_PORT_OVERRIDES.get(host_name)
+        if override:
+            return override
+    return (host_name, port)
 
 
 K = TypeVar("K")
@@ -118,13 +163,12 @@ class ClickhouseCluster:
 
         for row in cluster_hosts:
             (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
+            # We only use the port from system.clusters if we're running in E2E tests or debug mode,
+            # otherwise, we will use the default port.
+            effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
+            resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
             host_info = HostInfo(
-                ConnectionInfo(
-                    host_name,
-                    # We only use the port from system.clusters if we're running in E2E tests or debug mode,
-                    # otherwise, we will use the default port.
-                    port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
-                ),
+                ConnectionInfo(resolved_host, resolved_port),
                 shard_num if host_cluster_role == NodeRole.DATA else None,
                 replica_num if host_cluster_role == NodeRole.DATA else None,
                 host_cluster_type,
@@ -140,11 +184,10 @@ class ClickhouseCluster:
             for row in data_hosts:
                 (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
                 if host_cluster_role == NodeRole.DATA:
+                    effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
+                    resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
                     host_info = HostInfo(
-                        ConnectionInfo(
-                            host_name,
-                            port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
-                        ),
+                        ConnectionInfo(resolved_host, resolved_port),
                         shard_num,
                         replica_num,
                         host_cluster_type,
@@ -165,11 +208,10 @@ class ClickhouseCluster:
             logger.info("Discovered %d hosts from satellite cluster %r", len(satellite_hosts), satellite_name)
             for row in satellite_hosts:
                 (host_name, port, _shard_num, _replica_num, host_cluster_type, host_cluster_role) = row
+                effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
+                resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
                 host_info = HostInfo(
-                    ConnectionInfo(
-                        host_name,
-                        port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
-                    ),
+                    ConnectionInfo(resolved_host, resolved_port),
                     shard_num=None,
                     replica_num=None,
                     host_cluster_type=host_cluster_type,

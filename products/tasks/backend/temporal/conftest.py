@@ -29,8 +29,17 @@ def activity_environment():
 
 
 @pytest.fixture(autouse=True)
-def posthog_code_oauth_app():
-    """Create the Array OAuth application for tests."""
+def posthog_code_oauth_app(request):
+    """Create the Array OAuth application for DB-backed tests.
+
+    Skipped for tests without a `django_db` marker — those can't touch the
+    ORM, so seeding the OAuth row would just raise.
+    """
+    has_db = "django_db" in {m.name for m in request.node.iter_markers()}
+    if not has_db:
+        yield None
+        return
+
     if not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
     app, _ = OAuthApplication.objects.get_or_create(

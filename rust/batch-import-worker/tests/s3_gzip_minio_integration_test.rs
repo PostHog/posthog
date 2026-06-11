@@ -91,7 +91,8 @@ async fn test_s3_gzip_minio_integration() {
         "bucket": TEST_BUCKET,
         "prefix": prefix,
         "region": "us-east-1",
-        "endpoint_url": MINIO_ENDPOINT
+        "endpoint_url": MINIO_ENDPOINT,
+        "allow_internal_ips": true
     }))
     .expect("source config from json");
     let s3_config = match &source_config {

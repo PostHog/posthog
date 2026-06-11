@@ -3,6 +3,7 @@ from django.db import models
 from django.db.models import JSONField, QuerySet
 from django.utils import timezone
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.team import Team
@@ -47,9 +48,9 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         db_table = "posthog_notebook"
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Notebook"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Notebook"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="short_id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="short_id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -63,7 +64,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         )
 
 
-RELATED_OBJECTS = ("group",)
+RELATED_OBJECTS = ("group", "account")
 
 
 class ResourceNotebook(UUIDTModel):
@@ -86,6 +87,13 @@ class ResourceNotebook(UUIDTModel):
         null=True,
         blank=True,
         db_column="group_id",
+    )
+    account = models.ForeignKey(
+        "customer_analytics.Account",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="notebooks",
     )
 
     class Meta:

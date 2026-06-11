@@ -10,23 +10,31 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from django.db import close_old_connections
+
 import psycopg
 import structlog
 from asgiref.sync import sync_to_async
 
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES
 from posthog.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
+    RECONCILE_GRACE_SECONDS,
+    RECONCILE_INTERVAL_SECONDS,
+    RECONCILE_LOOKBACK_SECONDS,
     RECOVERY_INTERVAL_SECONDS,
+    RETRY_BACKOFF_BASE_SECONDS,
     BatchConsumer as SharedBatchConsumer,
     BatchConsumerConfig,
     ProcessBatchFn,
     _group_by_key,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BatchQueue, PendingBatch
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import RUNS_RECONCILED_TOTAL
+from posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock import release_v3_pipeline_lock
 
-from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 logger = structlog.get_logger(__name__)
@@ -45,8 +53,13 @@ class DeltaBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         limit: int,
+        retry_backoff_base_seconds: int,
     ) -> list[PendingBatch]:
-        return await BatchQueue.get_unprocessed_and_lock(conn, limit=limit)
+        return await BatchQueue.get_unprocessed_and_lock(
+            conn,
+            limit=limit,
+            retry_backoff_base_seconds=retry_backoff_base_seconds,
+        )
 
     async def unlock(
         self,
@@ -89,15 +102,107 @@ class DeltaBatchConsumerAdapter:
         batch: PendingBatch,
         reason: str,
     ) -> None:
-        await BatchQueue.fail_run(conn, run_uuid=batch.run_uuid, reason=reason)
-        await sync_to_async(_update_job_status_to_failed)(
-            job_id=batch.job_id,
-            team_id=batch.team_id,
-            error=reason,
-        )
+        """Fail all pending batches in this run and mark the ExternalDataJob as failed.
 
-    async def get_stale_executing(self, conn: psycopg.AsyncConnection[Any]) -> list[PendingBatch]:
-        return await BatchQueue.get_stale_executing(conn)
+        Each step is isolated so a failure can't crash the consumer.
+        """
+        try:
+            await BatchQueue.fail_run(conn, run_uuid=batch.run_uuid, reason=reason)
+        except Exception as e:
+            logger.exception("fail_run_queue_update_failed", batch_id=batch.id, run_uuid=batch.run_uuid)
+            capture_exception(e)
+
+        try:
+            await sync_to_async(_update_job_status_to_failed)(
+                job_id=batch.job_id,
+                team_id=batch.team_id,
+                error=reason,
+            )
+        except Exception as e:
+            # Leave the job for the reconcile sweep rather than crashing the consumer.
+            logger.exception("fail_run_job_status_update_failed", job_id=batch.job_id, run_uuid=batch.run_uuid)
+            capture_exception(e)
+
+        workflow_run_id = batch.metadata.get("workflow_run_id")
+        if workflow_run_id:
+            try:
+                await sync_to_async(release_v3_pipeline_lock)(
+                    team_id=batch.team_id,
+                    schema_id=batch.schema_id,
+                    token=workflow_run_id,
+                )
+            except Exception as e:
+                logger.error(
+                    "failed_to_release_v3_pipeline_lock",
+                    job_id=batch.job_id,
+                    schema_id=batch.schema_id,
+                    exc_info=True,
+                )
+                capture_exception(e)
+
+    async def get_stale_executing(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int,
+    ) -> list[PendingBatch]:
+        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
+
+    async def reconcile_failed_runs(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int,
+        lookback_seconds: int,
+        limit: int,
+    ) -> None:
+        """Mark ExternalDataJobs Failed when their run has a failed queue batch but the app-DB write never landed."""
+        refs = await BatchQueue.get_failed_runs(
+            conn,
+            grace_seconds=grace_seconds,
+            lookback_seconds=lookback_seconds,
+            limit=limit,
+        )
+        for ref in refs:
+            try:
+                reconciled = await sync_to_async(_mark_job_failed_if_not_terminal)(
+                    job_id=ref.job_id,
+                    team_id=ref.team_id,
+                    error=ref.reason or "run failed (reconciled from queue)",
+                )
+            except Exception as e:
+                logger.exception("reconcile_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
+                capture_exception(e)
+                continue
+
+            if not reconciled:
+                continue  # job was already terminal — nothing to reconcile
+
+            RUNS_RECONCILED_TOTAL.inc()
+            logger.warning(
+                "run_reconciled_to_failed",
+                job_id=ref.job_id,
+                run_uuid=ref.run_uuid,
+                team_id=ref.team_id,
+                external_data_schema_id=ref.schema_id,
+            )
+
+            # Release the V3 pipeline lock too, otherwise it blocks the schema's next sync until its TTL expires.
+            if ref.workflow_run_id:
+                try:
+                    await sync_to_async(release_v3_pipeline_lock)(
+                        team_id=ref.team_id,
+                        schema_id=ref.schema_id,
+                        token=ref.workflow_run_id,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "failed_to_release_v3_pipeline_lock",
+                        job_id=ref.job_id,
+                        schema_id=ref.schema_id,
+                        exc_info=True,
+                    )
+                    capture_exception(e)
 
     async def should_process_batch(
         self,
@@ -132,6 +237,12 @@ class BatchConsumer(SharedBatchConsumer):
 
 
 def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:
+    from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    # Drop stale app-DB connections so this write reconnects instead of leaving the job stuck in Running.
+    close_old_connections()
+
     existing = ExternalDataJob.objects.filter(id=job_id, team_id=team_id, status=ExternalDataJob.Status.FAILED).first()
     if existing is not None:
         return
@@ -145,6 +256,20 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
     )
 
 
+def _mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:
+    """Mark a non-terminal ExternalDataJob Failed; returns True if it transitioned (terminal jobs are a no-op)."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    close_old_connections()
+
+    job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).only("status").first()
+    if job is None or job.status in TERMINAL_JOB_STATUSES:
+        return False
+
+    _update_job_status_to_failed(job_id=job_id, team_id=team_id, error=error)
+    return True
+
+
 __all__ = [
     "BatchConsumer",
     "ConsumerConfig",
@@ -152,6 +277,10 @@ __all__ = [
     "MAX_ATTEMPTS",
     "POLL_INTERVAL_SECONDS",
     "ProcessBatchFn",
+    "RECONCILE_GRACE_SECONDS",
+    "RECONCILE_INTERVAL_SECONDS",
+    "RECONCILE_LOOKBACK_SECONDS",
     "RECOVERY_INTERVAL_SECONDS",
+    "RETRY_BACKOFF_BASE_SECONDS",
     "_group_by_key",
 ]

@@ -7,6 +7,10 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true # We only want one AI CI run per PR concurrently
 
+env:
+    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
 jobs:
     eval:
         timeout-minutes: 45
@@ -56,7 +60,7 @@ jobs:
             contents: read
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   # Check out the actual branch instead of merge commit with master,
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
@@ -69,6 +73,13 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Stop/Start stack with Docker Compose
               env:
@@ -87,9 +98,9 @@ jobs:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -99,7 +110,7 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
@@ -112,7 +123,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Add service hostnames to /etc/hosts
               run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
@@ -152,7 +163,7 @@ jobs:
             pull-requests: write
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: .github/scripts
 
@@ -176,7 +187,7 @@ jobs:
             - name: Post eval summary to PR
               # always() because we want to post even if some eval groups errored
               if: always() && github.event_name == 'pull_request'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const fs = require("fs")

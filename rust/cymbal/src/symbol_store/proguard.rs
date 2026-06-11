@@ -1,10 +1,12 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use posthog_symbol_data::{read_symbol_data_with_byte_count, ProguardMapping};
 
 use crate::{
-    error::{ProguardError, ResolveError},
+    error::{ProguardError, ResolveError, UnhandledError},
+    metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
     symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
@@ -31,24 +33,32 @@ pub enum ProguardRef {}
 #[async_trait]
 impl Fetcher for ProguardProvider {
     type Ref = ProguardRef;
-    type Fetched = Vec<u8>;
+    type Fetched = Bytes;
     type Err = ResolveError;
 
-    async fn fetch(&self, _: i32, _: ProguardRef) -> Result<Vec<u8>, Self::Err> {
+    async fn fetch(&self, _: i32, _: ProguardRef) -> Result<Bytes, Self::Err> {
         unreachable!("ProguardRef is impossible to construct, so cannot be passed")
     }
 }
 
 #[async_trait]
 impl Parser for ProguardProvider {
-    type Source = Vec<u8>;
+    type Source = Bytes;
     type Set = FetchedMapping;
     type Err = ResolveError;
 
     async fn parse(&self, source: Self::Source) -> Result<FetchedMapping, ResolveError> {
-        let (map, decompressed_bytes): (ProguardMapping, usize) =
-            read_symbol_data_with_byte_count(source).map_err(ProguardError::DataError)?;
-        Ok(FetchedMapping::new(map, decompressed_bytes)?)
+        // zstd decompress + ProguardCache::write are CPU-bound; offload from the tokio
+        // runtime so a large mapping doesn't block other in-flight requests.
+        tokio::task::spawn_blocking(move || -> Result<FetchedMapping, ResolveError> {
+            let (map, decompressed_bytes): (ProguardMapping, usize) =
+                read_symbol_data_with_byte_count(&source).map_err(ProguardError::DataError)?;
+            metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "proguard")
+                .record(decompressed_bytes as f64);
+            Ok(FetchedMapping::new(map, decompressed_bytes)?)
+        })
+        .await
+        .map_err(|e| UnhandledError::Other(format!("proguard parse task failed: {e}")))?
     }
 }
 
@@ -100,7 +110,7 @@ mod tests {
         })
         .unwrap();
         let (mapping, byte_count): (ProguardMapping, usize) =
-            read_symbol_data_with_byte_count(source).unwrap();
+            read_symbol_data_with_byte_count(&source).unwrap();
         let fetched = FetchedMapping::new(mapping, byte_count).unwrap();
 
         assert_eq!(

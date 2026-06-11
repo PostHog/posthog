@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 
+from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
 
 from posthog.models import Team, User
@@ -96,19 +97,30 @@ class TeamCustomerAnalyticsConfigDriftPolicyTest(_AccountTeamScopedTestMixin, Ba
     def setUp(self):
         super().setUp()
         self.config = TeamCustomerAnalyticsConfig.objects.get(team=self.team)
-        self.config.account_group_type_index = 0
-        self.config.save()
 
-    def test_drift_blocked_when_accounts_exist(self):
-        Account.objects.create(team=self.team, name="Existing")
-
-        self.config.account_group_type_index = 1
-        with pytest.raises(DjangoValidationError):
-            self.config.save()
-
-    def test_drift_allowed_when_no_accounts_exist(self):
-        self.config.account_group_type_index = 1
-        self.config.save()
-
+    @parameterized.expand(
+        [
+            # Changing an already-set index while accounts exist is drift, and is blocked.
+            ("drift_blocked_when_accounts_exist", 0, True, 1, True),
+            # Changing the index is harmless, and allowed, while no accounts exist.
+            ("drift_allowed_when_no_accounts_exist", 0, False, 1, False),
+            # Setting the index for the first time (it was never set) is not drift,
+            # so it is allowed even when accounts already exist.
+            ("first_time_set_allowed_when_accounts_exist", None, True, 2, False),
+        ]
+    )
+    def test_account_group_type_index_drift_policy(self, _name, initial_index, create_account, new_index, should_block):
+        # `update()` skips the pre_save signal, so the policy does not fire on the fixture itself.
+        TeamCustomerAnalyticsConfig.objects.filter(pk=self.config.pk).update(account_group_type_index=initial_index)
+        if create_account:
+            Account.objects.create(team=self.team, name="Existing")
         self.config.refresh_from_db()
-        assert self.config.account_group_type_index == 1
+
+        self.config.account_group_type_index = new_index
+        if should_block:
+            with pytest.raises(DjangoValidationError):
+                self.config.save()
+        else:
+            self.config.save()
+            self.config.refresh_from_db()
+            assert self.config.account_group_type_index == new_index

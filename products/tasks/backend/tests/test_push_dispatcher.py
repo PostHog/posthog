@@ -1,9 +1,11 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import InterfaceError, OperationalError
 from django.test import TransactionTestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
@@ -49,12 +51,14 @@ class TestPushDispatcher(TransactionTestCase):
     def test_notify_enqueues_push(self, _name, notify_fn, expected_body_fragment, mock_delay, _flag):
         notify_fn(self.task_run)
         mock_delay.assert_called_once()
-        user_id, title, body, data = mock_delay.call_args.args
+        user_id, title, body, data, suppressed = mock_delay.call_args.args
         self.assertEqual(user_id, self.user.id)
         self.assertEqual(title, "PostHog Code")
         self.assertIn(expected_body_fragment, body)
         self.assertEqual(data["taskId"], str(self.task.id))
         self.assertEqual(data["taskRunId"], str(self.task_run.id))
+        # No presence rows in this test's setUp, so nothing to suppress.
+        self.assertEqual(suppressed, [])
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
@@ -127,6 +131,25 @@ class TestPushDispatcher(TransactionTestCase):
         # The bare except in _enqueue should catch the RuntimeError. If it
         # doesn't, this test raises and fails — which is the regression signal.
         notify_task_run_completed(self.task_run)
+
+    @parameterized.expand(
+        [
+            (
+                "db_connection_operational",
+                "db_connection",
+                OperationalError("server closed the connection unexpectedly"),
+            ),
+            ("db_connection_interface", "db_connection", InterfaceError("connection already closed")),
+            ("other", "other", RuntimeError("redis is down")),
+        ]
+    )
+    def test_swallowed_failure_increments_metric(self, _name, expected_reason, exc):
+        labels = {"kind": "completed", "reason": expected_reason}
+        before = REGISTRY.get_sample_value("posthog_tasks_push_dispatcher_failures_total", labels) or 0.0
+        with patch("products.tasks.backend.push_dispatcher._enqueue_inner", side_effect=exc):
+            notify_task_run_completed(self.task_run)
+        after = REGISTRY.get_sample_value("posthog_tasks_push_dispatcher_failures_total", labels) or 0.0
+        self.assertEqual(after, before + 1)
 
     @patch("products.tasks.backend.push_dispatcher.notify_task_run_completed")
     def test_mark_completed_triggers_push(self, mock_notify):

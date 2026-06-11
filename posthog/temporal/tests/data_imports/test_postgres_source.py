@@ -28,7 +28,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -94,7 +95,7 @@ def postgres_config() -> dict[str, Any]:
 @pytest_asyncio.fixture
 async def postgres_connection(
     postgres_config: dict[str, Any], setup_postgres_test_db: None
-) -> AsyncGenerator[AsyncConnection, None]:
+) -> AsyncGenerator[AsyncConnection]:
     connection = await psycopg.AsyncConnection.connect(
         host=postgres_config["host"],
         port=postgres_config["port"],
@@ -112,7 +113,7 @@ async def postgres_connection(
 @pytest_asyncio.fixture
 async def postgres_source_table(
     postgres_connection: AsyncConnection, postgres_config: dict[str, Any]
-) -> AsyncGenerator[AsyncCursor[TupleRow], None]:
+) -> AsyncGenerator[AsyncCursor[TupleRow]]:
     """Create a Postgres table with test data and clean it up after the test."""
     async with postgres_connection.cursor() as cursor:
         full_table_name = sql.Identifier(postgres_config["schema"], POSTGRES_TABLE_NAME)

@@ -9,8 +9,13 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
+from products.tasks.backend.constants import (
+    MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
+    MODAL_VM_SANDBOX_FEATURE_FLAG,
+    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+)
+from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -55,6 +60,11 @@ class TaskProcessingContext:
     # Captured at workflow start so a flag flip mid-run can't introduce
     # nondeterminism (the workflow consults this in its finally block).
     use_modal_resume_snapshots: bool = True
+    # Captured at workflow start so the sandbox event transport branch is
+    # deterministic for the full run.
+    sandbox_event_ingest_enabled: bool = False
+    use_modal_vm_sandbox: bool = False
+    use_modal_network_allowlist: bool = False
 
     @property
     def mode(self) -> str:
@@ -135,6 +145,123 @@ class TaskProcessingContext:
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
         }
+
+
+def _is_sandbox_event_ingest_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    state_override = (state or {}).get("sandbox_event_ingest_enabled")
+    if isinstance(state_override, bool):
+        log_with_activity_context(
+            "sandbox_event_ingest_state_override",
+            run_id=run_id,
+            sandbox_event_ingest_enabled=state_override,
+        )
+        return state_override
+
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("sandbox_event_ingest_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "sandbox_event_ingest_flag_checked",
+        run_id=run_id,
+        sandbox_event_ingest_enabled=enabled,
+    )
+    return enabled
+
+
+def _is_modal_vm_sandbox_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    state_override = (state or {}).get("use_modal_vm_sandbox")
+    if isinstance(state_override, bool):
+        log_with_activity_context(
+            "modal_vm_sandbox_state_override",
+            run_id=run_id,
+            use_modal_vm_sandbox=state_override,
+        )
+        return state_override
+
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                MODAL_VM_SANDBOX_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "modal_vm_sandbox_flag_checked",
+        run_id=run_id,
+        use_modal_vm_sandbox=enabled,
+    )
+    return enabled
+
+
+def _is_modal_network_allowlist_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    state_override = (state or {}).get("use_modal_network_allowlist")
+    if isinstance(state_override, bool):
+        log_with_activity_context(
+            "modal_network_allowlist_state_override",
+            run_id=run_id,
+            use_modal_network_allowlist=state_override,
+        )
+        return state_override
+
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("modal_network_allowlist_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "modal_network_allowlist_flag_checked",
+        run_id=run_id,
+        use_modal_network_allowlist=enabled,
+    )
+    return enabled
 
 
 @activity.defn
@@ -226,6 +353,39 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
+    )
+    use_modal_vm_sandbox = _is_modal_vm_sandbox_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"use_modal_vm_sandbox: {use_modal_vm_sandbox} for this task run",
+    )
+    use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
+    )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
         user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
@@ -254,4 +414,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         json_schema=task.json_schema,
         ci_prompt=task.ci_prompt,
         use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+        sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        use_modal_vm_sandbox=use_modal_vm_sandbox,
+        use_modal_network_allowlist=use_modal_network_allowlist,
     )

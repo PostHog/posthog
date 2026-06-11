@@ -370,22 +370,11 @@ impl ServerHandle {
                 feature_flags::flags::flag_definitions_cache::FlagDefinitionsCache::disabled(),
             );
 
-            // `for_tests()` skips the background flusher and the harness
-            // never exposes a handle, so pending counts populated here never
-            // reach mock Redis. The construction is intentional: it exercises
-            // the synchronous `record()` half of the dual-write
-            // (`handler::billing::record_billing_increment`) so mock-Redis
-            // coverage doesn't silently regress that codepath. End-to-end
-            // flush behavior lives in the real-Redis tests in `test_flags.rs`
-            // (`test_dual_write_*`, `test_shutdown_flush_*`).
-            let billing_aggregator = if *config.billing_aggregator_enabled {
-                Some(feature_flags::billing::BillingAggregator::for_tests(
-                    redis_writer_client.clone(),
-                    feature_flags::billing::BillingAggregatorConfig::default(),
-                ))
-            } else {
-                None
-            };
+            let billing_aggregator = feature_flags::billing::BillingAggregator::start(
+                redis_writer_client.clone(),
+                config.get_billing_aggregator_config(),
+            );
+            let shutdown_for_test = billing_aggregator.clone();
 
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
@@ -425,13 +414,18 @@ impl ServerHandle {
                 config,
             );
 
-            axum::serve(
+            // Mirror `server::serve`: capture the serve result, then await the
+            // aggregator shutdown *unconditionally* before propagating any
+            // serve error. Otherwise a `.unwrap()` on a serve failure would
+            // panic the spawned task and leak the flusher into the next test.
+            let serve_result = axum::serve(
                 listener,
                 app.into_make_service_with_connect_info::<SocketAddr>(),
             )
             .with_graceful_shutdown(handles.http.shutdown_signal())
-            .await
-            .unwrap();
+            .await;
+            shutdown_for_test.shutdown().await;
+            serve_result.unwrap();
             handles.http.work_completed();
         });
 

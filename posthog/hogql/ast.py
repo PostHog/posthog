@@ -29,6 +29,8 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
 
+# Allowlist for `OrderExpr.order`; the SQL printer interpolates it verbatim. Shared between `__post_init__` and the printer's defense-in-depth check.
+VALID_ORDER_DIRECTIONS = ("ASC", "DESC")
 VALID_JOIN_CONSTRAINT_TYPES = get_args(Literal["ON", "USING"])
 VALID_JOIN_TYPES = frozenset(
     {
@@ -897,7 +899,7 @@ class OrderExpr(Expr):
     with_fill: Optional[WithFillExpr] = None
 
     def __post_init__(self):
-        if self.order not in ("ASC", "DESC"):
+        if self.order not in VALID_ORDER_DIRECTIONS:
             raise ValueError(f"Invalid order direction: {self.order}")
 
 
@@ -948,9 +950,25 @@ class Constant(Expr):
     value: Any
 
 
+# Allowlist for `Keyword.name`; the SQL printer interpolates it verbatim (CH returns `name` directly, Postgres uppercases). Restricted to the Postgres-family time pseudo-functions from `resolver.POSTGRES_KEYWORD_TYPES` — a broader `str.isidentifier()` check would still admit arbitrary Python identifiers and let them emit as unquoted ClickHouse tokens.
+VALID_KEYWORD_NAMES = frozenset(
+    {
+        "current_date",
+        "current_time",
+        "current_timestamp",
+        "localtime",
+        "localtimestamp",
+    }
+)
+
+
 @dataclass(kw_only=True, slots=True)
 class Keyword(Expr):
     name: str
+
+    def __post_init__(self):
+        if self.name not in VALID_KEYWORD_NAMES:
+            raise ValueError(f"Invalid Keyword name: {self.name!r}")
 
 
 @dataclass(kw_only=True, slots=True)

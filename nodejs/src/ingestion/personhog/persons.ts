@@ -4,6 +4,7 @@ import { Client } from '@connectrpc/connect'
 import { PersonHogService } from '../../generated/personhog/personhog/service/v1/service_pb'
 import { TeamDistinctIdSchema } from '../../generated/personhog/personhog/types/v1/common_pb'
 import {
+    GetDistinctIdsForPersonsRequestSchema,
     GetPersonsByDistinctIdsRequestSchema,
     GetPersonsByUuidsRequestSchema,
 } from '../../generated/personhog/personhog/types/v1/person_pb'
@@ -28,48 +29,86 @@ function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
     }
 }
 
+const PERSONHOG_BATCH_SIZE = 250
+
 export class PersonHogPersonOperations {
     constructor(private client: Client<typeof PersonHogService>) {}
 
     async fetchPersonsByDistinctIds(
-        teamPersons: { teamId: number; distinctId: string }[]
+        teamPersons: { teamId: number; distinctId: string }[],
+        callerTag?: string
     ): Promise<InternalPersonWithDistinctId[]> {
         if (teamPersons.length === 0) {
             return []
         }
 
-        const response = await this.client.getPersonsByDistinctIds(
-            create(GetPersonsByDistinctIdsRequestSchema, {
-                teamDistinctIds: teamPersons.map(({ teamId, distinctId }) =>
-                    create(TeamDistinctIdSchema, {
-                        teamId: BigInt(teamId),
-                        distinctId,
-                    })
-                ),
-                readOptions: eventualReadOptions(),
-            })
-        )
-
         const results: InternalPersonWithDistinctId[] = []
-        for (const result of response.results) {
-            if (result.person && result.key) {
-                const person = protoPersonToDomain(result.person) as InternalPersonWithDistinctId
-                person.distinct_id = result.key.distinctId
-                results.push(person)
+        for (let i = 0; i < teamPersons.length; i += PERSONHOG_BATCH_SIZE) {
+            const batch = teamPersons.slice(i, i + PERSONHOG_BATCH_SIZE)
+            const response = await this.client.getPersonsByDistinctIds(
+                create(GetPersonsByDistinctIdsRequestSchema, {
+                    teamDistinctIds: batch.map(({ teamId, distinctId }) =>
+                        create(TeamDistinctIdSchema, {
+                            teamId: BigInt(teamId),
+                            distinctId,
+                        })
+                    ),
+                    readOptions: eventualReadOptions(),
+                }),
+                callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+            )
+
+            for (const result of response.results) {
+                if (result.person && result.key) {
+                    const person = protoPersonToDomain(result.person) as InternalPersonWithDistinctId
+                    person.distinct_id = result.key.distinctId
+                    results.push(person)
+                }
             }
         }
         return results
     }
 
-    async fetchPersonsByPersonIds(teamPersons: { teamId: number; personId: string }[]): Promise<InternalPerson[]> {
+    /**
+     * Fetch up to ``limitPerPerson`` distinct_ids for each given int person_id.
+     * Returns a record keyed by the int person_id (as a string, matching InternalPerson.id).
+     * Callers that hold UUIDs should first convert via fetchPersonsByPersonIds to get int IDs.
+     */
+    async getDistinctIdsForPersons(
+        teamId: number,
+        personIntIds: string[],
+        limitPerPerson?: number,
+        callerTag?: string
+    ): Promise<Record<string, string[]>> {
+        if (personIntIds.length === 0) {
+            return {}
+        }
+
+        const response = await this.client.getDistinctIdsForPersons(
+            create(GetDistinctIdsForPersonsRequestSchema, {
+                teamId: BigInt(teamId),
+                personIds: personIntIds.map((id) => BigInt(id)),
+                limitPerPerson: limitPerPerson != null ? BigInt(limitPerPerson) : undefined,
+                readOptions: eventualReadOptions(),
+            }),
+            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+        )
+
+        const result: Record<string, string[]> = {}
+        for (const pd of response.personDistinctIds) {
+            result[String(pd.personId)] = pd.distinctIds.map((d) => d.distinctId)
+        }
+        return result
+    }
+
+    async fetchPersonsByPersonIds(
+        teamPersons: { teamId: number; personId: string }[],
+        callerTag?: string
+    ): Promise<InternalPerson[]> {
         if (teamPersons.length === 0) {
             return []
         }
 
-        // Group by team_id since GetPersonsByUuids is a single-team RPC.
-        // In practice callers (e.g. CDP PersonsManager) almost always pass a single team,
-        // so multiple RPCs here is an edge case. If metrics show frequent multi-team batches,
-        // consider adding a cross-team UUID RPC (similar to GetPersonsByDistinctIds).
         const byTeam = new Map<number, string[]>()
         for (const { teamId, personId } of teamPersons) {
             const uuids = byTeam.get(teamId) ?? []
@@ -79,14 +118,20 @@ export class PersonHogPersonOperations {
 
         const allPersons = await Promise.all(
             [...byTeam].map(async ([teamId, uuids]) => {
-                const response = await this.client.getPersonsByUuids(
-                    create(GetPersonsByUuidsRequestSchema, {
-                        teamId: BigInt(teamId),
-                        uuids,
-                        readOptions: eventualReadOptions(),
-                    })
-                )
-                return response.persons.map(protoPersonToDomain)
+                const batchResults: InternalPerson[] = []
+                for (let i = 0; i < uuids.length; i += PERSONHOG_BATCH_SIZE) {
+                    const batch = uuids.slice(i, i + PERSONHOG_BATCH_SIZE)
+                    const response = await this.client.getPersonsByUuids(
+                        create(GetPersonsByUuidsRequestSchema, {
+                            teamId: BigInt(teamId),
+                            uuids: batch,
+                            readOptions: eventualReadOptions(),
+                        }),
+                        callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+                    )
+                    batchResults.push(...response.persons.map(protoPersonToDomain))
+                }
+                return batchResults
             })
         )
         return allPersons.flat()

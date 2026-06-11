@@ -1,8 +1,9 @@
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.core.management.base import CommandError
 from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 
@@ -50,6 +51,9 @@ class Notifications(TypedDict, total=False):
     realtime_notifications_disabled: dict[
         str, dict[str, bool]
     ]  # Maps notification_type (str) to {team_id (str) -> disabled (True = muted)}. Absence = enabled (opt-out default).
+    pipeline_notifications_disabled: dict[
+        str, bool
+    ]  # Maps pipeline ID (e.g. "hog_function:<uuid>", "plugin_config:<id>", "batch_export:<uuid>") to disabled status (True = do not email for this pipeline)
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -65,6 +69,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
     "realtime_notifications_disabled": {},  # No opt-outs by default
+    "pipeline_notifications_disabled": {},  # No per-pipeline opt-out until user configures
 }
 
 # We don't need the following attributes in most cases, so we defer them by default
@@ -110,6 +115,22 @@ class UserManager(BaseUserManager):
             user.set_password(password)
         user.save()
         return user
+
+    def create_superuser(self, *args: Any, **kwargs: Any) -> NoReturn:
+        # PostHog has no superuser concept — the `is_superuser` field was removed in 2020 (PR #2026)
+        # and `User.is_superuser` is now a read-only alias for `is_staff`. Django's `createsuperuser`
+        # command calls this method, so we shadow it here to fail with guidance instead of a confusing
+        # `AttributeError`. (We can't override the command itself: `django.contrib.auth` is listed
+        # before `posthog` in INSTALLED_APPS, so its `createsuperuser` always wins resolution.)
+        raise CommandError(
+            "PostHog doesn't support `createsuperuser`. There's no superuser concept here — "
+            "`is_superuser` is a read-only alias for `is_staff`.\n\n"
+            "To set up a local admin instead:\n\n"
+            "  • Demo environment:  python manage.py generate_demo_data\n"
+            "  • Existing account:  sign up in the web app, then grant staff access:\n"
+            '      python manage.py shell -c "from posthog.models import User; '
+            "u = User.objects.get(email='you@example.com'); u.is_staff = True; u.save()\""
+        )
 
     def bootstrap(
         self,
@@ -200,6 +221,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
+    credentials_reviewed_at = models.DateTimeField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
     requested_2fa_reset_at = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for = models.JSONField(null=True, blank=True)
@@ -228,6 +250,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         null=True,
         blank=True,
         help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+    )
+    hide_mcp_hints = models.BooleanField(
+        default=False,
+        db_default=False,
+        null=False,
+        blank=False,
+        help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).

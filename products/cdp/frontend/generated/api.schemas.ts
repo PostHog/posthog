@@ -91,13 +91,13 @@ export interface PaginatedHogFunctionTemplateListApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -146,11 +146,11 @@ export interface UserBasicApi {
 
 /**
  * * `0` - 0
- * `1` - 1
- * `2` - 2
- * `3` - 3
- * `11` - 11
- * `12` - 12
+ * * `1` - 1
+ * * `2` - 2
+ * * `3` - 3
+ * * `11` - 11
+ * * `12` - 12
  */
 export type HogFunctionStatusStateEnumApi =
     (typeof HogFunctionStatusStateEnumApi)[keyof typeof HogFunctionStatusStateEnumApi]
@@ -168,6 +168,13 @@ export interface HogFunctionStatusApi {
     state: HogFunctionStatusStateEnumApi
     tokens: number
 }
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
 
 export interface HogFunctionMinimalApi {
     readonly id: string
@@ -188,6 +195,8 @@ export interface HogFunctionMinimalApi {
     readonly status: HogFunctionStatusApi | null
     /** @nullable */
     readonly execution_order: number | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedHogFunctionMinimalListApi {
@@ -201,7 +210,7 @@ export interface PaginatedHogFunctionMinimalListApi {
 
 /**
  * * `hog` - hog
- * `liquid` - liquid
+ * * `liquid` - liquid
  */
 export type HogFunctionTemplatingEnumApi =
     (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
@@ -226,12 +235,12 @@ export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
 
 /**
  * * `destination` - Destination
- * `site_destination` - Site Destination
- * `internal_destination` - Internal Destination
- * `source_webhook` - Source Webhook
- * `warehouse_source_webhook` - Warehouse Source Webhook
- * `site_app` - Site App
- * `transformation` - Transformation
+ * * `site_destination` - Site Destination
+ * * `internal_destination` - Internal Destination
+ * * `source_webhook` - Source Webhook
+ * * `warehouse_source_webhook` - Warehouse Source Webhook
+ * * `site_app` - Site App
+ * * `transformation` - Transformation
  */
 export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
 
@@ -247,18 +256,19 @@ export const HogFunctionTypeEnumApi = {
 
 /**
  * * `string` - string
- * `number` - number
- * `boolean` - boolean
- * `dictionary` - dictionary
- * `choice` - choice
- * `json` - json
- * `integration` - integration
- * `integration_field` - integration_field
- * `email` - email
- * `native_email` - native_email
- * `posthog_assignee` - posthog_assignee
- * `posthog_ticket_tags` - posthog_ticket_tags
- * `posthog_business_hours` - posthog_business_hours
+ * * `number` - number
+ * * `boolean` - boolean
+ * * `dictionary` - dictionary
+ * * `choice` - choice
+ * * `json` - json
+ * * `integration` - integration
+ * * `integration_field` - integration_field
+ * * `email` - email
+ * * `native_email` - native_email
+ * * `posthog_assignee` - posthog_assignee
+ * * `posthog_ticket_tags` - posthog_ticket_tags
+ * * `posthog_business_hours` - posthog_business_hours
+ * * `non_failure_status_codes` - non_failure_status_codes
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -276,6 +286,7 @@ export const InputsSchemaItemTypeEnumApi = {
     PosthogAssignee: 'posthog_assignee',
     PosthogTicketTags: 'posthog_ticket_tags',
     PosthogBusinessHours: 'posthog_business_hours',
+    NonFailureStatusCodes: 'non_failure_status_codes',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -285,6 +296,7 @@ export interface InputsSchemaItemApi {
     key: string
     label?: string
     choices?: InputsSchemaItemApiChoicesItem[]
+    searchable?: boolean
     required?: boolean
     default?: unknown
     secret?: boolean
@@ -300,8 +312,8 @@ export interface InputsSchemaItemApi {
 
 /**
  * * `events` - events
- * `person-updates` - person-updates
- * `data-warehouse-table` - data-warehouse-table
+ * * `person-updates` - person-updates
+ * * `data-warehouse-table` - data-warehouse-table
  */
 export type HogFunctionFiltersSourceEnumApi =
     (typeof HogFunctionFiltersSourceEnumApi)[keyof typeof HogFunctionFiltersSourceEnumApi]
@@ -362,14 +374,14 @@ export interface MappingsApi {
 export interface HogFunctionApi {
     readonly id: string
     /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
-
-  * `destination` - Destination
-  * `site_destination` - Site Destination
-  * `internal_destination` - Internal Destination
-  * `source_webhook` - Source Webhook
-  * `warehouse_source_webhook` - Warehouse Source Webhook
-  * `site_app` - Site App
-  * `transformation` - Transformation */
+     *
+     * * `destination` - Destination
+     * * `site_destination` - Site Destination
+     * * `internal_destination` - Internal Destination
+     * * `source_webhook` - Source Webhook
+     * * `warehouse_source_webhook` - Warehouse Source Webhook
+     * * `site_app` - Site App
+     * * `transformation` - Transformation */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -427,6 +439,8 @@ export interface HogFunctionApi {
     _create_in_folder?: string
     /** @nullable */
     readonly batch_export_id: string | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 /**
@@ -437,14 +451,14 @@ export type PatchedHogFunctionApiInputs = { [key: string]: InputsItemApi }
 export interface PatchedHogFunctionApi {
     readonly id?: string
     /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
-
-  * `destination` - Destination
-  * `site_destination` - Site Destination
-  * `internal_destination` - Internal Destination
-  * `source_webhook` - Source Webhook
-  * `warehouse_source_webhook` - Warehouse Source Webhook
-  * `site_app` - Site App
-  * `transformation` - Transformation */
+     *
+     * * `destination` - Destination
+     * * `site_destination` - Site Destination
+     * * `internal_destination` - Internal Destination
+     * * `source_webhook` - Source Webhook
+     * * `warehouse_source_webhook` - Warehouse Source Webhook
+     * * `site_app` - Site App
+     * * `transformation` - Transformation */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -502,6 +516,8 @@ export interface PatchedHogFunctionApi {
     _create_in_folder?: string
     /** @nullable */
     readonly batch_export_id?: string | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
 /**
@@ -558,6 +574,57 @@ export type PatchedHogFunctionRearrangeApiOrders = { [key: string]: number }
 export interface PatchedHogFunctionRearrangeApi {
     /** Map of hog function UUIDs to their new execution_order values. */
     orders?: PatchedHogFunctionRearrangeApiOrders
+}
+
+/**
+ * * `SYSTEM` - SYSTEM
+ * * `PLUGIN` - PLUGIN
+ * * `CONSOLE` - CONSOLE
+ */
+export type PluginLogEntrySourceEnumApi = (typeof PluginLogEntrySourceEnumApi)[keyof typeof PluginLogEntrySourceEnumApi]
+
+export const PluginLogEntrySourceEnumApi = {
+    System: 'SYSTEM',
+    Plugin: 'PLUGIN',
+    Console: 'CONSOLE',
+} as const
+
+/**
+ * * `DEBUG` - DEBUG
+ * * `LOG` - LOG
+ * * `INFO` - INFO
+ * * `WARN` - WARN
+ * * `ERROR` - ERROR
+ */
+export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
+
+export const PluginLogEntryTypeEnumApi = {
+    Debug: 'DEBUG',
+    Log: 'LOG',
+    Info: 'INFO',
+    Warn: 'WARN',
+    Error: 'ERROR',
+} as const
+
+export interface PluginLogEntryApi {
+    id: string
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+    timestamp: string
+    source: PluginLogEntrySourceEnumApi
+    type: PluginLogEntryTypeEnumApi
+    message: string
+    instance_id: string
+}
+
+export interface PaginatedPluginLogEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PluginLogEntryApi[]
 }
 
 export type HogFunctionTemplatesListParams = {
@@ -647,12 +714,12 @@ export type HogFunctionsMetricsRetrieveParams = {
      */
     before?: string
     /**
- * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
-
-* `name` - name
-* `kind` - kind
- * @minLength 1
- */
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
     breakdown_by?: HogFunctionsMetricsRetrieveBreakdownBy
     /**
      * Filter metrics to a specific execution instance.
@@ -660,13 +727,13 @@ export type HogFunctionsMetricsRetrieveParams = {
      */
     instance_id?: string
     /**
- * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
-
-* `hour` - hour
-* `day` - day
-* `week` - week
- * @minLength 1
- */
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
     interval?: HogFunctionsMetricsRetrieveInterval
     /**
      * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
@@ -709,12 +776,12 @@ export type HogFunctionsMetricsTotalsRetrieveParams = {
      */
     before?: string
     /**
- * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
-
-* `name` - name
-* `kind` - kind
- * @minLength 1
- */
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
     breakdown_by?: HogFunctionsMetricsTotalsRetrieveBreakdownBy
     /**
      * Filter metrics to a specific execution instance.
@@ -722,13 +789,13 @@ export type HogFunctionsMetricsTotalsRetrieveParams = {
      */
     instance_id?: string
     /**
- * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
-
-* `hour` - hour
-* `day` - day
-* `week` - week
- * @minLength 1
- */
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
     interval?: HogFunctionsMetricsTotalsRetrieveInterval
     /**
      * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
@@ -758,6 +825,17 @@ export const HogFunctionsMetricsTotalsRetrieveInterval = {
     Day: 'day',
     Week: 'week',
 } as const
+
+export type PluginConfigsLogsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type PublicHogFunctionTemplatesListParams = {
     /**

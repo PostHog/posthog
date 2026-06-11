@@ -4,6 +4,8 @@ import type { Mock } from 'vitest'
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 
+import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+
 interface MockRedis extends RedisLike {
     ping: Mock<() => Promise<string>>
     _store: Map<string, string>
@@ -19,6 +21,7 @@ function createMockRedis(): MockRedis {
         }),
         del: vi.fn(async (...keys: string[]) => keys.length),
         scan: vi.fn(async () => ['0', []] as [string, string[]]),
+        ...makeRedisRateLimitStubs(),
         ping: vi.fn(async () => 'PONG'),
         _store: store,
     }
@@ -244,6 +247,61 @@ describe('Hono App Routes', () => {
             // Token format check passes — response is NOT "Invalid token"
             const body = await res.text()
             expect(body).not.toContain('Invalid token')
+        })
+
+        it('should pass auth check for ID-JAG access tokens (typ: at+jwt)', async () => {
+            // Synthesize a JWT-shaped token: header `{"typ":"at+jwt","alg":"RS256"}`,
+            // a stub payload, and a placeholder signature. The MCP gate only inspects
+            // the header — the PostHog API verifies the signature downstream.
+            const headerB64 = btoa('{"typ":"at+jwt","alg":"RS256"}')
+                .replace(/=+$/, '')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+            const payloadB64 = btoa('{"sub":"example.com:user@example.com","aud":"https://posthog.test"}')
+                .replace(/=+$/, '')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+            const idJagToken = `${headerB64}.${payloadB64}.signature`
+
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/mcp', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${idJagToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    method: 'initialize',
+                    params: {
+                        protocolVersion: '2024-11-05',
+                        capabilities: {},
+                        clientInfo: { name: 'test', version: '1.0' },
+                    },
+                    id: 1,
+                }),
+            })
+            const body = await res.text()
+            expect(body).not.toContain('Invalid token')
+        })
+
+        it('should reject non-id-jag JWTs (e.g. typ: JWT)', async () => {
+            // A JWT without `typ: at+jwt` is not an ID-JAG access token — e.g.
+            // a sharing JWT — and must be rejected here so the right backend
+            // takes over (or fails with the documented invalid-token response).
+            const headerB64 = btoa('{"typ":"JWT","alg":"HS256"}')
+                .replace(/=+$/, '')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+            const wrongJwt = `${headerB64}.eyJzdWIiOiJ4In0.sig`
+
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/mcp', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${wrongJwt}` },
+            })
+            expect(res.status).toBe(401)
+            expect(await res.text()).toContain('Invalid token')
         })
     })
 

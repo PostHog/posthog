@@ -2,6 +2,7 @@ import re
 import json
 import math
 import time
+import random
 import datetime
 import dataclasses
 from collections.abc import Callable
@@ -327,6 +328,10 @@ def generateUUIDv4(args: list[Any], team: Optional["Team"], stdout: Optional[lis
     return str(uuid.uuid4())
 
 
+def randomFloat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> float:
+    return random.random()
+
+
 def keys(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
     obj = args[0]
     if isinstance(obj, dict):
@@ -451,7 +456,7 @@ def apply_interval_to_datetime(dt: dict, interval: dict) -> dict:
 
     zone = dt["zone"] if is_hog_datetime(dt) else "UTC"
     if is_hog_datetime(dt):
-        base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+        base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
         base_dt = pytz.timezone(zone).localize(base_dt)
     else:
         base_dt = datetime.datetime(dt["year"], dt["month"], dt["day"], tzinfo=pytz.timezone(zone))
@@ -539,7 +544,9 @@ def date_diff(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     def to_dt(obj):
         if is_hog_datetime(obj):
             z = obj["zone"]
-            return pytz.timezone(z).localize(datetime.datetime.utcfromtimestamp(obj["dt"]))
+            return pytz.timezone(z).localize(
+                datetime.datetime.fromtimestamp(obj["dt"], datetime.UTC).replace(tzinfo=None)
+            )
         elif is_hog_date(obj):
             return pytz.UTC.localize(datetime.datetime(obj["year"], obj["month"], obj["day"]))
         else:
@@ -579,7 +586,7 @@ def date_trunc(args: list[Any], team: Optional["Team"], stdout: Optional[list[st
         raise ValueError("Expected a DateTime for dateTrunc")
 
     zone = dt["zone"]
-    base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+    base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
     base_dt = pytz.timezone(zone).localize(base_dt)
 
     if unit == "year":
@@ -702,7 +709,9 @@ def extract(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
     def to_dt(obj):
         if is_hog_datetime(obj):
             z = obj["zone"]
-            return pytz.timezone(z).localize(datetime.datetime.utcfromtimestamp(obj["dt"]))
+            return pytz.timezone(z).localize(
+                datetime.datetime.fromtimestamp(obj["dt"], datetime.UTC).replace(tzinfo=None)
+            )
         elif is_hog_date(obj):
             return pytz.UTC.localize(datetime.datetime(obj["year"], obj["month"], obj["day"]))
         else:
@@ -808,7 +817,7 @@ def toStartOfWeek(args: list[Any], team: Optional["Team"], stdout: Optional[list
             dt = toDateTime(f"{dt['year']}-{dt['month']:02d}-{dt['day']:02d}")
         else:
             raise ValueError("Expected a Date or DateTime")
-    base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+    base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
     zone = dt["zone"]
     base_dt = pytz.timezone(zone).localize(base_dt)
     weekday = base_dt.isoweekday()  # Monday=1, Sunday=7
@@ -1027,6 +1036,7 @@ STL: dict[str, STLFunction] = {
     "trimRight": STLFunction(fn=trimRight, minArgs=1, maxArgs=2),
     "splitByString": STLFunction(fn=splitByString, minArgs=2, maxArgs=3),
     "generateUUIDv4": STLFunction(fn=generateUUIDv4, minArgs=0, maxArgs=0),
+    "randomFloat": STLFunction(fn=randomFloat, minArgs=0, maxArgs=0),
     "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256(args[0]), minArgs=1, maxArgs=1),
     "sha256": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256(args[0], args[1] if len(args) > 1 else "hex"),

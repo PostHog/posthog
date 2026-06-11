@@ -24,13 +24,14 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.api.external_data_source import SimpleExternalDataSourceSerializers
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import (
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
+    DataWarehouseTable,
 )
-from products.data_warehouse.backend.models.util import validate_warehouse_table_url_pattern
+from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
 
 
 class CredentialSerializer(serializers.ModelSerializer):

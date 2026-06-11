@@ -381,7 +381,7 @@ export function SceneTitleSection({
                 {/* Border is handled by the outer container's border-b */}
             </div>
             {hasDescription && (showDescription || forceEdit) && (
-                <div className="[&_svg]:size-6 -mt-4">
+                <div className={cn('[&_svg]:size-6', noPadding ? cn('pl-4 pr-2', className) : '-mt-4')}>
                     <SceneDescription
                         description={effectiveDescription}
                         markdown={markdown}

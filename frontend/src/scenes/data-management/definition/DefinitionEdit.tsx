@@ -10,6 +10,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -26,15 +27,19 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getPrimaryPropertyForEvent, hasTaxonomyPrimaryProperty } from 'lib/utils/primaryEventProperty'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
+import { PropertyAccessControl } from 'scenes/data-management/definition/PropertyAccessControl'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
-import { ObjectMediaPreview } from '~/types'
+import { AvailableFeature, ObjectMediaPreview } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
@@ -51,6 +56,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const { editDefinition } = useValues(logic)
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
+    const { currentTeamId } = useValues(teamLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { reportMediaPreviewUploaded } = useActions(eventUsageLogic)
 
@@ -331,6 +337,23 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             </FlaggedFeature>
                         )}
                     </div>
+                )}
+
+                {isProperty && editDefinition.id !== 'new' && currentTeamId && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.PROPERTY_ACCESS_CONTROL}>
+                        <SceneDivider />
+                        <SceneSection
+                            title="Access control"
+                            description="Control who can see this property's values, and who can edit them from the PostHog UI."
+                        >
+                            <PayGateMini feature={AvailableFeature.PROPERTY_ACCESS_CONTROL}>
+                                <PropertyAccessControl
+                                    propertyDefinitionId={editDefinition.id}
+                                    teamId={currentTeamId}
+                                />
+                            </PayGateMini>
+                        </SceneSection>
+                    </FlaggedFeature>
                 )}
             </SceneContent>
         </Form>

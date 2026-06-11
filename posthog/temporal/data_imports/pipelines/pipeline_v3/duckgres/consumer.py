@@ -33,8 +33,13 @@ class DuckgresBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         limit: int,
+        retry_backoff_base_seconds: int,
     ) -> list[PendingBatch]:
-        return await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, limit=limit)
+        return await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn,
+            limit=limit,
+            retry_backoff_base_seconds=retry_backoff_base_seconds,
+        )
 
     async def unlock(
         self,
@@ -70,8 +75,26 @@ class DuckgresBatchConsumerAdapter:
     ) -> None:
         await DuckgresBatchQueue.fail_run(conn, run_uuid=batch.run_uuid, reason=reason)
 
-    async def get_stale_executing(self, conn: psycopg.AsyncConnection[Any]) -> list[PendingBatch]:
-        return await DuckgresBatchQueue.get_stale_executing(conn)
+    async def get_stale_executing(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int,
+    ) -> list[PendingBatch]:
+        return await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
+
+    async def reconcile_failed_runs(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int,
+        lookback_seconds: int,
+        limit: int,
+    ) -> None:
+        # The Duckgres sink owns no ExternalDataJob lifecycle: a failed Duckgres run
+        # must not mark the import job failed (Delta already succeeded), so there is
+        # nothing to reconcile here.
+        return None
 
     async def should_process_batch(
         self,

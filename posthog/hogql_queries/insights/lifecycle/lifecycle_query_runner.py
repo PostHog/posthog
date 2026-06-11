@@ -27,6 +27,7 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.lifecycle.lifecycle_validation_rules import (
     RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget,
 )
@@ -35,8 +36,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
-from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
+
+from products.actions.backend.models.action import Action
 
 
 class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
@@ -168,6 +170,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             query_type="LifecycleQuery",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -288,6 +291,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     @property
     def timestamp_field(self) -> ast.Expr:
         if self.is_data_warehouse_series:
+            tag_contains_user_hogql()
             return parse_expr(self.data_warehouse_series.timestamp_field)
         return ast.Field(chain=["events", "timestamp"])
 
@@ -406,6 +410,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     @property
     def target_field(self):
         if self.is_data_warehouse_series:
+            tag_contains_user_hogql()
             return parse_expr(self.data_warehouse_series.aggregation_target_field)
         if self.has_group_type:
             return ast.Field(chain=["events", f"$group_{self.group_type_index}"])
@@ -415,6 +420,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     def created_at_field(self):
         """Returns the correct created_at field to use based on aggregation type."""
         if self.is_data_warehouse_series:
+            tag_contains_user_hogql()
             return parse_expr(self.data_warehouse_series.created_at_field)
         if self.has_group_type:
             return ast.Field(chain=["events", f"group_{self.group_type_index}", "created_at"])

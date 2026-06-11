@@ -21,7 +21,7 @@ jobs:
         outputs:
             oauth-proxy: ${{ steps.filter.outputs.oauth-proxy || 'true' }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -47,25 +47,27 @@ jobs:
         if: needs.changes.outputs.oauth-proxy == 'true'
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
                   cache: 'pnpm'
+                  token: ${{ github.token }}
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/auth-proxy... install --frozen-lockfile
 
             - name: Type check
               run: cd services/oauth-proxy && pnpm typecheck
+
+            - name: Type check (tsgo, shadow, non-blocking)
+              run: cd services/oauth-proxy && pnpm typecheck:tsgo
+              continue-on-error: true
 
             - name: Run tests
               run: cd services/oauth-proxy && pnpm test

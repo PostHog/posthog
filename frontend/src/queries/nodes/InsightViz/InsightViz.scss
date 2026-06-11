@@ -160,7 +160,13 @@
     width: 100%;
 
     .RetentionContainer__graph {
+        // Flex column so the hog-charts wrapper (inline `flex: 1`) fills it.
+        // min-height lives here, not on .LineGraph, because the wrapper's inline
+        // `min-height: 0` would override a class rule set directly on .LineGraph.
+        display: flex;
         flex: 1;
+        flex-direction: column;
+        min-height: 30vh;
         margin: 0.5rem;
     }
 
@@ -171,17 +177,18 @@
     .LineGraph {
         position: relative !important;
         width: 100% !important;
-        height: 100%;
-        min-height: 30vh;
     }
 
     .NotebookNode &,
     .InsightCard &,
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
+        .RetentionContainer__graph {
+            min-height: 100px;
+        }
+
         .LineGraph {
             position: relative;
-            min-height: 100px;
         }
     }
 }

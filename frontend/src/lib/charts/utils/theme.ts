@@ -14,6 +14,7 @@ export function buildTheme(overrides?: Partial<ChartTheme>): ChartTheme {
         crosshairColor: graphColors.crosshair ?? undefined,
         tooltipBackground: graphColors.tooltipBackground ?? undefined,
         tooltipColor: graphColors.tooltipTitle ?? undefined,
+        tooltipZIndex: 'var(--z-chart-tooltip)',
     }
 
     if (!overrides) {

@@ -13,7 +13,7 @@ from posthog.models import Team
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import PendingBatch
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 

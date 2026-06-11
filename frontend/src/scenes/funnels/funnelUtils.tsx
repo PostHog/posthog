@@ -192,6 +192,19 @@ export function hasBreakdownFilterParameter(
     )
 }
 
+/**
+ * Whether a series's `breakdown_value` represents an actual user-picked breakdown.
+ * The funnel backend uses the literal "Baseline" (or `['Baseline', ...]` for
+ * multi-breakdowns) to mark the overall, non-broken-down series.
+ */
+export function hasBreakdown(breakdownValue: BreakdownKeyType | undefined): boolean {
+    return (
+        breakdownValue !== undefined &&
+        breakdownValue !== 'Baseline' &&
+        !(Array.isArray(breakdownValue) && breakdownValue[0] === 'Baseline')
+    )
+}
+
 /** String identifier for breakdowns used when determining visibility. */
 export function getVisibilityKey(breakdownValue?: BreakdownKeyType): string {
     const breakdownValues = getBreakdownStepValues(

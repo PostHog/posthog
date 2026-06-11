@@ -46,9 +46,17 @@ def _make_consumer(max_attempts: int = 3, **kwargs) -> DuckgresBatchConsumer:
         **kwargs,
     )
     consumer = DuckgresBatchConsumer(config=config, process_batch=AsyncMock())
-    consumer._conn = AsyncMock()
-    consumer._recovery_conn = AsyncMock()
+    consumer._conn = _make_healthy_conn()
+    consumer._recovery_conn = _make_healthy_conn()
     return consumer
+
+
+def _make_healthy_conn(closed: bool = False, broken: bool = False) -> AsyncMock:
+    # closed/broken must be real booleans, otherwise _ensure_*_conn sees a dead conn and dials the fake database_url.
+    conn = AsyncMock()
+    conn.closed = closed
+    conn.broken = broken
+    return conn
 
 
 class TestDuckgresProcessSingle:

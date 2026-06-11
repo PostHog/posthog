@@ -25,15 +25,18 @@ import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
-import { compactNumber } from 'lib/utils'
+import { compactNumber, humanizeBytes } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsSamplingSectionLogic } from './logsSamplingSectionLogic'
 import { ruleTypeLabel } from './ruleTypeLabel'
+import { type SamplingRuleDropTotals } from './samplingRuleDropImpact'
 
 type RuleDropImpactCellState = 'loading' | 'ok' | 'error' | 'unknown'
+
+const EMPTY_IMPACT: SamplingRuleDropTotals = { records: 0, bytes: 0 }
 
 interface SortableRowProps {
     row: LogsSamplingRuleApi
@@ -42,7 +45,7 @@ interface SortableRowProps {
     ruleEnabledTogglePendingId: string | null
     saveRulesOrderPending: boolean
     ruleDropImpactCellState: RuleDropImpactCellState
-    dropped24h: number
+    impact24h: SamplingRuleDropTotals
     onSetRuleEnabled: (ruleId: string, enabled: boolean) => void
 }
 
@@ -53,7 +56,7 @@ function SortableRow({
     ruleEnabledTogglePendingId,
     saveRulesOrderPending,
     ruleDropImpactCellState,
-    dropped24h,
+    impact24h,
     onSetRuleEnabled,
 }: SortableRowProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -105,7 +108,11 @@ function SortableRow({
                     <span className="text-muted">…</span>
                 ) : ruleDropImpactCellState === 'ok' ? (
                     <span>
-                        ~{compactNumber(dropped24h)} dropped <span className="text-muted">(24h)</span>
+                        ~{compactNumber(impact24h.records)} dropped
+                        {impact24h.bytes > 0 && (
+                            <span className="text-muted"> · ~{humanizeBytes(impact24h.bytes)}</span>
+                        )}{' '}
+                        <span className="text-muted">(24h)</span>
                     </span>
                 ) : (
                     <span
@@ -240,8 +247,10 @@ export function LogsSamplingRulesSortableTable(): JSX.Element {
                                         <Tooltip
                                             title={
                                                 <>
-                                                    Log lines dropped by this rule in ingestion metrics. Rules scoped to
-                                                    a service only affect that service; others count across the project.
+                                                    Log lines and bytes dropped by this rule in ingestion metrics. Bytes
+                                                    appear once any drops have been attributed by the current producer
+                                                    (older drops show records only). Rules scoped to a service only
+                                                    affect that service; others count across the project.
                                                 </>
                                             }
                                         >
@@ -275,7 +284,7 @@ export function LogsSamplingRulesSortableTable(): JSX.Element {
                                             ruleEnabledTogglePendingId={ruleEnabledTogglePendingId}
                                             saveRulesOrderPending={saveRulesOrderPending}
                                             ruleDropImpactCellState={ruleDropImpactCellState}
-                                            dropped24h={ruleDropImpact[row.id] ?? 0}
+                                            impact24h={ruleDropImpact[row.id] ?? EMPTY_IMPACT}
                                             onSetRuleEnabled={setRuleEnabled}
                                         />
                                     ))}

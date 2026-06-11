@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { getCookie } from 'lib/api'
@@ -93,6 +94,7 @@ export const userLogic = kea<userLogicType>([
             enabled,
         }),
         updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
+        credentialReviewDismissed: true,
         updateRealtimeNotificationForTeam: (type: string, teamId: number, enabled: boolean) => ({
             type,
             teamId,
@@ -108,6 +110,8 @@ export const userLogic = kea<userLogicType>([
             types,
             enabled,
         }),
+        updatePipelineNotification: (pipelineId: string, enabled: boolean) => ({ pipelineId, enabled }),
+        updatePipelineNotificationForAll: (pipelineIds: string[], enabled: boolean) => ({ pipelineIds, enabled }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -146,15 +150,11 @@ export const userLogic = kea<userLogicType>([
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
-                    try {
-                        const response = await api.update<UserType>('api/users/@me/', user)
-                        successCallback?.()
-                        return response
-                    } catch (error: any) {
-                        console.error(error)
-                        actions.updateUserFailure(error.message)
-                        return values.user
-                    }
+                    // Let failures throw so kea-loaders dispatches `updateUserFailure` — returning the old
+                    // user here would be treated as a success, silently masking backend errors.
+                    const response = await api.update<UserType>('api/users/@me/', user)
+                    successCallback?.()
+                    return response
                 },
                 cancelEmailChangeRequest: async () => {
                     if (!values.user) {
@@ -242,6 +242,15 @@ export const userLogic = kea<userLogicType>([
                 updateUserFailure: () => null,
             },
         ],
+        // Set when the user clicks Continue on /account/credential-review. Suppresses
+        // the post-loadUser redirect so an in-flight stale loadUser response can't
+        // bounce the user back to the review screen after they've already dismissed it.
+        credentialReviewDismissedInSession: [
+            false,
+            {
+                credentialReviewDismissed: () => true,
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         logout: ({ preserveLocation }) => {
@@ -316,6 +325,20 @@ export const userLogic = kea<userLogicType>([
                         }
                     }
                 }
+
+                // First-login interstitial: route users with unreviewed pre-existing API keys
+                // to the credential review screen before they enter the app. Gated server-side
+                // by UserSerializer.get_requires_credential_review.
+                //
+                // credentialReviewDismissedInSession suppresses a bounce-back if a loadUser
+                // call that was in-flight at dismiss time resolves later with stale state.
+                if (
+                    user.requires_credential_review &&
+                    !values.credentialReviewDismissedInSession &&
+                    !router.values.location.pathname.startsWith('/account/credential-review')
+                ) {
+                    router.actions.push(urls.credentialReview())
+                }
             }
         },
         updateUserSuccess: () => {
@@ -324,8 +347,9 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'updateUser',
             })
         },
-        updateUserFailure: () => {
-            lemonToast.error(`Error saving preferences`, {
+        updateUserFailure: ({ errorObject }) => {
+            lemonToast.dismiss('updateUser')
+            lemonToast.error(errorObject?.detail || 'Error saving preferences', {
                 toastId: 'updateUser',
             })
         },
@@ -521,6 +545,40 @@ export const userLogic = kea<userLogicType>([
                         data_pipeline_error_threshold: threshold / 100,
                     },
                 })
+        },
+        updatePipelineNotification: ({ pipelineId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    pipeline_notifications_disabled: {
+                        ...values.user.notification_settings.pipeline_notifications_disabled,
+                        [pipelineId]: !enabled,
+                    },
+                },
+            })
+        },
+        updatePipelineNotificationForAll: ({ pipelineIds, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            const pipelineNotificationsDisabled = {
+                ...values.user.notification_settings.pipeline_notifications_disabled,
+            }
+            pipelineIds.forEach((id) => {
+                pipelineNotificationsDisabled[id] = !enabled
+            })
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    pipeline_notifications_disabled: pipelineNotificationsDisabled,
+                },
+            })
         },
     })),
     selectors({

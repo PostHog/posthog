@@ -9,8 +9,6 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration
@@ -162,7 +160,6 @@ def get_gitlab_file_url(
     return None
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 

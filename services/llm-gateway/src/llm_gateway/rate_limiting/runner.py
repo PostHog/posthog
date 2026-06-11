@@ -26,7 +26,7 @@ class ThrottleRunner:
         for throttle, result in zip(self._throttles, results, strict=True):
             if not result.allowed:
                 scope = result.scope or throttle.scope
-                RATE_LIMIT_EXCEEDED.labels(scope=scope).inc()
+                RATE_LIMIT_EXCEEDED.labels(scope=scope, product=context.product).inc()
                 logger.warning(
                     "throttle_denied",
                     user_id=context.user.user_id,

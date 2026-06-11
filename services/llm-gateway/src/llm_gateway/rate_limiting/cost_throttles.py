@@ -94,7 +94,7 @@ class CostThrottle(Throttle):
         )
         if current >= limit:
             retry_after = await limiter.get_ttl(key)
-            logger.warning(
+            logger.error(
                 "cost_throttle_exceeded",
                 scope=self.scope,
                 key=key,

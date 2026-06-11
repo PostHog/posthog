@@ -8,6 +8,7 @@ from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetric, UsageMe
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.group_usage_metric import GroupUsageMetric
 
@@ -55,6 +56,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                     query_type="usage_metrics_query",
                     query=query,
                     team=self.team,
+                    user=self.user,
                     timings=self.timings,
                     modifiers=self.modifiers,
                 )
@@ -214,6 +216,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             timestamp_field = source_descriptor[2]
             if not timestamp_field:
                 raise ValueError("data_warehouse usage metric is missing 'timestamp_field' in filters")
+            tag_contains_user_hogql()
             return parse_expr(timestamp_field)
         return ast.Field(chain=["timestamp"])
 
@@ -252,6 +255,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
         if metric.math == GroupUsageMetric.Math.SUM:
             if metric.is_data_warehouse:
+                tag_contains_user_hogql()
                 value_arg: ast.Expr = ast.Call(name="toFloat", args=[parse_expr(metric.math_property)])
             else:
                 value_arg = ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric.math_property])])
@@ -335,6 +339,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             key_field = source_descriptor[3]
             if not key_field:
                 raise ValueError("data_warehouse usage metric is missing 'key_field' in filters")
+            tag_contains_user_hogql()
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=parse_expr(key_field),

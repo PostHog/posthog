@@ -254,6 +254,11 @@ CONSTANCE_CONFIG = {
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
         str,
     ),
+    "FLAGS_LOG_BODIES_TEAMS": (
+        get_from_env("FLAGS_LOG_BODIES_TEAMS", "{}"),
+        'Per-team /flags request and response body logging. JSON object mapping team_id (string) to a non-empty list of flag-key wildcard patterns; the response is filtered to flags matching any pattern. "{}" disables logging entirely. Examples: \'{"123": ["my-feature", "checkout-*"]}\' logs only matching flag keys for team 123. To capture every flag (rare, noisy), use [\\"*\\"] explicitly. The Rust feature-flags service polls this every ~60s. Limits: at most 100 teams, 50 patterns per team, 256 bytes per pattern.',
+        str,
+    ),
     "REDIRECT_APP_TO_US": (
         get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
@@ -272,11 +277,6 @@ CONSTANCE_CONFIG = {
     "WEB_ANALYTICS_WARMING_TEAMS_TO_WARM": (
         get_from_env("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", default=[2], type_cast=list[int]),
         "Teams that will have web analytics cache warming enabled",
-        list[int],
-    ),
-    "CLICKHOUSE_ENABLE_ANALYZER_TEAMS": (
-        get_from_env("CLICKHOUSE_ENABLE_ANALYZER_TEAMS", default=[], type_cast=list[int]),
-        "Comma-separated list of team IDs for which ClickHouse enable_analyzer is enabled",
         list[int],
     ),
     "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS": (
@@ -328,11 +328,11 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
+    "FLAGS_LOG_BODIES_TEAMS",
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
     "CLICKHOUSE_HEDGED_APP_QUERIES",
-    "CLICKHOUSE_ENABLE_ANALYZER_TEAMS",
     "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",

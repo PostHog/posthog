@@ -1,4 +1,4 @@
-import { NodeType, serializedNodeWithId } from '@posthog/rrweb-types'
+import { NodeType, serializedNodeWithId } from 'posthog-js/rrweb-types'
 
 import { CHROME_EXTENSION_DENY_LIST, stripChromeExtensionDataFromNode } from './chrome-extension-stripping'
 

@@ -3,14 +3,14 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 34 enabled ops
+ * PostHog API - MCP 35 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
  * Returns failed/disabled data pipeline items for the Pipeline status side panel.
-Includes: materializations, syncs, sources, destinations, and transformations.
+ * Includes: materializations, syncs, sources, destinations, and transformations.
  */
 export const DataWarehouseDataHealthIssuesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -119,6 +119,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
+    enabled_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
 })
 
 export const ExternalDataSchemasCancelCreateParams = /* @__PURE__ */ zod.object({
@@ -196,6 +202,12 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
+    enabled_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
 })
 
@@ -284,6 +296,12 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
+    enabled_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
 })
 
 export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object({
@@ -361,6 +379,12 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
+    enabled_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
 })
 
@@ -440,6 +464,12 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
+    enabled_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
 })
 
 /**
@@ -497,6 +527,7 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
             'Chargebee',
             'Clerk',
             'GoogleAds',
+            'GoogleSearchConsole',
             'TemporalIO',
             'DoIt',
             'GoogleSheets',
@@ -623,12 +654,94 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
             'ClickHouse',
             'Plain',
             'Resend',
+            'PgAnalyze',
+            'WorkOS',
+            'AmazonS3',
+            'GoogleCloudStorage',
+            'Databricks',
+            'Dynamics365',
+            'SalesforceMarketingCloud',
+            'Db2',
+            'Heap',
+            'AdobeAnalytics',
+            'Matomo',
+            'Optimizely',
+            'Adyen',
+            'GoCardless',
+            'Mollie',
+            'CheckoutCom',
+            'Branch',
+            'Criteo',
+            'Outbrain',
+            'Taboola',
+            'AdRoll',
+            'DisplayVideo360',
+            'GoogleAdManager',
+            'CampaignManager360',
+            'SearchAds360',
+            'AdobeCommerce',
+            'AmazonSellingPartner',
+            'Ebay',
+            'Commercetools',
+            'LightspeedRetail',
+            'ShipStation',
+            'ConstantContact',
+            'Mailgun',
+            'Eloqua',
+            'Sailthru',
+            'Ortto',
+            'Attentive',
+            'Kustomer',
+            'Dixa',
+            'Gladly',
+            'Qualtrics',
+            'Delighted',
+            'AzureDevOps',
+            'Rollbar',
+            'Opsgenie',
+            'IncidentIo',
+            'Pingdom',
+            'Cloudflare',
+            'CosmosDB',
+            'PlanetScale',
+            'SapHana',
+            'Rippling',
+            'HiBob',
+            'Personio',
+            'Deel',
+            'AdpWorkforceNow',
+            'Paylocity',
+            'Gusto',
+            'CultureAmp',
+            'Lattice',
+            'SageIntacct',
+            'FreshBooks',
+            'Expensify',
+            'Ramp',
+            'Brex',
+            'Coupa',
+            'SapConcur',
+            'Apollo',
+            'Crunchbase',
+            'ZoomInfo',
+            'Clari',
+            'Chorus',
+            'Coda',
+            'Guru',
+            'Dropbox',
+            'Docusign',
+            'PandaDoc',
+            'SapErp',
+            'SapSuccessFactors',
+            'OracleEbs',
+            'OracleFusion',
+            'Custom',
         ])
         .describe(
-            '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend'
+            '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `GoogleSearchConsole` - GoogleSearchConsole\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend\n* `PgAnalyze` - PgAnalyze\n* `WorkOS` - WorkOS\n* `AmazonS3` - AmazonS3\n* `GoogleCloudStorage` - GoogleCloudStorage\n* `Databricks` - Databricks\n* `Dynamics365` - Dynamics365\n* `SalesforceMarketingCloud` - SalesforceMarketingCloud\n* `Db2` - Db2\n* `Heap` - Heap\n* `AdobeAnalytics` - AdobeAnalytics\n* `Matomo` - Matomo\n* `Optimizely` - Optimizely\n* `Adyen` - Adyen\n* `GoCardless` - GoCardless\n* `Mollie` - Mollie\n* `CheckoutCom` - CheckoutCom\n* `Branch` - Branch\n* `Criteo` - Criteo\n* `Outbrain` - Outbrain\n* `Taboola` - Taboola\n* `AdRoll` - AdRoll\n* `DisplayVideo360` - DisplayVideo360\n* `GoogleAdManager` - GoogleAdManager\n* `CampaignManager360` - CampaignManager360\n* `SearchAds360` - SearchAds360\n* `AdobeCommerce` - AdobeCommerce\n* `AmazonSellingPartner` - AmazonSellingPartner\n* `Ebay` - Ebay\n* `Commercetools` - Commercetools\n* `LightspeedRetail` - LightspeedRetail\n* `ShipStation` - ShipStation\n* `ConstantContact` - ConstantContact\n* `Mailgun` - Mailgun\n* `Eloqua` - Eloqua\n* `Sailthru` - Sailthru\n* `Ortto` - Ortto\n* `Attentive` - Attentive\n* `Kustomer` - Kustomer\n* `Dixa` - Dixa\n* `Gladly` - Gladly\n* `Qualtrics` - Qualtrics\n* `Delighted` - Delighted\n* `AzureDevOps` - AzureDevOps\n* `Rollbar` - Rollbar\n* `Opsgenie` - Opsgenie\n* `IncidentIo` - IncidentIo\n* `Pingdom` - Pingdom\n* `Cloudflare` - Cloudflare\n* `CosmosDB` - CosmosDB\n* `PlanetScale` - PlanetScale\n* `SapHana` - SapHana\n* `Rippling` - Rippling\n* `HiBob` - HiBob\n* `Personio` - Personio\n* `Deel` - Deel\n* `AdpWorkforceNow` - AdpWorkforceNow\n* `Paylocity` - Paylocity\n* `Gusto` - Gusto\n* `CultureAmp` - CultureAmp\n* `Lattice` - Lattice\n* `SageIntacct` - SageIntacct\n* `FreshBooks` - FreshBooks\n* `Expensify` - Expensify\n* `Ramp` - Ramp\n* `Brex` - Brex\n* `Coupa` - Coupa\n* `SapConcur` - SapConcur\n* `Apollo` - Apollo\n* `Crunchbase` - Crunchbase\n* `ZoomInfo` - ZoomInfo\n* `Clari` - Clari\n* `Chorus` - Chorus\n* `Coda` - Coda\n* `Guru` - Guru\n* `Dropbox` - Dropbox\n* `Docusign` - Docusign\n* `PandaDoc` - PandaDoc\n* `SapErp` - SapErp\n* `SapSuccessFactors` - SapSuccessFactors\n* `OracleEbs` - OracleEbs\n* `OracleFusion` - OracleFusion\n* `Custom` - Custom'
         )
         .describe(
-            "The source type (e.g. 'Postgres', 'Stripe').\n\n* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend"
+            "The source type (e.g. 'Postgres', 'Stripe').\n\n* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `GoogleSearchConsole` - GoogleSearchConsole\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend\n* `PgAnalyze` - PgAnalyze\n* `WorkOS` - WorkOS\n* `AmazonS3` - AmazonS3\n* `GoogleCloudStorage` - GoogleCloudStorage\n* `Databricks` - Databricks\n* `Dynamics365` - Dynamics365\n* `SalesforceMarketingCloud` - SalesforceMarketingCloud\n* `Db2` - Db2\n* `Heap` - Heap\n* `AdobeAnalytics` - AdobeAnalytics\n* `Matomo` - Matomo\n* `Optimizely` - Optimizely\n* `Adyen` - Adyen\n* `GoCardless` - GoCardless\n* `Mollie` - Mollie\n* `CheckoutCom` - CheckoutCom\n* `Branch` - Branch\n* `Criteo` - Criteo\n* `Outbrain` - Outbrain\n* `Taboola` - Taboola\n* `AdRoll` - AdRoll\n* `DisplayVideo360` - DisplayVideo360\n* `GoogleAdManager` - GoogleAdManager\n* `CampaignManager360` - CampaignManager360\n* `SearchAds360` - SearchAds360\n* `AdobeCommerce` - AdobeCommerce\n* `AmazonSellingPartner` - AmazonSellingPartner\n* `Ebay` - Ebay\n* `Commercetools` - Commercetools\n* `LightspeedRetail` - LightspeedRetail\n* `ShipStation` - ShipStation\n* `ConstantContact` - ConstantContact\n* `Mailgun` - Mailgun\n* `Eloqua` - Eloqua\n* `Sailthru` - Sailthru\n* `Ortto` - Ortto\n* `Attentive` - Attentive\n* `Kustomer` - Kustomer\n* `Dixa` - Dixa\n* `Gladly` - Gladly\n* `Qualtrics` - Qualtrics\n* `Delighted` - Delighted\n* `AzureDevOps` - AzureDevOps\n* `Rollbar` - Rollbar\n* `Opsgenie` - Opsgenie\n* `IncidentIo` - IncidentIo\n* `Pingdom` - Pingdom\n* `Cloudflare` - Cloudflare\n* `CosmosDB` - CosmosDB\n* `PlanetScale` - PlanetScale\n* `SapHana` - SapHana\n* `Rippling` - Rippling\n* `HiBob` - HiBob\n* `Personio` - Personio\n* `Deel` - Deel\n* `AdpWorkforceNow` - AdpWorkforceNow\n* `Paylocity` - Paylocity\n* `Gusto` - Gusto\n* `CultureAmp` - CultureAmp\n* `Lattice` - Lattice\n* `SageIntacct` - SageIntacct\n* `FreshBooks` - FreshBooks\n* `Expensify` - Expensify\n* `Ramp` - Ramp\n* `Brex` - Brex\n* `Coupa` - Coupa\n* `SapConcur` - SapConcur\n* `Apollo` - Apollo\n* `Crunchbase` - Crunchbase\n* `ZoomInfo` - ZoomInfo\n* `Clari` - Clari\n* `Chorus` - Chorus\n* `Coda` - Coda\n* `Guru` - Guru\n* `Dropbox` - Dropbox\n* `Docusign` - Docusign\n* `PandaDoc` - PandaDoc\n* `SapErp` - SapErp\n* `SapSuccessFactors` - SapSuccessFactors\n* `OracleEbs` - OracleEbs\n* `OracleFusion` - OracleFusion\n* `Custom` - Custom"
         ),
     payload: zod
         .record(zod.string(), zod.unknown())
@@ -878,9 +991,9 @@ export const ExternalDataSourcesWebhookInfoRetrieveParams = /* @__PURE__ */ zod.
 
 /**
  * Validate CDC prerequisites against a live Postgres connection.
-
-Used by the source wizard to surface ✅/❌ checks before source creation,
-and by the self-managed setup popup to verify user-created publications.
+ *
+ * Used by the source wizard to surface ✅/❌ checks before source creation,
+ * and by the self-managed setup popup to verify user-created publications.
  */
 export const ExternalDataSourcesCheckCdcPrerequisitesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -888,6 +1001,23 @@ export const ExternalDataSourcesCheckCdcPrerequisitesCreateParams = /* @__PURE__
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const ExternalDataSourcesConnectionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExternalDataSourcesConnectionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod.string().optional().describe('A search term.'),
 })
 
 /**
@@ -989,6 +1119,8 @@ export const WarehouseSavedQueriesCreateParams = /* @__PURE__ */ zod.object({
 
 export const warehouseSavedQueriesCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -998,10 +1130,12 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .optional()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
         folder_id: zod
             .uuid()
@@ -1040,6 +1174,8 @@ export const WarehouseSavedQueriesPartialUpdateParams = /* @__PURE__ */ zod.obje
 
 export const warehouseSavedQueriesPartialUpdateBodyNameMax = 128
 
+export const warehouseSavedQueriesPartialUpdateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -1050,10 +1186,13 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesPartialUpdateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
         folder_id: zod
             .uuid()
@@ -1096,6 +1235,8 @@ export const WarehouseSavedQueriesMaterializeCreateParams = /* @__PURE__ */ zod.
 
 export const warehouseSavedQueriesMaterializeCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesMaterializeCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
     .object({
         deleted: zod.boolean().nullish(),
@@ -1106,10 +1247,12 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .optional()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesMaterializeCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
         folder_id: zod
             .uuid()
@@ -1132,7 +1275,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
 
 /**
  * Undo materialization, revert back to the original view.
-(i.e. delete the materialized table and the schedule)
+ * (i.e. delete the materialized table and the schedule)
  */
 export const WarehouseSavedQueriesRevertMaterializationCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
@@ -1145,6 +1288,8 @@ export const WarehouseSavedQueriesRevertMaterializationCreateParams = /* @__PURE
 
 export const warehouseSavedQueriesRevertMaterializationCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesRevertMaterializationCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__ */ zod
     .object({
         deleted: zod.boolean().nullish(),
@@ -1155,10 +1300,14 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .optional()
+            .object({
+                kind: zod
+                    .enum(['HogQLQuery'])
+                    .default(warehouseSavedQueriesRevertMaterializationCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
         folder_id: zod
             .uuid()
@@ -1193,6 +1342,8 @@ export const WarehouseSavedQueriesRunCreateParams = /* @__PURE__ */ zod.object({
 
 export const warehouseSavedQueriesRunCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesRunCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
     .object({
         deleted: zod.boolean().nullish(),
@@ -1203,10 +1354,12 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .optional()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesRunCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
         folder_id: zod
             .uuid()

@@ -24,10 +24,6 @@ impl FlagFilters {
                 .iter()
                 .any(|group| matches!(group.aggregation_group_type_index, Some(Some(_))))
             || self
-                .super_groups
-                .as_ref()
-                .is_some_and(|groups| groups.iter().any(|g| g.requires_db_properties(overrides)))
-            || self
                 .groups
                 .iter()
                 .any(|group| group.requires_db_properties(overrides))
@@ -152,32 +148,6 @@ mod tests {
     }
 
     #[test]
-    fn test_super_groups_require_db_properties_when_overrides_insufficient() {
-        let mut f = mock!(FlagFilters, groups: vec![]);
-        f.super_groups = Some(vec![mock!(FlagPropertyGroup,
-            properties: Some(vec![
-                mock!(PropertyFilter,
-                    key: "$feature_enrollment/feature-flags-flag-dependency".mock_into()
-                ),
-            ])
-        )]);
-
-        {
-            // Without overrides, DB lookup is required
-            assert!(f.requires_db_properties(&HashMap::new(), "test-flag"));
-        }
-
-        {
-            // With sufficient overrides, DB lookup is not required
-            let overrides = HashMap::from([(
-                "$feature_enrollment/feature-flags-flag-dependency".to_string(),
-                Value::String("value".to_string()),
-            )]);
-            assert!(!f.requires_db_properties(&overrides, "test-flag"));
-        }
-    }
-
-    #[test]
     fn test_feature_enrollment_requires_db_properties_when_override_missing() {
         let mut f = mock!(FlagFilters, groups: vec![]);
         f.feature_enrollment = Some(true);
@@ -195,15 +165,6 @@ mod tests {
             Value::String("true".to_string()),
         )]);
         assert!(!f.requires_db_properties(&overrides, "my-flag"));
-    }
-
-    #[test]
-    fn test_does_not_require_db_properties_when_super_groups_empty() {
-        let mut f = mock!(FlagFilters, groups: vec![]);
-        f.super_groups = Some(vec![]);
-
-        // Empty super_groups don't require DB properties
-        assert!(!f.requires_db_properties(&HashMap::new(), "test-flag"));
     }
 
     #[test]

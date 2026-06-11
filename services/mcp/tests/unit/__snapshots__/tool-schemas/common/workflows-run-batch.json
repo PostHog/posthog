@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "acknowledged_affected_count": {
+            "description": "The affected-user count from workflows-blast-radius that you showed the user. Rejected if it no longer matches the current audience, forcing a re-check.",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+        },
+        "variables": {
+            "additionalProperties": {},
+            "description": "Optional {key: value} variable overrides for this run; defaults to the workflow definition.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "workflow_id": {
+            "description": "ID of the batch workflow to run now.",
+            "type": "string"
+        }
+    },
+    "required": ["workflow_id", "acknowledged_affected_count"],
+    "type": "object"
+}
