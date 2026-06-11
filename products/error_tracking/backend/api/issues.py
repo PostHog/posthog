@@ -24,6 +24,7 @@ from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.error_tracking.backend.facade import api as facade_api
+from products.error_tracking.backend.issue_serializers import ErrorTrackingIssueAssignmentSerializer
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -33,7 +34,6 @@ from products.error_tracking.backend.models import (
 from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
 
 from .external_references import ErrorTrackingExternalReferenceSerializer
-from .utils import ErrorTrackingIssueAssignmentSerializer
 
 IssueNotFoundError = facade_api.IssueNotFoundError
 
@@ -65,15 +65,6 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
     assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
     external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
     cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
-
-
-class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
-    first_seen = serializers.DateTimeField()
-    assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
-
-    class Meta:
-        model = ErrorTrackingIssue
-        fields = ["id", "status", "name", "description", "first_seen", "assignee"]
 
 
 DEPRECATED_ISSUE_STATUSES = frozenset({ErrorTrackingIssue.Status.ARCHIVED, ErrorTrackingIssue.Status.PENDING_RELEASE})
