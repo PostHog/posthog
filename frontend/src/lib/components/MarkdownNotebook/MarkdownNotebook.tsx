@@ -151,6 +151,12 @@ import {
     parseMarkdownNotebook,
     serializeMarkdownNotebook,
 } from './markdown'
+import {
+    NotebookOperation,
+    applyNotebookOperations,
+    diffNotebookDocuments,
+    rebaseNotebookOperationStack,
+} from './operations'
 import { reconcileNotebookDocuments } from './reconcile'
 import {
     getMarkdownNotebookComponentDefinition,
@@ -190,7 +196,7 @@ import {
     NotebookTextBlockNode,
     NotebookTextSelectionRange,
 } from './types'
-import { cloneNotebookDocument, cloneNotebookNode, getInlineText, normalizeInlineNodes } from './utils'
+import { cloneNotebookNode, getInlineText, normalizeInlineNodes } from './utils'
 
 export type MarkdownNotebookProps = {
     value: string
@@ -232,15 +238,23 @@ type CommitDocumentOptions = {
 }
 
 type NotebookHistoryEntry = {
-    document: NotebookDocument
+    /** Operations that revert the edit; the newest entry applies to the current document. */
+    ops: NotebookOperation[]
     /** Where the cursor was while this document was current, so undo/redo can return to the edit point. */
     selection: RestoreSelectionRequest | null
+    /** Wall-clock time of the last edit folded into this entry, for grouping typing runs. */
+    editedAt: number
+    /** Set when the entry edits a single block, enabling typing-run coalescing. */
+    coalesceNodeId: string | null
 }
 
 type NotebookHistoryState = {
     undo: NotebookHistoryEntry[]
     redo: NotebookHistoryEntry[]
 }
+
+/** Consecutive single-block edits within this window fold into one undo step. */
+const UNDO_TYPING_GROUP_MS = 1000
 
 function createDefaultAIChatId(): string {
     if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
@@ -349,6 +363,20 @@ export function MarkdownNotebook({
         }
     }, [showDebug])
 
+    const rebaseHistoryThroughDocumentChange = useCallback(
+        (previousDocument: NotebookDocument, nextDocument: NotebookDocument): void => {
+            const incomingOps = diffNotebookDocuments(previousDocument, nextDocument)
+            if (!incomingOps.length) {
+                return
+            }
+            historyRef.current = {
+                undo: rebaseNotebookOperationStack(historyRef.current.undo, incomingOps),
+                redo: rebaseNotebookOperationStack(historyRef.current.redo, incomingOps),
+            }
+        },
+        []
+    )
+
     useEffect(() => {
         if (value === lastSerializedValueRef.current) {
             return
@@ -357,22 +385,24 @@ export function MarkdownNotebook({
         const restoreSelectionRequest = notebookRef.current
             ? getCollapsedSelectionRestoreRequest(window.getSelection(), notebookRef.current)
             : null
-        setDocument((currentDocument) => {
-            const nextDocument = parseMarkdownNotebook(value)
-            const reconciledDocument = ensureEditableNotebookDocument(
-                reconcileNotebookDocuments(currentDocument, nextDocument).document
-            )
-            documentRef.current = reconciledDocument
-            return reconciledDocument
-        })
+        const previousDocument = documentRef.current
+        const reconciledDocument = ensureEditableNotebookDocument(
+            reconcileNotebookDocuments(previousDocument, parseMarkdownNotebook(value)).document
+        )
+        // An external value change (artifact apply, restore, agent edit) rebases the undo
+        // history over the incoming operations instead of clearing it, so CMD+Z keeps
+        // reverting only this user's edits.
+        rebaseHistoryThroughDocumentChange(previousDocument, reconciledDocument)
+        documentRef.current = reconciledDocument
+        setDocument(reconciledDocument)
         if (restoreSelectionRequest) {
             restoreSelectionRef.current = restoreSelectionRequest
         }
         setDebugMarkdown(value)
-        historyRef.current = { undo: [], redo: [] }
         // The base is intentionally left untouched: an external `value` change is a local-side
         // update (artifact apply, restore), so the last synced server state remains the merge base.
         lastSerializedValueRef.current = value
+        // oxlint-disable-next-line exhaustive-deps
     }, [value])
 
     useLayoutEffect(() => {
@@ -446,18 +476,51 @@ export function MarkdownNotebook({
             : null
     }, [])
 
+    const pushHistoryEntry = useCallback(
+        (previousDocument: NotebookDocument, nextDocument: NotebookDocument): void => {
+            const inverseOps = diffNotebookDocuments(nextDocument, previousDocument)
+            if (!inverseOps.length) {
+                return
+            }
+
+            const now = Date.now()
+            const onlyOp = inverseOps.length === 1 ? inverseOps[0] : null
+            const coalesceNodeId =
+                onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
+            const lastEntry = historyRef.current.undo[historyRef.current.undo.length - 1]
+            if (
+                coalesceNodeId &&
+                lastEntry &&
+                lastEntry.coalesceNodeId === coalesceNodeId &&
+                now - lastEntry.editedAt < UNDO_TYPING_GROUP_MS &&
+                !historyRef.current.redo.length
+            ) {
+                // Fold the typing run into the open entry. For wholesale block replaces the
+                // older inverse already restores the pre-run content, so the new one is moot.
+                if (!(onlyOp?.type === 'replace_block' && lastEntry.ops.every((op) => op.type === 'replace_block'))) {
+                    lastEntry.ops = [...inverseOps, ...lastEntry.ops]
+                }
+                lastEntry.editedAt = now
+                return
+            }
+
+            historyRef.current = {
+                undo: [
+                    ...historyRef.current.undo.slice(-(MAX_UNDO_HISTORY_ENTRIES - 1)),
+                    { ops: inverseOps, selection: captureHistorySelection(), editedAt: now, coalesceNodeId },
+                ],
+                redo: [],
+            }
+        },
+        [captureHistorySelection]
+    )
+
     const commitDocument = useCallback(
         (nextDocument: NotebookDocument, options: CommitDocumentOptions = {}): void => {
             const editableDocument = ensureEditableNotebookDocument(nextDocument)
             const previousDocument = documentRef.current
-            if ((options.addToHistory ?? true) && !areNotebookDocumentsEqual(previousDocument, editableDocument)) {
-                historyRef.current = {
-                    undo: [
-                        ...historyRef.current.undo.slice(-(MAX_UNDO_HISTORY_ENTRIES - 1)),
-                        { document: cloneNotebookDocument(previousDocument), selection: captureHistorySelection() },
-                    ],
-                    redo: [],
-                }
+            if (options.addToHistory ?? true) {
+                pushHistoryEntry(previousDocument, editableDocument)
             }
 
             const serialized = serializeMarkdownNotebook(editableDocument)
@@ -467,7 +530,7 @@ export function MarkdownNotebook({
             setDocument(editableDocument)
             onChange?.(serialized)
         },
-        [onChange, captureHistorySelection]
+        [onChange, pushHistoryEntry]
     )
 
     const applyRemoteValue = useCallback(
@@ -485,7 +548,10 @@ export function MarkdownNotebook({
                 localMarkdown: lastSerializedValueRef.current,
                 remoteMarkdown: nextRemoteValue,
             })
-            const reconciledDocument = reconcileNotebookDocuments(documentRef.current, mergeResult.document).document
+            const previousDocument = documentRef.current
+            const reconciledDocument = ensureEditableNotebookDocument(
+                reconcileNotebookDocuments(previousDocument, mergeResult.document).document
+            )
             const restoreSelectionRequest = notebookRef.current
                 ? getCollapsedSelectionRestoreRequest(window.getSelection(), notebookRef.current)
                 : null
@@ -493,7 +559,9 @@ export function MarkdownNotebook({
             // The merge result still contains unsaved local changes, so the server state — not the
             // merge result — is the common ancestor for the next merge.
             lastBaseValueRef.current = nextRemoteValue
-            historyRef.current = { undo: [], redo: [] }
+            // Remote edits rebase the undo stack over the merged-in operations, so CMD+Z keeps
+            // reverting only this user's changes — never a collaborator's.
+            rebaseHistoryThroughDocumentChange(previousDocument, reconciledDocument)
             if (restoreSelectionRequest) {
                 restoreSelectionRef.current = restoreSelectionRequest
             }
@@ -503,7 +571,7 @@ export function MarkdownNotebook({
                 onConflict?.(mergeResult.conflicts)
             }
         },
-        [commitDocument, onConflict]
+        [commitDocument, onConflict, rebaseHistoryThroughDocumentChange]
     )
 
     useEffect(() => {
@@ -537,25 +605,29 @@ export function MarkdownNotebook({
         }
     }, [isTransientInteractionActive, onInteractionStateChange])
 
-    const restoreHistoryDocument = useCallback(
-        (entry: NotebookHistoryEntry): void => {
-            const editableDocument = ensureEditableNotebookDocument(cloneNotebookDocument(entry.document))
+    const applyHistoryEntrySelection = useCallback(
+        (entry: NotebookHistoryEntry, nextDocument: NotebookDocument): void => {
             const selection = entry.selection
             const entrySelection =
-                selection &&
-                'nodeId' in selection &&
-                editableDocument.nodes.some((node) => node.id === selection.nodeId)
+                selection && 'nodeId' in selection && nextDocument.nodes.some((node) => node.id === selection.nodeId)
                     ? selection
                     : null
-            restoreSelectionRef.current = entrySelection ?? getHistoryRestoreSelection(editableDocument)
-            commitDocument(editableDocument, { addToHistory: false })
+            restoreSelectionRef.current = entrySelection ?? getHistoryRestoreSelection(nextDocument)
         },
-        [commitDocument]
+        []
     )
 
     const undoHistory = useCallback((): boolean => {
-        const previousEntry = historyRef.current.undo[historyRef.current.undo.length - 1]
-        if (!previousEntry) {
+        const entry = historyRef.current.undo[historyRef.current.undo.length - 1]
+        if (!entry) {
+            return false
+        }
+
+        const result = applyNotebookOperations(documentRef.current, entry.ops)
+        if (!result) {
+            // The entry no longer fits the document (a conflicting remote edit slipped past
+            // the rebase): drop the stale stack rather than apply garbage.
+            historyRef.current = { ...historyRef.current, undo: [] }
             return false
         }
 
@@ -563,29 +635,37 @@ export function MarkdownNotebook({
             undo: historyRef.current.undo.slice(0, -1),
             redo: [
                 ...historyRef.current.redo.slice(-(MAX_UNDO_HISTORY_ENTRIES - 1)),
-                { document: cloneNotebookDocument(documentRef.current), selection: captureHistorySelection() },
+                { ops: result.inverted, selection: captureHistorySelection(), editedAt: 0, coalesceNodeId: null },
             ],
         }
-        restoreHistoryDocument(previousEntry)
+        applyHistoryEntrySelection(entry, result.document)
+        commitDocument(result.document, { addToHistory: false })
         return true
-    }, [restoreHistoryDocument, captureHistorySelection])
+    }, [applyHistoryEntrySelection, captureHistorySelection, commitDocument])
 
     const redoHistory = useCallback((): boolean => {
-        const nextEntry = historyRef.current.redo[historyRef.current.redo.length - 1]
-        if (!nextEntry) {
+        const entry = historyRef.current.redo[historyRef.current.redo.length - 1]
+        if (!entry) {
+            return false
+        }
+
+        const result = applyNotebookOperations(documentRef.current, entry.ops)
+        if (!result) {
+            historyRef.current = { ...historyRef.current, redo: [] }
             return false
         }
 
         historyRef.current = {
             undo: [
                 ...historyRef.current.undo.slice(-(MAX_UNDO_HISTORY_ENTRIES - 1)),
-                { document: cloneNotebookDocument(documentRef.current), selection: captureHistorySelection() },
+                { ops: result.inverted, selection: captureHistorySelection(), editedAt: 0, coalesceNodeId: null },
             ],
             redo: historyRef.current.redo.slice(0, -1),
         }
-        restoreHistoryDocument(nextEntry)
+        applyHistoryEntrySelection(entry, result.document)
+        commitDocument(result.document, { addToHistory: false })
         return true
-    }, [restoreHistoryDocument, captureHistorySelection])
+    }, [applyHistoryEntrySelection, captureHistorySelection, commitDocument])
 
     const deleteSelectedNotebookBlocks = useCallback(
         (replacementText: string = ''): boolean => {

@@ -1,7 +1,11 @@
 import { parseMarkdownNotebook, serializeMarkdownNotebook, serializeNode } from './markdown'
 import { reconcileNotebookDocuments } from './reconcile'
+import { applyTextChanges, getTextChanges, transformTextChanges, tryApplyTextChanges } from './textChanges'
 import { NotebookBlockNode, NotebookCollaborationConflict, NotebookDocument } from './types'
 import { cloneNotebookNode, getNodeFingerprint, getNodeSignature } from './utils'
+
+export type { TextChange } from './textChanges'
+export { tryApplyTextChanges } from './textChanges'
 
 export type NotebookMarkdownMergeInput = {
     baseMarkdown: string
@@ -339,41 +343,6 @@ function mergeNotebookBlockNodeText(
     }
 }
 
-/** A replaced span: offsets in UTF-16 code units, matching the backend's diff format. */
-export type TextChange = {
-    start: number
-    end: number
-    text: string
-}
-
-/**
- * Apply remote text changes (ascending, non-overlapping) to a base string.
- * Returns null when the changes don't fit the base — the caller should fall
- * back to a full reload. Mirrors `apply_utf16_text_changes` in collab.py.
- */
-export function tryApplyTextChanges(baseText: string, changes: TextChange[]): string | null {
-    let nextText = ''
-    let cursor = 0
-    for (const change of changes) {
-        if (
-            typeof change?.start !== 'number' ||
-            typeof change?.end !== 'number' ||
-            typeof change?.text !== 'string' ||
-            !Number.isInteger(change.start) ||
-            !Number.isInteger(change.end) ||
-            change.start < cursor ||
-            change.start > change.end ||
-            change.end > baseText.length
-        ) {
-            return null
-        }
-        nextText += baseText.slice(cursor, change.start)
-        nextText += change.text
-        cursor = change.end
-    }
-    return nextText + baseText.slice(cursor)
-}
-
 const CRC32_TABLE = ((): Uint32Array => {
     const table = new Uint32Array(256)
     for (let i = 0; i < 256; i++) {
@@ -402,8 +371,13 @@ type TextMergeResult = {
     conflicted: boolean
 }
 
-const MAX_EXACT_TEXT_DIFF_CELLS = 4_000_000
-
+/**
+ * Three-way merge of concurrent edits to one block's markdown, ProseMirror-rebase style:
+ * the remote changes are already committed, so local changes are transformed to apply on
+ * top of them. Insertions always survive and deletions union, so neither side's typing
+ * is ever discarded — at worst both replacements of the same words end up side by side
+ * (remote first) and the next save round-trips the result to everyone.
+ */
 function mergeTextChanges(baseText: string, localText: string, remoteText: string): TextMergeResult {
     if (localText === remoteText) {
         return { text: localText, conflicted: false }
@@ -417,272 +391,14 @@ function mergeTextChanges(baseText: string, localText: string, remoteText: strin
 
     const localChanges = getTextChanges(baseText, localText)
     const remoteChanges = getTextChanges(baseText, remoteText)
-    let localIndex = 0
-    let remoteIndex = 0
-    let baseCursor = 0
-    let mergedText = ''
-
-    while (localIndex < localChanges.length || remoteIndex < remoteChanges.length) {
-        const localChange = localChanges[localIndex]
-        const remoteChange = remoteChanges[remoteIndex]
-
-        if (!remoteChange || (localChange && isChangeBefore(localChange, remoteChange))) {
-            mergedText += baseText.slice(baseCursor, localChange.start)
-            mergedText += localChange.text
-            baseCursor = localChange.end
-            localIndex += 1
-            continue
-        }
-
-        if (!localChange || isChangeBefore(remoteChange, localChange)) {
-            mergedText += baseText.slice(baseCursor, remoteChange.start)
-            mergedText += remoteChange.text
-            baseCursor = remoteChange.end
-            remoteIndex += 1
-            continue
-        }
-
-        const group = collectOverlappingChangeGroup(localChanges, remoteChanges, localIndex, remoteIndex)
-        const baseSegment = baseText.slice(group.start, group.end)
-        const localSegment = applyTextChanges(
-            baseSegment,
-            group.localChanges.map((change) => shiftTextChange(change, -group.start))
-        )
-        const remoteSegment = applyTextChanges(
-            baseSegment,
-            group.remoteChanges.map((change) => shiftTextChange(change, -group.start))
-        )
-        const mergedSegment = mergeOverlappingTextSegments(baseSegment, localSegment, remoteSegment)
-
-        if (mergedSegment === null) {
-            return { text: localText, conflicted: true }
-        }
-
-        mergedText += baseText.slice(baseCursor, group.start)
-        mergedText += mergedSegment
-        baseCursor = group.end
-        localIndex = group.nextLocalIndex
-        remoteIndex = group.nextRemoteIndex
+    const rebasedLocalChanges = transformTextChanges(localChanges, remoteChanges, 'against-first')
+    if (rebasedLocalChanges === null) {
+        return { text: localText, conflicted: true }
+    }
+    const mergedText = tryApplyTextChanges(applyTextChanges(baseText, remoteChanges), rebasedLocalChanges)
+    if (mergedText === null) {
+        return { text: localText, conflicted: true }
     }
 
-    mergedText += baseText.slice(baseCursor)
     return { text: mergedText, conflicted: false }
-}
-
-function getTextChanges(baseText: string, nextText: string): TextChange[] {
-    if (baseText === nextText) {
-        return []
-    }
-
-    if (baseText.length * nextText.length > MAX_EXACT_TEXT_DIFF_CELLS) {
-        return getSingleSpanTextChange(baseText, nextText)
-    }
-
-    const width = nextText.length + 1
-    const lcsLengths = new Uint16Array((baseText.length + 1) * width)
-
-    for (let baseIndex = baseText.length - 1; baseIndex >= 0; baseIndex--) {
-        for (let nextIndex = nextText.length - 1; nextIndex >= 0; nextIndex--) {
-            const offset = baseIndex * width + nextIndex
-            lcsLengths[offset] =
-                baseText[baseIndex] === nextText[nextIndex]
-                    ? lcsLengths[(baseIndex + 1) * width + nextIndex + 1] + 1
-                    : Math.max(lcsLengths[(baseIndex + 1) * width + nextIndex], lcsLengths[offset + 1])
-        }
-    }
-
-    const changes: TextChange[] = []
-    let activeChange: TextChange | null = null
-    let baseIndex = 0
-    let nextIndex = 0
-
-    const ensureActiveChange = (): TextChange => {
-        if (!activeChange) {
-            activeChange = { start: baseIndex, end: baseIndex, text: '' }
-        }
-        return activeChange
-    }
-    const flushActiveChange = (): void => {
-        if (activeChange) {
-            changes.push(activeChange)
-            activeChange = null
-        }
-    }
-
-    while (baseIndex < baseText.length || nextIndex < nextText.length) {
-        if (baseIndex < baseText.length && nextIndex < nextText.length && baseText[baseIndex] === nextText[nextIndex]) {
-            flushActiveChange()
-            baseIndex += 1
-            nextIndex += 1
-            continue
-        }
-
-        if (
-            nextIndex < nextText.length &&
-            (baseIndex === baseText.length ||
-                lcsLengths[baseIndex * width + nextIndex + 1] >= lcsLengths[(baseIndex + 1) * width + nextIndex])
-        ) {
-            ensureActiveChange().text += nextText[nextIndex]
-            nextIndex += 1
-            continue
-        }
-
-        ensureActiveChange().end += 1
-        baseIndex += 1
-    }
-
-    flushActiveChange()
-    return changes
-}
-
-function getSingleSpanTextChange(baseText: string, nextText: string): TextChange[] {
-    let prefixLength = 0
-    while (
-        prefixLength < baseText.length &&
-        prefixLength < nextText.length &&
-        baseText[prefixLength] === nextText[prefixLength]
-    ) {
-        prefixLength += 1
-    }
-
-    let suffixLength = 0
-    while (
-        suffixLength < baseText.length - prefixLength &&
-        suffixLength < nextText.length - prefixLength &&
-        baseText[baseText.length - suffixLength - 1] === nextText[nextText.length - suffixLength - 1]
-    ) {
-        suffixLength += 1
-    }
-
-    return [
-        {
-            start: prefixLength,
-            end: baseText.length - suffixLength,
-            text: nextText.slice(prefixLength, nextText.length - suffixLength),
-        },
-    ]
-}
-
-function isChangeBefore(left: TextChange, right: TextChange): boolean {
-    if (left.end < right.start) {
-        return true
-    }
-    if (left.end === right.start && !isSamePositionInsertion(left, right)) {
-        return true
-    }
-    return false
-}
-
-function isSamePositionInsertion(left: TextChange, right: TextChange): boolean {
-    return left.start === left.end && right.start === right.end && left.start === right.start
-}
-
-function collectOverlappingChangeGroup(
-    localChanges: TextChange[],
-    remoteChanges: TextChange[],
-    localIndex: number,
-    remoteIndex: number
-): {
-    start: number
-    end: number
-    localChanges: TextChange[]
-    remoteChanges: TextChange[]
-    nextLocalIndex: number
-    nextRemoteIndex: number
-} {
-    let start = Math.min(localChanges[localIndex].start, remoteChanges[remoteIndex].start)
-    let end = Math.max(localChanges[localIndex].end, remoteChanges[remoteIndex].end)
-    const groupedLocalChanges: TextChange[] = []
-    const groupedRemoteChanges: TextChange[] = []
-    let nextLocalIndex = localIndex
-    let nextRemoteIndex = remoteIndex
-    let didGrow = true
-
-    while (didGrow) {
-        didGrow = false
-
-        while (
-            nextLocalIndex < localChanges.length &&
-            doesChangeOverlapRange(localChanges[nextLocalIndex], start, end)
-        ) {
-            const change = localChanges[nextLocalIndex]
-            groupedLocalChanges.push(change)
-            start = Math.min(start, change.start)
-            end = Math.max(end, change.end)
-            nextLocalIndex += 1
-            didGrow = true
-        }
-
-        while (
-            nextRemoteIndex < remoteChanges.length &&
-            doesChangeOverlapRange(remoteChanges[nextRemoteIndex], start, end)
-        ) {
-            const change = remoteChanges[nextRemoteIndex]
-            groupedRemoteChanges.push(change)
-            start = Math.min(start, change.start)
-            end = Math.max(end, change.end)
-            nextRemoteIndex += 1
-            didGrow = true
-        }
-    }
-
-    return {
-        start,
-        end,
-        localChanges: groupedLocalChanges,
-        remoteChanges: groupedRemoteChanges,
-        nextLocalIndex,
-        nextRemoteIndex,
-    }
-}
-
-function doesChangeOverlapRange(change: TextChange, start: number, end: number): boolean {
-    if (change.start === change.end && start === end) {
-        return change.start === start
-    }
-    if (change.start === change.end) {
-        return change.start >= start && change.start <= end
-    }
-    return change.start < end && change.end > start
-}
-
-function shiftTextChange(change: TextChange, offset: number): TextChange {
-    return {
-        ...change,
-        start: change.start + offset,
-        end: change.end + offset,
-    }
-}
-
-function applyTextChanges(baseText: string, changes: TextChange[]): string {
-    let nextText = ''
-    let cursor = 0
-    changes.forEach((change) => {
-        nextText += baseText.slice(cursor, change.start)
-        nextText += change.text
-        cursor = change.end
-    })
-    return nextText + baseText.slice(cursor)
-}
-
-function mergeOverlappingTextSegments(baseSegment: string, localSegment: string, remoteSegment: string): string | null {
-    if (localSegment === remoteSegment) {
-        return localSegment
-    }
-    if (localSegment === baseSegment) {
-        return remoteSegment
-    }
-    if (remoteSegment === baseSegment) {
-        return localSegment
-    }
-    if (localSegment.includes(remoteSegment)) {
-        return localSegment
-    }
-    if (remoteSegment.includes(localSegment)) {
-        return remoteSegment
-    }
-    if (!baseSegment) {
-        return `${remoteSegment}${localSegment}`
-    }
-    return null
 }

@@ -1375,6 +1375,7 @@ Repeated block`),
     })
 
     it('undoes and redoes notebook text edits with keyboard shortcuts', () => {
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000)
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
         const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)
@@ -1385,6 +1386,8 @@ Repeated block`),
         editableTextBlock.focus()
         editableTextBlock.textContent = 'hello'
         fireEvent.input(editableTextBlock)
+        // A pause longer than the typing-coalescing window starts a new undo step
+        nowSpy.mockReturnValue(20_000)
         editableTextBlock.textContent = 'hello world'
         fireEvent.input(editableTextBlock)
 
@@ -1408,6 +1411,67 @@ Repeated block`),
 
         expect(onChange).toHaveBeenLastCalledWith('# hello world')
         expect(editableTextBlock.textContent).toEqual('hello world')
+
+        nowSpy.mockRestore()
+    })
+
+    it('coalesces a rapid typing run into a single undo step', () => {
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000)
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
+        const editableTextBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
+
+        editableTextBlock.focus()
+        for (const typedValue of ['h', 'he', 'hel', 'hell', 'hello']) {
+            editableTextBlock.textContent = typedValue
+            fireEvent.input(editableTextBlock)
+        }
+
+        fireEvent.keyDown(editableTextBlock, { key: 'z', metaKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith('#')
+        expect(editableTextBlock.textContent).toEqual('')
+
+        fireEvent.keyDown(editableTextBlock, { key: 'z', metaKey: true, shiftKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith('# hello')
+        expect(editableTextBlock.textContent).toEqual('hello')
+
+        nowSpy.mockRestore()
+    })
+
+    it('keeps undoing only local edits after a remote merge arrives', () => {
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000)
+        const onChange = jest.fn()
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, { value: '# Title\n\nHello', onChange, remoteValue: '# Title\n\nHello' })
+        )
+        const blocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+        const paragraphBlock = blocks[blocks.length - 1] as HTMLElement
+        expect(paragraphBlock.textContent).toEqual('Hello')
+
+        paragraphBlock.focus()
+        placeCaretInElement(paragraphBlock, paragraphBlock.childNodes.length)
+        paragraphBlock.textContent = 'Hello world'
+        fireEvent.input(paragraphBlock)
+        expect(onChange).toHaveBeenLastCalledWith('# Title\n\nHello world')
+
+        // A collaborator appends a paragraph; the merge must not clear the local undo stack.
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: '# Title\n\nHello world',
+                onChange,
+                remoteValue: '# Title\n\nHello\n\nRemote paragraph',
+            })
+        )
+        expect(onChange).toHaveBeenLastCalledWith('# Title\n\nHello world\n\nRemote paragraph')
+
+        fireEvent.keyDown(paragraphBlock, { key: 'z', metaKey: true })
+
+        // Undo reverts only the local " world" typing — the collaborator's paragraph stays.
+        expect(onChange).toHaveBeenLastCalledWith('# Title\n\nHello\n\nRemote paragraph')
+
+        nowSpy.mockRestore()
     })
 
     it('returns the cursor to the edited block on undo instead of the first line', () => {

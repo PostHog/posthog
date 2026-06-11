@@ -109,6 +109,10 @@ import type { notebookLogicType } from './notebookLogicType'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 export const SYNC_DELAY = 1000
+/** Markdown notebooks save on a tighter cadence so same-block co-editing feels near-realtime. */
+export const MARKDOWN_SYNC_DELAY = 400
+/** During continuous typing, force a save at least this often instead of debouncing forever. */
+export const MARKDOWN_SYNC_MAX_DELAY = 1500
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
 
 function getNotebookTextContent(content: JSONContent | null | undefined, editorText: string): string {
@@ -1623,7 +1627,20 @@ export const notebookLogic = kea<notebookLogicType>([
                 values.editor?.setContent(jsonContent)
             }
 
-            await breakpoint(SYNC_DELAY)
+            if (values.markdownRealtimeEnabled) {
+                // Debounce between keystrokes, but never let continuous typing starve the save:
+                // past MARKDOWN_SYNC_MAX_DELAY of pending edits, save immediately so collaborators
+                // typing in the same block converge at near-realtime cadence.
+                cache.firstPendingSyncAt = cache.firstPendingSyncAt ?? Date.now()
+                if (Date.now() - cache.firstPendingSyncAt >= MARKDOWN_SYNC_MAX_DELAY) {
+                    await breakpoint(1)
+                } else {
+                    await breakpoint(MARKDOWN_SYNC_DELAY)
+                }
+                cache.firstPendingSyncAt = null
+            } else {
+                await breakpoint(SYNC_DELAY)
+            }
 
             if (values.autosavePaused) {
                 return
