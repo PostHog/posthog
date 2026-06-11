@@ -22,10 +22,12 @@ class TestSESProvider(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # Patch boto3.client for all tests in this class
+        # Patch boto3.client for all tests in this class. addClassCleanup ensures the patch
+        # is stopped after the class finishes, so it doesn't leak into other test classes.
         patcher = patch("products.workflows.backend.providers.ses.boto3.client")
         cls.boto3_client_patcher = patcher
         cls.mock_boto3_client = patcher.start()
+        cls.addClassCleanup(patcher.stop)
 
         # Set up a default mock client with safe return values
         mock_client_instance = cls.mock_boto3_client.return_value
@@ -36,12 +38,6 @@ class TestSESProvider(TestCase):
         mock_client_instance.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
         mock_client_instance.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
         mock_client_instance.get_caller_identity.return_value = {"Account": "123456789012"}
-
-    @classmethod
-    def tearDownClass(cls):
-        # Stop the patcher so it doesn't leak into other test classes in the same session
-        if cls.boto3_client_patcher is not None:
-            cls.boto3_client_patcher.stop()
 
     def setUp(self):
         # Remove all domains from SES (mocked)
