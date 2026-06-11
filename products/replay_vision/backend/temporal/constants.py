@@ -56,7 +56,9 @@ ESTIMATES_SCHEDULE_ID = "replay-vision-estimate-refresher-schedule"
 
 # Quarter-hourly checks against a 24h staleness target keep estimates at most ~24h15m old.
 ESTIMATES_REFRESH_INTERVAL = dt.timedelta(minutes=15)
-ESTIMATES_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
+# Covers the worst-case batch (MAX_PER_RUN / CONCURRENCY × the 60s activity timeout = 100 min) with margin;
+# overlap SKIP means a slow run absorbs later ticks instead of being cancelled mid-batch.
+ESTIMATES_EXECUTION_TIMEOUT = dt.timedelta(hours=2)
 
 # Each refresh is a ClickHouse count; bound the batch and parallelism so one run stays cheap.
 ESTIMATES_MAX_PER_RUN = 400
