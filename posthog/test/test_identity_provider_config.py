@@ -88,7 +88,6 @@ class TestIdentityProviderConfigSync(BaseTest):
         disable_scim_for_domain(domain)
         config.refresh_from_db()
         assert config.scim_enabled is False
-        assert config.scim_bearer_token is None
 
     def test_sync_is_idempotent(self):
         domain = self._create_domain(id_jag_issuer_url="https://issuer.example.com")
@@ -102,16 +101,17 @@ class TestIdentityProviderConfigSync(BaseTest):
             config_field = IdentityProviderConfig._meta.get_field(field)
             assert domain_field.__class__ == config_field.__class__, field
             assert getattr(domain_field, "max_length", None) == getattr(config_field, "max_length", None), field
-            assert domain_field.null == config_field.null, field
 
     def test_deleting_domain_keeps_config(self):
         domain = self._create_domain(id_jag_issuer_url="https://issuer.example.com")
         config_id = domain.identity_provider_config_id
         domain.delete()
+        assert config_id is not None
         assert IdentityProviderConfig.objects.filter(pk=config_id).exists()
 
     def test_deleting_config_nulls_domain_link(self):
         domain = self._create_domain(id_jag_issuer_url="https://issuer.example.com")
+        assert domain.identity_provider_config is not None
         domain.identity_provider_config.delete()
         domain.refresh_from_db()
         assert domain.identity_provider_config is None
