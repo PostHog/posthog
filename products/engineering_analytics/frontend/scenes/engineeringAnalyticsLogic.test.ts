@@ -276,7 +276,7 @@ describe('engineeringAnalyticsLogic', () => {
         const row = makePr({ number: 7 })
         const lifecycle: PRLifecycleApi = {
             pull_request: {
-                id: 'pr-7',
+                id: 7001,
                 number: 7,
                 title: 'feat: a thing',
                 author: { handle: 'alice', display_name: 'alice', avatar_url: '', is_bot: false },
