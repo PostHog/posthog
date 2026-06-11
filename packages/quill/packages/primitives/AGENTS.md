@@ -77,13 +77,14 @@ For a custom menu-like list inside a Popover (when DropdownMenu's open/close sem
 
 **Does it block the page? Does it contain interactive content? Is it anchored to a trigger?**
 
-| Component | Use when                                                                                    |
-| --------- | ------------------------------------------------------------------------------------------- |
-| Dialog    | Modal, blocking flow — confirmations, focused forms. `size="wide"`/`"full"` for big content |
-| Drawer    | Mobile-first slide-up sheet; touch contexts                                                 |
-| Popover   | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)          |
-| Tooltip   | Hover-only text hint; never interactive content, never essential information                |
-| Toast     | Async outcome notification (`toast.success(...)`) — fire and forget                         |
+| Component   | Use when                                                                                                                                |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Dialog      | Modal, blocking flow — focused forms, multi-step content. `size="wide"`/`"full"` for big content                                        |
+| AlertDialog | Confirmation that must be resolved — destructive/irreversible actions. Backdrop clicks never dismiss, no X button, `role="alertdialog"` |
+| Drawer      | Mobile-first slide-up sheet; touch contexts                                                                                             |
+| Popover     | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)                                                      |
+| Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
+| Toast       | Async outcome notification (`toast.success(...)`) — fire and forget                                                                     |
 
 ### Status and labels
 
@@ -384,6 +385,26 @@ Multi-select with chips:
 ```
 
 Hide close button: `<DialogContent showCloseButton={false}>`
+
+### Alert Dialog (must-resolve confirmation)
+
+Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`, always modal, backdrop clicks never dismiss, and no X button — the user must pick an action (or Esc). Use for destructive/irreversible confirmations; put Cancel first so it takes initial focus.
+
+```tsx
+<AlertDialog>
+  <AlertDialogTrigger render={<Button variant="destructive" />}>Delete project</AlertDialogTrigger>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Delete this project?</AlertDialogTitle>
+      <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+      <AlertDialogClose render={<Button variant="destructive" />}>Delete</AlertDialogClose>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+```
 
 ### Drawer (mobile-friendly)
 
