@@ -178,7 +178,7 @@ describe('EmailService', () => {
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(
-                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                    `"The integration configured for this step is not an email channel — select an email sender in the workflow's email step."`
                 )
             })
             it('should validate if the integration is not the correct team', async () => {
