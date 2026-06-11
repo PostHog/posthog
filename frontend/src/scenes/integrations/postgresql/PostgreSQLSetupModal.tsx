@@ -43,7 +43,21 @@ export const PostgreSQLSetupModal = (props: PostgreSQLSetupModalLogicProps): JSX
                         <LemonInput type="password" />
                     </LemonField>
 
-                    <LemonField name="ssl_mode" label="Verify server identity?">
+                    <LemonField
+                        name="ssl_mode"
+                        label="Verify server identity?"
+                        info={
+                            <>
+                                Verifies that the certificate presented by the database server is signed by a
+                                trusted certificate authority — and, optionally, that its hostname matches the host
+                                you entered. This guards against man-in-the-middle attacks.
+                                <br />
+                                <br />
+                                The connection is always encrypted regardless of this setting, because PostHog
+                                requires TLS. These options only add verification of the server certificate.
+                            </>
+                        }
+                    >
                         <LemonSelect
                             options={[
                                 { value: 'no', label: 'No' },
