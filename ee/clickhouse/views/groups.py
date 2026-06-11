@@ -147,8 +147,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, views
 
     @extend_schema(responses={200: GroupTypeSerializer(many=True)})
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        # Served from the cached, personhog-routed helper instead of the persons DB —
-        # this endpoint is hit on nearly every app load via groupsModel.
+        # Served from the cached, personhog-routed helper instead of the persons DB
         rows = get_group_types_for_project(self.team.project_id)
         return response.Response([_group_type_row_to_response(row) for row in rows])
 
