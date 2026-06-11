@@ -30,6 +30,21 @@ fn empty_raw_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).unwrap()
 }
 
+/// Trim client-submitted whitespace once, at the deserialization boundary.
+/// Only reallocates when padding is actually present.
+fn deserialize_trimmed_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let trimmed = s.trim();
+    Ok(if trimmed.len() == s.len() {
+        s
+    } else {
+        trimmed.to_owned()
+    })
+}
+
 /// Per-event outcome in the batch response.
 /// Ok: captured successfully. Drop: rejected (billing/validation). Warning: accepted
 /// with person processing disabled (do not resubmit). Retry: not persisted, safe to resubmit.
@@ -68,7 +83,12 @@ pub struct Options {
 #[derive(Debug, Deserialize)]
 pub struct Event {
     pub event: String,
+    /// Trimmed at deserialization: callers may rely on this being free of
+    /// client-submitted leading/trailing whitespace.
+    #[serde(deserialize_with = "deserialize_trimmed_string")]
     pub uuid: String,
+    /// Trimmed at deserialization so padded IDs resolve to the same person.
+    #[serde(deserialize_with = "deserialize_trimmed_string")]
     pub distinct_id: String,
     pub timestamp: String,
     pub session_id: Option<String>,
@@ -77,14 +97,6 @@ pub struct Event {
     pub options: Options,
     #[serde(default = "empty_raw_object")]
     pub properties: Box<RawValue>,
-}
-
-impl Event {
-    /// Trimmed accessor for the raw UUID string. Prefer this over direct
-    /// field access so callers are insulated from client-submitted whitespace.
-    pub fn uuid(&self) -> &str {
-        self.uuid.trim()
-    }
 }
 
 #[derive(Debug)]
@@ -162,7 +174,7 @@ impl SinkEvent for WrappedEvent {
                 .adjusted_timestamp
                 .map(|ts| ts.timestamp_millis().to_string()),
             event: Some(self.event.event.clone()),
-            uuid: Some(self.event.uuid().to_owned()),
+            uuid: Some(self.event.uuid.clone()),
             now: Some(
                 ctx.server_received_at
                     .to_rfc3339_opts(SecondsFormat::AutoSi, true),
@@ -173,6 +185,7 @@ impl SinkEvent for WrappedEvent {
             dlq_reason,
             dlq_step,
             dlq_timestamp,
+            content_encoding: None,
         }
     }
 
@@ -195,7 +208,7 @@ impl SinkEvent for WrappedEvent {
     }
 
     fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
-        let spliced = self.build_spliced_properties()?;
+        let spliced = self.build_spliced_properties(ctx)?;
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
             event: &self.event.event,
@@ -242,7 +255,7 @@ impl SinkEvent for WrappedEvent {
 
 impl WrappedEvent {
     #[allow(unused_assignments)]
-    fn build_property_injections(&self) -> anyhow::Result<String> {
+    fn build_property_injections(&self, ctx: &Context) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
         let mut first = true;
 
@@ -279,13 +292,23 @@ impl WrappedEvent {
             inject!(buf, first, "$process_person_profile", &ppp);
         }
 
+        // Materialize $lib/$lib_version from the required PostHog-Sdk-Info
+        // header — the canonical v1 SDK identity. Appended after client keys,
+        // so the header wins under last-key-wins parsing (same duplicate-key
+        // semantics as the injections above). Unusable headers inject nothing
+        // and are counted per-request in the handler.
+        if let Some((lib, lib_version)) = ctx.sdk_lib_and_version() {
+            inject!(buf, first, "$lib", lib);
+            inject!(buf, first, "$lib_version", lib_version);
+        }
+
         Ok(buf)
     }
 
     /// Build spliced properties if injection is needed, or return None
     /// to signal the caller should borrow `self.event.properties` directly.
-    fn build_spliced_properties(&self) -> anyhow::Result<Option<Box<RawValue>>> {
-        let injection = self.build_property_injections()?;
+    fn build_spliced_properties(&self, ctx: &Context) -> anyhow::Result<Option<Box<RawValue>>> {
+        let injection = self.build_property_injections(ctx)?;
         if injection.is_empty() {
             return Ok(None);
         }
@@ -416,6 +439,39 @@ mod tests {
         assert_eq!(event.distinct_id, "user-42");
         assert_eq!(event.timestamp, "2026-03-19T14:29:58.123Z");
         assert_eq!(event.properties.get(), "{}");
+    }
+
+    #[test]
+    fn parse_event_trims_uuid_and_distinct_id() {
+        let json = r#"{
+            "created_at": "2026-03-19T14:30:00.000Z",
+            "batch": [{
+                "event": "$pageview",
+                "uuid": "  a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d  ",
+                "distinct_id": "  user-42  ",
+                "timestamp": "2026-03-19T14:29:58.123Z"
+            }]
+        }"#;
+        let batch: Batch = serde_json::from_str(json).unwrap();
+        let event = &batch.batch[0];
+        assert_eq!(event.uuid, "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
+        assert_eq!(event.distinct_id, "user-42");
+    }
+
+    #[test]
+    fn parse_event_whitespace_only_distinct_id_collapses_to_empty() {
+        // Validation rejects the empty result with MissingDistinctId.
+        let json = r#"{
+            "created_at": "2026-03-19T14:30:00.000Z",
+            "batch": [{
+                "event": "$pageview",
+                "uuid": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "distinct_id": "   ",
+                "timestamp": "2026-03-19T14:29:58.123Z"
+            }]
+        }"#;
+        let batch: Batch = serde_json::from_str(json).unwrap();
+        assert_eq!(batch.batch[0].distinct_id, "");
     }
 
     #[test]
@@ -1072,6 +1128,89 @@ mod tests {
     }
 
     #[test]
+    fn serialize_injects_lib_from_sdk_info_header() {
+        let wrapped = pageview_event();
+        let ctx = serialize_ctx(); // sdk_info: "posthog-rs/1.0.0"
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+
+        assert_eq!(data.properties["$lib"], "posthog-rs");
+        assert_eq!(data.properties["$lib_version"], "1.0.0");
+    }
+
+    #[test]
+    fn serialize_lib_injection_header_wins_over_client_properties() {
+        let mut wrapped = pageview_event();
+        wrapped.event.properties =
+            raw_obj(r#"{"$lib":"client-lib","$lib_version":"9.9.9","custom_prop":42}"#);
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+
+        // Injections append after client keys; last-key-wins parsing makes
+        // the header authoritative.
+        assert_eq!(data.properties["$lib"], "posthog-rs");
+        assert_eq!(data.properties["$lib_version"], "1.0.0");
+        assert_eq!(data.properties["custom_prop"], 42);
+    }
+
+    #[test]
+    fn serialize_oversized_sdk_info_skips_lib_injection() {
+        use crate::v1::constants::MAX_SDK_INFO_LEN;
+
+        let wrapped = pageview_event();
+        let mut ctx = serialize_ctx();
+        ctx.sdk_info = format!("posthog-rs/{}", "9".repeat(MAX_SDK_INFO_LEN));
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+
+        assert!(!data.properties.contains_key("$lib"));
+        assert!(!data.properties.contains_key("$lib_version"));
+    }
+
+    #[test]
+    fn serialize_malformed_sdk_info_skips_lib_injection() {
+        for bad in &["garbage-no-slash", "/1.0.0", "posthog-rs/", ""] {
+            let wrapped = pageview_event();
+            let mut ctx = serialize_ctx();
+            ctx.sdk_info = bad.to_string();
+            let (_, data) = serialize_and_parse(&wrapped, &ctx);
+
+            // No placeholders: absent rather than "unknown"/"0.0.0".
+            assert!(
+                !data.properties.contains_key("$lib"),
+                "expected no $lib for sdk_info {bad:?}"
+            );
+            assert!(
+                !data.properties.contains_key("$lib_version"),
+                "expected no $lib_version for sdk_info {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn serialize_padded_distinct_id_trimmed_everywhere() {
+        // Padding is stripped at the deserialization boundary; everything
+        // downstream (serialization, headers, partition key) sees it trimmed.
+        let mut wrapped = pageview_event();
+        let json = format!(
+            r#"{{"event":"$pageview","uuid":"{}","distinct_id":"  user-42  ","timestamp":"2026-03-19T14:29:58.123Z"}}"#,
+            wrapped.uuid
+        );
+        wrapped.event = serde_json::from_str(&json).unwrap();
+        assert_eq!(wrapped.event.distinct_id, "user-42");
+        let ctx = serialize_ctx();
+
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(captured.distinct_id, "user-42");
+        assert_eq!(data.distinct_id, Some(Value::String("user-42".to_string())));
+
+        let headers = wrapped.headers(&ctx);
+        assert_eq!(headers.distinct_id.as_deref(), Some("user-42"));
+
+        let mut key = String::new();
+        wrapped.partition_key(&ctx, &mut key);
+        assert_eq!(key, format!("{}:user-42", ctx.api_token));
+    }
+
+    #[test]
     fn serialize_ip_redaction_capture_internal() {
         let wrapped = pageview_event();
         let mut ctx = serialize_ctx();
@@ -1196,7 +1335,11 @@ mod tests {
 
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        assert!(data.properties.is_empty());
+        // $lib/$lib_version always materialize from the (valid) Sdk-Info header.
+        let props = &data.properties;
+        assert_eq!(props["$lib"], "posthog-rs");
+        assert_eq!(props["$lib_version"], "1.0.0");
+        assert_eq!(props.len(), 2);
     }
 
     #[test]
@@ -1231,7 +1374,9 @@ mod tests {
         let props = &data.properties;
         assert_eq!(props["$session_id"], "sess-abc");
         assert_eq!(props["$cookieless_mode"], true);
-        assert_eq!(props.len(), 2);
+        assert_eq!(props["$lib"], "posthog-rs");
+        assert_eq!(props["$lib_version"], "1.0.0");
+        assert_eq!(props.len(), 4);
     }
 
     #[test]
@@ -1266,8 +1411,10 @@ mod tests {
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
         let props = &data.properties;
-        assert_eq!(props["$lib"], "posthog-js");
-        assert_eq!(props["$lib_version"], "1.150.0");
+        // Non-identity client properties survive; $lib/$lib_version come from
+        // the Sdk-Info header (header-wins).
+        assert_eq!(props["$lib"], "posthog-rs");
+        assert_eq!(props["$lib_version"], "1.0.0");
         assert_eq!(props["$referrer"], "https://google.com");
         assert_eq!(props["$session_id"], "sess-abc");
     }
@@ -1499,7 +1646,9 @@ mod tests {
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
         assert_eq!(data.properties["$session_id"], "sess-abc");
-        assert_eq!(data.properties.len(), 1);
+        assert_eq!(data.properties["$lib"], "posthog-rs");
+        assert_eq!(data.properties["$lib_version"], "1.0.0");
+        assert_eq!(data.properties.len(), 3);
     }
 
     // --- CapturedEvent round-trip parity using realistic fixtures ---

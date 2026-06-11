@@ -39,13 +39,13 @@ import {
 import { checkLatestVersionsOnQuery } from '~/queries/utils'
 import { FunnelExclusionLegacy, LegacyRecordingFilters } from '~/types'
 
-import { expandFlattenedTablesInContent } from './expandFlattenedTablesInContent'
+import { convertMarkdownTablesInContent } from './convertMarkdownTablesInContent'
 
 // NOTE: Increment this number when you add a new content migration
 // It will bust the cache on the localContent in the notebookLogic
 // so that the latest content will fall back to the remote content which
 // is filtered through the migrate function below that ensures integrity
-export const NOTEBOOKS_VERSION = '2'
+export const NOTEBOOKS_VERSION = '3'
 
 export interface MigrateOptions {
     /**
@@ -66,7 +66,7 @@ export async function migrate(notebook: NotebookType, options: MigrateOptions = 
     content = convertInsightQueryStringsToObjects(content)
     content = convertInsightQueriesToNewSchema(content)
     content = convertPlaylistFiltersToUniversalFilters(content)
-    content = expandFlattenedTablesInContent(content)
+    content = convertMarkdownTablesInContent(content)
     if (!options.skipApiUpgrade) {
         content = await upgradeQueryNode(content)
     }

@@ -20,7 +20,9 @@ class SCIMUserConflict(Exception):
 
 def _validate_email_domain_is_verified(email: str, organization: Organization) -> None:
     """Ensure email domain matches any verified domain for the organization. Prevents cross-tenant user adoption."""
-    email_domain = email.split("@")[1].lower()
+    # The delivery domain is the segment after the LAST "@" — splitting on the first "@"
+    # would let a multi-"@" address smuggle a verified-looking domain past this guard.
+    email_domain = email.rsplit("@", 1)[-1].lower()
     verified_domains = set(
         OrganizationDomain.objects.filter(
             organization=organization,
@@ -272,13 +274,20 @@ class PostHogSCIMUser(SCIMUser):
             else:
                 self.deactivate()
 
+    def _leave_organization(self) -> None:
+        # Route membership removal through User.leave so the owner-protection guard and the
+        # canonical current-org/team cleanup run. Tolerate an already-removed membership so
+        # deprovisioning stays idempotent.
+        try:
+            self.obj.leave(organization=self._organization_domain.organization)
+        except OrganizationMembership.DoesNotExist:
+            pass
+
     def deactivate(self) -> None:
         """
         Deactivate user by removing their membership and marking SCIM record as inactive.
         """
-        OrganizationMembership.objects.filter(
-            user=self.obj, organization=self._organization_domain.organization
-        ).delete()
+        self._leave_organization()
 
         SCIMProvisionedUser.objects.filter(
             user=self.obj,
@@ -289,9 +298,7 @@ class PostHogSCIMUser(SCIMUser):
         """
         Delete user by removing their membership and SCIM provisioned user record.
         """
-        OrganizationMembership.objects.filter(
-            user=self.obj, organization=self._organization_domain.organization
-        ).delete()
+        self._leave_organization()
 
         SCIMProvisionedUser.objects.filter(
             user=self.obj,
@@ -350,6 +357,8 @@ class PostHogSCIMUser(SCIMUser):
                     email = self._extract_email_from_value(value)
 
                 if email:
+                    if User.objects.filter(email__iexact=email).exclude(id=self.obj.id).exists():
+                        raise ValueError("Email belongs to another user")
                     _validate_email_domain_is_verified(email, self._organization_domain.organization)
                     # Org must also own the current email domain to prevent cross-tenant account takeover
                     _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
@@ -414,6 +423,8 @@ class PostHogSCIMUser(SCIMUser):
                     email = self._extract_email_from_value(value)
 
                 if email:
+                    if User.objects.filter(email__iexact=email).exclude(id=self.obj.id).exists():
+                        raise ValueError("Email belongs to another user")
                     _validate_email_domain_is_verified(email, self._organization_domain.organization)
                     # Org must also own the current email domain to prevent cross-tenant account takeover
                     _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)

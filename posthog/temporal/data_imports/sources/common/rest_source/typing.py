@@ -2,6 +2,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional, TypedDict
 
+from requests import Session
+
 from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth, TApiKeyLocation
 from .jsonpath_utils import TJsonPath, compile_path
 from .paginators import (
@@ -125,6 +127,9 @@ class ClientConfig(TypedDict, total=False):
     headers: Optional[dict[str, str]]
     auth: Optional[AuthConfig]
     paginator: Optional[PaginatorConfig]
+    # Optional pre-built session. Sources that need SSRF-guarding or other custom
+    # transport behaviour pass one here; left unset, RESTClient builds a tracked session.
+    session: Optional[Session]
 
 
 class IncrementalArgs(TypedDict, total=False):

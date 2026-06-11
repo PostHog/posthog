@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.core.cache import cache
 
 from pydantic import BaseModel
 
@@ -16,16 +16,26 @@ from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, h
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.constants import InitialPermissionMode
+from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.tasks.backend.models import Task
 
+logger = logging.getLogger(__name__)
+
 
 class PrAuthorshipMode(StrEnum):
     USER = "user"
     BOT = "bot"
+
+
+class GitHubCredentialSource(StrEnum):
+    # Caller-supplied static token on the run request; owned by the caller, un-refreshable by us.
+    CALLER_TOKEN = "caller_token"
+    # Task creator's refreshable server-side UserIntegration.
+    SERVER_INTEGRATION = "server_integration"
 
 
 class RunSource(StrEnum):
@@ -159,6 +169,7 @@ def get_reasoning_effort_error(
 
 class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
+    github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
     run_source: RunSource | None = None
     signal_report_id: str | None = None
@@ -204,13 +215,13 @@ def mark_mcp_token_issued(run_id: str) -> None:
     The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
     `should_refresh_mcp_token` returns True again past that window.
     """
-    cache.set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    get_tasks_cache().set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
 
 
 def should_refresh_mcp_token(run_id: str) -> bool:
     """Return True if no MCP token has been issued for this run within the
     last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
-    return cache.get(_mcp_token_issued_cache_key(run_id)) is None
+    return get_tasks_cache().get(_mcp_token_issued_cache_key(run_id)) is None
 
 
 @dataclass(frozen=True)
@@ -498,12 +509,30 @@ def _github_user_token_cache_key(run_id: str) -> str:
 
 
 def cache_github_user_token(run_id: str, github_user_token: str) -> None:
-    cache.set(_github_user_token_cache_key(run_id), github_user_token, timeout=GITHUB_USER_TOKEN_CACHE_TTL_SECONDS)
+    get_tasks_cache().set(
+        _github_user_token_cache_key(run_id), github_user_token, timeout=GITHUB_USER_TOKEN_CACHE_TTL_SECONDS
+    )
 
 
 def get_cached_github_user_token(run_id: str) -> str | None:
-    token = cache.get(_github_user_token_cache_key(run_id))
+    token = get_tasks_cache().get(_github_user_token_cache_key(run_id))
     return token if isinstance(token, str) and token else None
+
+
+def get_github_credential_source(state: dict[str, Any] | None) -> GitHubCredentialSource | None:
+    return parse_run_state(state).github_credential_source
+
+
+def is_caller_token_run(run_id: str, state: dict[str, Any] | None) -> bool:
+    """Whether a run is pinned to a caller-supplied static token (never the server integration).
+
+    The durable run-state marker is authoritative and outlives the token cache. Runs created
+    before the marker existed fall back to the legacy per-run cache while it is still populated.
+    """
+    source = get_github_credential_source(state)
+    if source is not None:
+        return source == GitHubCredentialSource.CALLER_TOKEN
+    return get_cached_github_user_token(run_id) is not None
 
 
 def get_sandbox_github_token(
@@ -543,6 +572,14 @@ def get_sandbox_github_token(
         cached = get_cached_github_user_token(run_id)
         if cached:
             return cached
+        if get_github_credential_source(state) == GitHubCredentialSource.CALLER_TOKEN:
+            # Caller-supplied token expired from cache and is un-refreshable by us. Do NOT
+            # fall back to the creator's integration — that would silently swap identities.
+            logger.warning(
+                "Caller-supplied GitHub token unavailable; not substituting server integration",
+                extra={"run_id": run_id},
+            )
+            return None
         if task is not None:
             user_github_integration = resolve_user_github_integration_for_task(
                 task,
@@ -562,15 +599,21 @@ def get_sandbox_github_token(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
             return get_github_token(github_integration_id)
+        # Serialize the rotating mint per integration so concurrent runs (provisioning
+        # clones and refresh loops) don't revoke each other's in-flight user token.
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import (  # noqa: PLC0415
+            resolve_coordinated_user_token,
+        )
+
         if github_integration_id is None:
-            no_team_token: str | None = user_github_integration.get_usable_user_access_token()
+            no_team_token: str | None = resolve_coordinated_user_token(user_github_integration)
             if no_team_token is None:
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
             return no_team_token
         try:
-            token: str | None = user_github_integration.get_usable_user_access_token()
+            token: str | None = resolve_coordinated_user_token(user_github_integration)
         except ReauthorizationRequired:
             token = None
         if token is not None:

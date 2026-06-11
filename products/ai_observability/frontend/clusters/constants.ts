@@ -11,7 +11,7 @@ export const TRACES_PER_PAGE = 50
 export const MAX_CLUSTERING_RUNS = 20
 
 // Cluster detail URL pattern. Mirrored in `manifest.tsx`'s route registration so any
-// `tabAwareUrlToAction` matcher (e.g. `clusterDetailLogic`, `aiObservabilitySharedLogic`)
+// `urlToAction` matcher (e.g. `clusterDetailLogic`, `aiObservabilitySharedLogic`)
 // stays in lockstep with the actual route.
 export const AI_OBSERVABILITY_CLUSTER_URL_PATTERN = '/ai-observability/clusters/:runId/:clusterId'
 

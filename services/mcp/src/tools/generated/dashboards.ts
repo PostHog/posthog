@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    DashboardsCopyTileCreateBody,
+    DashboardsCopyTileCreateParams,
     DashboardsCreateBody,
     DashboardsCreateTextTileCreateBody,
     DashboardsCreateTextTileCreateParams,
@@ -10,6 +12,8 @@ import {
     DashboardsDeleteTileParams,
     DashboardsDestroyParams,
     DashboardsListQueryParams,
+    DashboardsMoveTilePartialUpdateBody,
+    DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateBody,
     DashboardsPartialUpdateParams,
     DashboardsReorderTilesCreateBody,
@@ -18,8 +22,12 @@ import {
     DashboardsRetrieveQueryParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunInsightsRetrieveQueryParams,
+    DashboardsRunWidgetsRetrieveParams,
+    DashboardsRunWidgetsRetrieveQueryParams,
     DashboardsUpdateTextTileCreateBody,
     DashboardsUpdateTextTileCreateParams,
+    DashboardsWidgetsBatchCreateBody,
+    DashboardsWidgetsBatchCreateParams,
 } from '@/generated/dashboards/api'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -322,6 +330,31 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
     },
 })
 
+const DashboardTileCopySchema = DashboardsCopyTileCreateParams.omit({ project_id: true })
+    .extend(DashboardsCopyTileCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsCopyTileCreateParams.shape['id']) })
+
+const dashboardTileCopy = (): ToolBase<typeof DashboardTileCopySchema, WithPostHogUrl<Schemas.Dashboard>> => ({
+    name: 'dashboard-tile-copy',
+    schema: DashboardTileCopySchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardTileCopySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.fromDashboardId !== undefined) {
+            body['fromDashboardId'] = params.fromDashboardId
+        }
+        if (params.tileId !== undefined) {
+            body['tileId'] = params.tileId
+        }
+        const result = await context.api.request<Schemas.Dashboard>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/copy_tile/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+    },
+})
+
 const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: true })
     .extend(DashboardsPartialUpdateBody.shape)
     .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
@@ -355,6 +388,9 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
         }
         if (params.quick_filter_ids !== undefined) {
             body['quick_filter_ids'] = params.quick_filter_ids
+        }
+        if (params.tiles !== undefined) {
+            body['tiles'] = params.tiles
         }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
@@ -445,6 +481,73 @@ const dashboardUpdateTextTile = (): ToolBase<
     },
 })
 
+const DashboardWidgetCatalogListSchema = z.object({})
+
+const dashboardWidgetCatalogList = (): ToolBase<
+    typeof DashboardWidgetCatalogListSchema,
+    Schemas.WidgetCatalogResponse
+> => ({
+    name: 'dashboard-widget-catalog-list',
+    schema: DashboardWidgetCatalogListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof DashboardWidgetCatalogListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WidgetCatalogResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/widget_catalog/`,
+        })
+        return result
+    },
+})
+
+const DashboardWidgetsBatchAddSchema = DashboardsWidgetsBatchCreateParams.omit({ project_id: true })
+    .extend(DashboardsWidgetsBatchCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsWidgetsBatchCreateParams.shape['id']) })
+
+const dashboardWidgetsBatchAdd = (): ToolBase<
+    typeof DashboardWidgetsBatchAddSchema,
+    WithPostHogUrl<Schemas.AddDashboardWidgetsBatchResponse>
+> => ({
+    name: 'dashboard-widgets-batch-add',
+    schema: DashboardWidgetsBatchAddSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardWidgetsBatchAddSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.widgets !== undefined) {
+            body['widgets'] = params.widgets
+        }
+        const result = await context.api.request<Schemas.AddDashboardWidgetsBatchResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/widgets/batch/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+    },
+})
+
+const DashboardWidgetsRunSchema = DashboardsRunWidgetsRetrieveParams.omit({ project_id: true })
+    .extend(DashboardsRunWidgetsRetrieveQueryParams.omit({ format: true }).shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsRunWidgetsRetrieveParams.shape['id']) })
+
+const dashboardWidgetsRun = (): ToolBase<
+    typeof DashboardWidgetsRunSchema,
+    WithPostHogUrl<Schemas.RunWidgetsResponse>
+> => ({
+    name: 'dashboard-widgets-run',
+    schema: DashboardWidgetsRunSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardWidgetsRunSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RunWidgetsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_widgets/`,
+            query: {
+                tile_ids: params.tile_ids,
+            },
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+    },
+})
+
 const DashboardsGetAllSchema = DashboardsListQueryParams.omit({ format: true }).extend({
     limit: z.preprocess(castStringToInt, DashboardsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, DashboardsListQueryParams.shape['offset']).optional(),
@@ -480,6 +583,34 @@ const dashboardsGetAll = (): ToolBase<
     },
 })
 
+const DashboardsMoveTilePartialUpdateSchema = DashboardsMoveTilePartialUpdateParams.omit({ project_id: true })
+    .extend(DashboardsMoveTilePartialUpdateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsMoveTilePartialUpdateParams.shape['id']) })
+
+const dashboardsMoveTilePartialUpdate = (): ToolBase<
+    typeof DashboardsMoveTilePartialUpdateSchema,
+    WithPostHogUrl<Schemas.Dashboard>
+> => ({
+    name: 'dashboards-move-tile-partial-update',
+    schema: DashboardsMoveTilePartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardsMoveTilePartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.to_dashboard !== undefined) {
+            body['to_dashboard'] = params.to_dashboard
+        }
+        if (params.tile !== undefined) {
+            body['tile'] = params.tile
+        }
+        const result = await context.api.request<Schemas.Dashboard>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/move_tile/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-create': dashboardCreate,
     'dashboard-create-text-tile': dashboardCreateTextTile,
@@ -488,7 +619,12 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-get': dashboardGet,
     'dashboard-insights-run': dashboardInsightsRun,
     'dashboard-reorder-tiles': dashboardReorderTiles,
+    'dashboard-tile-copy': dashboardTileCopy,
     'dashboard-update': dashboardUpdate,
     'dashboard-update-text-tile': dashboardUpdateTextTile,
+    'dashboard-widget-catalog-list': dashboardWidgetCatalogList,
+    'dashboard-widgets-batch-add': dashboardWidgetsBatchAdd,
+    'dashboard-widgets-run': dashboardWidgetsRun,
     'dashboards-get-all': dashboardsGetAll,
+    'dashboards-move-tile-partial-update': dashboardsMoveTilePartialUpdate,
 }

@@ -990,6 +990,50 @@ class TestQueryTransformation(APIBaseTest):
         assert "GROUP BY" in transformed_query
         assert "event_name" in transformed_query or "event" in transformed_query
 
+    def test_transform_variable_column_already_aliased_in_select(self):
+        # Regression: enabling materialization raised "Cannot redefine an alias" when the
+        # query already selects the variable's column aliased by the variable's code_name.
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT properties.profile_id AS profile_id, properties.card_id AS card_id, count() AS tap_count "
+                "FROM events "
+                "WHERE event = 'card_tapped' AND properties.profile_id = {variables.profile_id} "
+                "GROUP BY profile_id, card_id"
+            ),
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "profile_id", "value": ""},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize is True, reason
+
+        transformed = transform_query_for_materialization(query, var_infos, self.team)
+
+        transformed_query = transformed["query"]
+        assert "{variables" not in transformed_query
+        assert transformed_query.count("AS profile_id") == 1
+
+    def test_transform_variable_alias_collision_with_different_expression(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT properties.card_id AS profile_id, count() AS tap_count "
+                "FROM events "
+                "WHERE properties.profile_id = {variables.profile_id} "
+                "GROUP BY profile_id"
+            ),
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "profile_id", "value": ""},
+            },
+        }
+
+        _, _, var_infos = analyze_variables_for_materialization(query)
+
+        with pytest.raises(ValueError, match="conflicts with an existing SELECT alias"):
+            transform_query_for_materialization(query, var_infos, self.team)
+
     def test_transform_preserves_order_by(self):
         query = {
             "kind": "HogQLQuery",
@@ -2788,4 +2832,53 @@ class TestDownstreamTransformSnapshots(APIBaseTest):
                 {"var-1": {"code_name": "event_name", "value": "$pageview"}},
             )
             == self.snapshot
+        )
+
+
+class TestMaterializationAnalyzerGaps(APIBaseTest):
+    def test_top_level_scalar_subquery_consuming_propagating_cte_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH org_events AS ("
+                "  SELECT timestamp, distinct_id FROM events WHERE event = {variables.event_name}"
+                "), latest_ts AS ("
+                "  SELECT max(timestamp) AS ts FROM org_events"
+                ") "
+                "SELECT distinct_id FROM org_events "
+                "WHERE timestamp = (SELECT ts FROM latest_ts)"
+            ),
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "event_name", "value": "$pageview"},
+            },
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False, (
+            f"Expected rejection — scalar subquery in top-level query consumes a propagating "
+            f"CTE, which the transformer can't rewrite to a per-variable-value form. "
+            f"Got reason={reason!r}."
+        )
+        assert "subquery" in reason.lower() or "scalar" in reason.lower(), (
+            f"Rejection reason should mention the scalar-subquery pattern. Got: {reason!r}"
+        )
+
+    def test_top_level_variable_does_not_force_group_by_on_non_aggregate_select(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT distinct_id, event, timestamp FROM events WHERE event = {variables.event_name}",
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "event_name", "value": "$pageview"},
+            },
+        }
+
+        _, _, var_infos = analyze_variables_for_materialization(query)
+        transformed = transform_query_for_materialization(query, var_infos, self.team)
+        transformed_sql = transformed["query"]
+
+        assert "GROUP BY" not in transformed_sql.upper(), (
+            "Transformer must not add GROUP BY for a non-aggregating top-level SELECT — "
+            "doing so makes the other projected columns invalid (not aggregated, not grouped). "
+            f"Got:\n{transformed_sql}"
         )

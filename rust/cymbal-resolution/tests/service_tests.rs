@@ -184,6 +184,22 @@ async fn resolve_items(
     service: CymbalResolutionService,
     items: Vec<ResolveItem>,
 ) -> Vec<ResolveOutcome> {
+    resolve_items_with_accepted(service, items)
+        .await
+        .into_iter()
+        .filter(|outcome| {
+            !matches!(
+                outcome_result(outcome),
+                resolve_outcome::Result::Accepted(_)
+            )
+        })
+        .collect()
+}
+
+async fn resolve_items_with_accepted(
+    service: CymbalResolutionService,
+    items: Vec<ResolveItem>,
+) -> Vec<ResolveOutcome> {
     let channel = spawn_test_channel(service).await;
     let mut client = CymbalResolutionClient::new(channel);
     let response = client
@@ -275,10 +291,30 @@ async fn bidi_resolve_stream_resolves_multiple_items_and_echoes_ids() {
 }
 
 #[tokio::test]
+async fn admitted_items_emit_accepted_before_terminal_outcome() {
+    let service = make_service(FakeResolver::default());
+    let exc = raw_exception("RuntimeError");
+
+    let outcomes = resolve_items_with_accepted(service, vec![make_item(41, &exc)]).await;
+
+    assert_eq!(outcomes.len(), 2);
+    assert_eq!(outcomes[0].id, 41);
+    assert!(matches!(
+        outcome_result(&outcomes[0]),
+        resolve_outcome::Result::Accepted(_)
+    ));
+    assert_eq!(outcomes[1].id, 41);
+    assert!(matches!(
+        outcome_result(&outcomes[1]),
+        resolve_outcome::Result::Done(_)
+    ));
+}
+
+#[tokio::test]
 async fn raw_frames_are_resolved_into_done_payload() {
     let raw_frame = sample_raw_frame();
     let mut resolver_frame = sample_resolved_frame(&raw_frame);
-    resolver_frame.frame_id = raw_frame.frame_id(123, 99);
+    resolver_frame.frame_id = raw_frame.frame_id(123, 99, &[]);
     let service = make_service(FakeResolver {
         fail_unhandled: false,
         resolved_frames: vec![resolver_frame],
@@ -489,7 +525,7 @@ fn sample_raw_frame() -> RawFrame {
 
 fn sample_resolved_frame(raw_frame: &RawFrame) -> Frame {
     Frame {
-        frame_id: raw_frame.frame_id(7, 0),
+        frame_id: raw_frame.frame_id(7, 0, &[]),
         mangled_name: "f".to_string(),
         line: Some(42),
         column: Some(7),

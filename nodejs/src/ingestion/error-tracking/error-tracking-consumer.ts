@@ -13,12 +13,15 @@ import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-ma
 import { TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '../../utils/event-ingestion-restrictions'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { PersonReadRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { ReadOnlyGroupTypeManager } from '../../worker/ingestion/readonly-group-type-manager'
 import { OverflowOutput } from '../common/outputs'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
@@ -31,13 +34,12 @@ import { CymbalClient } from './cymbal'
 import {
     ErrorTrackingOutputs,
     ErrorTrackingPipelineOutput,
-    PreCymbalRateLimiterInput,
+    PostCymbalRateLimiterInput,
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
 import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
 import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'
-import { preCymbalGroupKey } from './pre-cymbal-group-key'
 
 /**
  * Configuration values for ErrorTrackingConsumer.
@@ -100,10 +102,10 @@ export interface ErrorTrackingConsumerDeps {
     /** Only required when the rate limiter is enabled; constructed alongside it. */
     errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     hogTransformer: ErrorTrackingHogTransformer
-    groupTypeManager: GroupTypeManager
+    groupTypeManager: ReadOnlyGroupTypeManager
     cookielessManager: CookielessManager
     redisPool: GenericPool<Redis>
-    personRepository: PersonRepository
+    personRepository: PersonReadRepository
 }
 
 // Batch processing status - useful for tracking failures (batch sizes already tracked by KafkaConsumer)
@@ -132,7 +134,9 @@ export class ErrorTrackingConsumer {
     >
     protected cymbalClient: CymbalClient
     protected promiseScheduler: PromiseScheduler
-    protected eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
+    protected eventIngestionRestrictionManager!: EventIngestionRestrictionManager
+    private stopEventIngestionRestrictionManager?: () => Promise<void>
     protected overflowRedirectService?: OverflowRedirectService
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
@@ -158,7 +162,7 @@ export class ErrorTrackingConsumer {
 
         this.promiseScheduler = new PromiseScheduler()
 
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
+        this.eventIngestionRestrictionManagerComponent = new EventIngestionRestrictionManagerComponent(deps.redisPool, {
             pipeline: 'errortracking',
         })
 
@@ -248,6 +252,9 @@ export class ErrorTrackingConsumer {
             cymbalUrl: this.config.cymbalBaseUrl,
         })
 
+        const started = await this.eventIngestionRestrictionManagerComponent.start()
+        this.eventIngestionRestrictionManager = started.value
+        this.stopEventIngestionRestrictionManager = started.stop
         // Initialize pipeline with dependencies
         await this.initializePipeline()
 
@@ -287,7 +294,7 @@ export class ErrorTrackingConsumer {
             preservePartitionLocality: this.config.preservePartitionLocality,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
-            preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
+            postCymbalRateLimiters: this.buildPostCymbalRateLimiterSpecs(),
             errorTrackingSettingsManager: this.rateLimiter ? this.deps.errorTrackingSettingsManager : undefined,
             topHog: this.topHog,
         })
@@ -296,7 +303,7 @@ export class ErrorTrackingConsumer {
     }
 
     /** Per-issue spec uses the guarded service; team-global spec uses the base service. */
-    private buildPreCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] {
+    private buildPostCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PostCymbalRateLimiterInput>[] {
         if (!this.rateLimiter || !this.perIssueGuardedRateLimiter) {
             return []
         }
@@ -313,9 +320,14 @@ export class ErrorTrackingConsumer {
                     if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
                         return null
                     }
-                    const scopeKey = preCymbalGroupKey(input.event)
-                    return scopeKey ? `${input.team.id}:exceptions:issue:${scopeKey}` : null
+                    const issueId = input.event.properties?.$exception_issue_id
+                    return typeof issueId === 'string' && issueId
+                        ? `${input.team.id}:exceptions:issue:${issueId}`
+                        : null
                 },
+                // Per-issue keys are high-cardinality; collapse every issue's outcomes into a
+                // single app_metrics2 row per team rather than one row per issue.
+                getAppSourceId: (input) => `${input.team.id}:exceptions:per_issue`,
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:per_issue',
@@ -388,6 +400,8 @@ export class ErrorTrackingConsumer {
         await this.topHog?.stop()
 
         await this.kafkaConsumer.disconnect()
+
+        await this.stopEventIngestionRestrictionManager?.()
 
         logger.info('👍', `${this.name} - stopped`)
     }
