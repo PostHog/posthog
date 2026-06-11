@@ -120,6 +120,11 @@ mod tests {
     const K2: &str = "DhdZV2HWVtwu8T7yPr5D7Pmg8WjYlD1B8ngynT0GAOc";
     const TOK_PRIMARY: &str = "gAAAAABqKCSqLF1UmKt8anAe6Um8knblGLl8nLyg6qoynbsE398Yl28Nh1xZZmYB8_WKXkO7v3LjHmNOxkYWjLCbLF0gTWR0V7UO4ziqvY43WlYiG1d3ZjQ=";
     const TOK_FALLBACK: &str = "gAAAAABqKCSqmH-bdY2DBxrvA6U9Rk2VG0rg2lgAHUVTKdkIyOFa-2Th2sbMNb_8UwkX_o1WI6r8rSC_-kfiZ7ZtMuDynAkiyXuuKeExHtQKy3SGnVI6-M8=";
+    // Encrypted under a key shorter than 32 bytes, so decrypting exercises the
+    // left-pad-with-NULs branch of `flag_fernet` (a self-hosted SECRET_KEY shorter than 32
+    // bytes). K1/K2 above are 43 chars and only ever hit the truncate branch.
+    const SHORT_KEY: &str = "short-secret"; // 12 bytes
+    const TOK_SHORT: &str = "gAAAAABqKxx2qb8lEOK_V04oEJ21oc8InnsjZHp54jnnbnomqFvG8HSSWQn6FXDV6tBhoaQQ1c_cuyUZYg5lQqT9WThNKt9ywJFPZr7C2eNfBFFAhgjv_M4=";
 
     #[test]
     fn decrypts_python_ciphertext_via_primary_and_fallback() {
@@ -127,6 +132,14 @@ mod tests {
         assert_eq!(d.decrypt(TOK_PRIMARY).unwrap(), PLAINTEXT);
         // Encrypted under K2 only; decrypts through the fallback slot.
         assert_eq!(d.decrypt(TOK_FALLBACK).unwrap(), PLAINTEXT);
+    }
+
+    #[test]
+    fn decrypts_python_ciphertext_under_short_key() {
+        // Pins the pad direction: if the NUL padding were on the wrong side, this fails
+        // while the 43-char fixtures above still pass.
+        let d = FlagPayloadDecryptor::from_keys(&[SHORT_KEY.to_string()]).unwrap();
+        assert_eq!(d.decrypt(TOK_SHORT).unwrap(), PLAINTEXT);
     }
 
     #[test]
