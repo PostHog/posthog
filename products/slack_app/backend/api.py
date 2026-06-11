@@ -1715,9 +1715,10 @@ def route_posthog_code_event_to_relevant_region(
         thread_ts_value = event.get("thread_ts") or event.get("ts")
         thread_ts_str = thread_ts_value if isinstance(thread_ts_value, str) else None
 
-        # Region routing only needs candidate presence; defer the user-resolution
-        # cost (Slack ``users.info`` + ``OrganizationMembership``) until we know
-        # this region is handling the event.
+        # Region routing only needs candidate presence, not user resolution. We
+        # defer the Slack ``users.info`` hit and the ``OrganizationMembership``
+        # query until we know this region is handling the event so cross-region
+        # proxied events don't pay for work the receiving region will redo.
         workspace_result = load_integrations(
             slack_team_id=slack_team_id,
             kinds=[SLACK_INTEGRATION_KIND],
