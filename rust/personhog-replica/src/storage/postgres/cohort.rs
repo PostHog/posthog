@@ -72,16 +72,17 @@ impl CohortStorage for PostgresStorage {
         let pool = self.pool_for_consistency(consistency);
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let cohort_ids_i32: Vec<i32> = cohort_ids.iter().map(|&id| id as i32).collect();
-
-        let member_ids: Vec<i32> = sqlx::query_scalar!(
+        // cohort_id::bigint + the bigint[] bind keep this region-agnostic: prod-us widened
+        // cohort_id to bigint (out-of-band), while prod-eu and the tracked schema have it as
+        // integer. sqlx decodes i64 from the cast either way, so one binary works on both.
+        let member_ids: Vec<i64> = sqlx::query_scalar!(
             r#"
-            SELECT cohort_id
+            SELECT cohort_id::bigint AS "cohort_id!"
             FROM posthog_cohortpeople
-            WHERE person_id = $1 AND cohort_id = ANY($2)
+            WHERE person_id = $1 AND cohort_id = ANY($2::bigint[])
             "#,
             person_id,
-            &cohort_ids_i32
+            cohort_ids
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -99,7 +100,7 @@ impl CohortStorage for PostgresStorage {
             member_ids.len() as f64,
         );
 
-        let member_set: HashSet<i64> = member_ids.into_iter().map(|id| id as i64).collect();
+        let member_set: HashSet<i64> = member_ids.into_iter().collect();
 
         Ok(cohort_ids
             .iter()
