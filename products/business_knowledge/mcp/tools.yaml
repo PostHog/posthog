@@ -23,7 +23,7 @@ tools:
             Returns a window of content chunks from a business knowledge document, centered around a specific ordinal.
             Use after searching knowledge to get more surrounding context for a specific result.
         feature_flag: product-business-knowledge
-    business-knowledge-documents-search-list:
+    business-knowledge-documents-search:
         operation: business_knowledge_documents_search_list
         enabled: true
         scopes:

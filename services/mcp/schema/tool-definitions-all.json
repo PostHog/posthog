@@ -634,7 +634,7 @@
         },
         "feature_flag": "product-business-knowledge"
     },
-    "business-knowledge-documents-search-list": {
+    "business-knowledge-documents-search": {
         "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
