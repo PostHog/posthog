@@ -1,16 +1,25 @@
 import datetime
+from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import override_settings
 
 from dateutil import parser
+from parameterized import parameterized
 
-from posthog.schema import ActionsNode, DateRange, EventsNode, IntervalType
+from posthog.schema import ActionsNode, DataWarehouseNode, DateRange, EventsNode, IntervalType
 
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.hogql_queries.utils.timestamp_utils import (
+    EARLIEST_EVENT_TIMESTAMP,
+    _coerce_to_datetime,
+    format_label_date,
+    get_earliest_timestamp_from_series,
+)
 from posthog.models.team import WeekStartDay
 
 from products.actions.backend.models.action import Action
@@ -211,7 +220,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         series = [
             EventsNode(event="$pageview"),
         ]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
 
         self.assertEqual(earliest_timestamp, datetime.datetime(2021, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
@@ -234,7 +243,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
             EventsNode(event="$pageview"),
             EventsNode(event="$pageleave"),
         ]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
         self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
         earliest_timestamp_pageview = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageview")])
@@ -282,7 +291,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         flush_persons_and_events()
 
         series = [ActionsNode(id=action1.id), ActionsNode(id=action2.id)]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
         self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
     def test_returns_earliest_timestamp_mixed_nodes(self):
@@ -303,8 +312,8 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         )
         flush_persons_and_events()
 
-        series = [ActionsNode(id=action.id), EventsNode(event="$pageleave")]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
+        series: list[ActionsNode | EventsNode] = [ActionsNode(id=action.id), EventsNode(event="$pageleave")]
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
         self.assertEqual(earliest_timestamp, datetime.datetime(2019, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
     def test_caches_earliest_timestamp(self):
@@ -325,7 +334,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         series = [
             EventsNode(event="$pageview"),
         ]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
 
         # create an earlier event to test caching
         _create_event(
@@ -337,5 +346,113 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         flush_persons_and_events()
 
         # should still return the earliest timestamp from the first query
-        cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
+        cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
         self.assertEqual(cached_earliest_timestamp, earliest_timestamp)
+
+    @parameterized.expand(
+        [
+            # Naive inputs are interpreted in the passed (team) timezone, not UTC.
+            (
+                "naive_datetime",
+                datetime.datetime(2023, 5, 1, 12, 30, 0),
+                datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=ZoneInfo("America/New_York")),
+            ),
+            (
+                "aware_datetime",
+                datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=datetime.UTC),
+                datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=datetime.UTC),
+            ),
+            (
+                "date",
+                datetime.date(2023, 5, 1),
+                datetime.datetime(2023, 5, 1, 0, 0, 0, tzinfo=ZoneInfo("America/New_York")),
+            ),
+            (
+                "string",
+                "2023-05-01 12:30:00",
+                datetime.datetime(2023, 5, 1, 12, 30, 0, tzinfo=ZoneInfo("America/New_York")),
+            ),
+            (
+                "date_string",
+                "2023-05-01",
+                datetime.datetime(2023, 5, 1, 0, 0, 0, tzinfo=ZoneInfo("America/New_York")),
+            ),
+            ("none", None, EARLIEST_EVENT_TIMESTAMP),
+            ("unsupported", 12345, EARLIEST_EVENT_TIMESTAMP),
+            ("unparseable_na", "N/A", EARLIEST_EVENT_TIMESTAMP),
+            ("unparseable_null", "null", EARLIEST_EVENT_TIMESTAMP),
+            ("unparseable_empty", "", EARLIEST_EVENT_TIMESTAMP),
+            ("unparseable_freeform", "not a date at all", EARLIEST_EVENT_TIMESTAMP),
+        ]
+    )
+    def test_coerce_to_datetime(self, _name, value, expected):
+        result = _coerce_to_datetime(value, ZoneInfo("America/New_York"))
+        self.assertEqual(result, expected)
+        # Must be timezone-aware so it can be compared against the tz-aware date_to.
+        self.assertIsNotNone(result.tzinfo)
+
+    @parameterized.expand(
+        [
+            ("string_timestamp", "2022-03-15 08:00:00", datetime.datetime(2022, 3, 15, 8, 0, 0, tzinfo=datetime.UTC)),
+            ("date_only_string", "2022-03-15", datetime.datetime(2022, 3, 15, 0, 0, 0, tzinfo=datetime.UTC)),
+            ("date_object", datetime.date(2022, 3, 15), datetime.datetime(2022, 3, 15, 0, 0, 0, tzinfo=datetime.UTC)),
+        ]
+    )
+    def test_data_warehouse_all_time_resolves_string_timestamp(self, _name, raw_value, expected):
+        # Data warehouse tables can return a non-datetime min(timestamp); it must be
+        # coerced before reaching QueryDateRange, which calls .strftime() and compares with <.
+        node = DataWarehouseNode(
+            id="dw_table",
+            table_name="dw_table",
+            id_field="id",
+            distinct_id_field="distinct_id",
+            timestamp_field="ts",
+        )
+
+        with patch("posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = [[raw_value]]
+
+            earliest_timestamp = get_earliest_timestamp_from_series(self.team, [node])
+
+        self.assertIsInstance(earliest_timestamp, datetime.datetime)
+        self.assertEqual(earliest_timestamp, expected)
+
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="all"),
+            interval=IntervalType.DAY,
+            now=parser.isoparse("2025-06-21T00:00:00.000Z"),
+            earliest_timestamp_fallback=earliest_timestamp,
+        )
+
+        # These previously raised AttributeError / TypeError when date_from="all"
+        # resolved to a str instead of a datetime.
+        self.assertEqual(query_date_range.date_from(), expected)
+        self.assertEqual(query_date_range.date_from_str, expected.strftime("%Y-%m-%d %H:%M:%S"))
+        # A Date-typed column yields a naive datetime; comparing it against the tz-aware
+        # date_to raised "can't compare offset-naive and offset-aware datetimes" here.
+        self.assertGreater(len(query_date_range.all_values()), 0)
+
+    @override_settings(IN_UNIT_TESTING=False)
+    @patch("posthog.hogql_queries.utils.timestamp_utils._get_earliest_timestamp_from_node")
+    def test_multi_node_propagates_query_tags_to_threads(self, mock_node):
+        # Multiple nodes resolve their earliest timestamp via ThreadPoolExecutor, which does not
+        # inherit contextvars. Without copying the context, the worker threads' sync_execute calls
+        # run untagged and raise UntaggedQueryError in dev (DEBUG and not TEST).
+        captured: dict[str, object] = {}
+
+        def capture(team, node):
+            captured[node.table_name] = get_query_tags().product
+            return datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
+
+        mock_node.side_effect = capture
+        nodes = [
+            DataWarehouseNode(id="a", table_name="a", id_field="id", distinct_id_field="id", timestamp_field="ts"),
+            DataWarehouseNode(id="b", table_name="b", id_field="id", distinct_id_field="id", timestamp_field="ts"),
+        ]
+
+        with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.QUERY):
+            get_earliest_timestamp_from_series(self.team, nodes)
+
+        self.assertEqual(captured["a"], Product.MARKETING_ANALYTICS)
+        self.assertEqual(captured["b"], Product.MARKETING_ANALYTICS)

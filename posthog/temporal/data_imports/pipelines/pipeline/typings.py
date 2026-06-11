@@ -57,6 +57,9 @@ class SourceInputs:
     logger: FilteringBoundLogger
     reset_pipeline: bool
     enabled_columns: Optional[list[str]] = None
+    # Multi-schema import context, read by `resolve_source_location`.
+    schema_metadata: Optional[dict[str, Any]] = None
+    dwh_storage_key: Optional[str] = None
 
 
 class PipelineResult(TypedDict):

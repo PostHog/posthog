@@ -39,11 +39,14 @@ from ee.hogai.eval.sandboxed.log_parser import EXEC_TOOL_NAME, INFO_SYNTHETIC_PR
 
 __all__ = [
     "CalledTargetTool",
+    "DidNotRenderUi",
     "DrilledIntoSchema",
+    "ExecBeforeRender",
     "InfoBeforeCall",
     "PreferredSearchOverTools",
     "RanPythonPostProcessing",
     "RecoveredToCorrectTool",
+    "RenderedEntityUi",
     "RetrievedSchemaPath",
     "SurfacedGeneratedAppUrl",
     "UsedJsonOutputFormat",
@@ -55,6 +58,13 @@ __all__ = [
 # punctuation, etc. The backslash exclusion matters: tool results arrive JSON-escaped, so without it
 # the capture keeps a trailing `\` and never substring-matches the (unescaped) final message.
 _URL_RE = re.compile(r"https?://[^\s\"'`)\]<>\\]+")
+
+RENDER_UI_TOOL_NAME = "render-ui"
+"""Normalized name of the umbrella render tool (``mcp__<server>__render-ui`` → ``render-ui``).
+
+Registered only in single-exec (``cli``) MCP mode — see
+``services/mcp/src/tools/render-ui.ts`` and its prompt
+``services/mcp/src/templates/render-ui-prompt.md``."""
 
 
 def _read_tool(expected: dict | None, scorer_name: str) -> str | None:
@@ -770,4 +780,193 @@ class RanPythonPostProcessing(Scorer):
                 "reason": "No Bash call invoked python/python3",
                 "bash_call_count": len(bash_calls),
             },
+        )
+
+
+def _render_ui_calls(parser: LogParser) -> list[ToolCall]:
+    return parser.get_tool_calls(RENDER_UI_TOOL_NAME)
+
+
+def _rendered_tool_name(call: ToolCall) -> str | None:
+    """The ``tool_name`` a ``render-ui`` call asked to render, if present."""
+    name = call.input.get("tool_name")
+    return name if isinstance(name, str) and name else None
+
+
+class RenderedEntityUi(Scorer):
+    """Binary: did the agent render the expected entity via ``render-ui``?
+
+    ``expected = {"rendered_entity_ui":
+        {"tool_name_any_of": ["experiment-get", "experiment-timeseries-results"]}}``
+    or ``{"rendered_entity_ui": {}}`` to accept any render.
+
+    Score 1.0 when a successful ``render-ui`` call carried a ``tool_name`` in
+    ``tool_name_any_of`` (or any ``tool_name`` when the list is omitted). 0.0
+    otherwise, with what was actually rendered in metadata. ``None`` if the spec
+    is absent. Mirrors the "strongly prefer rendering for entity-centric
+    answers" rule in ``render-ui-prompt.md``.
+    """
+
+    def _name(self) -> str:
+        return "rendered_entity_ui"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+        spec = _read_spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        allowed = spec.get("tool_name_any_of")
+        allowed_set = {t for t in allowed if isinstance(t, str) and t} if isinstance(allowed, list) else None
+
+        rendered: list[str] = []
+        errored_matches: list[str] = []
+        for call in _render_ui_calls(parser):
+            tool_name = _rendered_tool_name(call)
+            if tool_name is None:
+                continue
+            rendered.append(tool_name)
+            if allowed_set is not None and tool_name not in allowed_set:
+                continue
+            if call.is_error:
+                errored_matches.append(tool_name)
+                continue
+            return Score(
+                name=self._name(),
+                score=1.0,
+                metadata={"rendered_tool_name": tool_name, "call_id": call.call_id},
+            )
+
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={
+                "reason": "render-ui was not called with an expected tool_name",
+                "expected_any_of": sorted(allowed_set) if allowed_set else "any",
+                "rendered_tool_names": rendered,
+                "errored_matches": errored_matches,
+            },
+        )
+
+
+class ExecBeforeRender(Scorer):
+    """Binary: was every ``render-ui`` call preceded by a successful ``exec`` action?
+
+    Opt-in via ``expected = {"exec_before_render": {}}``.
+
+    ``render-ui`` is the final presentation step, never a discovery step — the
+    agent must resolve the entity (look up its real ID) and confirm the data via
+    ``exec`` (``search``/``info``/``schema``/``call``) first. For each
+    ``render-ui`` call, requires a successful exec-derived call strictly earlier
+    in the run. Score 1.0 if every render qualifies, 0.0 if any render fired with
+    no prior exec (rendered before discovery / with a guessed input). ``None`` if
+    ``render-ui`` was never called (covered by ``RenderedEntityUi``).
+    """
+
+    def _name(self) -> str:
+        return "exec_before_render"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    @staticmethod
+    def _is_exec_action(call: ToolCall) -> bool:
+        if call.is_error:
+            return False
+        return call.is_exec_unwrapped or call.name == EXEC_TOOL_NAME or call.name.startswith(INFO_SYNTHETIC_PREFIX)
+
+    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+        if _read_spec(expected, self._name()) is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
+
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        calls = sorted(parser.get_tool_calls(), key=lambda c: c.position)
+        render_calls = [c for c in calls if c.name == RENDER_UI_TOOL_NAME]
+        if not render_calls:
+            return Score(name=self._name(), score=None, metadata={"reason": "render-ui never called"})
+
+        offenders: list[str] = []
+        for render_call in render_calls:
+            preceded = any(self._is_exec_action(c) and c.position < render_call.position for c in calls)
+            if not preceded:
+                offenders.append(render_call.call_id)
+
+        if offenders:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "render-ui fired before any successful exec call",
+                    "offenders": offenders,
+                    "render_calls": len(render_calls),
+                },
+            )
+        return Score(name=self._name(), score=1.0, metadata={"render_calls": len(render_calls)})
+
+
+class DidNotRenderUi(Scorer):
+    """Binary: did the agent correctly avoid ``render-ui`` here?
+
+    ``expected = {"did_not_render_ui": {}}`` penalizes any ``render-ui`` call;
+    ``{"did_not_render_ui": {"tool_name_any_of": ["query-trends"]}}`` penalizes
+    only renders that routed one of those tool names.
+
+    Use for query/insight answers: ``query-*`` results render through their own
+    app automatically and must not be passed to ``render-ui``. Score 1.0 when no
+    offending ``render-ui`` call exists, 0.0 otherwise. ``None`` if the spec is
+    absent.
+    """
+
+    def _name(self) -> str:
+        return "did_not_render_ui"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+        spec = _read_spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
+
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        allowed = spec.get("tool_name_any_of")
+        target_set = {t for t in allowed if isinstance(t, str) and t} if isinstance(allowed, list) else None
+
+        offenders: list[dict[str, object]] = []
+        for call in _render_ui_calls(parser):
+            tool_name = _rendered_tool_name(call)
+            if target_set is None or (tool_name is not None and tool_name in target_set):
+                offenders.append({"tool_name": tool_name, "call_id": call.call_id})
+
+        if offenders:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "render-ui was called when it should not have been", "offenders": offenders},
+            )
+        return Score(
+            name=self._name(),
+            score=1.0,
+            metadata={"scope": "any render-ui" if target_set is None else sorted(target_set)},
         )

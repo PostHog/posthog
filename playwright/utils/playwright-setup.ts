@@ -66,6 +66,7 @@ export interface PlaywrightWorkspaceSetupData {
     use_current_time?: boolean
     skip_onboarding?: boolean
     no_demo_data?: boolean
+    staff?: boolean
     insight_variables?: PlaywrightSetupVariable[]
     insights?: PlaywrightSetupInsight[]
     dashboards?: PlaywrightSetupDashboard[]
