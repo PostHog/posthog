@@ -25,9 +25,6 @@ pub(crate) struct Outgoing<'a> {
     pub property_count: u64,
 }
 
-/// Payload serialization for produced records. The merger decodes both, so
-/// `binary` can roll out incrementally. The output topic is read by ClickHouse
-/// and must stay `json`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WireFormat {
     #[default]
