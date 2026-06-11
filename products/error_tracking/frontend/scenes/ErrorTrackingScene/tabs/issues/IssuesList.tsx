@@ -154,6 +154,6 @@ export function IssuesList(): JSX.Element {
     )
 }
 
-export const ListReloadButton = (): JSX.Element => {
-    return <IssueReloadButton />
+export const ListReloadButton = ({ size }: { size?: 'xsmall' | 'small' } = {}): JSX.Element => {
+    return <IssueReloadButton size={size} />
 }

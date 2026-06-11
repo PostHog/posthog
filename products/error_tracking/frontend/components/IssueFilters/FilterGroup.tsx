@@ -191,7 +191,7 @@ const FilterOperatorToggle = (): JSX.Element | null => {
     )
 }
 
-const UniversalFilterGroup = ({
+export const UniversalFilterGroup = ({
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
 }: {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
@@ -241,7 +241,7 @@ const FilterChip = ({ onClear, children }: PropsWithChildren<{ onClear: () => vo
     </div>
 )
 
-const QuickFilterChips = ({
+export const QuickFilterChips = ({
     context,
     logicKey,
 }: {
@@ -275,7 +275,7 @@ const QuickFilterChips = ({
     )
 }
 
-const IssueFilterChips = (): JSX.Element | null => {
+export const IssueFilterChips = (): JSX.Element | null => {
     const { status, assignee } = useValues(issueQueryOptionsLogic)
     const { setStatus, setAssignee } = useActions(issueQueryOptionsLogic)
 
@@ -304,7 +304,7 @@ const IssueFilterChips = (): JSX.Element | null => {
     )
 }
 
-const InternalUsersChip = (): JSX.Element | null => {
+export const InternalUsersChip = (): JSX.Element | null => {
     const { filterTestAccounts } = useValues(issueFiltersLogic)
     const { setFilterTestAccounts } = useActions(issueFiltersLogic)
 

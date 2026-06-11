@@ -36,6 +36,11 @@ import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList, ListReloadButton, insightProps } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
+import { IssuesFiltersB } from './tabs/issues/variants/IssuesFiltersB'
+import { IssuesFiltersC } from './tabs/issues/variants/IssuesFiltersC'
+import { IssuesFiltersD } from './tabs/issues/variants/IssuesFiltersD'
+import { IssuesFiltersE } from './tabs/issues/variants/IssuesFiltersE'
+import { IssuesFiltersF } from './tabs/issues/variants/IssuesFiltersF'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
 
@@ -50,12 +55,42 @@ export const scene: SceneExport = {
     logic: errorTrackingSceneLogic,
 }
 
-export function ErrorTrackingScene(): JSX.Element {
+const ISSUE_VARIANT_TABS: { key: ErrorTrackingSceneActiveTab; label: string; filters: JSX.Element }[] = [
+    { key: 'issues', label: 'Issues (A)', filters: <IssuesFilters reload={<ListReloadButton />} /> },
+    { key: 'issues-b', label: 'Issues (B)', filters: <IssuesFiltersB /> },
+    { key: 'issues-c', label: 'Issues (C)', filters: <IssuesFiltersC /> },
+    { key: 'issues-d', label: 'Issues (D)', filters: <IssuesFiltersD /> },
+    { key: 'issues-e', label: 'Issues (E)', filters: <IssuesFiltersE /> },
+    { key: 'issues-f', label: 'Issues (F)', filters: <IssuesFiltersF /> },
+]
+
+const IssuesTab = ({ filters }: { filters: JSX.Element }): JSX.Element => {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
-    const { activeTab, query } = useValues(errorTrackingSceneLogic)
+    const { query } = useValues(errorTrackingSceneLogic)
+    const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
+
+    return (
+        <ErrorTrackingSetupPrompt>
+            <BindLogic
+                logic={issuesDataNodeLogic}
+                props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
+            >
+                <ErrorTrackingIssueFilteringTool />
+                {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
+                <SceneStickyBar showBorderBottom={false} className="mb-4">
+                    {filters}
+                </SceneStickyBar>
+                <IssuesList />
+            </BindLogic>
+        </ErrorTrackingSetupPrompt>
+    )
+}
+
+export function ErrorTrackingScene(): JSX.Element {
+    const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
-    const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -74,26 +109,11 @@ export function ErrorTrackingScene(): JSX.Element {
     })
 
     const tabs: LemonTab<ErrorTrackingSceneActiveTab>[] = [
-        {
-            key: 'issues',
-            label: 'Issues',
-            content: (
-                <ErrorTrackingSetupPrompt>
-                    <BindLogic
-                        logic={issuesDataNodeLogic}
-                        props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
-                    >
-                        <ErrorTrackingIssueFilteringTool />
-                        {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                        {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
-                        <SceneStickyBar showBorderBottom={false} className="mb-4">
-                            <IssuesFilters reload={<ListReloadButton />} />
-                        </SceneStickyBar>
-                        <IssuesList />
-                    </BindLogic>
-                </ErrorTrackingSetupPrompt>
-            ),
-        },
+        ...ISSUE_VARIANT_TABS.map(({ key, label, filters }) => ({
+            key,
+            label,
+            content: <IssuesTab filters={filters} />,
+        })),
         {
             key: 'insights',
             label: 'Insights',
