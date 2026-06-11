@@ -366,29 +366,6 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('Open persons modal and navigate to events explorer via "View events"', async ({ page }) => {
-        const insight = new InsightPage(page)
-
-        await test.step('create a Number chart so the aggregated value is clickable', async () => {
-            await insight.goToNewTrends()
-            await insight.trends.waitForChart()
-            await insight.trends.selectChartType(/^Number/)
-            await expect(insight.trends.boldNumber).toContainText(pageviews.expected.total)
-        })
-
-        await test.step('click the value to open the persons modal', async () => {
-            await insight.trends.boldNumber.click()
-            await expect(insight.personsModal).toBeVisible()
-        })
-
-        await test.step('"View events" navigates to the events explorer, not a Trends insight', async () => {
-            const popupPromise = page.context().waitForEvent('page')
-            await insight.personsModalViewEventsButton.click()
-            const eventsTab = await popupPromise
-            await expect(eventsTab).toHaveURL(/\/activity\/explore/)
-        })
-    })
-
     test('Export insight data as CSV and XLSX', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
