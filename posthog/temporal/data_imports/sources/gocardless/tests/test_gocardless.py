@@ -33,9 +33,15 @@ def _response(data_key: str, items: list[dict[str, Any]], after: str | None = No
 
 
 class TestBaseUrl:
-    def test_live_and_sandbox_hosts(self):
-        assert _base_url("live") == "https://api.gocardless.com"
-        assert _base_url("sandbox") == "https://api-sandbox.gocardless.com"
+    @pytest.mark.parametrize(
+        "environment, expected",
+        [
+            ("live", "https://api.gocardless.com"),
+            ("sandbox", "https://api-sandbox.gocardless.com"),
+        ],
+    )
+    def test_known_environment_returns_host(self, environment, expected):
+        assert _base_url(environment) == expected
 
     def test_invalid_environment_raises(self):
         with pytest.raises(ValueError):
