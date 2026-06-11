@@ -17,6 +17,7 @@ from products.streamlit_apps.backend.logic.app_runtime import (
     AppRuntimeConcurrencyError,
     AppRuntimeError,
     AppRuntimeService,
+    _sync_sandbox_status,
 )
 from products.streamlit_apps.backend.logic.oauth import (
     create_sandbox_bridge_token,
@@ -92,13 +93,12 @@ def get_app(team_id: int, short_id: str) -> StreamlitApp:
 
 
 def get_app_status(app: StreamlitApp) -> AppSandboxContract | None:
-    runtime = AppRuntimeService()
-    runtime._sync_sandbox_status(app)
     try:
-        app.sandbox.refresh_from_db()
-        return _sandbox_to_contract(app.sandbox)
+        sandbox = app.sandbox
     except StreamlitAppSandbox.DoesNotExist:
         return None
+    sandbox = _sync_sandbox_status(sandbox)
+    return _sandbox_to_contract(sandbox)
 
 
 def get_connect_info(app: StreamlitApp, user: User, team_id: int) -> ConnectInfoContract:
@@ -108,6 +108,8 @@ def get_connect_info(app: StreamlitApp, user: User, team_id: int) -> ConnectInfo
 
     runtime = AppRuntimeService()
     connect = runtime.get_connect_url(app, user_id=user.id, team_id=team_id)
+    if connect is None:
+        raise AppRuntimeError("App is not running.")
 
     return ConnectInfoContract(
         url=connect["url"],

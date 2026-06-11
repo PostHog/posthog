@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import uuid
 from typing import Literal
 
 import structlog
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
+
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
 
@@ -23,7 +26,7 @@ def _mark_sandbox_error(app_id: str, message: str) -> None:
     try:
         from products.streamlit_apps.backend.models import StreamlitAppSandbox
 
-        sandbox = StreamlitAppSandbox.objects.filter(app_id=app_id).first()
+        sandbox = StreamlitAppSandbox.objects.filter(app_id=uuid.UUID(app_id)).first()
         if sandbox is None:
             return
         sandbox.status = StreamlitAppSandbox.Status.ERROR
@@ -39,6 +42,7 @@ def _mark_sandbox_error(app_id: str, message: str) -> None:
     soft_time_limit=_TASK_SOFT_TIME_LIMIT,
     max_retries=0,
 )
+@skip_team_scope_audit  # StreamlitApp still uses the default manager; app_id is dispatched internally
 def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]) -> None:
     """Celery entry point for both start and restart."""
     from posthog.storage import object_storage
@@ -81,6 +85,7 @@ def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]
 
 
 @shared_task(ignore_result=True, max_retries=0)
+@skip_team_scope_audit  # StreamlitApp still uses the default manager; app_id is dispatched internally
 def reset_streamlit_app_restart_count_if_stable(app_id: str) -> None:
     """Reset restart_count to 0 only if the sandbox is still RUNNING and stable.
 
@@ -110,6 +115,7 @@ def reset_streamlit_app_restart_count_if_stable(app_id: str) -> None:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit  # genuinely cross-team housekeeping
 def cleanup_expired_streamlit_oauth_tokens() -> int:
     """Delete expired OAuthAccessToken rows for the Streamlit app, in batches."""
     from django.utils import timezone
@@ -149,6 +155,7 @@ def cleanup_expired_streamlit_oauth_tokens() -> int:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit  # genuinely cross-team housekeeping
 def cleanup_deleted_streamlit_app_zips() -> int:
     """Hard-delete zip objects and version rows for soft-deleted apps past the retention window."""
     from datetime import timedelta
@@ -182,6 +189,7 @@ def cleanup_deleted_streamlit_app_zips() -> int:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit  # genuinely cross-team housekeeping
 def stop_idle_streamlit_sandboxes() -> int:
     """Stop sandboxes whose last_activity_at (or started_at, if no traffic yet)
     is older than _IDLE_TIMEOUT_MINUTES. Saves Modal compute on apps left open
@@ -224,6 +232,7 @@ def stop_idle_streamlit_sandboxes() -> int:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit  # genuinely cross-team housekeeping
 def auto_restart_crashed_streamlit_sandboxes() -> int:
     """Restart sandboxes that died on their own (Modal TTL timeout), respecting
     the MAX_RESTART_COUNT cap. Only acts on the exact `last_error` set by
@@ -255,6 +264,7 @@ def auto_restart_crashed_streamlit_sandboxes() -> int:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit  # genuinely cross-team housekeeping
 def prune_old_streamlit_app_versions() -> int:
     """Hard-delete non-active versions older than _VERSION_RETENTION_DAYS for
     apps that are NOT soft-deleted (those are handled by

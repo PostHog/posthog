@@ -250,6 +250,7 @@ def _load_bridge_token() -> None:
             data = fh.read()
         os.unlink(BRIDGE_TOKEN_PATH)
     except FileNotFoundError:
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs only the file path, never the token value
         log.warning("bridge: token file missing at %s; /_bridge/query will return 503", BRIDGE_TOKEN_PATH)
         return
     except OSError:
@@ -371,6 +372,7 @@ async def _introspect_token(
                 return None
             # Per-sandbox team binding.
             if team_id not in scoped_teams:
+                # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs team ids, never the token value
                 log.warning("introspect: token team mismatch expected=%d scoped=%s", team_id, scoped_teams)
                 _introspection_circuit.record_success()
                 return None
@@ -378,6 +380,7 @@ async def _introspect_token(
             # scope must still be rejected.
             token_client_id = data.get("client_id")
             if token_client_id != expected_client_id:
+                # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs OAuth client ids, never the token value
                 log.warning(
                     "introspect: token client_id mismatch expected=%s got=%s", expected_client_id, token_client_id
                 )
@@ -387,6 +390,7 @@ async def _introspect_token(
             # unlock the iframe (and vice versa).
             scope_parts = set((data.get("scope") or "").split())
             if expected_scope_component not in scope_parts:
+                # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs OAuth scope strings, never the token value
                 log.warning(
                     "introspect: token scope mismatch expected=%s got=%s",
                     expected_scope_component,
@@ -454,6 +458,7 @@ async def proxy_handler(request: web.Request) -> web.StreamResponse:
 
     token = request.query.get("_posthog_token")
     if not token:
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs method and path of an unauthenticated request, no token present
         log.warning("request: no _posthog_token in query (%s %s)", request.method, path)
         return web.Response(status=401, text="Authentication required")
 
@@ -538,7 +543,7 @@ async def _proxy_http(request: web.Request, target: str) -> web.StreamResponse:
 
 async def _proxy_websocket(request: web.Request, target: str) -> web.WebSocketResponse:
     protocols = request.headers.getall("Sec-WebSocket-Protocol", [])
-    all_protocols = []
+    all_protocols: list[str] = []
     for p in protocols:
         all_protocols.extend(s.strip() for s in p.split(",") if s.strip())
 
@@ -645,6 +650,7 @@ def _create_bridge_app() -> web.Application:
 
 
 async def _start_client_session(app: web.Application) -> None:
+    # nosemgrep: aiohttp-missing-trust-env -- runs inside the sandbox, not the Django app; mostly proxies the localhost Streamlit upstream, which must not route through proxy env vars
     app["client_session"] = ClientSession()
 
 

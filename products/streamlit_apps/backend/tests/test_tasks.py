@@ -7,9 +7,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.streamlit_apps.backend.logic.app_runtime import MAX_RESTART_COUNT, TTL_TIMEOUT_LAST_ERROR
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
-from products.streamlit_apps.backend.tasks import (
+from products.streamlit_apps.backend.tasks.tasks import (
     _IDLE_TIMEOUT_MINUTES,
     _VERSION_RETENTION_DAYS,
     auto_restart_crashed_streamlit_sandboxes,
@@ -20,6 +22,8 @@ from products.streamlit_apps.backend.tasks import (
 
 class _LifecycleTestMixin:
     """Shared helpers to spin up app + version + sandbox rows."""
+
+    team: Team
 
     def _make_app(self, **kwargs) -> StreamlitApp:
         defaults = {"team": self.team, "name": "T"}
