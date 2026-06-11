@@ -27130,6 +27130,48 @@ export namespace Schemas {
       quarantined_count?: number;
     }
 
+    export interface StreamlitAppMinimal {
+      readonly id: string;
+      readonly short_id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly cpu_cores: number;
+      readonly memory_gb: number;
+      readonly status: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedStreamlitAppMinimalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StreamlitAppMinimal[];
+    }
+
+    export interface StreamlitAppVersion {
+      readonly id: string;
+      readonly version_number: number;
+      readonly zip_file: string;
+      readonly zip_hash: string;
+      /** @nullable */
+      readonly snapshot_id: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedStreamlitAppVersionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StreamlitAppVersion[];
+    }
+
     /**
      * * `starting` - Starting
      * * `completed` - Completed
@@ -33517,6 +33559,52 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** @nullable */
       readonly status?: string | null;
+    }
+
+    /**
+     * * `starting` - Starting
+     * * `running` - Running
+     * * `stopping` - Stopping
+     * * `stopped` - Stopped
+     * * `error` - Error
+     */
+    export type StreamlitAppSandboxStatusEnum = typeof StreamlitAppSandboxStatusEnum[keyof typeof StreamlitAppSandboxStatusEnum];
+
+
+    export const StreamlitAppSandboxStatusEnum = {
+      Starting: 'starting',
+      Running: 'running',
+      Stopping: 'stopping',
+      Stopped: 'stopped',
+      Error: 'error',
+    } as const;
+
+    export interface StreamlitAppSandbox {
+      readonly status: StreamlitAppSandboxStatusEnum;
+      readonly restart_count: number;
+      readonly last_error: string;
+      /** @nullable */
+      readonly started_at: string | null;
+      /** @nullable */
+      readonly last_activity_at: string | null;
+      /** @nullable */
+      readonly version_number: number | null;
+    }
+
+    export interface PatchedStreamlitApp {
+      readonly id?: string;
+      readonly short_id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      description?: string;
+      cpu_cores?: number;
+      memory_gb?: number;
+      readonly active_version?: StreamlitAppVersion;
+      readonly sandbox?: StreamlitAppSandbox;
+      readonly status?: string;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
@@ -41126,6 +41214,29 @@ export namespace Schemas {
       Service: 'service',
     } as const;
 
+    export interface StreamlitApp {
+      readonly id: string;
+      readonly short_id: string;
+      /** @maxLength 255 */
+      name: string;
+      description?: string;
+      cpu_cores?: number;
+      memory_gb?: number;
+      readonly active_version: StreamlitAppVersion;
+      readonly sandbox: StreamlitAppSandbox;
+      readonly status: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface StreamlitAppSourceVersion {
+      /** Full Python source for the Streamlit app's root app.py file, as free text. Becomes a new version and is set as the active version. */
+      source: string;
+      /** Optional requirements.txt contents (one pip requirement per line). Currently informational — the sandbox base image ships the common data stack. */
+      requirements?: string;
+    }
+
     export interface SummaryBullet {
       text: string;
       line_refs: string;
@@ -48275,6 +48386,28 @@ export namespace Schemas {
      * The role UUID whose override should be deleted.
      */
     role?: string;
+    };
+
+    export type StreamlitAppsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type StreamlitAppsVersionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type SubscriptionsDeliveriesListParams = {

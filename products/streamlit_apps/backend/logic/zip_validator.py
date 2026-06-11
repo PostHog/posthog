@@ -14,6 +14,21 @@ def _format_mb(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
+def build_single_file_zip(source: str, requirements: str | None = None) -> bytes:
+    """Pack a single-file Streamlit app (free-text ``app.py``) into a zip.
+
+    Lets agents create an app from one block of source instead of uploading a
+    zip. The result still flows through ``validate_zip`` and the same storage
+    path, so size/structure guarantees are identical to an uploaded zip.
+    """
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("app.py", source)
+        if requirements and requirements.strip():
+            zf.writestr("requirements.txt", requirements)
+    return buf.getvalue()
+
+
 def is_safe_zip_path(filename: str) -> bool:
     """Check if a zip entry filename is safe (no path traversal)."""
     normalized = os.path.normpath(filename)

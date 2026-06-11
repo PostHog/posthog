@@ -5434,6 +5434,118 @@
             "readOnlyHint": false
         }
     },
+    "streamlit-apps-create": {
+        "description": "Create a new Streamlit app (metadata only — it has no code until you call streamlit-apps-set-source). Typical flow: create the app, set its source, then start it. cpu_cores (0.25–8) and memory_gb (0.5–16) control the sandbox size and default to 0.5 / 1.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Create Streamlit app",
+        "title": "Create Streamlit app",
+        "required_scopes": ["streamlit_app:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "streamlit-apps-delete": {
+        "description": "Delete a Streamlit app by short_id. Stops any running sandbox and soft-deletes the app.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Delete Streamlit app",
+        "title": "Delete Streamlit app",
+        "required_scopes": ["streamlit_app:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "streamlit-apps-get": {
+        "description": "Get a single Streamlit app by its short_id, including its active version and live sandbox status.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Get Streamlit app",
+        "title": "Get Streamlit app",
+        "required_scopes": ["streamlit_app:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "streamlit-apps-list": {
+        "description": "List all Streamlit apps in the current project. Each app is a Python data app that runs in an isolated sandbox. Returns short_id, name, description, resource config, and current sandbox status.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "List Streamlit apps",
+        "title": "List Streamlit apps",
+        "required_scopes": ["streamlit_app:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "streamlit-apps-set-source": {
+        "description": "Create a new version of a Streamlit app from a single free-text app.py source string, and set it as the active version. This is the simplest way to ship code — no zip upload required. If the app is running, the running sandbox is stopped so the next view boots the new code. Optionally pass requirements.txt contents.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Set Streamlit app source",
+        "title": "Set Streamlit app source",
+        "required_scopes": ["streamlit_app:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "streamlit-apps-start": {
+        "description": "Start the app's sandbox (boots the active version). Returns immediately while the sandbox boots asynchronously — poll streamlit-apps-status until it reports running. Requires an active version (set one first with streamlit-apps-set-source). Idempotent: a no-op if already running or starting.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Start Streamlit app",
+        "title": "Start Streamlit app",
+        "required_scopes": ["streamlit_app:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "streamlit-apps-status": {
+        "description": "Get the live sandbox status for a Streamlit app: one of starting, running, stopping, stopped, or error, plus restart_count and last_error. Use this to poll after starting an app.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Get Streamlit app status",
+        "title": "Get Streamlit app status",
+        "required_scopes": ["streamlit_app:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "streamlit-apps-stop": {
+        "description": "Stop the app's running sandbox. Idempotent: a no-op if the app is not running. The app's code and versions are unaffected — it can be started again later.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Stop Streamlit app",
+        "title": "Stop Streamlit app",
+        "required_scopes": ["streamlit_app:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "subscriptions-create": {
         "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.\nIMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled: true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt subscriptions are themselves AI-generated, so this does not apply to them.)",
         "category": "Subscriptions",

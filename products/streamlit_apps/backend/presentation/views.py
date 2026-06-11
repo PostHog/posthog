@@ -9,11 +9,15 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.serializers import BaseSerializer
+from rest_framework.serializers import (
+    BaseSerializer,
+    ValidationError as DRFValidationError,
+)
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -21,13 +25,14 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.rate_limit import ClickHouseBurstRateThrottle
 
 from products.streamlit_apps.backend.logic.app_runtime import AppRuntimeService
-from products.streamlit_apps.backend.logic.zip_validator import validate_zip
+from products.streamlit_apps.backend.logic.zip_validator import build_single_file_zip, validate_zip
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 from products.streamlit_apps.backend.presentation.serializers import (
     StreamlitAppMinimalSerializer,
     StreamlitAppsAccessPermission,
     StreamlitAppSandboxSerializer,
     StreamlitAppSerializer,
+    StreamlitAppSourceVersionSerializer,
     StreamlitAppVersionSerializer,
 )
 
@@ -44,6 +49,17 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # context yet); TeamAndOrgViewSetMixin filters this queryset by team per request.
     queryset = StreamlitApp.all_teams.all()
     lookup_field = "short_id"
+    # Custom @actions are fail-closed for personal-API-key / OAuth access unless
+    # their required scope is declared here. Standard CRUD is covered by default.
+    scope_object_read_actions = ["versions", "get_status", "connect_info"]
+    scope_object_write_actions = [
+        "upload_version",
+        "create_version_from_source",
+        "activate_version",
+        "start",
+        "stop",
+        "restart",
+    ]
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return StreamlitAppMinimalSerializer if self.action == "list" else StreamlitAppSerializer
@@ -102,6 +118,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             detail=Detail(name=instance.name),
         )
 
+    @extend_schema(responses={200: StreamlitAppVersionSerializer(many=True)})
     @action(methods=["GET"], detail=True, url_path="versions")
     def versions(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -109,21 +126,16 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = StreamlitAppVersionSerializer(versions, many=True)
         return Response({"results": serializer.data})
 
-    @action(methods=["POST"], detail=True, url_path="upload_version")
-    def upload_version(self, request: Request, **kwargs: Any) -> Response:
-        app = self.get_object()
-        zip_file = request.FILES.get("file")
+    def _persist_version(self, app: StreamlitApp, file_content: bytes, request: Request) -> StreamlitAppVersion:
+        """Validate a zip, store it, and create the next (active) version.
 
-        if not zip_file:
-            return Response({"detail": "No file provided."}, status=status.HTTP_400_BAD_REQUEST)
-
-        file_content = zip_file.read()
+        Shared by the multipart upload and the single-file source actions.
+        Raises DRFValidationError on a bad zip and IntegrityError on a
+        concurrent version-number collision (callers map these to 400/409).
+        """
         validation = validate_zip(io.BytesIO(file_content))
         if not validation.valid:
-            return Response(
-                {"detail": "Invalid zip file: " + "; ".join(validation.errors)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise DRFValidationError({"detail": "Invalid zip file: " + "; ".join(validation.errors)})
 
         zip_hash = hashlib.sha256(file_content).hexdigest()
 
@@ -155,12 +167,6 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 app.active_version = version
                 app.save(update_fields=["active_version", "updated_at"])
-        except IntegrityError:
-            _cleanup_orphan()
-            return Response(
-                {"detail": "Concurrent upload detected. Please try again."},
-                status=status.HTTP_409_CONFLICT,
-            )
         except Exception:
             _cleanup_orphan()
             raise
@@ -178,8 +184,56 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             detail=Detail(name=f"{app.name} v{next_version_number}"),
         )
 
-        serializer = StreamlitAppVersionSerializer(version)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return version
+
+    @action(methods=["POST"], detail=True, url_path="upload_version")
+    def upload_version(self, request: Request, **kwargs: Any) -> Response:
+        app = self.get_object()
+        zip_file = request.FILES.get("file")
+
+        if not zip_file:
+            return Response({"detail": "No file provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            version = self._persist_version(app, zip_file.read(), request)
+        except IntegrityError:
+            return Response(
+                {"detail": "Concurrent upload detected. Please try again."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(StreamlitAppVersionSerializer(version).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=StreamlitAppSourceVersionSerializer,
+        responses=StreamlitAppVersionSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="create_version_from_source")
+    def create_version_from_source(self, request: Request, **kwargs: Any) -> Response:
+        """Create a new version from a single free-text app.py source string.
+
+        The agent-friendly alternative to a multipart zip upload: pass the app's
+        Python source (and optionally requirements.txt contents) as plain text.
+        """
+        app = self.get_object()
+
+        serializer = StreamlitAppSourceVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        file_content = build_single_file_zip(
+            serializer.validated_data["source"],
+            serializer.validated_data.get("requirements"),
+        )
+
+        try:
+            version = self._persist_version(app, file_content, request)
+        except IntegrityError:
+            return Response(
+                {"detail": "Concurrent update detected. Please try again."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(StreamlitAppVersionSerializer(version).data, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True, url_path="activate_version")
     def activate_version(self, request: Request, **kwargs: Any) -> Response:
@@ -212,6 +266,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"active_version": StreamlitAppVersionSerializer(version).data})
 
+    @extend_schema(responses={200: StreamlitAppSandboxSerializer})
     @action(methods=["GET"], detail=True, url_path="status")
     def get_status(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -238,6 +293,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(payload)
         return Response(cached)
 
+    @extend_schema(responses={200: StreamlitAppSerializer, 202: StreamlitAppSerializer})
     @action(methods=["POST"], detail=True, url_path="start", throttle_classes=[ClickHouseBurstRateThrottle])
     def start(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -262,6 +318,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_202_ACCEPTED,
         )
 
+    @extend_schema(responses={200: StreamlitAppSerializer})
     @action(methods=["POST"], detail=True, url_path="stop")
     def stop(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
