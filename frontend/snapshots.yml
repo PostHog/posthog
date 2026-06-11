@@ -3868,12 +3868,6 @@ snapshots:
         hash: v1.k794b7964.fd7ea8e18d9ce39a5f3285f10164895250c2be53767f73f7ea0ce773db91ebdb.6zCk5Rp1GyfhWuNTJmlel2BI0JCMDdG3_SBdCs_DC1k
     mcp-apps-lifecycle--stacked--light:
         hash: v1.k794b7964.e2a2db105f8ab13b4135a14656bd4882bee8ff014a5e1d03c457664795aa2727.dh6W8kx-RdFESmR8NhgdNMyjlBMEv1Fup6xuv9CwMWQ
-    mcp-apps-retention--bar-chart--light:
-        hash: v1.k794b7964.57fcf5be3c39aae3c845c9452c7b99a33293b411ddfe0522701cda195328dc3b.wvmzCp07U6pF54e5bwlvpYPMKXk7EnAgNLC5X5oKGg4
-    mcp-apps-retention--line-chart--light:
-        hash: v1.k794b7964.f4a5c2b767699d5768b1bd7115e04ec895e0911eea43c72a33c803b9bc1e6963.W8O6X9TEsFr_wiVJOA6YU-cPghJiov4ZaTCup3nt1qs
-    mcp-apps-retention--single-cohort--light:
-        hash: v1.k794b7964.fd3f5067326e29bb95366819eff17c73f9acff235f0d1709d978453aa1e4fbd1.vzTSdWKsHAXOqhGb4u9zuEZnM0znne9rjPCgG66z8V4
     mcp-apps-surveys--active-popover--light:
         hash: v1.k794b7964.c47633461e9a437f0761e09f795eb793b02ed0bac4489ce757a5837dbaa3f847.wclUgXFjBkoHXJLNP2R3ncawfRArgVyVEUWbIiQve0o
     mcp-apps-surveys--completed--light:
