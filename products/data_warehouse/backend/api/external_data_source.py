@@ -35,13 +35,7 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.activity_logging.external_data_utils import (
-    get_external_data_source_created_by_info,
-    get_external_data_source_detail_name,
-)
 from posthog.models.integration import Integration
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin

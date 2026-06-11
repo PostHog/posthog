@@ -1086,7 +1086,7 @@ export const getExternalDataSourcesConnectLinkRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1099,12 +1099,12 @@ export const getExternalDataSourcesConnectLinkRetrieveUrl = (
 
 /**
  * Return a secure browser link for connecting a data warehouse source.
-
-For OAuth sources the link starts the OAuth authorize flow; for credential sources it opens a minimal
-connect page where the user enters only their credentials — no table selection, no source creation.
-Either way the user authenticates in their browser, credentials never pass through the agent, and the
-agent finishes setup afterwards by passing the resulting reference (integration id or credential id)
-to data-warehouse-source-setup.
+ *
+ * For OAuth sources the link starts the OAuth authorize flow; for credential sources it opens a minimal
+ * connect page where the user enters only their credentials — no table selection, no source creation.
+ * Either way the user authenticates in their browser, credentials never pass through the agent, and the
+ * agent finishes setup afterwards by passing the resulting reference (integration id or credential id)
+ * to data-warehouse-source-setup.
  */
 export const externalDataSourcesConnectLinkRetrieve = async (
     projectId: string,
@@ -1179,11 +1179,11 @@ export const getExternalDataSourcesSetupCreateUrl = (projectId: string) => {
 
 /**
  * One-shot data warehouse source setup.
-
-Validate credentials, discover available tables, enable them all with sensible sync defaults
-(incremental where supported, else append, else full refresh), and create the source in a single
-call — the caller never has to assemble a `schemas` array. For fine-grained table/sync control,
-use the lower-level `database_schema` + `create` flow instead.
+ *
+ * Validate credentials, discover available tables, enable them all with sensible sync defaults
+ * (incremental where supported, else append, else full refresh), and create the source in a single
+ * call — the caller never has to assemble a `schemas` array. For fine-grained table/sync control,
+ * use the lower-level `database_schema` + `create` flow instead.
  */
 export const externalDataSourcesSetupCreate = async (
     projectId: string,
@@ -1224,11 +1224,11 @@ export const getExternalDataSourcesStoreCredentialsCreateUrl = (projectId: strin
 
 /**
  * Validate and store credentials for a data warehouse source without creating the source.
-
-Backs the source connect page: the user enters credentials directly in PostHog, they are
-checked against a live connection, then stored encrypted. The returned credential id can be
-passed to `setup` as {'credential_id': <id>} to create the source — so secrets never travel
-through an agent conversation.
+ *
+ * Backs the source connect page: the user enters credentials directly in PostHog, they are
+ * checked against a live connection, then stored encrypted. The returned credential id can be
+ * passed to `setup` as {'credential_id': <id>} to create the source — so secrets never travel
+ * through an agent conversation.
  */
 export const externalDataSourcesStoreCredentialsCreate = async (
     projectId: string,
