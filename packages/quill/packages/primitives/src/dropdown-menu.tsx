@@ -1,3 +1,5 @@
+import './menu.css'
+
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { ChevronRightIcon } from 'lucide-react'
 import * as React from 'react'
@@ -5,7 +7,6 @@ import * as React from 'react'
 import { Button } from './button'
 import { Checkbox } from './checkbox'
 import { cn } from './lib/utils'
-import './menu.css'
 import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
 
@@ -31,7 +32,10 @@ function DropdownMenuContent({
     children,
     ...props
 }: MenuPrimitive.Popup.Props &
-    Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'>): React.ReactElement {
+    Pick<
+        MenuPrimitive.Positioner.Props,
+        'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'
+    >): React.ReactElement {
     return (
         <MenuPrimitive.Portal>
             <MenuPrimitive.Positioner
@@ -46,15 +50,10 @@ function DropdownMenuContent({
             >
                 <MenuPrimitive.Popup
                     data-slot="dropdown-menu-content"
-                    className={cn(
-                        'quill-menu__content w-(--anchor-width)',
-                        className
-                    )}
+                    className={cn('quill-menu__content w-(--anchor-width)', className)}
                     {...props}
                 >
-                    <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">
-                        {children}
-                    </div>
+                    <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">{children}</div>
                 </MenuPrimitive.Popup>
             </MenuPrimitive.Positioner>
         </MenuPrimitive.Portal>
@@ -99,10 +98,14 @@ function DropdownMenuItem({
             data-variant={variant}
             className={cn(
                 "group/dropdown-menu-item relative flex cursor-default items-center text-xs/relaxed outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                // Destructive menu items are transparent at rest (red text only) and get a red
+                // tint on hover/highlight — Button's standalone `destructive` variant (filled at
+                // rest) is wrong inside a menu, so the inner Button always stays `default`.
+                'data-[variant=destructive]:text-destructive data-[variant=destructive]:hover:text-destructive data-[variant=destructive]:[&_svg]:text-destructive data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:data-highlighted:bg-destructive/10 dark:data-[variant=destructive]:hover:bg-destructive/20 dark:data-[variant=destructive]:focus:bg-destructive/20 dark:data-[variant=destructive]:data-highlighted:bg-destructive/20',
                 inset && 'quill-menu-item--inset',
                 className
             )}
-            render={<Button variant={variant} className="w-full font-normal [&_kbd]:ml-auto" left />}
+            render={<Button variant="default" className="w-full font-normal [&_kbd]:ml-auto" left />}
             {...props}
         />
     )
@@ -149,10 +152,7 @@ function DropdownMenuSubContent({
     return (
         <DropdownMenuContent
             data-slot="dropdown-menu-sub-content"
-            className={cn(
-                'quill-menu__sub-content w-auto',
-                className
-            )}
+            className={cn('quill-menu__sub-content w-auto', className)}
             align={align}
             alignOffset={alignOffset}
             side={side}
@@ -235,7 +235,13 @@ function DropdownMenuRadioItem({
 }
 
 function DropdownMenuSeparator({ className, ...props }: MenuPrimitive.Separator.Props): React.ReactElement {
-    return <MenuPrimitive.Separator data-slot="dropdown-menu-separator" className={cn('quill-menu__separator', className)} {...props} />
+    return (
+        <MenuPrimitive.Separator
+            data-slot="dropdown-menu-separator"
+            className={cn('quill-menu__separator', className)}
+            {...props}
+        />
+    )
 }
 
 /**
@@ -289,8 +295,7 @@ function useDropdownMenuSelectAll<T>(
         return count + (selectedKeys.has(key) ? 1 : 0)
     }, 0)
 
-    const state: SelectAllState =
-        matched === 0 ? 'none' : matched >= values.length ? 'all' : 'some'
+    const state: SelectAllState = matched === 0 ? 'none' : matched >= values.length ? 'all' : 'some'
     const isAllSelected = state === 'all'
 
     const toggle = React.useCallback(() => {

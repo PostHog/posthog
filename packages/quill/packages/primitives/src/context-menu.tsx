@@ -1,3 +1,5 @@
+import './menu.css'
+
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
 import { ChevronRightIcon } from 'lucide-react'
 import * as React from 'react'
@@ -5,7 +7,6 @@ import * as React from 'react'
 import { Button } from './button'
 import { Checkbox } from './checkbox'
 import { cn } from './lib/utils'
-import './menu.css'
 import { RadioIndicator } from './radio-group'
 
 function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props): React.ReactElement {
@@ -17,7 +18,13 @@ function ContextMenuPortal({ ...props }: ContextMenuPrimitive.Portal.Props): Rea
 }
 
 function ContextMenuTrigger({ className, ...props }: ContextMenuPrimitive.Trigger.Props): React.ReactElement {
-    return <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" className={cn('select-none', className)} {...props} />
+    return (
+        <ContextMenuPrimitive.Trigger
+            data-slot="context-menu-trigger"
+            className={cn('select-none', className)}
+            {...props}
+        />
+    )
 }
 
 function ContextMenuContent({
@@ -91,10 +98,13 @@ function ContextMenuItem({
             data-variant={variant}
             className={cn(
                 "group/context-menu-item relative flex cursor-default items-center outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                // Same destructive treatment as DropdownMenuItem: red text at rest, red tint on
+                // hover/highlight — never Button's filled `destructive` variant inside a menu.
+                'data-[variant=destructive]:text-destructive data-[variant=destructive]:hover:text-destructive data-[variant=destructive]:[&_svg]:text-destructive data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:data-highlighted:bg-destructive/10 dark:data-[variant=destructive]:hover:bg-destructive/20 dark:data-[variant=destructive]:focus:bg-destructive/20 dark:data-[variant=destructive]:data-highlighted:bg-destructive/20',
                 inset && 'quill-menu-item--inset',
                 className
             )}
-            render={<Button variant={variant} className="w-full font-normal" left />}
+            render={<Button variant="default" className="w-full font-normal" left />}
             {...props}
         >
             {children}
@@ -220,7 +230,13 @@ function ContextMenuRadioItem({
 }
 
 function ContextMenuSeparator({ className, ...props }: ContextMenuPrimitive.Separator.Props): React.ReactElement {
-    return <ContextMenuPrimitive.Separator data-slot="context-menu-separator" className={cn('quill-menu__separator', className)} {...props} />
+    return (
+        <ContextMenuPrimitive.Separator
+            data-slot="context-menu-separator"
+            className={cn('quill-menu__separator', className)}
+            {...props}
+        />
+    )
 }
 
 function ContextMenuShortcut({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {

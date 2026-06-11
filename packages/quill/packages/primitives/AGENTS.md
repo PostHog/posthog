@@ -429,6 +429,8 @@ Hide close button: `<DialogContent showCloseButton={false}>`
 </DropdownMenu>
 ```
 
+Destructive items (`variant="destructive"` on DropdownMenuItem/ContextMenuItem/MenubarItem) render red text on a transparent background, with a red-tinted background only on hover/highlight — they are styled by the menu item itself, not by Button's filled `destructive` variant. Don't pass a Button variant through `render` to restyle a menu item.
+
 Checkbox/radio items:
 
 ```tsx
@@ -718,6 +720,8 @@ Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableC
   </MenubarMenu>
 </Menubar>
 ```
+
+MenubarItem wraps DropdownMenuItem, so the same item API applies — including `variant="destructive"` (red text, red-tinted highlight, transparent at rest).
 
 ### Toast (Sonner)
 
