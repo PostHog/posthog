@@ -59,11 +59,11 @@ class TestMultiSchemaCapability:
             # These have an optional `schema` and qualify across namespaces; MySQL/unknown never do.
             ("postgres", ExternalDataSourceType.POSTGRES, True),
             ("redshift", ExternalDataSourceType.REDSHIFT, True),
+            ("mssql", ExternalDataSourceType.MSSQL, True),
             ("mysql", ExternalDataSourceType.MYSQL, False),
             ("unknown type", "NotARealSource", False),
             # Tripwires: these have a *required* `schema` today. If a follow-up makes one optional,
             # this flips True and forces a conscious update — the gate is no longer dormant for it.
-            ("mssql", ExternalDataSourceType.MSSQL, False),
             ("snowflake", ExternalDataSourceType.SNOWFLAKE, False),
         ]
     )
