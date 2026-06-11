@@ -1,5 +1,11 @@
 import sys
 import subprocess
+from pathlib import Path
+
+# The product-level turbo test task runs pytest from the product directory, and
+# `python -c` puts cwd on sys.path — the subprocess needs the repo root there to
+# find the posthog package.
+_REPO_ROOT = Path(__file__).parents[4]
 
 # The skills build (products/posthog_ai/scripts/build_skills.py) imports the query runners
 # in a cold interpreter, before anything has touched the error_tracking api package. If a
@@ -24,5 +30,6 @@ def test_query_runners_import_in_cold_interpreter() -> None:
         capture_output=True,
         text=True,
         timeout=180,
+        cwd=_REPO_ROOT,
     )
     assert result.returncode == 0, f"cold import of error_tracking query runners failed:\n{result.stderr[-2000:]}"
