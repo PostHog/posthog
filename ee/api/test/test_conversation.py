@@ -30,6 +30,7 @@ from posthog.models.user import User
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
+from products.posthog_ai.backend.message_routing import SandboxCancelResult, SandboxRouteResult
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.api.conversation import ConversationViewSet
@@ -1246,3 +1247,104 @@ class TestConversationSoftDelete(APIBaseTest):
         still_deleted = Conversation.objects.get(pk=conversation.pk)
         self.assertTrue(still_deleted.deleted)
         self.assertEqual(Conversation.objects.filter(pk=conversation.pk).count(), 1)
+
+
+class TestConversationSandboxRoute(APIBaseTest):
+    def _sandbox_conversation(self) -> Conversation:
+        return Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+
+    def test_sandbox_route_reachable_and_delegates_to_handler(self):
+        conversation = self._sandbox_conversation()
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.MessageRoutingService") as m_service,
+            patch("ee.api.conversation.report_user_action") as m_telemetry,
+        ):
+            m_service.return_value.handle.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                {"content": "hello", "trace_id": str(uuid.uuid4())},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), sentinel.model_dump())
+        m_service.return_value.handle.assert_called_once()
+        # The service receives the resolved conversation, not just an id.
+        passed_conversation = m_service.call_args[0][0]
+        self.assertEqual(passed_conversation.id, conversation.id)
+        # Telemetry fires at the API boundary, after the service returns.
+        m_telemetry.assert_called_once()
+
+    def test_sandbox_route_blocked_when_quota_limited(self):
+        conversation = self._sandbox_conversation()
+        with (
+            patch("ee.api.conversation.is_team_limited", return_value=True),
+            patch("ee.api.conversation.MessageRoutingService") as m_service,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                {"content": "hello"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        m_service.assert_not_called()
+
+    def test_sandbox_route_validates_request_body(self):
+        conversation = self._sandbox_conversation()
+        bad_payloads = [
+            {"content": "x" * 40001},  # over the content length cap
+            {"content": "hello", "trace_id": "not-a-uuid"},  # malformed trace id
+            {"trace_id": str(uuid.uuid4())},  # missing content
+        ]
+        for payload in bad_payloads:
+            with patch("ee.api.conversation.MessageRoutingService") as m_service:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                    payload,
+                )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, payload)
+            m_service.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    def test_get_throttles_returns_empty_for_sandbox_action(self):
+        # Like create, the sandbox action's AI throttles are applied conditionally in check_throttles().
+        viewset = ConversationViewSet()
+        viewset.action = "sandbox"
+        viewset.team_id = self.team.id
+        viewset.organization = self.organization
+        self.assertEqual(viewset.get_throttles(), [])
+
+    def test_sandbox_route_rejects_langgraph_conversation(self):
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                {"content": "hello"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        m_service.assert_not_called()
+
+    def test_cancel_sandbox_conversation_delegates_to_sandbox_handler(self):
+        conversation = self._sandbox_conversation()
+        sentinel = SandboxCancelResult(task_id="t", run_id="r", run_status="cancelled")
+        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+            m_service.return_value.cancel.return_value = sentinel
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), sentinel.model_dump())
+        m_service.return_value.cancel.assert_called_once()
