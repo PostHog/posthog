@@ -37,6 +37,7 @@ import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList, ListReloadButton, insightProps } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { IssuesFiltersB } from './tabs/issues/variants/IssuesFiltersB'
+import { IssuesFiltersC } from './tabs/issues/variants/IssuesFiltersC'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
 
@@ -54,6 +55,7 @@ export const scene: SceneExport = {
 const ISSUE_VARIANT_TABS: { key: ErrorTrackingSceneActiveTab; label: string; filters: JSX.Element }[] = [
     { key: 'issues', label: 'Issues (A)', filters: <IssuesFilters reload={<ListReloadButton />} /> },
     { key: 'issues-b', label: 'Issues (B)', filters: <IssuesFiltersB /> },
+    { key: 'issues-c', label: 'Issues (C)', filters: <IssuesFiltersC /> },
 ]
 
 const IssuesTab = ({ filters }: { filters: JSX.Element }): JSX.Element => {

@@ -195,6 +195,10 @@ export interface MenuFilterComboboxProps {
      * the popover/button mode, which renders the field as a quill input.
      */
     iconButton?: ReactElement
+    /** Consumer rows pinned above all results regardless of search/scope —
+     *  participate in keyboard nav and auto-highlight like any row (e.g. a
+     *  "Search issues matching …" action in an omnibar). */
+    leadingEntries?: MenuFilterEntry[]
 }
 
 export function MenuFilterCombobox({
@@ -209,6 +213,7 @@ export function MenuFilterCombobox({
     selectedEntry,
     inputRef: externalInputRef,
     iconButton,
+    leadingEntries,
 }: MenuFilterComboboxProps): JSX.Element {
     // Sync our local query to the orchestrator's so remote-endpoint groups
     // (Pageview URLs, Screens, etc.) actually fetch — `useGroupList` reads
@@ -558,6 +563,7 @@ export function MenuFilterCombobox({
         // Default "All" surface leads with recents/pinned (fixed order), then
         // the cross-tab content with `email`/`url` promotion. Recents/pinned
         // stay above the content rows so users can learn the order.
+        let result: MenuFilterEntry[]
         if (scope === 'all') {
             const prefixKeys = new Set(recentsPinnedPrefix.map(entryKey))
             const content = prefixKeys.size > 0 ? base.filter((e) => !prefixKeys.has(entryKey(e))) : base
@@ -572,16 +578,20 @@ export function MenuFilterCombobox({
             ]
             // Idle (no search): float the committed selection to the very first row so the
             // user can see/verify what's currently chosen without leaving the All surface.
-            if (!q && selectedRowId) {
-                return floatToFront(
-                    assembled,
-                    assembled.findIndex((e) => rowDomId(e) === selectedRowId)
-                )
-            }
-            return assembled
+            result =
+                !q && selectedRowId
+                    ? floatToFront(
+                          assembled,
+                          assembled.findIndex((e) => rowDomId(e) === selectedRowId)
+                      )
+                    : assembled
+        } else {
+            result = base
         }
-        return base
-    }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, showChips, activeChip, drillTo])
+        // Consumer-pinned rows always lead — above recents/pinned and the
+        // selected-entry promotion — so auto-highlight lands on them.
+        return leadingEntries && leadingEntries.length > 0 ? [...leadingEntries, ...result] : result
+    }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, showChips, activeChip, drillTo, leadingEntries])
 
     // O(1) row -> rendered-position lookup, rebuilt with `filtered`. Avoids an
     // O(n) `indexOf` per commit and the stale-index risk if `filtered`'s identity
