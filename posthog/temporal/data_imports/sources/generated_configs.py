@@ -1109,7 +1109,7 @@ class RipplingSourceConfig(config.Config):
 
 @config.config
 class RollbarSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
