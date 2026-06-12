@@ -284,9 +284,8 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return set()
         flags = FeatureFlag.objects.filter(team__project_id=self.project_id)
         accessible = self.user_access_control.filter_queryset_by_access_level(flags, include_all_if_admin=True)
-        all_ids = {str(pk) for pk in flags.values_list("id", flat=True)}
-        accessible_ids = {str(pk) for pk in accessible.values_list("id", flat=True)}
-        return all_ids - accessible_ids
+        denied = flags.exclude(pk__in=accessible.values("pk"))
+        return {str(pk) for pk in denied.values_list("id", flat=True)}
 
     def _assert_can_edit_target_flag(self, instance: ScheduledChange) -> None:
         if instance.model_name != "FeatureFlag" or not instance.record_id:
