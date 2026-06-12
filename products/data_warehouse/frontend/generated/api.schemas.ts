@@ -195,6 +195,8 @@ export const ExternalDataSchemaApiRowFiltersItemOperator = {
     '': '<=',
     '': '=',
     '': '!=',
+    In: 'IN',
+    NotIn: 'NOT IN',
 } as const
 
 /**
@@ -205,7 +207,7 @@ export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
 export type ExternalDataSchemaApiRowFiltersItem = {
     column: string
     operator: ExternalDataSchemaApiRowFiltersItemOperator
-    /** Comparison value; must match the column's type. */
+    /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
     value: unknown
 }
 
@@ -305,7 +307,7 @@ export interface ExternalDataSchemaApi {
      */
     enabled_columns?: string[] | null
     /**
-     * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows.
+     * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
      * @nullable
      */
     row_filters?: ExternalDataSchemaApiRowFiltersItem[] | null
@@ -342,12 +344,14 @@ export const PatchedExternalDataSchemaApiRowFiltersItemOperator = {
     '': '<=',
     '': '=',
     '': '!=',
+    In: 'IN',
+    NotIn: 'NOT IN',
 } as const
 
 export type PatchedExternalDataSchemaApiRowFiltersItem = {
     column: string
     operator: PatchedExternalDataSchemaApiRowFiltersItemOperator
-    /** Comparison value; must match the column's type. */
+    /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
     value: unknown
 }
 
@@ -447,7 +451,7 @@ export interface PatchedExternalDataSchemaApi {
      */
     enabled_columns?: string[] | null
     /**
-     * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows.
+     * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
      * @nullable
      */
     row_filters?: PatchedExternalDataSchemaApiRowFiltersItem[] | null
@@ -1365,12 +1369,14 @@ export const ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator = {
     '': '<=',
     '': '=',
     '': '!=',
+    In: 'IN',
+    NotIn: 'NOT IN',
 } as const
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
     column: string
     operator: ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator
-    /** Comparison value; must match the column's type. */
+    /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
     value: unknown
 }
 
