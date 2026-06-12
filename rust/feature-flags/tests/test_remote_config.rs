@@ -81,6 +81,65 @@ async fn test_remote_config_project_secret_plaintext_returns_payload() {
 }
 
 #[tokio::test]
+async fn test_remote_config_api_key_alias_resolves_project() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    context.populate_cache_for_team(team.id).await.unwrap();
+    insert_rc_flag(&context, team.id, "rc-apikey", "plain-payload", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    // Django accepts ?api_key= as an alias for ?token=.
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/rc-apikey/remote_config?api_key={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        Value::String("plain-payload".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_remote_config_empty_token_falls_through_to_numeric_segment() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-emptytok", "plain-payload", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    // Empty ?token= is treated as absent (Django's get_token), so the numeric segment wins.
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/{}/feature_flags/rc-emptytok/remote_config?token=",
+            server.addr, team.id
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        Value::String("plain-payload".to_string())
+    );
+}
+
+#[tokio::test]
 async fn test_remote_config_by_numeric_id_returns_payload() {
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;

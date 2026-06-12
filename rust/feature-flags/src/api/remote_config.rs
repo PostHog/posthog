@@ -35,10 +35,12 @@ use std::sync::Arc;
 use tracing::warn;
 
 /// Query params. SDKs pass `?token=phc_...` (the project key) and call this with `@current`
-/// as the URL segment; the token resolves the project, matching Django.
+/// as the URL segment; the token resolves the project, matching Django. `api_key` is Django's
+/// accepted alias for `token` (see `get_token`).
 #[derive(Deserialize)]
 pub struct RemoteConfigQuery {
     token: Option<String>,
+    api_key: Option<String>,
 }
 
 enum AuthOutcome {
@@ -77,8 +79,16 @@ pub async fn remote_config(
     // numeric segment is the project id; `@current` and other non-numeric values 404 — the
     // `@current`-without-token path resolves the caller's current team, which is not an SDK
     // call and is not ported (Django's `int()` ValueError also maps non-numeric to 404).
+    // Django's `get_token` treats an empty `?token=` as absent and accepts `?api_key=` as an
+    // alias, so resolve the effective token the same way before deciding the project source.
+    let token_param = params
+        .token
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .or_else(|| params.api_key.as_deref().filter(|t| !t.is_empty()));
+
     let (scope_team_id, scope_project_id, resolved_team): (i32, i64, Option<Team>) =
-        if let Some(token) = params.token.as_deref() {
+        if let Some(token) = token_param {
             match state.flag_service().verify_token_and_get_team(token).await {
                 Ok(team) => {
                     // The cached team payload carries project_id; only fall back to a query
