@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import os
 import json
+import time
 import pathlib
 import tempfile
 import subprocess
 import urllib.request
 
-from hogland import AccessType, AuthenticationError, Hogland
+from hogland import AccessType, AuthenticationError, ConflictError, Hogland
 
 from .backend import ExecResult, PreviewBackend
 
@@ -97,22 +98,46 @@ class HoglandBackend(PreviewBackend):
         if self._box_id:  # reuse an existing box
             self._box = self._client.get(self._box_id)
         else:
-            self._box = self._client.create(
-                snapshot_id=self.snapshot,
-                cpus=self.cpus,
-                memory_mib=self.memory_mib,
-                disk_gib=self.disk_gib,
-                disk_class=self.disk_class,
-                access_type=AccessType.ssh_public,
-                ssh_public_key=_ephemeral_ssh_pubkey(),
-                name=self.name,
-                kind=self.kind,
-                ttl_seconds=self.ttl_seconds,
-            )
+            self._box = self._restore_fresh()
             self._box_id = self._box.id
         # `running` means the VM resumed, not that hogpanion's HTTP API answers
         # yet — a restored box needs a beat before the first exec.
         self._wait_exec_ready()
+
+    def _create_kwargs(self) -> dict:
+        # The golden is pinned to this sizing; restore must MATCH it exactly.
+        return {
+            "snapshot_id": self.snapshot,
+            "cpus": self.cpus,
+            "memory_mib": self.memory_mib,
+            "disk_gib": self.disk_gib,
+            "disk_class": self.disk_class,
+            "access_type": AccessType.ssh_public,
+            "ssh_public_key": _ephemeral_ssh_pubkey(),
+            "name": self.name,
+            "kind": self.kind,
+            "ttl_seconds": self.ttl_seconds,
+        }
+
+    def _restore_fresh(self):
+        """Restore the golden into a new box. If our name is already taken, a
+        prior run left a box behind — teardown only fires on PR *close*, so a
+        failed/cancelled run leaks its box. Replace it so each run is idempotent
+        (retry the create while the freed name propagates)."""
+        try:
+            return self._client.create(**self._create_kwargs())
+        except ConflictError:
+            stale = self._resolve_box()
+            if stale is not None:
+                stale.destroy()
+        # Retry while the freed name propagates; the final attempt is outside the
+        # guard so a lingering ConflictError surfaces instead of being swallowed.
+        for _ in range(10):
+            try:
+                return self._client.create(**self._create_kwargs())
+            except ConflictError:
+                time.sleep(3)
+        return self._client.create(**self._create_kwargs())
 
     def exec(self, command: str, *, timeout: int = 120) -> ExecResult:
         # The box exec API runs as root but doesn't set HOME; tools like git
