@@ -79,15 +79,6 @@ class _PerHostSemaphoreRegistry:
             return sem
 
 
-def _prefetch_key(url: str) -> str:
-    """Must mirror `discover._prefetch_key` so cache lookups line up."""
-
-    try:
-        return url_fetch.normalize_url(url)
-    except url_fetch.UrlFetchError:
-        return url
-
-
 def _fetch_one(
     url: str,
     *,
@@ -104,7 +95,7 @@ def _fetch_one(
     round-trip entirely and go straight to parsing.
     """
 
-    result = prefetched.get(_prefetch_key(url))
+    result = prefetched.get(url_fetch.prefetch_key(url))
     if result is not None:
         return _parse_outcome(url, result)
 

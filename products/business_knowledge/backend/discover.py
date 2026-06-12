@@ -36,7 +36,7 @@ from .constants import (
     URL_BOT_NAME,
     URL_MAX_BYTES,
 )
-from .url_fetch import FetchResult, UrlFetchError, fetch_text, fetch_url, normalize_url
+from .url_fetch import FetchResult, UrlFetchError, fetch_text, fetch_url, prefetch_key
 
 logger = structlog.get_logger(__name__)
 
@@ -247,15 +247,6 @@ def _load_robots(origin: str) -> urllib.robotparser.RobotFileParser | None:
     return parser
 
 
-def _prefetch_key(url: str) -> str:
-    """Cache key for prefetched pages — must match what the fetch phase computes."""
-
-    try:
-        return normalize_url(url)
-    except UrlFetchError:
-        return url
-
-
 def _discover_same_origin(entry_url: str, *, config: CrawlConfig) -> tuple[list[str], dict[str, FetchResult]]:
     """
     BFS crawler scoped to the entry URL's (scheme, host, port). Respects
@@ -316,8 +307,10 @@ def _discover_same_origin(entry_url: str, *, config: CrawlConfig) -> tuple[list[
         # Cache only pages the fetch phase will actually request (collected
         # ones), within a total byte budget — beyond it the fetch phase just
         # re-downloads, trading a request for bounded memory.
-        if included and not excluded and prefetched_bytes + len(result.body) <= PREFETCH_CACHE_MAX_BYTES:
-            prefetched[_prefetch_key(url)] = result
+        # `excluded` pages never reach here — the depth/exclusion guard above
+        # already skipped them before the fetch.
+        if included and prefetched_bytes + len(result.body) <= PREFETCH_CACHE_MAX_BYTES:
+            prefetched[prefetch_key(url)] = result
             prefetched_bytes += len(result.body)
         # Decode for link extraction only — hrefs are effectively ASCII, so
         # utf-8/replace is good enough here.
