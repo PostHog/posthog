@@ -2,7 +2,10 @@ from datetime import datetime
 
 import pytest
 
-from products.signals.backend.report_generation.research import _render_signal_for_research
+from products.signals.backend.report_generation.research import (
+    _render_signal_for_research,
+    build_initial_research_prompt,
+)
 from products.signals.backend.temporal.types import SignalData
 
 
@@ -66,3 +69,16 @@ class TestRenderSignalForResearch:
 
         assert "- images: [customer] https://media.posthog.com/ok.png" in rendered
         assert "[team]" not in rendered
+
+
+class TestBuildInitialResearchPrompt:
+    def test_includes_business_knowledge_block_when_enabled(self):
+        signal = _make_signal({})
+        prompt = build_initial_research_prompt(signal, 1, has_business_knowledge=True)
+        assert "business-knowledge-documents-search" in prompt
+        assert "## Business knowledge" in prompt
+
+    def test_excludes_business_knowledge_block_by_default(self):
+        signal = _make_signal({})
+        prompt = build_initial_research_prompt(signal, 1)
+        assert "## Business knowledge" not in prompt
