@@ -67,7 +67,9 @@ def test_registered_histogram_names_are_emitted(name: str, histogram_name: str):
     mock_hist = MagicMock()
     mock_meter.create_histogram_timedelta.return_value = mock_hist
 
-    with patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=mock_meter):
+    # ExecutionTimeRecorder.__exit__ calls bare get_metric_meter() inside posthog.temporal.common.metrics,
+    # so the patch target is the original definition (the ai_observability module just re-exports it).
+    with patch("posthog.temporal.common.metrics.get_metric_meter", return_value=mock_meter):
         with ExecutionTimeRecorder(histogram_name):
             pass
 
@@ -128,7 +130,9 @@ async def test_workflow_interceptor_emits_finished_failed_on_hard_failure():
             return_value=MagicMock(),
         ),
         # ExecutionTimeRecorder reaches into Temporal's workflow context on exit; stub it for the unit test.
-        patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=MagicMock()),
+        # Patch target is posthog.temporal.common.metrics — that's where ExecutionTimeRecorder's bare
+        # get_metric_meter() call resolves. Patching the ai_observability re-export leaves the real call live.
+        patch("posthog.temporal.common.metrics.get_metric_meter", return_value=MagicMock()),
         patch(
             "products.experiments.backend.temporal.recalculation_metrics.increment_workflow_finished"
         ) as mock_finished,
