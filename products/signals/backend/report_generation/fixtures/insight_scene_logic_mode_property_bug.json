@@ -25,7 +25,8 @@
     },
     "priority": {
       "explanation": "Low-risk, low-impact, but immediately actionable and suitable for agent autonomy testing.",
-      "priority": "P1"
+      "priority": "P1",
+      "dollar_value": 0.0
     }
   }
 }

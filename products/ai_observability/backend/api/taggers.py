@@ -482,18 +482,18 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         return TaggerSerializer(hydrated_tagger, context=self.get_serializer_context()).data
 
     @llma_track_latency("llma_taggers_list")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_list", method="GET")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_list", method="GET")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().list(request, *args, **kwargs)
 
     @llma_track_latency("llma_taggers_retrieve")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_retrieve", method="GET")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_retrieve", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().retrieve(request, *args, **kwargs)
 
     @extend_schema(request=TaggerCreateSerializer, responses={201: OpenApiResponse(response=TaggerSerializer)})
     @llma_track_latency("llma_taggers_create")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_create", method="POST")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_create", method="POST")
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -505,13 +505,13 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
 
     @extend_schema(request=TaggerUpdateSerializer, responses={200: OpenApiResponse(response=TaggerSerializer)})
     @llma_track_latency("llma_taggers_update")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_update", method="PUT")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_update", method="PUT")
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._update_tagger(request=request, partial=False)
 
     @extend_schema(request=TaggerUpdateSerializer, responses={200: OpenApiResponse(response=TaggerSerializer)})
     @llma_track_latency("llma_taggers_partial_update")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_partial_update", method="PATCH")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_partial_update", method="PATCH")
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._update_tagger(request=request, partial=True)
 
@@ -534,7 +534,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
     @extend_schema(request=TestHogTaggerRequestSerializer, responses=TestHogTaggerResponseSerializer)
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["tagger:read"])
     @llma_track_latency("llma_taggers_test_hog")
-    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_test_hog", method="POST")
+    @monitor(feature=Feature.QUERY, endpoint="llma_taggers_test_hog", method="POST")
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog tagger code against sample events without saving."""
         test_serializer = TestHogTaggerRequestSerializer(data=request.data)

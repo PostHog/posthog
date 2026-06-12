@@ -1,10 +1,10 @@
 """
-SDK Doctor health assessment.
+SDK Health health assessment.
 
 The single source of truth for SDK outdatedness detection. Consumed by:
   - the `sdk_outdated` Temporal health check (alerts / HealthIssue rows),
-  - the SDK Doctor report endpoint (posthog/api/sdk_doctor.py), which the SDK Doctor UI and the
-    SDK Doctor MCP tool both read.
+  - the SDK Health report endpoint (posthog/api/sdk_health.py), which the SDK Health UI and the
+    SDK Health MCP tool both read.
 
 The frontend renders these pre-computed values.
 """
@@ -332,7 +332,7 @@ def _released_ago(release_date_iso: Optional[str], now: Optional[datetime] = Non
 
 # --- UI-facing string/URL builders ---------
 #
-# The SDK Doctor UI (frontend/src/scenes/onboarding/sdks/) renders these strings/URLs verbatim
+# The SDK Health UI (frontend/src/scenes/onboarding/sdks/) renders these strings/URLs verbatim
 # from the report endpoint, so this is the single place the copy and Activity/SQL links are built.
 
 
@@ -368,7 +368,7 @@ def _is_safe_for_interpolation(value: str) -> bool:
 
 def _build_sql_query(sdk_type: str, version: str) -> str:
     """
-    SQL drill-in for an SDK version, rendered as-is by the SDK Doctor UI and MCP tool.
+    SQL drill-in for an SDK version, rendered as-is by the SDK Health UI and MCP tool.
 
     Returns an empty string when either `sdk_type` or `version` fails validation —
     the skill instructs agents to surface the unexpected empty value rather than retry
@@ -390,7 +390,7 @@ def _build_sql_query(sdk_type: str, version: str) -> str:
 
 def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: str) -> str:
     """
-    Activity > Explore drill-in URL for an SDK version, rendered as-is by the SDK Doctor UI and MCP tool.
+    Activity > Explore drill-in URL for an SDK version, rendered as-is by the SDK Health UI and MCP tool.
 
     Returns a relative path (no host) including /project/<id>/ prefix so MCP agents
     can combine it with the user's known PostHog host (e.g. us.posthog.com).
@@ -473,7 +473,7 @@ def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: 
 
 def _build_banner(sdk_type: str, alert: OutdatedTrafficAlert) -> str:
     """
-    Top-level alert text mirroring SdkDoctorScene.tsx's "Time for an update!" banner:
+    Top-level alert text mirroring SdkHealthScene.tsx's "Time for an update!" banner:
     "Version {ver} of the {Readable} SDK has captured more than {N}% of events in the last 7 days."
 
     Version is routed through `_safe_version_display` as defense in depth — the primary
@@ -644,7 +644,7 @@ def _build_reason(
     The single source of truth for "why is this flagged?": it always names the current
     in-use version and, when older versions still taking significant traffic are what drove
     the alert, the specific versions that triggered it. This keeps the string self-contained
-    for every consumer (SDK Doctor UI, MCP agents, alert destinations) — including the case
+    for every consumer (SDK Health UI, MCP agents, alert destinations) — including the case
     where the latest in-use version already matches latest but an older one is still served.
     """
     name = SDK_READABLE_NAME.get(sdk_type, sdk_type)
@@ -751,7 +751,7 @@ def compute_sdk_health(
 ) -> SdkHealthReport:
     """
     Top-level entry point. Takes the combined data structure returned by the existing
-    /api/sdk_doctor/ view:
+    /api/sdk_health/ view:
 
         {
           "web": {

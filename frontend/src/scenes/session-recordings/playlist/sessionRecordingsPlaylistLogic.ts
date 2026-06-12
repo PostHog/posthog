@@ -8,19 +8,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import {
-    formatPropertyLabel,
-    isAnyPropertyfilter,
-    isHogQLPropertyFilter,
-    normalizePropertyFilterValue,
-} from 'lib/components/PropertyFilters/utils'
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
     isActionFilter,
     isEventFilter,
     isEventPropertyFilter,
-    isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -32,13 +26,7 @@ import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessi
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import {
-    NodeKind,
-    RecordingOrder,
-    RecordingsQuery,
-    RecordingsQueryResponse,
-    VALID_RECORDING_ORDERS,
-} from '~/queries/schema/schema-general'
+import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
@@ -47,7 +35,6 @@ import {
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
     PropertyFilterType,
-    PropertyFilterValue,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingUniversalFilters,
@@ -59,9 +46,18 @@ import {
 } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
+import {
+    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    convertUniversalFiltersToRecordingsQuery,
+    isValidRecordingOrder,
+} from '../filters/recordingsQueryConversions'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { filtersFromUniversalFilterGroups } from '../utils'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
+
+// Re-exported for back-compat with existing import sites; the implementations now live in the leaf
+// `recordingsQueryConversions` module so they can be imported without pulling in this logic file.
+export { DEFAULT_RECORDING_FILTERS_ORDER_BY, convertUniversalFiltersToRecordingsQuery }
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
@@ -109,10 +105,6 @@ const isPersonPropertyShortcutSearchParams = (
     return (x as PersonPropertyShortcutSearchParams).personProperty !== undefined
 }
 
-function isValidRecordingOrder(order: unknown): boolean {
-    return !!order && isString(order) && VALID_RECORDING_ORDERS.includes(order as RecordingOrder)
-}
-
 function isValidRecordingOrderDirection(direction: unknown): boolean {
     return !!direction && isString(direction) && ['ASC', 'DESC'].includes(direction)
 }
@@ -158,7 +150,6 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
-export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 export const MAX_SELECTED_RECORDINGS = 20
 export const DELETE_CONFIRMATION_TEXT = 'delete'
 
@@ -297,139 +288,6 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     }
 
     return true
-}
-
-/**
- * Normalizes a single property filter's value if it has a multi-select operator.
- */
-function normalizePropertyFilter<T extends { operator?: unknown; value?: unknown; type?: unknown }>(filter: T): T {
-    if (
-        !filter ||
-        typeof filter !== 'object' ||
-        !('operator' in filter) ||
-        !('value' in filter) ||
-        ('type' in filter && filter.type === 'cohort')
-    ) {
-        return filter
-    }
-    const normalizedValue = normalizePropertyFilterValue(
-        filter.value as PropertyFilterValue,
-        filter.operator as PropertyOperator | null
-    )
-    if (normalizedValue !== filter.value) {
-        return { ...filter, value: normalizedValue }
-    }
-    return filter
-}
-
-/**
- * Normalizes properties array inside an event or action filter.
- * Returns the filter with normalized properties, or the original if no changes needed.
- */
-function normalizeFilterWithNestedProperties<T extends { properties?: AnyPropertyFilter[] }>(filter: T): T {
-    if (!filter.properties || !Array.isArray(filter.properties)) {
-        return filter
-    }
-    const normalizedProperties = filter.properties.map((prop) => normalizePropertyFilter(prop) as AnyPropertyFilter)
-    // Only create new object if something changed
-    const hasChanges = normalizedProperties.some((prop, i) => prop !== filter.properties![i])
-    return hasChanges ? { ...filter, properties: normalizedProperties } : filter
-}
-
-export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
-    const filters = filtersFromUniversalFilterGroups(universalFilters)
-
-    const events: RecordingsQuery['events'] = []
-    const actions: RecordingsQuery['actions'] = []
-    const properties: RecordingsQuery['properties'] = []
-    const console_log_filters: RecordingsQuery['console_log_filters'] = []
-    const having_predicates: RecordingsQuery['having_predicates'] = []
-    let comment_text: RecordingsQuery['comment_text'] = undefined
-
-    // it was possible to store an invalid order key in local storage sometimes, let's just ignore that instead of erroring
-    const order: RecordingsQuery['order'] = isValidRecordingOrder(universalFilters.order)
-        ? universalFilters.order
-        : DEFAULT_RECORDING_FILTERS_ORDER_BY
-    const order_direction: RecordingsQuery['order_direction'] = universalFilters.order_direction || 'DESC'
-
-    const durationFilter = universalFilters.duration[0]
-
-    if (durationFilter) {
-        having_predicates.push(durationFilter)
-    }
-
-    filters.forEach((f) => {
-        if (isEventFilter(f)) {
-            events.push(normalizeFilterWithNestedProperties(f))
-        } else if (isActionFilter(f)) {
-            actions.push(normalizeFilterWithNestedProperties(f))
-        } else if (isLogEntryPropertyFilter(f)) {
-            console_log_filters.push(f)
-        } else if (isHogQLPropertyFilter(f)) {
-            properties.push(f)
-        } else if (isAnyPropertyfilter(f)) {
-            if (isRecordingPropertyFilter(f)) {
-                if (f.key === 'visited_page') {
-                    // Pass visited_page as a recording property to use all_urls array in backend
-                    // This filters by URLs that actually appear in the recording, not just events during the session
-                    properties.push(f)
-                } else if (f.key === 'snapshot_source' && f.value) {
-                    having_predicates.push(f)
-                } else if (f.key === 'comment_text') {
-                    comment_text = f
-                } else {
-                    having_predicates.push(f)
-                }
-            } else {
-                // Normalize filter value to ensure multi-select operators have array values
-                // Skip cohort filters as they have a different value type (number)
-                const normalizedValue =
-                    f.type !== 'cohort' ? normalizePropertyFilterValue(f.value, f.operator) : f.value
-
-                // Debug logging for replay filter value type investigation
-                // TODO: Remove after debugging
-                if (
-                    f.type === 'feature' ||
-                    (f.type === 'event' && typeof f.key === 'string' && f.key.includes('$feature'))
-                ) {
-                    posthog.capture('debug_replay_filter_value_type', {
-                        filter_type: f.type,
-                        filter_key: f.key,
-                        original_value: f.value,
-                        normalized_value: normalizedValue,
-                        value_type: typeof f.value,
-                        is_array: Array.isArray(f.value),
-                        operator: f.operator,
-                    })
-                }
-
-                // Only create a new object if the value actually changed
-                if (normalizedValue !== f.value) {
-                    properties.push({ ...f, value: normalizedValue } as AnyPropertyFilter)
-                } else {
-                    properties.push(f)
-                }
-            }
-        }
-    })
-
-    return {
-        kind: NodeKind.RecordingsQuery,
-        order: order,
-        order_direction: order_direction,
-        date_from: universalFilters.date_from,
-        date_to: universalFilters.date_to,
-        properties,
-        events,
-        actions,
-        console_log_filters,
-        having_predicates,
-        comment_text,
-        filter_test_accounts: universalFilters.filter_test_accounts,
-        operand: universalFilters.filter_group.type,
-        limit: universalFilters.limit,
-        session_ids: universalFilters.session_ids,
-    }
 }
 
 export function convertLegacyFiltersToUniversalFilters(
@@ -1416,6 +1274,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.activeSessionRecordingId, s.recordings],
             (activeSessionRecordingId, recordings): SessionRecordingType | undefined => {
                 return recordings.find((rec) => rec.id === activeSessionRecordingId)
+            },
+        ],
+
+        selectedRecordingOutsideFilters: [
+            (s) => [s.selectedRecordingId, s.recordings],
+            (selectedRecordingId, recordings): boolean => {
+                if (!selectedRecordingId) {
+                    return false
+                }
+                return recordings.find((rec) => rec.id === selectedRecordingId)?.matches_filters === false
             },
         ],
 

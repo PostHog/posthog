@@ -113,6 +113,7 @@ def to_dict(query: BaseModel) -> dict:
                         "stacked",
                         "detailedResultsAggregationType",
                         "excludeBoxPlotOutliers",
+                        "showAnnotations",
                         "showFullUrls",
                         "selectedInterval",
                         "funnelStepReference",

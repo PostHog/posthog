@@ -24,8 +24,8 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.models import Team
-from posthog.models.cohort.cohort import Cohort
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     _compute_flag_dependencies,

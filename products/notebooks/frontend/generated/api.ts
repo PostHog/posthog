@@ -10,7 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     NotebookApi,
+    NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
+    NotebookMarkdownSaveApi,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
@@ -38,7 +40,7 @@ export const getNotebooksListUrl = (projectId: string, params?: NotebooksListPar
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -172,6 +174,48 @@ export const notebooksActivityRetrieve = async (
     return apiMutator<void>(getNotebooksActivityRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksCollabMarkdownSaveCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/collab/markdown_save/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksCollabMarkdownSaveCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookMarkdownSaveApi: NotebookMarkdownSaveApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksCollabMarkdownSaveCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookMarkdownSaveApi),
+    })
+}
+
+export const getNotebooksCollabPresenceCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/collab/presence/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksCollabPresenceCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookCollabPresenceApi: NotebookCollabPresenceApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksCollabPresenceCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookCollabPresenceApi),
     })
 }
 

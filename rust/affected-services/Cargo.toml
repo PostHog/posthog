@@ -11,3 +11,6 @@ guppy = "0.17"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"
+
+[dev-dependencies]
+rstest = "0.26"

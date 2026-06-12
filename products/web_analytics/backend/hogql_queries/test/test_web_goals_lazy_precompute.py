@@ -204,6 +204,13 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         jobs = list(PreaggregationJob.objects.filter(team_id=self.team.pk))
         assert len(jobs) > 0, "expected at least one precompute job to be created"
+        # A failed INSERT still leaves a job row (status FAILED), so existence
+        # alone doesn't prove the insert ran — assert the jobs reached READY.
+        # This catches insert-build errors (e.g. an unaliased SELECT column)
+        # without depending on the skipped read-after-write round trip.
+        assert all(j.status == PreaggregationJob.Status.READY for j in jobs), (
+            f"expected all precompute jobs READY, got {[(str(j.id), j.status, j.error) for j in jobs]}"
+        )
 
     @unittest.skip(
         "Mirrors the CI-only flake in test_web_stats_paths_lazy_precompute.py — "

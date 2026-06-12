@@ -185,6 +185,16 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
                 required=False,
             ),
             OpenApiParameter(
+                name="event",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                description=(
+                    "Filter to experiments whose metrics reference this event name. Matches events used "
+                    "directly in metric queries as well as events behind any actions those metrics reference."
+                ),
+                required=False,
+            ),
+            OpenApiParameter(
                 name="order",
                 location=OpenApiParameter.QUERY,
                 type=str,
@@ -588,6 +598,7 @@ class EnterpriseExperimentsViewSet(
     )
     @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
     def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Copy an experiment into another project in the same organization as a new draft."""
         source_experiment: Experiment = self.get_object()
 
         if experiment_has_legacy_metrics(source_experiment):

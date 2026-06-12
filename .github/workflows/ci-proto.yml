@@ -98,20 +98,10 @@ jobs:
               with:
                   clean: false
 
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: '3.12'
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+                  python-version: '3.13.13'
+                  token: ${{ github.token }}
 
             - name: Install codegen tools
               run: pip install grpcio-tools protoletariat ruff

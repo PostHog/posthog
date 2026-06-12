@@ -42,9 +42,18 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                         .min(hogFlowTemplatesCreateBodyTriggerMaskingOneTtlMin)
                         .max(hogFlowTemplatesCreateBodyTriggerMaskingOneTtlMax)
                         .nullish()
-                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                        .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                    threshold: zod
+                        .number()
+                        .nullish()
+                        .describe(
+                            'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                        ),
+                    hash: zod
+                        .string()
+                        .describe(
+                            "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                        ),
                     bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
@@ -156,9 +165,18 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                         .min(hogFlowTemplatesUpdateBodyTriggerMaskingOneTtlMin)
                         .max(hogFlowTemplatesUpdateBodyTriggerMaskingOneTtlMax)
                         .nullish()
-                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                        .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                    threshold: zod
+                        .number()
+                        .nullish()
+                        .describe(
+                            'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                        ),
+                    hash: zod
+                        .string()
+                        .describe(
+                            "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                        ),
                     bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
@@ -271,9 +289,18 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                         .min(hogFlowTemplatesPartialUpdateBodyTriggerMaskingOneTtlMin)
                         .max(hogFlowTemplatesPartialUpdateBodyTriggerMaskingOneTtlMax)
                         .nullish()
-                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                        .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                    threshold: zod
+                        .number()
+                        .nullish()
+                        .describe(
+                            'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                        ),
+                    hash: zod
+                        .string()
+                        .describe(
+                            "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                        ),
                     bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
@@ -386,16 +413,25 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsCreateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsCreateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                    ),
+                hash: zod
+                    .string()
+                    .describe(
+                        "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                    ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -542,16 +578,25 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsUpdateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsUpdateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                    ),
+                hash: zod
+                    .string()
+                    .describe(
+                        "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                    ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -698,16 +743,25 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                    ),
+                hash: zod
+                    .string()
+                    .describe(
+                        "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                    ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -938,19 +992,25 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .min(hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMin)
                             .max(hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax)
                             .nullish()
-                            .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                            .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
                         threshold: zod
                             .number()
                             .nullish()
-                            .describe('Min matching events before triggering (k-anonymity).'),
-                        hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                            .describe(
+                                'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                            ),
+                        hash: zod
+                            .string()
+                            .describe(
+                                "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                            ),
                         bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                     }),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+                    "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
                 ),
             conversion: zod
                 .unknown()
@@ -1197,16 +1257,25 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                    ),
+                hash: zod
+                    .string()
+                    .describe(
+                        "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                    ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()

@@ -10,6 +10,7 @@ join subqueries below can be resolved by the planner.
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import ACCOUNT_NOTEBOOKS, ACCOUNT_TAGS
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     FieldOrTable,
@@ -140,13 +141,13 @@ def _join_on_account_id(select: ast.SelectQuery | ast.SelectSetQuery, join_to_ad
     )
 
 
-def _account_tags_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+def account_tags_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from `accounts.tags`")
     return _join_on_account_id(_account_tags_select(), join_to_add)
 
 
-def _account_notebooks_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+def account_notebooks_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from `accounts.notebooks`")
     return _join_on_account_id(_account_notebooks_select(), join_to_add)
@@ -155,11 +156,11 @@ def _account_notebooks_join(join_to_add: LazyJoinToAdd, context: HogQLContext, n
 account_tags_lazy_join: LazyJoin = LazyJoin(
     from_field=["id"],
     join_table=_AccountTagsTable(),
-    join_function=_account_tags_join,
+    resolver=ACCOUNT_TAGS,
 )
 
 account_notebooks_lazy_join: LazyJoin = LazyJoin(
     from_field=["id"],
     join_table=_AccountNotebooksTable(),
-    join_function=_account_notebooks_join,
+    resolver=ACCOUNT_NOTEBOOKS,
 )

@@ -1,10 +1,8 @@
 """End-to-end workflow tests using a Temporal `WorkflowEnvironment`.
 
 The activities are mocked at the `@activity.defn` boundary so the workflow's
-orchestration logic — query fan-out, aggregation — can be verified without
-standing up real ClickHouse / Postgres / S3. The SQS pointer activity call
-is currently disabled in the workflow (see `workflow.py`), so it's not
-exercised here.
+orchestration logic — query fan-out, aggregation, and SQS pointer dispatch —
+can be verified without standing up real ClickHouse / Postgres / S3.
 """
 
 import uuid
@@ -33,7 +31,14 @@ from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow
 async def test_workflow_runs_query_then_aggregate() -> None:
     seen_query_names: list[str] = []
     aggregated_with: list[list[str]] = []
+    aggregate_payloads: list[AggregateInputs] = []
     pointer_payloads: list[EnqueuePointerInputs] = []
+    expected_aggregate = AggregateResult(
+        chunk_keys=["chunks/chunk_0000.jsonl.gz"],
+        manifest_key="manifest.json",
+        total_orgs=2,
+        total_orgs_with_usage=1,
+    )
 
     @activity.defn(name="run-usage-report-query")
     async def query_mock(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
@@ -46,16 +51,10 @@ async def test_workflow_runs_query_then_aggregate() -> None:
 
     @activity.defn(name="aggregate-and-chunk-org-reports")
     async def aggregate_mock(inputs: AggregateInputs) -> AggregateResult:
+        aggregate_payloads.append(inputs)
         aggregated_with.append([r.query_name for r in inputs.query_results])
-        return AggregateResult(
-            chunk_keys=["chunks/chunk_0000.jsonl.gz"],
-            manifest_key="manifest.json",
-            total_orgs=2,
-            total_orgs_with_usage=1,
-        )
+        return expected_aggregate
 
-    # Pointer activity is registered so the worker accepts it if dispatched,
-    # but the workflow currently does not call it (see workflow.py for why).
     @activity.defn(name="usage-reports-enqueue-pointer-message")
     async def pointer_mock(inputs: EnqueuePointerInputs) -> None:
         pointer_payloads.append(inputs)
@@ -101,20 +100,13 @@ async def test_workflow_runs_query_then_aggregate() -> None:
     assert len(aggregated_with) == 1
     assert aggregated_with[0] == expected_names
 
-    # Pointer dispatch is currently disabled in the workflow.
-    assert pointer_payloads == []
+    assert len(pointer_payloads) == 1
+    assert pointer_payloads[0].ctx == aggregate_payloads[0].ctx
+    assert pointer_payloads[0].aggregate == expected_aggregate
 
     # Each scheduled query activity carries its query name as the Temporal
     # `summary`, so the UI surfaces which query is running.
     assert set(scheduled_summaries.values()) == set(expected_names)
     assert len(scheduled_summaries) == len(expected_names)
 
-    assert (
-        result
-        == AggregateResult(
-            chunk_keys=["chunks/chunk_0000.jsonl.gz"],
-            manifest_key="manifest.json",
-            total_orgs=2,
-            total_orgs_with_usage=1,
-        ).model_dump()
-    )
+    assert result == expected_aggregate.model_dump()

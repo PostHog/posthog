@@ -104,6 +104,7 @@ Visualization guidance:
 - Single-row, single-metric results should use `BoldNumber`.
 - Categorical comparisons should use `ActionsBar`.
 - Use `ActionsStackedBar` only when a categorical breakdown column should split each x-axis category into colored series.
+- Use `ActionsPie` when the user asks for a pie chart or wants to see proportions of a whole across a small set of categories; set `x_axis` to the category column and `y_axis` to the single numeric value column.
 - Use `TwoDimensionalHeatmap` only when the query returns x, y, and numeric value columns for a matrix-style result.
 - Use `ActionsTable` for lists, raw event/person rows, or when multiple text columns are the point of the result.
 
