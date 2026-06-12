@@ -1,11 +1,16 @@
 import { v7 as uuidv7 } from 'uuid'
 
+import { emitIngestionWarning } from '../../ingestion/common/ingestion-warnings'
+import { IngestionWarningsOutput } from '../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { SessionFeatureBlock, SessionFeatureStore } from '../../session-replay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '../../session-replay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor, SessionKey } from '../../session-replay/shared/types'
+import { TimestampFormat } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { castTimestampOrNow } from '../../utils/utils'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
@@ -81,7 +86,8 @@ export class SessionBatchRecorder {
         private readonly sessionFilter: SessionFilter,
         private readonly keyStore: KeyStore,
         private readonly encryptor: RecordingEncryptor,
-        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
+        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
+        private readonly warningsOutput?: IngestionOutputs<IngestionWarningsOutput>
     ) {
         this.batchId = uuidv7()
         this.rateLimiter = new SessionRateLimiter(maxEventsPerSessionPerBatch)
@@ -134,13 +140,29 @@ export class SessionBatchRecorder {
         const isEventAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)
 
         if (!isEventAllowed) {
+            const eventCount = this.rateLimiter.getEventCount(teamSessionKey)
             logger.debug('🔁', 'session_batch_recorder_event_rate_limited', {
                 partition,
                 sessionId,
                 teamId,
-                eventCount: this.rateLimiter.getEventCount(teamSessionKey),
+                eventCount,
                 batchId: this.batchId,
             })
+
+            // dropping recording data is otherwise invisible to the team
+            if (this.warningsOutput) {
+                void emitIngestionWarning(
+                    this.warningsOutput,
+                    teamId,
+                    'replay_session_rate_limited',
+                    {
+                        sessionId,
+                        eventCount,
+                        timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                    },
+                    { key: sessionId }
+                )
+            }
 
             if (!this.partitionSessions.has(partition)) {
                 return this.ignoreMessage(message)

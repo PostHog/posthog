@@ -222,6 +222,7 @@ export class SessionRecordingIngester {
             sessionFilter,
             keyStore: this.keyStore,
             encryptor: this.encryptor,
+            warningsOutput: outputs,
         })
     }
 

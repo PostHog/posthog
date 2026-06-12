@@ -1,3 +1,5 @@
+import { IngestionWarningsOutput } from '../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { SessionFeatureStore } from '../../session-replay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor } from '../../session-replay/shared/types'
@@ -34,6 +36,8 @@ export interface SessionBatchManagerConfig {
     keyStore: KeyStore
     /** Encryptor for session recording data */
     encryptor: RecordingEncryptor
+    /** Output for team-visible ingestion warnings */
+    warningsOutput?: IngestionOutputs<IngestionWarningsOutput>
 }
 
 /**
@@ -85,6 +89,7 @@ export class SessionBatchManager {
     private readonly sessionFilter: SessionFilter
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
+    private readonly warningsOutput?: IngestionOutputs<IngestionWarningsOutput>
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -99,6 +104,7 @@ export class SessionBatchManager {
         this.sessionFilter = config.sessionFilter
         this.keyStore = config.keyStore
         this.encryptor = config.encryptor
+        this.warningsOutput = config.warningsOutput
 
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
@@ -110,7 +116,8 @@ export class SessionBatchManager {
             this.sessionFilter,
             this.keyStore,
             this.encryptor,
-            this.maxEventsPerSessionPerBatch
+            this.maxEventsPerSessionPerBatch,
+            this.warningsOutput
         )
         this.lastFlushTime = Date.now()
     }
@@ -138,7 +145,8 @@ export class SessionBatchManager {
             this.sessionFilter,
             this.keyStore,
             this.encryptor,
-            this.maxEventsPerSessionPerBatch
+            this.maxEventsPerSessionPerBatch,
+            this.warningsOutput
         )
         this.lastFlushTime = Date.now()
     }

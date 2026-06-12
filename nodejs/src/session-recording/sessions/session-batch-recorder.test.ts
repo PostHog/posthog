@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
+import { IngestionWarningsOutput } from '../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { SessionFeatureStore } from '../../session-replay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
 import { createMockEncryptor, createMockKeyStore } from '../../session-replay/shared/test-helpers'
@@ -1745,6 +1747,39 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             expect(writtenData).toHaveLength(0)
+        })
+
+        it('should emit an ingestion warning when rate limited', async () => {
+            const mockWarningsOutput = {
+                queueMessages: jest.fn().mockResolvedValue(undefined),
+            } as unknown as IngestionOutputs<IngestionWarningsOutput>
+
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                mockFeatureStore,
+                mockSessionTracker,
+                mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
+                1,
+                mockWarningsOutput
+            )
+
+            // unique id so the warning debouncer can't suppress this test
+            const sessionId = `rate-limit-warning-${Date.now()}`
+            await recorder.record(createMessage(sessionId, [{ type: EventType.Meta, timestamp: 1000, data: {} }]))
+            await recorder.record(createMessage(sessionId, [{ type: EventType.Meta, timestamp: 2000, data: {} }]))
+
+            expect(mockWarningsOutput.queueMessages).toHaveBeenCalledTimes(1)
+            const [output, messages] = (mockWarningsOutput.queueMessages as jest.Mock).mock.calls[0]
+            expect(output).toBe('ingestion_warnings')
+            const warning = parseJSON(messages[0].value.toString())
+            expect(warning.team_id).toBe(1)
+            expect(warning.type).toBe('replay_session_rate_limited')
+            expect(parseJSON(warning.details).sessionId).toBe(sessionId)
         })
 
         it('should delete session recorders when rate limited', async () => {
