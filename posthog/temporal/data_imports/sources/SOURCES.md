@@ -59,6 +59,7 @@ the row lists both.
 | calendly         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor | HTTP                        | requests                                                        | ✅                          |
 | chargebee        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| commercetools    | HTTP                        | requests                                                        | ✅                          |
 | confluence       | HTTP                        | requests                                                        | ✅                          |
 | chartmogul       | HTTP                        | requests                                                        | ✅                          |
 | circleci         | HTTP                        | requests                                                        | ✅                          |
@@ -80,6 +81,7 @@ the row lists both.
 | front            | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | gitlab           | HTTP                        | requests                                                        | ✅                          |
+| gocardless       | HTTP                        | requests                                                        | ✅                          |
 | gong             | HTTP                        | requests                                                        | ✅                          |
 | google_ads       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
@@ -94,6 +96,7 @@ the row lists both.
 | jira             | HTTP                        | requests                                                        | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly     | HTTP                        | requests                                                        | ✅                          |
+| kustomer         | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
 | lever            | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -103,6 +106,7 @@ the row lists both.
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
+| mollie           | HTTP                        | requests                                                        | ✅                          |
 | mongodb          | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql            | DB protocol                 | pymysql                                                         | ➖                          |
@@ -113,6 +117,7 @@ the row lists both.
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
 | pandadoc         | HTTP                        | requests                                                        | ✅                          |
 | pendo            | HTTP                        | requests                                                        | ✅                          |
+| personio         | HTTP                        | requests                                                        | ✅                          |
 | pingdom          | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads    | HTTP                        | requests                                                        | ✅                          |
 | pipedrive        | HTTP                        | requests                                                        | ✅                          |
@@ -217,7 +222,6 @@ doesn't conflict with concurrent PRs.
 - cloudflare
 - cockroachdb
 - coda
-- commercetools
 - constant_contact
 - copper
 - cosmosdb
@@ -243,7 +247,6 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - fullstory
 - gladly
-- gocardless
 - google_ad_manager
 - google_analytics
 - google_cloud_storage
@@ -254,14 +257,12 @@ doesn't conflict with concurrent PRs.
 - hibob
 - instagram
 - kafka
-- kustomer
 - lattice
 - lever
 - lightspeed_retail
 - marketo
 - matomo
 - microsoft_teams
-- mollie
 - monday
 - netsuite
 - onedrive
@@ -278,7 +279,6 @@ doesn't conflict with concurrent PRs.
 - paylocity
 - paypal
 - pendo
-- personio
 - plaid
 - planetscale
 - qualtrics

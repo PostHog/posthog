@@ -37,8 +37,6 @@ from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from posthog.schema import SlackIntegrationScope, SlackIntegrationScopeInReview
-
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
@@ -50,6 +48,7 @@ from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region

@@ -95,7 +95,10 @@ from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import (
+    SessionReplayEvents,
+    get_latest_session_event_properties,
+)
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
@@ -982,6 +985,14 @@ class SessionRecordingViewSet(
             recording.viewers = other_viewers.get(str(recording.session_id), [])
 
         return JsonResponse({"viewed": recording.viewed, "other_viewers": len(recording.viewers or [])})
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="capture_diagnostics")
+    def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Latest event properties for the recording's session, for the capture diagnostics panel."""
+        recording = self.get_object()
+        properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        return Response({"properties": properties})
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

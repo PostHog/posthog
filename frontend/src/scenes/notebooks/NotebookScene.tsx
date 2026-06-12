@@ -163,9 +163,10 @@ export function NotebookScene(): JSX.Element {
                                 feature flags into your active notebook.
                             </>
                         }
+                        aria-label="Open in context panel"
                         sideIcon={<IconOpenSidebar />}
                     >
-                        Open in context panel
+                        <span className="hidden lg:inline">Open in context panel</span>
                     </LemonButton>
                 </div>
             </div>

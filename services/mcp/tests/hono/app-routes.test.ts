@@ -1,10 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+
+// Tests that go through createApp need a signing key — the typed-confirm
+// runtime install throws without one. We stub a fixed value rather than
+// depend on the surrounding environment.
+const TEST_SIGNING_KEY = 'a'.repeat(32)
+beforeAll(() => {
+    process.env.MCP_SIGNED_STATE_KEY = TEST_SIGNING_KEY
+})
 
 interface MockRedis extends RedisLike {
     ping: Mock<() => Promise<string>>
@@ -395,6 +403,63 @@ describe('Hono App Routes', () => {
             const res2 = await app2.request('/healthz')
             expect(res1.status).toBe(200)
             expect(res2.status).toBe(200)
+        })
+    })
+
+    describe('confirmed-action runtime', () => {
+        afterEach(() => {
+            // Restore the signing key after the "missing key" test below
+            // unsets it, so following tests don't bleed into each other.
+            process.env.MCP_SIGNED_STATE_KEY = TEST_SIGNING_KEY
+        })
+
+        it('installs the runtime so generated -prepare/-execute handlers can resolve it', async () => {
+            // createApp wires setConfirmedActionRuntime at boot. Without
+            // that wiring, getConfirmedActionRuntime() throws — so the
+            // mere fact that we can resolve a non-undefined runtime after
+            // createApp ran proves the boot path is in place.
+            createApp(mockRedis)
+            const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
+            const runtime = getConfirmedActionRuntime()
+            expect(runtime.codec).toBeInstanceOf(Object)
+            expect(runtime.ledger).toBeInstanceOf(Object)
+        })
+
+        it('overwrites the singleton on each createApp call (latest wins)', async () => {
+            // app.ts deliberately re-installs the runtime on every
+            // createApp. Lock that behavior down so a future "guard
+            // against re-install" change doesn't silently make the second
+            // app instance share the first app's Redis-bound ledger.
+            const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
+            const redis1 = createMockRedis()
+            createApp(redis1)
+            const first = getConfirmedActionRuntime()
+            const redis2 = createMockRedis()
+            createApp(redis2)
+            const second = getConfirmedActionRuntime()
+            expect(second).not.toBe(first)
+            expect(second.ledger).not.toBe(first.ledger)
+        })
+
+        it('boots without a signing key — confirmed_action paradigm is disabled but the app still serves', async () => {
+            // Option B: missing key disables the paradigm but does NOT
+            // crash the app. Other tools keep working; only confirmed_action
+            // tools fail at request time. Assert: app responds normally
+            // AND getConfirmedActionRuntime() throws with a message that
+            // points at the env var.
+            delete process.env.MCP_SIGNED_STATE_KEY
+            const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+            try {
+                const { app } = createApp(mockRedis)
+                const res = await app.request('/healthz')
+                expect(res.status).toBe(200)
+                expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('confirmed-action paradigm disabled'))
+
+                const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
+                expect(() => getConfirmedActionRuntime()).toThrow(/MCP_SIGNED_STATE_KEY/)
+            } finally {
+                errorSpy.mockRestore()
+            }
         })
     })
 })

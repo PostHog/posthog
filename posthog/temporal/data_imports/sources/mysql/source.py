@@ -119,6 +119,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             "ProgrammingError: (1146": None,  # Table not found error
             "OperationalError: (1356": None,  # View not found error
             "Bad handshake": None,
+            # OpenSSL's signature for "tried to speak TLS to an endpoint that replied with
+            # non-TLS bytes" — the source has SSL enabled but the server (or a proxy in front
+            # of it, e.g. a plain TCP proxy) doesn't speak TLS, or the host/port is wrong. This
+            # arrives wrapped as a pymysql OperationalError(2013, 'Lost connection ...'), but it
+            # is a deterministic config mismatch, not the transient connection-drop that 2013
+            # usually signals — so match only the stable SSL token, never the generic 2013 text.
+            "[SSL: WRONG_VERSION_NUMBER]": "We couldn't establish an SSL connection to your MySQL server — it responded as if SSL is not enabled. If your server (or a proxy in front of it) doesn't support SSL, set 'Use SSL?' to No; otherwise check that you're connecting to an SSL-enabled host and port.",
             # Raised from the shared `_decimal_array_from_values` fallback in
             # `pipelines/pipeline/utils.py` when a numeric/decimal value exceeds Delta Lake's
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
