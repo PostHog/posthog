@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { hogqlQuery } from '~/queries/query'
@@ -108,6 +109,32 @@ const EMPTY_CHART_DATA: DailyChartData = {
     p50: [],
     p95: [],
     p99: [],
+}
+
+// Pivot per-day rows into chart series over a gap-free day axis: ClickHouse only
+// returns days that had events, so missing days are filled in to keep the x-axis
+// linear. Counts fill with 0 (genuinely no activity); rate and latency fill with
+// NaN so the chart skips the point instead of drawing a misleading dip to zero.
+export function buildDailyChartData(dailyStats: DailyToolStat[]): DailyChartData {
+    if (dailyStats.length === 0) {
+        return EMPTY_CHART_DATA
+    }
+    const byDay = new Map(dailyStats.map((r) => [r.day, r]))
+    const end = dayjs(dailyStats[dailyStats.length - 1].day)
+    const labels: string[] = []
+    for (let day = dayjs(dailyStats[0].day); !day.isAfter(end); day = day.add(1, 'day')) {
+        labels.push(day.format('YYYY-MM-DD'))
+    }
+    const rows = labels.map((day) => byDay.get(day))
+    return {
+        labels,
+        calls: rows.map((r) => r?.calls ?? 0),
+        errors: rows.map((r) => r?.errors ?? 0),
+        successRate: rows.map((r) => (r && r.calls ? ((r.calls - r.errors) / r.calls) * 100 : NaN)),
+        p50: rows.map((r) => (r ? r.p50 : NaN)),
+        p95: rows.map((r) => (r ? r.p95 : NaN)),
+        p99: rows.map((r) => (r ? r.p99 : NaN)),
+    }
 }
 
 function sortToolRows(rows: ToolQualityRow[], sort: SortState): ToolQualityRow[] {
@@ -328,20 +355,7 @@ ORDER BY day
         ],
         dailyChartData: [
             (s) => [s.dailyStats],
-            (dailyStats: DailyToolStat[]): DailyChartData => {
-                if (dailyStats.length === 0) {
-                    return EMPTY_CHART_DATA
-                }
-                return {
-                    labels: dailyStats.map((r) => r.day),
-                    calls: dailyStats.map((r) => r.calls),
-                    errors: dailyStats.map((r) => r.errors),
-                    successRate: dailyStats.map((r) => (r.calls ? ((r.calls - r.errors) / r.calls) * 100 : 0)),
-                    p50: dailyStats.map((r) => r.p50),
-                    p95: dailyStats.map((r) => r.p95),
-                    p99: dailyStats.map((r) => r.p99),
-                }
-            },
+            (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
         ],
     }),
 

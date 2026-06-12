@@ -8,14 +8,15 @@ import {
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
     type TooltipContext,
+    TooltipSurface,
+    TooltipSwatch,
     legendItemsFromSeries,
 } from '@posthog/quill-charts'
 
 import { formatPercentage } from 'lib/utils'
 
 import { Card, CardState } from '../dashboard/Card'
-import { ChartTooltip } from '../dashboard/ChartTooltip'
-import { formatMs, formatNumber } from '../dashboard/formatters'
+import { formatMsAsSeconds, formatNumber } from '../dashboard/formatters'
 import { type DailyChartData } from '../mcpAnalyticsToolQualityLogic'
 
 function buildConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
@@ -26,6 +27,32 @@ function buildConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis'
         showCrosshair: true,
         tooltip: { placement: 'cursor' },
     }
+}
+
+// Same layout as quill's DefaultTooltip (label header + swatch rows), with the
+// value run through a formatter — which the default tooltip doesn't support.
+function FormattedSeriesTooltip({
+    ctx,
+    formatValue,
+    footer,
+}: {
+    ctx: TooltipContext
+    formatValue: (value: number) => string
+    footer?: React.ReactNode
+}): JSX.Element {
+    return (
+        <TooltipSurface>
+            <div className="font-semibold mb-1">{ctx.label}</div>
+            {ctx.seriesData.map((s) => (
+                <div key={s.series.key} className="flex items-center gap-2">
+                    <TooltipSwatch color={s.color} />
+                    <span>{s.series.label}:</span>
+                    <strong>{formatValue(s.value)}</strong>
+                </div>
+            ))}
+            {footer}
+        </TooltipSurface>
+    )
 }
 
 function ChartCard({
@@ -51,7 +78,10 @@ function ChartCard({
                     </div>
                 }
             >
-                <div className="flex min-h-[220px] flex-1 flex-col">{children}</div>
+                {/* Dim while refreshing so date/tool changes give visible feedback. */}
+                <div className={`flex min-h-[220px] flex-1 flex-col transition-opacity ${loading ? 'opacity-50' : ''}`}>
+                    {children}
+                </div>
             </CardState>
         </Card>
     )
@@ -95,48 +125,26 @@ export function ToolQualityCharts({
         () => buildConfig(timezone, { tickFormatter: (value: number) => formatPercentage(value, { compact: true }) }),
         [timezone]
     )
-    const latencyConfig = useMemo(
-        () => buildConfig(timezone, { tickFormatter: (value: number) => (value === 0 ? '0' : formatMs(value)) }),
-        [timezone]
-    )
+    const latencyConfig = useMemo(() => buildConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
 
-    const callsTooltip = useCallback(
-        (ctx: TooltipContext): JSX.Element => (
-            <ChartTooltip
-                title={ctx.label}
-                rows={[
-                    ['Calls', formatNumber(data.calls[ctx.dataIndex] ?? 0)],
-                    ['Errors', formatNumber(data.errors[ctx.dataIndex] ?? 0)],
-                ]}
-            />
-        ),
-        [data]
-    )
     const successTooltip = useCallback(
         (ctx: TooltipContext): JSX.Element => (
-            <ChartTooltip
-                title={ctx.label}
-                rows={[
-                    ['Success rate', formatPercentage(data.successRate[ctx.dataIndex] ?? 0, { compact: true })],
-                    ['Calls', formatNumber(data.calls[ctx.dataIndex] ?? 0)],
-                    ['Errors', formatNumber(data.errors[ctx.dataIndex] ?? 0)],
-                ]}
+            <FormattedSeriesTooltip
+                ctx={ctx}
+                formatValue={(value) => (isFinite(value) ? formatPercentage(value, { compact: true }) : '—')}
+                footer={
+                    <div className="mt-1 opacity-70">
+                        {formatNumber(data.calls[ctx.dataIndex] ?? 0)} calls ·{' '}
+                        {formatNumber(data.errors[ctx.dataIndex] ?? 0)} errors
+                    </div>
+                }
             />
         ),
         [data]
     )
     const latencyTooltip = useCallback(
-        (ctx: TooltipContext): JSX.Element => (
-            <ChartTooltip
-                title={ctx.label}
-                rows={[
-                    ['p50', formatMs(data.p50[ctx.dataIndex] ?? 0)],
-                    ['p95', formatMs(data.p95[ctx.dataIndex] ?? 0)],
-                    ['p99', formatMs(data.p99[ctx.dataIndex] ?? 0)],
-                ]}
-            />
-        ),
-        [data]
+        (ctx: TooltipContext): JSX.Element => <FormattedSeriesTooltip ctx={ctx} formatValue={formatMsAsSeconds} />,
+        []
     )
 
     return (
@@ -147,7 +155,6 @@ export function ToolQualityCharts({
                     labels={data.labels}
                     config={countsConfig}
                     theme={theme}
-                    tooltip={callsTooltip}
                     dataAttr="mcp-tool-quality-calls-chart"
                 />
             </ChartCard>
