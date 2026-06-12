@@ -1104,6 +1104,7 @@ export interface ForgetResponseApi {
  * * `pganalyze` - pganalyze
  * * `signals_scout` - Signals scout
  * * `logs` - Logs
+ * * `replay_vision` - Replay Vision
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -1118,6 +1119,7 @@ export const SourceProductEnumApi = {
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
     Logs: 'logs',
+    ReplayVision: 'replay_vision',
 } as const
 
 /**
@@ -1130,6 +1132,7 @@ export const SourceProductEnumApi = {
  * * `issue_spiking` - Issue spiking
  * * `cross_source_issue` - Cross source issue
  * * `alert_state_change` - Alert state change
+ * * `scanner_finding` - Scanner finding
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -1144,6 +1147,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     IssueSpiking: 'issue_spiking',
     CrossSourceIssue: 'cross_source_issue',
     AlertStateChange: 'alert_state_change',
+    ScannerFinding: 'scanner_finding',
 } as const
 
 export interface SignalSourceConfigApi {
