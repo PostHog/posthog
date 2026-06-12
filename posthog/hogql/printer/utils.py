@@ -215,8 +215,15 @@ def prepare_ast_for_printing(
 
         # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): recover blanked geoip city/postal reads from the IP via a ClickHouse
         # dictionary. Runs on the lowered AST so the reads it adds are plain PropertyAccess nodes, which the resolution
-        # pass below routes to materialized columns. Operator-controlled via env only, per team. Remove with the transform.
-        if geoip_dict_fallback_enabled_for_team(context.team_id):
+        # pass below routes to materialized columns. Operator-controlled via env only, per team. Decided exactly once
+        # per query, on the context, so the printer's `_lookupGeoip*` gate can never disagree with the transform.
+        # Never applies within_non_hogql_query: those fragments splice into DELETE mutations (data deletion requests)
+        # and legacy filters, where the matched row set must not depend on env/probe state and a missing dictionary
+        # would wedge the sticky mutation queue. Remove with the transform.
+        context.geoip_dict_fallback_enabled = (
+            not context.within_non_hogql_query and geoip_dict_fallback_enabled_for_team(context.team_id)
+        )
+        if context.geoip_dict_fallback_enabled:
             with context.timings.measure("geoip_dict_fallback"):
                 node = (
                     apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved(

@@ -17,12 +17,16 @@ from posthog.schema import PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
+from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.base import get_geoip_city_postal_dict
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_enabled_for_team
+from posthog.hogql.transforms.geoip_dict_fallback import (
+    geoip_dict_fallback_enabled_for_team,
+    geoip_dict_fallback_team_in_env,
+)
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
@@ -99,9 +103,23 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
 
     def test_enabled_helper_requires_real_dictionary(self) -> None:
         # No stub here: the dictionary does not exist on the test ClickHouse, so the runtime discovery says no even
-        # though the env var enables the team.
+        # though the env var enables the team. The env-membership half (used for cache keys) stays True regardless:
+        # cache keys must depend only on operator config, never on the probe.
         with override_settings(HOGQL_GEOIP_DICT_FALLBACK_TEAMS="*"):
             assert geoip_dict_fallback_enabled_for_team(self.team.pk) is False
+            assert geoip_dict_fallback_team_in_env(self.team.pk) is True
+
+    def test_no_fallback_in_non_hogql_fragments(self) -> None:
+        # Deletion predicates and legacy filters compile via translate_hogql with within_non_hogql_query=True and
+        # splice into DELETE mutations on sharded_events: the matched row set must not depend on env/probe state, and
+        # a dictGet inside a mutation would wedge the sticky mutation queue if the dictionary disappears.
+        context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=True, enable_select_queries=True)
+        with (
+            override_settings(HOGQL_GEOIP_DICT_FALLBACK_TEAMS="*"),
+            patch("posthog.hogql.transforms.geoip_dict_fallback._geoip_dict_exists", return_value=True),
+        ):
+            sql = translate_hogql("properties.$geoip_city_name = 'London'", context)
+        assert "dictGetStringOrDefault" not in sql
 
     def test_person_properties_on_events_not_wrapped_under_poe(self) -> None:
         # Under persons-on-events, person properties live on the events table behind a virtual sub-table whose blob

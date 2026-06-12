@@ -10,10 +10,19 @@ only rows the incident could have affected change.
 Gated on the `HOGQL_GEOIP_DICT_FALLBACK_TEAMS` env var: a comma-separated list of team ids, or "*" for all teams;
 empty (the default) disables it everywhere. Deliberately not a query modifier so it is operator-controlled only and
 leaves nothing persisted in `team.modifiers` or saved queries to scrub at removal time. The gate also verifies at
-runtime that the dictionary exists (cached in-process like materialized-column discovery), so the transform stands
-down instead of printing failing SQL wherever the manually provisioned dictionary is absent. Delete this file with
-its callsite in `printer/utils.py`, the cache-payload entry in `query_runner.py`, the env setting, and the
-`_lookupGeoip*` functions once the backfill is done.
+runtime that the dictionary exists, healthy, on every node of the cluster (cached in-process like materialized-column
+discovery), so the transform stands down instead of printing failing SQL wherever the manually provisioned dictionary
+is absent or broken. The transform never applies to `within_non_hogql_query` fragments: those splice into DELETE
+mutations (data deletion requests) and legacy filters, where the matched row set must not depend on env/probe state.
+
+Operational runbook (the env var must be set identically on every deployment that compiles HogQL — web, celery,
+query service, temporal — per region):
+- Enable: provision the dictionary ON CLUSTER and verify `system.dictionaries` on every node FIRST, then set the env
+  var, staged team lists before "*" ("*" changes every team's query cache key at once, a fleet-wide recompute).
+- Remove: empty the env var on all deployments and confirm rollout, then delete this file with its callsite in
+  `printer/utils.py`, the context field in `context.py`, the cache-payload entry in `query_runner.py`, the env
+  setting, and the `_lookupGeoip*` functions — and only then drop the dictionary and its source table (dropping the
+  dictionary first leaves up to 15 minutes of cached "healthy" probes printing SQL that hard-fails).
 
 Runs between logical property lowering and ClickHouse property resolution: each affected `PropertyAccess` becomes a
 conditional over three property reads (the property itself, `$geoip_country_code`, `$ip`), and the resolution pass
@@ -32,6 +41,8 @@ from typing import cast
 
 from django.conf import settings
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
@@ -42,6 +53,10 @@ from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.settings import CLICKHOUSE_CLUSTER
+
+logger = structlog.get_logger(__name__)
 
 FALLBACK_PROPERTY_TO_FUNCTION = {
     "$geoip_city_name": "_lookupGeoipCityName",
@@ -51,33 +66,63 @@ FALLBACK_PROPERTY_TO_FUNCTION = {
 
 @cache_for(timedelta(minutes=15), background_refresh=True)
 def _geoip_dict_exists() -> bool:
-    """Whether the `city_postal_ip_trie` dictionary exists on the connected ClickHouse.
+    """Whether the `city_postal_ip_trie` dictionary exists, healthy, on every node of the cluster.
 
     The dictionary is manually provisioned (no migration), so this mirrors the runtime materialized-column discovery:
-    checked against `system.dictionaries` and cached in-process, so installs without the dictionary (self-hosted, dev,
-    a region missing the manual step) get the unmodified query instead of SQL that errors. A failed check counts as
-    absent: a ClickHouse blip degrades the fallback, never the query.
+    checked against `system.dictionaries` and cached in-process. The emitted `dictGet` executes on every shard and
+    replica that serves events queries, so the probe fans out via `clusterAllReplicas` and requires the dictionary
+    DDL on every node with none in a failed state — partial provisioning or a broken source disables the fallback
+    everywhere rather than hard-failing queries on the nodes that lack it. A failed probe counts as absent: a
+    ClickHouse blip degrades the fallback, never the query.
     """
     database, _, name = get_geoip_city_postal_dict().partition(".")
     try:
-        return bool(
-            sync_execute(
-                "SELECT 1 FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s LIMIT 1",
-                {"database": database, "name": name},
-            )
+        # The cluster name comes from operator settings, not user input, mirroring ON_CLUSTER_CLAUSE.
+        rows = sync_execute(
+            f"""
+            SELECT
+                (SELECT count() FROM clusterAllReplicas('{CLICKHOUSE_CLUSTER}', system.one)) AS total_nodes,
+                count() AS nodes_with_dictionary,
+                countIf(status IN ('FAILED', 'FAILED_AND_RELOADING')) AS failed_nodes
+            FROM clusterAllReplicas('{CLICKHOUSE_CLUSTER}', system.dictionaries)
+            WHERE database = %(database)s AND name = %(name)s
+            """,
+            {"database": database, "name": name},
+            settings={"max_execution_time": 5},
+            ch_user=ClickHouseUser.HOGQL,
         )
+        total_nodes, nodes_with_dictionary, failed_nodes = rows[0]
+        healthy = total_nodes > 0 and nodes_with_dictionary == total_nodes and failed_nodes == 0
+        if not healthy:
+            logger.warning(
+                "geoip_dict_fallback_dictionary_unhealthy",
+                total_nodes=total_nodes,
+                nodes_with_dictionary=nodes_with_dictionary,
+                failed_nodes=failed_nodes,
+            )
+        return healthy
     except Exception:
+        # The fallback silently standing down is itself an incident-mitigation failure, so make it visible.
+        logger.warning("geoip_dict_fallback_dictionary_probe_failed", exc_info=True)
         return False
 
 
-def geoip_dict_fallback_enabled_for_team(team_id: int | None) -> bool:
-    """Whether the env var enables the fallback for this team ("*" matches every team) and the dictionary exists."""
+def geoip_dict_fallback_team_in_env(team_id: int | None) -> bool:
+    """Whether the env var lists this team ("*" matches every team). Pure config, no ClickHouse dependency.
+
+    This is the half used for query cache keys: keys must depend only on operator-controlled config, never on the
+    runtime dictionary probe, or a transient probe failure would flip every enabled team's cache keys at once and
+    recompute the fleet against an already-degraded cluster.
+    """
     raw = settings.HOGQL_GEOIP_DICT_FALLBACK_TEAMS.strip()
     if not raw or team_id is None:
         return False
-    if raw != "*" and str(team_id) not in {part.strip() for part in raw.split(",")}:
-        return False
-    return _geoip_dict_exists()
+    return raw == "*" or str(team_id) in {part.strip() for part in raw.split(",")}
+
+
+def geoip_dict_fallback_enabled_for_team(team_id: int | None) -> bool:
+    """Whether the env var enables the fallback for this team and the dictionary is healthy cluster-wide."""
+    return geoip_dict_fallback_team_in_env(team_id) and _geoip_dict_exists()
 
 
 class GeoipDictFallback(CloningVisitor):

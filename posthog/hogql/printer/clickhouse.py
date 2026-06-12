@@ -23,7 +23,6 @@ from posthog.hogql.printer.base import (
 )
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
-from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_enabled_for_team
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -247,7 +246,9 @@ class ClickHousePrinter(BasePrinter):
             # geoip_dict_fallback transform. toIPv6OrDefault
             # covers both families (v4 input becomes a ::ffff: mapped address, which the ip_trie dict resolves against
             # its IPv4 prefixes); empty or invalid input becomes '::', which misses and returns the '' default.
-            if not geoip_dict_fallback_enabled_for_team(self.context.team_id):
+            # Reads the once-per-query decision from the context (set in prepare_ast_for_printing) rather than
+            # re-probing, so a background cache refresh can never make this gate reject the transform's own calls.
+            if not self.context.geoip_dict_fallback_enabled:
                 raise QueryError(f"{node.name} is not available on this instance")
             # Deliberately NO property-restriction guard here, reviewers included AI ones: these are pure functions
             # over GeoLite2, a public IP->geo dataset, and they cannot circumvent property-level access control.
