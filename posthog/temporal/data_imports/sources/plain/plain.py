@@ -235,7 +235,8 @@ def _fetch_paginated_endpoint(
     variables: dict[str, Any] = {"first": PLAIN_DEFAULT_PAGE_SIZE}
 
     if updated_at_gte is not None:
-        variables["filter"] = {"updatedAt": {"gte": _datetime_to_plain_iso8601(updated_at_gte)}}
+        # Plain's DatetimeFilter only supports `after` (>=) and `before` (<).
+        variables["filter"] = {"updatedAt": {"after": _datetime_to_plain_iso8601(updated_at_gte)}}
 
     has_next_page = True
     while has_next_page:
@@ -267,7 +268,8 @@ def _fetch_timeline_entries(
     """
     variables: dict[str, Any] = {"first": PLAIN_DEFAULT_PAGE_SIZE}
     if created_at_gte is not None:
-        variables["filter"] = {"updatedAt": {"gte": _datetime_to_plain_iso8601(created_at_gte)}}
+        # Plain's DatetimeFilter only supports `after` (>=) and `before` (<).
+        variables["filter"] = {"updatedAt": {"after": _datetime_to_plain_iso8601(created_at_gte)}}
 
     has_next_page = True
     while has_next_page:
