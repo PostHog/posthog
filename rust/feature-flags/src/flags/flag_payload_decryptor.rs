@@ -78,7 +78,8 @@ impl FlagPayloadDecryptor {
         Self::from_keys(&keys)
     }
 
-    /// Build from an already-resolved, ordered key list (first encrypts, all decrypt).
+    /// Build from an already-resolved, ordered key list (Django encrypts with the first key;
+    /// this service only decrypts and tries all of them).
     pub fn from_keys(keys: &[String]) -> Result<Self, FlagPayloadDecryptorError> {
         if keys.is_empty() {
             return Err(FlagPayloadDecryptorError::NoKeys);
