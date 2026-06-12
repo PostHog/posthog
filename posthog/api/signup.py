@@ -186,7 +186,12 @@ class SignupSerializer(serializers.Serializer):
         return value
 
     def is_email_auto_verified(self):
-        return self.is_social_signup
+        if self.is_social_signup:
+            return True
+        # Smoke-test signups on a non-prod allowlisted domain are created already-verified, so the
+        # deploy check can sign up and immediately clean up. Empty allowlist in prod => always False.
+        domain = self.validated_data.get("email", "").rsplit("@", 1)[-1].lower()
+        return domain in settings.EMAIL_VERIFICATION_SKIP_FOR_DOMAINS
 
     def create(self, validated_data, **kwargs):
         if settings.DEMO:
