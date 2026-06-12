@@ -208,14 +208,15 @@ function HogQLAlertPreviewBanner({
                 const breaching = preview.breachingRows
                 return (
                     <LemonBanner type={breaching ? 'warning' : 'info'}>
-                        The alert checks every row of {columnLabel} —{' '}
+                        The alert checks every row of {columnLabel}
                         {breaching !== null ? (
                             <>
-                                currently <strong>{breaching}</strong> of {preview.rowCount} rows breach the threshold
+                                {' '}
+                                — currently <strong>{breaching}</strong> of {preview.rowCount} rows breach the threshold
                                 {breaching > 0 ? ', so the alert would fire on its next check' : ''}.
                             </>
                         ) : (
-                            <>{preview.rowCount} rows. Set a threshold to preview which rows would breach.</>
+                            <>. Set a threshold to preview which rows would breach.</>
                         )}
                     </LemonBanner>
                 )
@@ -236,15 +237,14 @@ function HogQLAlertPreviewBanner({
                             {' '}
                             vs <strong>{humanFriendlyNumber(preview.previousValue)}</strong> in the previous row
                         </>
-                    ) : null}{' '}
-                    ({pluralize(preview.rowCount, 'row')}). Order the query chronologically so the last row is the most
-                    recent value.
+                    ) : null}
+                    . Order the query chronologically so the last row is the most recent value.
                     {!isRelative && preview.breachingRows !== null ? (
                         <>
                             {' '}
-                            Of the {pluralize(preview.rowCount, 'row')} in the result,{' '}
-                            <strong>{preview.breachingRows}</strong> {preview.breachingRows === 1 ? 'is' : 'are'}{' '}
-                            currently outside the threshold.
+                            Right now <strong>{preview.breachingRows}</strong> of its{' '}
+                            {pluralize(preview.rowCount, 'row')} {preview.breachingRows === 1 ? 'is' : 'are'} outside
+                            the threshold.
                         </>
                     ) : null}
                 </LemonBanner>
