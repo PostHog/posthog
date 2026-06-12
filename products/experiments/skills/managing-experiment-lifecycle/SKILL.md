@@ -122,9 +122,16 @@ Copies an experiment into a **different project in the same organization** as a 
 - **What's copied**: name, description, type, parameters, filters, primary/secondary metrics (fresh uuids), stats and
   scheduling config, exposure criteria. **Not copied**: saved-metric references (project-scoped), holdout, exposure
   cohort, dates, results, conclusion.
-- **Feature flag**: pass `target_team_id` (required) and optionally `feature_flag_key`. If the key is omitted or
-  already exists in the target project, the copy **shares** that existing flag — lifecycle ops on either experiment
-  affect both. Pass a key that doesn't exist in the target to keep them independent.
+- **Feature flag**: `target_team_id` is required; `feature_flag_key` is optional. The resolved key is then looked up
+  **in the target project**, and the lookup result — not whether you passed the key — decides what happens:
+  - **If `feature_flag_key` is omitted**: it defaults to the _source_ experiment's flag key. That key normally
+    doesn't exist in the target project, so a new flag with it is created there. (The default can still collide — see
+    the next point — so to be safe, pass an explicit key.)
+  - **If the resolved key already exists as a flag in the target project**: the copy **shares** that existing flag
+    instead of creating one. Both experiments then point at the same flag, so lifecycle ops (ship, pause) on either
+    affect both. The existing flag must have ≥2 variants including one keyed `control`, otherwise the call returns 400.
+  - **If the resolved key does not exist in the target project**: a new, independent flag is created with that key.
+    To guarantee independence, pass a `feature_flag_key` that doesn't already exist in the target.
 
 **Confirm the source experiment and target project by name before calling** — this writes into a project the user
 isn't looking at. The returned experiment (and its id) belongs to the target project.
