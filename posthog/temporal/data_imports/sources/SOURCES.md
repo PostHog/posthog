@@ -115,6 +115,7 @@ the row lists both.
 | notion           | HTTP                        | requests                                                        | ✅                          |
 | omnisend         | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
+| optimizely       | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
 | pandadoc         | HTTP                        | requests                                                        | ✅                          |
 | pendo            | HTTP                        | requests                                                        | ✅                          |
@@ -268,7 +269,6 @@ doesn't conflict with concurrent PRs.
 - netsuite
 - onedrive
 - opsgenie
-- optimizely
 - oracle
 - oracle_ebs
 - oracle_fusion
