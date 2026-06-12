@@ -22,8 +22,9 @@ from django.conf import settings
 
 import requests
 
-from posthog.jwt import AgentInternalAudience, encode_agent_internal_jwt
 from posthog.security.outbound_proxy import internal_requests
+
+from .internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 
 logger = logging.getLogger(__name__)
 

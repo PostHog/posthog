@@ -64,12 +64,12 @@ from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerialize
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
-from posthog.jwt import AgentInternalAudience, encode_agent_internal_jwt
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.security.outbound_proxy import internal_requests
 
 from ..db import WRITER_DB
+from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
 from ..logic.spec_schema import missing_required_secrets
 from ..models import AgentApplication, AgentRevision
