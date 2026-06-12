@@ -604,7 +604,8 @@ class GladlySourceConfig(config.Config):
 
 @config.config
 class GoCardlessSourceConfig(config.Config):
-    pass
+    access_token: str
+    environment: Literal["live", "sandbox"] = config.value(default="live")
 
 
 @config.config

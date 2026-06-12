@@ -81,6 +81,7 @@ the row lists both.
 | front            | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | gitlab           | HTTP                        | requests                                                        | ✅                          |
+| gocardless       | HTTP                        | requests                                                        | ✅                          |
 | gong             | HTTP                        | requests                                                        | ✅                          |
 | google_ads       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
@@ -246,7 +247,6 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - fullstory
 - gladly
-- gocardless
 - google_ad_manager
 - google_analytics
 - google_cloud_storage
