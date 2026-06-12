@@ -111,28 +111,46 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         )
         assert "dictGetStringOrDefault" not in sql
 
+    def test_no_fallback_for_restricted_target_property(self) -> None:
+        # Property-level access control resolves the restricted read to NULL; the fallback must not reconstruct it
+        # from `$ip`, so it stands down entirely.
+        sql, _ = self._print_select(
+            "SELECT properties.$geoip_city_name FROM events",
+            restricted_properties={("$geoip_city_name", PropertyDefinition.Type.EVENT)},
+        )
+        assert "dictGetStringOrDefault" not in sql
+
     @parameterized.expand(
         [
-            ("target restricted", "$geoip_city_name"),
             ("ip restricted", "$ip"),
             ("country restricted", "$geoip_country_code"),
+            ("unrelated restricted", "$browser"),
         ]
     )
-    def test_no_fallback_for_restricted_properties(self, _name: str, restricted_key: str) -> None:
-        # Property-level access control resolves restricted reads to NULL; the fallback must not reconstruct them
-        # (or read restricted source properties), so it stands down entirely.
+    def test_fallback_unaffected_by_non_target_restrictions(self, _name: str, restricted_key: str) -> None:
+        # Restricted sources don't disable the rewrite: the restriction layer scrubs those reads to NULL, so for such
+        # users recovery quietly misses without exposing them (accepted limitation: restricted `$ip` means no recovery
+        # even though the derived property is readable). Unrelated restrictions change nothing.
         sql, _ = self._print_select(
             "SELECT properties.$geoip_city_name FROM events",
             restricted_properties={(restricted_key, PropertyDefinition.Type.EVENT)},
         )
-        assert "dictGetStringOrDefault" not in sql
-
-    def test_fallback_unaffected_by_unrelated_restriction(self) -> None:
-        sql, _ = self._print_select(
-            "SELECT properties.$geoip_city_name FROM events",
-            restricted_properties={("$browser", PropertyDefinition.Type.EVENT)},
-        )
         assert "dictGetStringOrDefault" in sql
+
+    def test_restricted_ip_source_read_is_scrubbed(self) -> None:
+        # The accepted limitation pinned: with `$ip` restricted, the injected source read resolves to the restricted
+        # constant-NULL substitution (never the real column), so recovery misses rather than reading the raw IP.
+        with (
+            materialized("events", "$geoip_city_name"),
+            materialized("events", "$geoip_country_code"),
+            materialized("events", "$ip"),
+        ):
+            sql, _ = self._print_select(
+                "SELECT properties.$geoip_city_name FROM events",
+                restricted_properties={("$ip", PropertyDefinition.Type.EVENT)},
+            )
+        assert "dictGetStringOrDefault" in sql
+        assert "mat_$ip" not in sql
 
     def test_fallback_applies_in_where_clause(self) -> None:
         sql, _ = self._print_select("SELECT count() FROM events WHERE properties.$geoip_city_name = 'London'")
@@ -160,20 +178,23 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         with pytest.raises(QueryError, match="not available"):
             self._print_select("SELECT _lookupGeoipCityName('89.160.20.129') FROM events", teams="")
 
-    @parameterized.expand(
-        [
-            ("target restricted", "$geoip_postal_code"),
-            ("ip restricted", "$ip"),
-        ]
-    )
-    def test_lookup_functions_rejected_for_restricted_properties(self, _name: str, restricted_key: str) -> None:
+    def test_lookup_functions_rejected_for_restricted_target(self) -> None:
         # Direct calls must enforce the same guard as the transform: otherwise a user denied the geo property could
         # derive it from a readable `$ip`.
         with pytest.raises(QueryError, match="restricted"):
             self._print_select(
                 "SELECT _lookupGeoipPostalCode(properties.$ip) FROM events",
-                restricted_properties={(restricted_key, PropertyDefinition.Type.EVENT)},
+                restricted_properties={("$geoip_postal_code", PropertyDefinition.Type.EVENT)},
             )
+
+    def test_lookup_functions_allowed_when_only_source_restricted(self) -> None:
+        # Restricting `$ip` does not block deriving a readable property from it: the `$ip` read itself is scrubbed by
+        # the restriction layer, so the call renders and simply misses the dictionary.
+        sql, _ = self._print_select(
+            "SELECT _lookupGeoipPostalCode(properties.$ip) FROM events",
+            restricted_properties={("$ip", PropertyDefinition.Type.EVENT)},
+        )
+        assert f"dictGetStringOrDefault('{get_geoip_city_postal_dict()}', 'postal_code'" in sql
 
     @parameterized.expand(
         [

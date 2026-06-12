@@ -42,9 +42,6 @@ FALLBACK_PROPERTY_TO_FUNCTION = {
     "$geoip_postal_code": "_lookupGeoipPostalCode",
 }
 
-# The fallback expression reads these alongside the wrapped property, so a restriction on any of them disables it.
-FALLBACK_SOURCE_PROPERTIES = ("$ip", "$geoip_country_code")
-
 
 @cache_for(timedelta(minutes=15), background_refresh=True)
 def _geoip_dict_exists() -> bool:
@@ -97,9 +94,11 @@ class GeoipDictFallback(CloningVisitor):
             return node
         # Property-level access control resolves restricted reads to NULL later in the pipeline; wrapping such a read
         # would reconstruct the restricted value from `$ip` on every enriched row, so the fallback must stand down
-        # when the target or any of its source properties is restricted.
-        restricted = restricted_property_keys_for_table_type(table_type, self.context)
-        if restricted and not restricted.isdisjoint((property_name, *FALLBACK_SOURCE_PROPERTIES)):
+        # when the target property is restricted. Restricted sources need no guard and don't disable it: the
+        # restriction layer scrubs those reads to NULL, so recovery quietly misses without exposing them. Known
+        # accepted limitation: a user with `$ip` restricted keeps blank values even though the derived property is
+        # readable — punching the restriction boundary for the internal reads was not worth it for a temporary fix.
+        if property_name in restricted_property_keys_for_table_type(table_type, self.context):
             return node
         return self._with_fallback(node, function_name)
 
