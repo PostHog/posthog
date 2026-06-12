@@ -24,7 +24,6 @@ from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
-from posthog.schema_enums import PropertyGroupsMode
 
 
 def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:

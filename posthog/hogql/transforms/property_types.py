@@ -30,7 +30,6 @@ from posthog.clickhouse.materialized_columns import (
 )
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
-from posthog.schema_enums import PersonsOnEventsMode
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
