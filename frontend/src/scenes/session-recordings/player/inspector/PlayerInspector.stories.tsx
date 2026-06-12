@@ -17,6 +17,14 @@ type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Components/PlayerInspector',
     component: PlayerInspector,
+    parameters: {
+        testOptions: {
+            // the inspector list merges several async sources (events endpoint,
+            // comments, full-event hydration); wait for the slowest (the comment)
+            // so snapshots capture the same settled state every run
+            waitForSelector: '[data-attr="item-annotation-comment"]',
+        },
+    },
     decorators: [
         mswDecorator({
             get: {
