@@ -147,9 +147,6 @@ class TestGetTeamIdsForAIObservability:
         result = await get_team_ids_for_ai_observability(inputs)
 
         assert result == [9000, 3333, 5555, 7777]
-        guaranteed_index = result.index(9000)
-        sampled_indices = [result.index(t) for t in (3333, 5555, 7777)]
-        assert all(guaranteed_index < i for i in sampled_indices)
 
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_zero_sample_returns_only_guaranteed(self, mock_get_teams, mock_ff):
