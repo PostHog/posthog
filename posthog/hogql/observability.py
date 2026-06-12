@@ -296,28 +296,28 @@ def classify_expr_type(type_: ast.Type | None, context: HogQLContext | None = No
 
 
 def _classify_via_resolution(type_: ast.FieldType | ast.PropertyType, context: HogQLContext) -> Precision:
+    """Classify by the resolved scalar. For properties, follow PropertyType.resolve_constant_type's
+    precedence but stop before its nullable-String fallback: no metadata means "partial", not
+    precise-via-String."""
+    from posthog.hogql.property_planner import (
+        metadata_constant_type,  # noqa: PLC0415 — observability ← context ← property_planner; deferring breaks the cycle
+    )
+
     try:
-        if isinstance(type_, ast.PropertyType):
-            return _classify_property_type(type_, context)
-        return classify_constant_type(type_.resolve_constant_type(context))
+        if isinstance(type_, ast.FieldType):
+            return classify_constant_type(type_.resolve_constant_type(context))
+        if (type_.joined_subquery is not None and type_.joined_subquery_field_name is not None) or isinstance(
+            type_.field_type.resolve_database_field(context), ast.StructDatabaseField
+        ):
+            return classify_constant_type(type_.resolve_constant_type(context))
+        metadata_type = metadata_constant_type(type_, context)
+        if metadata_type is None:
+            return "partial"
+        return classify_constant_type(metadata_type)
     except Exception:
         # Resolution can raise for genuinely unresolvable references — expected, so "partial"
         # without bumping the observability error counter.
         return "partial"
-
-
-def _classify_property_type(type_: ast.PropertyType, context: HogQLContext) -> Precision:
-    """Follow PropertyType.resolve_constant_type's precedence, but stop before its nullable-String
-    fallback: no metadata means "partial", not precise-via-String."""
-    if type_.joined_subquery is not None and type_.joined_subquery_field_name is not None:
-        return classify_constant_type(type_.resolve_constant_type(context))
-    database_field = type_.field_type.resolve_database_field(context)
-    if isinstance(database_field, ast.StructDatabaseField):
-        return classify_constant_type(type_.resolve_constant_type(context))
-    metadata_type = type_._metadata_constant_type(context)
-    if metadata_type is None:
-        return "partial"
-    return classify_constant_type(metadata_type)
 
 
 def classify_constant_type(type_: ast.ConstantType | None) -> Precision:
