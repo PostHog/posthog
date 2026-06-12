@@ -84,10 +84,14 @@ for run in $(seq 1 "$REPEAT_COUNT"); do
     set +e
     # Run test-storybook directly (tests a pre-built storybook dist served over http-server).
     # pipefail is set at script level so tee preserves the exit code.
+    # --passWithNoTests: changed stories may live in a separate storybook
+    # (e.g. services/agent-console, packages/agent-chat) that the main runner's
+    # testMatch doesn't cover. Those are verified by their own CI, so finding no
+    # matching tests here is not a failure.
     pnpm --filter=@posthog/storybook exec test-storybook \
         $snapshot_flag --no-index-json --maxWorkers=1 \
         --browsers chromium \
-        -- --testPathPattern "$pattern" 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
+        -- --testPathPattern "$pattern" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
     exit_code=${PIPESTATUS[0]}
     set -e
 
