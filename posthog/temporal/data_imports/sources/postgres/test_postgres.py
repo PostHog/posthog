@@ -62,6 +62,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _normalize_function_names,
     _rls_active_from_conn,
     _role_subject_to_rls,
+    _statement_timeout_as_non_retryable,
     filter_postgres_incremental_fields,
     get_foreign_keys,
     get_leading_index_columns,
@@ -282,6 +283,46 @@ class TestConnectWithDroppedRetry:
                 _connect_with_dropped_retry(connect, logger, max_attempts=3)
 
         assert connect.call_count == 3
+
+
+class TestStatementTimeoutAsNonRetryable:
+    def test_incremental_statement_timeout_maps_to_query_timeout(self):
+        result = _statement_timeout_as_non_retryable(
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+        )
+        assert isinstance(result, QueryTimeoutException)
+        assert "updated_at" in str(result)
+
+    def test_non_incremental_statement_timeout_is_not_mapped(self):
+        # Full-table syncs must re-raise the raw QueryCanceled so a fresh re-sync can
+        # reorder rows; we only short-circuit incremental reads.
+        result = _statement_timeout_as_non_retryable(
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            should_use_incremental_field=False,
+            incremental_field=None,
+        )
+        assert result is None
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.ProtocolViolation("server conn crashed?"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.errors.SerializationFailure("due to conflict with recovery"),
+            Exception("canceling statement due to statement timeout"),
+        ],
+    )
+    def test_non_statement_timeout_errors_are_not_mapped(self, error):
+        assert (
+            _statement_timeout_as_non_retryable(
+                error,
+                should_use_incremental_field=True,
+                incremental_field="updated_at",
+            )
+            is None
+        )
 
 
 class TestPostgresSourceForPipelineSchemaResolution:
