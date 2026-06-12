@@ -459,6 +459,8 @@ export interface HogQLQueryModifiers {
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
+    /** Temporary (June 2026 MaxMind incident): recover blank `$geoip_city_name` / `$geoip_postal_code` event property reads from `$ip` at query time, via the `city_postal_ip_trie` ClickHouse dictionary. Remove once the affected events are backfilled. */
+    useGeoipDictFallback?: boolean
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?:
         | 'cpp_only'

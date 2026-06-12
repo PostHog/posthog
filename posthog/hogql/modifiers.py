@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, Optional
 
+from django.conf import settings
+
 import posthoganalytics
 from pydantic import ValidationError
 
@@ -118,6 +120,11 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.sessionPropertyPreAggregation is None:
         modifiers.sessionPropertyPreAggregation = False
+
+    # Temporary (June 2026 MaxMind incident): instance-wide default so the geoip dict fallback can be switched on per
+    # region via env, while still allowing per-team (team.modifiers) and per-query overrides. Remove with the fallback.
+    if modifiers.useGeoipDictFallback is None:
+        modifiers.useGeoipDictFallback = settings.HOGQL_GEOIP_DICT_FALLBACK
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:

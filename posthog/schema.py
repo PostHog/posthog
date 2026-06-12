@@ -7800,6 +7800,15 @@ class HogQLQueryModifiers(BaseModel):
     sessionTableVersion: SessionTableVersion | None = None
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
+    useGeoipDictFallback: bool | None = Field(
+        default=None,
+        description=(
+            "Temporary (June 2026 MaxMind incident): recover blank `$geoip_city_name` /"
+            " `$geoip_postal_code` event property reads from `$ip` at query time, via"
+            " the `city_postal_ip_trie` ClickHouse dictionary. Remove once the affected"
+            " events are backfilled."
+        ),
+    )
     useMaterializedViews: bool | None = None
     usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(

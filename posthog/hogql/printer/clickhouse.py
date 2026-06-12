@@ -15,7 +15,12 @@ from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryEr
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
-from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
+from posthog.hogql.printer.base import (
+    BasePrinter,
+    get_channel_definition_dict,
+    get_geoip_city_postal_dict,
+    resolve_field_type,
+)
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import parse_sql_runtime_type
@@ -236,6 +241,15 @@ class ClickHousePrinter(BasePrinter):
 
         if node.name == "embedText":
             return self.visit_constant(resolve_embed_text(self.context.team, node))
+        elif node.name in ("lookupGeoipCityName", "lookupGeoipPostalCode"):
+            # Temporary (June 2026 MaxMind incident), remove with the geoip_dict_fallback transform. toIPv6OrDefault
+            # covers both families (v4 input becomes a ::ffff: mapped address, which the ip_trie dict resolves against
+            # its IPv4 prefixes); empty or invalid input becomes '::', which misses and returns the '' default.
+            attribute = "city_name" if node.name == "lookupGeoipCityName" else "postal_code"
+            geoip_dict = get_geoip_city_postal_dict()
+            return (
+                f"dictGetStringOrDefault('{geoip_dict}', '{attribute}', toIPv6OrDefault(coalesce({args[0]}, '')), '')"
+            )
         elif node.name == "lookupDomainType":
             channel_dict = get_channel_definition_dict()
             return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
