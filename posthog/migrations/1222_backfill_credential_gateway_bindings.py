@@ -67,7 +67,7 @@ class Migration(migrations.Migration):
     # Atomic: short transaction over a small set, idempotent re-runs. The OAuth scope
     # regex scan is unindexable but a read (ACCESS SHARE, no heavy lock); writes are bulk.
     dependencies = [
-        ("posthog", "1217_backfill_default_gateways"),
+        ("posthog", "1221_backfill_default_gateways"),
     ]
 
     operations = [

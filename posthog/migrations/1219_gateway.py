@@ -10,7 +10,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1214_oauthapplication_sessions_revoked_at"),
+        ("posthog", "1218_team_ingested_production_event_last_checked_at"),
     ]
 
     operations = [

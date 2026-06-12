@@ -10,8 +10,8 @@ GATEWAY_SCOPE = "llm_gateway:read"
 
 
 class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
-    migrate_from = "1217_backfill_default_gateways"
-    migrate_to = "1218_backfill_credential_gateway_bindings"
+    migrate_from = "1221_backfill_default_gateways"
+    migrate_to = "1222_backfill_credential_gateway_bindings"
 
     CLASS_DATA_LEVEL_SETUP = False
 
