@@ -1,6 +1,7 @@
 import structlog
 from celery import shared_task
 
+from posthog.redis import get_client, redis
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.data_warehouse.backend.external_data_source.notifications import (
@@ -15,11 +16,29 @@ logger = structlog.get_logger(__name__)
 # the whole burst lands in one email instead of racing the first failure's send.
 EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 
+# Generous bound on one digest build + synchronous send; the lock auto-expires
+# after this if a worker dies mid-flight.
+EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
+
 
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_external_data_failure_digest_task(team_id: int) -> None:
-    notify_external_data_sync_failures(team_id)
+    # Serialize per team: a task racing a concurrent in-flight send could pass the
+    # daily-dedup check before the winner's sent_at lands, then mistake the winner's
+    # delivery for its own and stamp schemas that were never in the delivered email —
+    # silencing a paused schema permanently. The loser must do nothing instead: any
+    # failure the winner's email didn't cover stays un-stamped, so a later task or
+    # the daily catch-up delivers it.
+    try:
+        with get_client().lock(
+            f"external_data_failure_digest:{team_id}",
+            timeout=EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS,
+            blocking=False,
+        ):
+            notify_external_data_sync_failures(team_id)
+    except redis.exceptions.LockError:
+        logger.info("External data failure digest already in flight for team, skipping", team_id=team_id)
 
 
 @shared_task(ignore_result=True)

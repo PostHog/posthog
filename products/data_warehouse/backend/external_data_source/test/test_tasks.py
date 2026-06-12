@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from posthog.redis import get_client
+
 from products.data_warehouse.backend.tasks import (
     send_external_data_failure_digest_catchup,
     send_external_data_failure_digest_task,
@@ -12,6 +14,17 @@ class TestExternalDataFailureDigestTasks:
             send_external_data_failure_digest_task(123)
 
         mock_notify.assert_called_once_with(123)
+
+    def test_digest_task_skips_when_another_send_is_in_flight(self):
+        lock = get_client().lock("external_data_failure_digest:123", timeout=10)
+        assert lock.acquire(blocking=False)
+        try:
+            with patch("products.data_warehouse.backend.tasks.notify_external_data_sync_failures") as mock_notify:
+                send_external_data_failure_digest_task(123)
+        finally:
+            lock.release()
+
+        mock_notify.assert_not_called()
 
     def test_catchup_fans_out_per_team(self):
         with (
