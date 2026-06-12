@@ -405,7 +405,11 @@ export function AlertDefinitionSection({
                     </div>
                     {isHogQLAnyRow(alertForm) && hogqlHasMultipleColumns && (
                         <div className="flex gap-3 items-center">
-                            <div>Labeled by</div>
+                            <Tooltip title="Names the breaching row in notifications and the check history. Defaults to the first column that isn't being evaluated.">
+                                <div className="flex items-center gap-1">
+                                    Labeled by <IconInfo className="text-muted" />
+                                </div>
+                            </Tooltip>
                             <Group name={['config']}>
                                 <LemonField name="label_column" className="flex-auto">
                                     {({ value, onChange }) => (

@@ -2,7 +2,7 @@ import { IconClock } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import { AlertType, isTrendsAlertConfig } from 'lib/components/Alerts/types'
+import { AlertType, isHogQLAlertConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -57,30 +57,42 @@ export function AlertIntervalRow({
                         />
                     )}
                 </LemonField>
-                <div>
-                    and check{' '}
-                    {isTrendsAlertConfig(alertForm?.config) && alertForm.config.check_ongoing_interval
-                        ? 'current'
-                        : 'last'}
-                </div>
-                <LemonSelect
-                    fullWidth
-                    className="w-28"
-                    data-attr="alertForm-trend-interval"
-                    disabledReason={
-                        <>
-                            To change the interval being checked, edit and <b>save</b> the interval which the insight is
-                            'grouped by'
-                        </>
-                    }
-                    value={trendInterval ?? 'day'}
-                    options={[
-                        {
-                            label: trendInterval ?? 'day',
-                            value: trendInterval ?? 'day',
-                        },
-                    ]}
-                />
+                {isHogQLAlertConfig(alertForm?.config) ? (
+                    // SQL queries own their time window — there is no insight interval to echo here,
+                    // so state what is actually evaluated instead of a trends-style "check last day".
+                    <div>
+                        {alertForm?.config?.evaluation === 'any_row'
+                            ? 'and check every row of the result'
+                            : "and evaluate the query's latest row"}
+                    </div>
+                ) : (
+                    <>
+                        <div>
+                            and check{' '}
+                            {isTrendsAlertConfig(alertForm?.config) && alertForm.config.check_ongoing_interval
+                                ? 'current'
+                                : 'last'}
+                        </div>
+                        <LemonSelect
+                            fullWidth
+                            className="w-28"
+                            data-attr="alertForm-trend-interval"
+                            disabledReason={
+                                <>
+                                    To change the interval being checked, edit and <b>save</b> the interval which the
+                                    insight is 'grouped by'
+                                </>
+                            }
+                            value={trendInterval ?? 'day'}
+                            options={[
+                                {
+                                    label: trendInterval ?? 'day',
+                                    value: trendInterval ?? 'day',
+                                },
+                            ]}
+                        />
+                    </>
+                )}
             </div>
             {!creatingNewAlert && alert ? (
                 <div className="text-sm text-muted flex flex-wrap items-center gap-x-2 gap-y-0">
