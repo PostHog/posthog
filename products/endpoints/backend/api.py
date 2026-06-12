@@ -113,7 +113,7 @@ from products.endpoints.backend.metrics import (
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
     ENDPOINT_MATERIALIZATION_EVENT_TOTAL,
-    ENDPOINT_MATERIALIZED_AGE_SECONDS,
+    ENDPOINT_MATERIALIZED_FRESHNESS_RATIO,
     ENDPOINT_VALIDATION_ERROR_TOTAL,
     query_kind_label,
 )
@@ -1899,9 +1899,11 @@ class EndpointViewSet(
                     trigger_saved_query_schedule(saved_query)
                     raise
 
-            if saved_query.last_run_at:
+            # Freshness relative to the configured target: >1.0 means behind SLA.
+            # Absolute age is meaningless across endpoints with different frequencies.
+            if saved_query.last_run_at and version and version.data_freshness_seconds:
                 age_seconds = max((timezone.now() - saved_query.last_run_at).total_seconds(), 0.0)
-                ENDPOINT_MATERIALIZED_AGE_SECONDS.observe(age_seconds)
+                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / version.data_freshness_seconds)
 
             return result
         except Exception as e:
@@ -2441,7 +2443,7 @@ class EndpointViewSet(
                     )
             execution_status = "success"
         except (ExposedHogQLError, ExposedCHQueryError) as e:
-            execution_status = "error"
+            execution_status = "user_error"
             error_label = getattr(e, "code_name", None) or type(e).__name__
             logger.exception(
                 "Endpoint execution failed",
@@ -2450,7 +2452,7 @@ class EndpointViewSet(
             )
             raise ValidationError("Query execution failed.", getattr(e, "code_name", None))
         except HogVMException:
-            execution_status = "error"
+            execution_status = "user_error"
             error_label = "HogVMException"
             logger.exception(
                 "Endpoint execution failed (HogVM)",
@@ -2458,7 +2460,7 @@ class EndpointViewSet(
             )
             raise ValidationError("Query execution failed: HogQL virtual machine error")
         except ResolutionError:
-            execution_status = "error"
+            execution_status = "user_error"
             error_label = "ResolutionError"
             logger.exception(
                 "Endpoint resolution failed",
@@ -2466,7 +2468,7 @@ class EndpointViewSet(
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
         except ConcurrencyLimitExceeded:
-            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.inc()
+            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team_id)).inc()
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
         except Exception as e:
             execution_status = "error"
@@ -2481,7 +2483,7 @@ class EndpointViewSet(
                 ENDPOINT_EXECUTION_TOTAL.labels(
                     execution_type=execution_type, query_kind=query_kind_metric, status=execution_status
                 ).inc()
-            if execution_status == "error":
+            if execution_status in ("error", "user_error"):
                 log_endpoint_execution(
                     team_id=self.team_id,
                     endpoint_id=str(endpoint.id),

@@ -9,7 +9,7 @@ import json
 import base64
 import decimal
 import datetime as dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -92,6 +92,41 @@ _STATUS_CODE_LABEL_TO_INTS: dict[str, list[int]] = {
 }
 
 
+def _normalise_kind_values(values: list) -> list[str]:
+    # span.kind → string-digit codes. Accept labels ("Server"), digit strings ("2"), ints, and
+    # integer-valued floats (the API value union coerces JSON numbers to float). Unrecognised
+    # values are dropped — never left in a form that silently matches every row. Mirrors
+    # _normalise_status_code_values so both int columns are compared as digit strings.
+    normalised: list[str] = []
+    for v in values:
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            normalised.append(str(int(v)))
+        elif isinstance(v, str) and v.isdigit():
+            normalised.append(v)
+        elif str(v) in _SPAN_KIND_LABEL_TO_INT:
+            normalised.append(str(_SPAN_KIND_LABEL_TO_INT[str(v)]))
+    return normalised
+
+
+def _normalise_status_code_values(values: list) -> list[str]:
+    # span.status_code → string-digit codes. Accept labels ("OK"/"Error"), digit strings, ints,
+    # and integer-valued floats; 'OK' expands to {0, 1}. Unrecognised values are dropped — never
+    # left in a form that silently matches every row.
+    normalised: list[str] = []
+    for v in values:
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            normalised.append(str(int(v)))
+        elif isinstance(v, str) and v.isdigit():
+            normalised.append(v)
+        elif str(v) in _STATUS_CODE_LABEL_TO_INTS:
+            normalised.extend(str(code) for code in _STATUS_CODE_LABEL_TO_INTS[str(v)])
+    return normalised
+
+
 def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
     """Translate UI/API filter values into ClickHouse column representations, in place.
 
@@ -103,9 +138,8 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
 
     Idempotent — safe to call repeatedly on the same filter. Compare-mode invokes
     `_where_without_date_range()` once per window on the same `SpanPropertyFilter`
-    instances; without the post-translation guards on `kind`/`status_code` the second
-    pass would map the already-translated integers back to `[]` and silently drop the
-    filter for the compare window.
+    instances, so `kind`/`status_code` normalisation must accept its own already-translated
+    output (ints / digit strings) and not collapse it to `[]` on the second pass.
     """
     if span_filter.key in ("trace_id", "span_id"):
         # `_normalise_to_base64` is a no-op on already-base64 values (16/8-byte ids
@@ -128,17 +162,12 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
 
     if span_filter.key == "kind" and span_filter.value is not None:
         values: list = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
-        if not all(isinstance(v, int) for v in values):
-            span_filter.value = [_SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT]
+        # cast bridges list invariance: helper returns list[str], value's slot is the wider union.
+        span_filter.value = cast("list[str | int | float]", _normalise_kind_values(values))
 
     if span_filter.key == "status_code" and span_filter.value is not None:
         values = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
-        if not all(isinstance(v, str) and v.isdigit() for v in values):
-            expanded: list[int] = []
-            for v in values:
-                if str(v) in _STATUS_CODE_LABEL_TO_INTS:
-                    expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
-            span_filter.value = [str(v) for v in expanded]
+        span_filter.value = cast("list[str | int | float]", _normalise_status_code_values(values))
 
 
 class TraceSpansQueryRunnerMixin(QueryRunner):
