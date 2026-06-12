@@ -1,26 +1,17 @@
 """
-Signal handlers that keep the gateway credential cache in sync with
-credential and user state.
+Signal handlers that keep the gateway credential cache in sync with credential and user state.
 
-The blob is keyed by the credential's hash, so a revoke, scope removal, or token
-rotation that does not invalidate the cache leaves a stale entry usable for the
-full TTL. OAuth access is also tied to user state the credential row doesn't
-carry: a user deactivation or org-membership change must re-project that user's
-OAuth credentials, otherwise a disabled user keeps gateway access until the token
-TTL lapses. Project secret keys have no user, so user/membership state never
-affects them; they re-project only on their own save/delete and on gateway/team
-changes.
+The blob is keyed by the credential hash, so a revoke / scope removal / rotation that
+doesn't invalidate it leaves a stale entry for the full TTL. OAuth access also depends on
+user state the token row doesn't carry (deactivation, org membership, RBAC), so those
+re-project the user's OAuth credentials. Project secret keys have no user, so they
+re-project only on their own save/delete and on gateway/team changes.
 
-A pre_save fallback covers credentials loaded with the hash/scope fields deferred
-(.only()/.defer()), where the post_init snapshot is skipped: without it a
-deferred-load rotation would leave the old hash live for the full TTL.
-
-Wired from PostHogConfig.ready() so the receivers register in every process that
-can mutate a credential. All handlers no-op unless AI_GATEWAY_REDIS_URL is set,
-and credential handlers do real work only for credentials that hold (or held) the
-gateway scope — ordinary secret keys and the high volume of minted OAuth tokens
-are skipped before any task is enqueued. Mutations must go through .save()/.delete();
-bulk_update()/.update() bypass signals.
+A pre_save fallback handles credentials loaded with hash/scope deferred (.only()/.defer()),
+where post_init skips the snapshot — without it a deferred-load rotation wouldn't clear the
+old hash. Wired from PostHogConfig.ready(). All handlers no-op without AI_GATEWAY_REDIS_URL,
+and skip credentials that never held the gateway scope before touching Celery/Redis.
+Mutations must go through .save()/.delete(); bulk_update()/.update() bypass signals.
 """
 
 from typing import Any
@@ -111,9 +102,8 @@ def _capture_old_secret_key_if_deferred(
     sender: type[ProjectSecretAPIKey], instance: ProjectSecretAPIKey, **kwargs: Any
 ) -> None:
     # Fallback for a secret key loaded with secure_value/scopes deferred (post_init
-    # skipped the snapshot): re-read the old values before the UPDATE so a
-    # deferred-load rotation still clears the old hash. No-op (no query) on the
-    # common full-load path, where the snapshot is already present.
+    # skipped the snapshot): re-read the old values so a deferred-load rotation still
+    # clears the old hash. No-op (no query) on the common full-load path.
     if not settings.AI_GATEWAY_REDIS_URL or _LOADED_HASH_ATTR in instance.__dict__:
         return
     if not instance.pk or instance._state.adding:
@@ -149,9 +139,8 @@ def _on_credential_save(
     instance.__dict__[_LOADED_HASH_ATTR] = new_hash
     instance.__dict__[_LOADED_ELIGIBLE_ATTR] = eligible_now
 
-    # Overwhelmingly common: a credential that never had and still lacks the
-    # gateway scope has nothing to project or clear. Skip before touching Celery
-    # or Redis — OAuth tokens mint constantly and would otherwise flood the queue.
+    # Skip credentials that never held the scope before touching Celery/Redis —
+    # OAuth mints constantly and would otherwise flood the queue.
     if not eligible_now and not old_eligible:
         return
 
@@ -176,9 +165,8 @@ def _on_credential_save(
 def _update_secret_key_on_save(
     sender: type[ProjectSecretAPIKey], instance: ProjectSecretAPIKey, created: bool, **kwargs: Any
 ) -> None:
-    # A secret key binds directly to its gateway, so a rebind (changed gateway_id)
-    # leaves the hash unchanged and re-projects through the update task with the new
-    # slug/team — covered here, no separate application-style handler needed.
+    # A secret key binds directly, so a rebind keeps the hash and re-projects through
+    # the update task with the new slug/team — no separate app-style handler needed.
     _on_credential_save(_SECRET_KEY_KIND, instance, _secret_key_hash(instance), credential_has_gateway_scope(instance))
 
 
@@ -191,9 +179,8 @@ def _update_oauth_on_save(
 def _clear_secret_key_on_delete(
     sender: type[ProjectSecretAPIKey], instance: ProjectSecretAPIKey, **kwargs: Any
 ) -> None:
-    # Match the save path's old-or-new check: clear if the credential is eligible now
-    # or was at load, so an in-memory scope change before delete still drops the blob
-    # promptly instead of waiting out the TTL.
+    # Clear if eligible now or at load, so an in-memory scope change before delete
+    # still drops the blob promptly instead of waiting out the TTL.
     if not settings.AI_GATEWAY_REDIS_URL:
         return
     if not (credential_has_gateway_scope(instance) or instance.__dict__.get(_LOADED_ELIGIBLE_ATTR)):
@@ -214,9 +201,8 @@ def _clear_oauth_on_delete(sender: type[OAuthAccessToken], instance: OAuthAccess
 
 
 def _reproject_user_on_save(sender: type[User], instance: User, created: bool, **kwargs: Any) -> None:
-    # Only OAuth credentials carry a user. Deactivation must clear them:
-    # _policy_for_credential returns Missing for an inactive user (reactivation
-    # re-grants), and the token row itself doesn't change on is_active flips.
+    # Only OAuth carries a user. Deactivation must clear it (the token row doesn't
+    # change on is_active flips); reactivation re-grants.
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
     old_is_active = instance.__dict__.get(_LOADED_IS_ACTIVE_ATTR)
@@ -231,9 +217,8 @@ def _reproject_user_on_save(sender: type[User], instance: User, created: bool, *
 def _reproject_on_membership_delete(
     sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any
 ) -> None:
-    # Losing org membership revokes OAuth gateway access, but it touches neither the
-    # token nor is_active, so nothing else re-projects. Re-project the user's
-    # credentials — the policy now fails closed for a non-member and clears the blob.
+    # Losing membership revokes OAuth access without touching the token, so reproject
+    # the user — the policy now fails closed for a non-member and clears the blob.
     if not settings.AI_GATEWAY_REDIS_URL:
         return
     user_id = instance.user_id
@@ -265,9 +250,8 @@ def _capture_old_app_gateway_if_deferred(
 def _reproject_oauth_application_on_save(
     sender: type[OAuthApplication], instance: OAuthApplication, created: bool, **kwargs: Any
 ) -> None:
-    # The OAuth gateway binding lives on the application, not the token, so a
-    # rebind/unbind doesn't fire a token save. Reproject the app's tokens so they
-    # pick up the new slug/team (or clear when unbound).
+    # The binding lives on the application, not the token, so a rebind doesn't fire a
+    # token save. Reproject the app's tokens so they pick up the new slug/team (or clear).
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
     old_gateway_id = instance.__dict__.get(_LOADED_APP_GATEWAY_ATTR, _UNSET)
@@ -332,9 +316,8 @@ def _capture_old_membership_level_if_deferred(
 def _reproject_on_membership_save(
     sender: type[OrganizationMembership], instance: OrganizationMembership, created: bool, **kwargs: Any
 ) -> None:
-    # level feeds the org-admin RBAC bypass in the OAuth policy check, so a level
-    # change can flip _policy_for_credential. Creation grants nothing on its own (the
-    # credential must already exist); deletion is handled separately.
+    # level feeds the OAuth org-admin RBAC bypass, so a change can flip the policy.
+    # Creation grants nothing on its own; deletion is handled separately.
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
     old_level = instance.__dict__.get(_LOADED_MEMBERSHIP_LEVEL_ATTR)
@@ -414,10 +397,8 @@ def _clear_policy_hashes(hashes: list[str]) -> None:
 
 
 def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: Any) -> None:
-    # A project access control flips the OAuth policy's RBAC check. The projection
-    # reads project ACs keyed by team_id, so reproject every gateway credential on
-    # that team — a revocation then clears promptly instead of lingering until the
-    # hourly refresh / TTL.
+    # A project AC flips the OAuth RBAC check; the projection keys ACs by team_id, so
+    # reproject the team's credentials and a revocation clears promptly.
     if not settings.AI_GATEWAY_REDIS_URL or instance.resource != "project" or instance.team_id is None:
         return
     team_id = instance.team_id
@@ -425,9 +406,8 @@ def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: A
 
 
 def _reproject_on_role_membership_change(sender: type, instance: Any, **kwargs: Any) -> None:
-    # Role membership feeds UserAccessControl's role-scoped ACs, so adding or
-    # removing it can flip the project access check without any AccessControl row
-    # changing. Reproject the affected user's gateway credentials.
+    # Role membership feeds role-scoped ACs, so a change can flip project access with
+    # no AccessControl row changing. Reproject the affected user's credentials.
     if not settings.AI_GATEWAY_REDIS_URL or instance.user_id is None:
         return
     user_id = instance.user_id

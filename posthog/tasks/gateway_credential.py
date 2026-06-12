@@ -59,9 +59,8 @@ def update_gateway_credential_cache_task(credential_kind: str, credential_id: st
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def reproject_user_gateway_credentials_task(user_id: int) -> None:
-    """Re-project a user's OAuth gateway credentials after a user/membership change
-    (deactivation, lost membership, or access-control flip clears them). Project
-    secret keys have no user, so they're unaffected and not touched here."""
+    """Re-project a user's OAuth credentials after a user/membership/RBAC change.
+    Project secret keys have no user, so they're unaffected and not touched here."""
     for token in OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
         scope__iregex=r"(^|\s)llm_gateway:read(\s|$)", user_id=user_id, application_id__isnull=False
     ):
@@ -98,9 +97,8 @@ def reproject_oauth_application_gateway_credentials_task(application_id: str) ->
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def reproject_team_gateway_credentials_task(team_id: int) -> None:
-    """Re-project every credential bound to a gateway on this team after a team
-    api_token rotation (project_token changes) or a project access-control change
-    (flips the OAuth RBAC check)."""
+    """Re-project the team's gateway credentials after an api_token rotation
+    (project_token changes) or a project access-control change (OAuth RBAC)."""
     for secret_key in ProjectSecretAPIKey.objects.select_related("gateway__team").filter(
         gateway__team_id=team_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
     ):
