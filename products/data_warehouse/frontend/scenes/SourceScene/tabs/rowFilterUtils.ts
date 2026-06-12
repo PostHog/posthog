@@ -4,14 +4,7 @@ import { RowFilter, RowFilterOperator } from '~/types'
 // (posthog/temporal/data_imports/sources/common/sql/predicates.py). Kept in sync so the UI
 // can validate before the PATCH; the backend re-validates and is the source of truth.
 
-export type RowFilterColumnCategory =
-    | 'integer'
-    | 'numeric'
-    | 'string'
-    | 'boolean'
-    | 'date'
-    | 'timestamp'
-    | 'unknown'
+export type RowFilterColumnCategory = 'integer' | 'numeric' | 'string' | 'boolean' | 'date' | 'timestamp' | 'unknown'
 
 export const ROW_FILTER_OPERATORS: RowFilterOperator[] = ['>', '>=', '<', '<=', '=', '!=']
 
