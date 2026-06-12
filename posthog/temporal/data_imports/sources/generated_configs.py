@@ -1096,7 +1096,7 @@ class RingCentralSourceConfig(config.Config):
 
 @config.config
 class RipplingSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config

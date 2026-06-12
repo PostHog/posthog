@@ -127,6 +127,7 @@ the row lists both.
 | redshift         | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | resend           | HTTP                        | requests                                                        | ✅                          |
 | revenuecat       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| rippling         | HTTP                        | requests                                                        | ✅                          |
 | salesforce       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesloft        | HTTP                        | requests                                                        | ✅                          |
 | sendgrid         | HTTP                        | requests                                                        | ✅                          |
@@ -283,7 +284,6 @@ doesn't conflict with concurrent PRs.
 - quickbooks
 - ramp
 - ringcentral
-- rippling
 - rollbar
 - sage_intacct
 - sailthru
