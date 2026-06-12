@@ -6017,13 +6017,7 @@ export interface AvailableColumn {
 /** The comparison operators a row filter may use. Mirrors the backend allowlist. */
 export type RowFilterOperator = '>' | '>=' | '<' | '<=' | '=' | '!=' | 'IN' | 'NOT IN'
 
-/**
- * A single `{column, operator, value}` predicate ANDed onto a schema's source query
- * so only matching rows sync. The value must match the column's type; both the frontend
- * and backend validate this. `value` is the raw user input (string for dates/text/numbers
- * typed in, boolean for boolean columns). For `IN` / `NOT IN` it is a comma-separated
- * string (e.g. `1, 2, 3` or `'a','b'`).
- */
+/** A `{column, operator, value}` predicate ANDed onto a schema's source query. For `IN` / `NOT IN`, `value` is a comma-separated string. */
 export interface RowFilter {
     column: string
     operator: RowFilterOperator
