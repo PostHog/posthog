@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
@@ -9,7 +9,6 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
-import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
 import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
@@ -25,42 +24,10 @@ import { promotedProductLogic } from '~/layout/panel-layout/ai-first/promotedPro
 import { ComposeTicketModal } from 'products/conversations/frontend/components/ComposeTicket'
 import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 
-import type { globalModalsLogicType } from './GlobalModalsType'
+import { globalModalsLogic } from './globalModalsLogic'
 import { navigationLogic } from './navigation/navigationLogic'
 import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
 import { ConfigurePromotedProductModal } from './scenes/ConfigurePromotedProductModal'
-
-export const globalModalsLogic = kea<globalModalsLogicType>([
-    path(['layout', 'navigation', 'globalModalsLogic']),
-    actions({
-        showCreateOrganizationModal: true,
-        hideCreateOrganizationModal: true,
-        showCreateProjectModal: true,
-        hideCreateProjectModal: true,
-    }),
-    reducers({
-        isCreateOrganizationModalShown: [
-            false,
-            {
-                showCreateOrganizationModal: () => true,
-                hideCreateOrganizationModal: () => false,
-            },
-        ],
-        isCreateProjectModalShown: [
-            false,
-            {
-                showCreateProjectModal: () => true,
-                hideCreateProjectModal: () => false,
-            },
-        ],
-    }),
-    bindModalToUrl({
-        urlKey: 'create-organization',
-        openActionKey: 'showCreateOrganizationModal',
-        closeActionKey: 'hideCreateOrganizationModal',
-        isOpenKey: 'isCreateOrganizationModalShown',
-    }),
-])
 
 export function GlobalModals(): JSX.Element {
     const { isCreateOrganizationModalShown, isCreateProjectModalShown } = useValues(globalModalsLogic)

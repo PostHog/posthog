@@ -618,6 +618,21 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-documents-search": {
+        "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Search business knowledge",
+        "title": "Search business knowledge",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
     "business-knowledge-sources-list": {
         "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
         "category": "Business knowledge",
@@ -1848,6 +1863,20 @@
         "feature": "experiments",
         "summary": "Archive experiment",
         "title": "Archive experiment",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-copy-to-project": {
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This writes a new experiment into a DIFFERENT project than the one the user is currently looking at. Resolve the target project from the user's wording to a concrete team id, then confirm the source experiment and the target project by name before invoking.\n\nCopies an experiment into another project in the SAME organization as a new draft. The target project must belong to the same organization — this CANNOT copy across organizations or regions. Use experiment-duplicate instead when the copy should land in the same project.\n\nWhat IS copied: name (defaults to \"Original Name (Copy)\", de-duplicated with a numeric suffix if that name already exists in the target), description, type, parameters (variant split, rollout), filters, primary and secondary metrics (each with freshly regenerated uuids and preserved ordering), stats config, scheduling config, exposure criteria, and the only_count_matured_users setting.\n\nWhat is NOT copied: saved-metric references (saved metrics are project-scoped, so they are dropped on a cross-project copy), holdout, exposure cohort, start/end dates, results, and conclusion. The copy always starts as a fresh draft.\n\nFeature flag: pass feature_flag_key to control the flag key created in the target project. If omitted, the source experiment's flag key is reused — and if a flag with that key already exists in the target project, the copy SHARES that existing flag (its variants are reused) rather than creating a new one. A shared flag means lifecycle operations on either experiment (shipping a variant, pausing) affect both. To avoid this, pass a feature_flag_key that does not already exist in the target project. If an existing target flag is reused, it must have at least 2 variants including one with key \"control\", otherwise the call returns 400 (\"Feature flag must have at least 2 variants (control and at least one test variant)\" or \"Feature flag must have a variant with key 'control'\").\n\nReturns 400 if the source experiment uses legacy metrics (\"Copying is not supported for experiments using legacy metrics.\"). Returns 404 if the target project is not found in the organization (\"Target team not found.\"). Returns 403 if you lack write access to the target project (\"You do not have write access to the target project.\").\n\nThe returned experiment (including its id) belongs to the TARGET project, not the source project.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Copy experiment to another project",
+        "title": "Copy experiment to another project",
         "required_scopes": ["experiment:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4318,7 +4347,7 @@
         }
     },
     "notebooks-partial-update": {
-        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version.",
+        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version. If the notebook content is a single ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of replacing it with legacy rich-text blocks.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update notebook",
@@ -5025,7 +5054,7 @@
         }
     },
     "session-recording-get": {
-        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, offer to use `session-recording-summarize` (note: very slow, ~5 minutes on average). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session recording",
@@ -5095,7 +5124,7 @@
         }
     },
     "session-recording-summaries-list": {
-        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear.",
+        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear. Note: this reads the legacy session-summary store, which is being retired — for new summaries the forward path is Replay Vision summarizer scanners (`vision-observations-list` / `vision-scanners-observations-list`).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "List session summaries",
@@ -5109,7 +5138,7 @@
         }
     },
     "session-recording-summary-get": {
-        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet — to create one, use `session-recording-summarize` (slow, ~5 min) rather than this read endpoint.",
+        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet. This reads the legacy session-summary store, which is being retired — to create a new summary, use a Replay Vision summarizer scanner via `vision-scanners-scan-session` rather than this read endpoint.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session summary",
@@ -5319,7 +5348,7 @@
         }
     },
     "subscriptions-create": {
-        "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.",
+        "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.\nIMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled: true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt subscriptions are themselves AI-generated, so this does not apply to them.)",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "Create subscription",
@@ -5947,6 +5976,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-preview-invite": {
+        "description": "Render the invitation email exactly as a specific targeted interviewee would receive it — the personalized subject and HTML body — without sending anything and without creating any share links. Pass interviewee_identifier (an email or distinct ID already on the topic) to preview for a particular person, or omit it to preview for the first targeted interviewee. The response includes the rendered subject and html, the recipient, whether they are emailable, and whether the embedded link is a placeholder.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Preview the invite email for a targeted interviewee",
+        "title": "Preview the invite email for a targeted interviewee",
+        "required_scopes": ["user_interview:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "user-interviews"
     },

@@ -10,6 +10,7 @@ import type { Params } from 'scenes/sceneTypes'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import { examples } from '~/queries/examples'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
@@ -17,6 +18,7 @@ import {
     ExperimentMetric,
     FileSystemIconType,
     HogQLFilters,
+    HogQLQuery,
     HogQLVariable,
     Node,
     NodeKind,
@@ -1454,6 +1456,15 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         sceneKeys: ['Insight'],
     },
     {
+        path: `Insight/SQL`,
+        type: 'insight',
+        href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+        iconType: 'insight/hog',
+        iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
+        visualOrder: INSIGHT_VISUAL_ORDER.sql,
+        sceneKeys: ['Insight'],
+    },
+    {
         path: `Insight/Stickiness`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.STICKINESS }),
@@ -1977,7 +1988,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
         href: urls.skills(),
         flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
-        tags: ['beta'],
         sceneKey: 'Skills',
         sceneKeys: ['Skills', 'Skill'],
     },

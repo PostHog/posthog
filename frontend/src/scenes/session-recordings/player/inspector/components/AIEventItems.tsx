@@ -30,8 +30,8 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
         <div>
             {isGeneration ? (
                 <ConversationMessagesDisplay
-                    inputNormalized={normalizeMessages(input, 'user', tools)}
-                    outputNormalized={normalizeMessages(output, 'assistant')}
+                    inputNormalized={normalizeMessages(input, 'user', tools).messages}
+                    outputNormalized={normalizeMessages(output, 'assistant').messages}
                     errorData={event.properties.$ai_error}
                     httpStatus={event.properties.$ai_http_status}
                     raisedError={raisedError}

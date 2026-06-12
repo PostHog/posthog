@@ -71,7 +71,8 @@ class TestPostHogCodeEventHandler(TestCase):
             ("app_mention_handled_locally", "app_mention", "handled_locally", 202, True),
             ("app_mention_proxy_failed", "app_mention", "proxy_failed", 502, True),
             ("app_mention_no_integration", "app_mention", "no_integration", 202, True),
-            ("non_handled_event_type_skips_routing", "message", "handled_locally", 202, False),
+            ("member_joined_channel_routes", "member_joined_channel", "handled_locally", 202, True),
+            ("non_handled_event_type_skips_routing", "reaction_added", "handled_locally", 202, False),
         ]
     )
     @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
@@ -141,7 +142,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_local_match_starts_temporal_workflow(self, mock_sync_connect, mock_asyncio_run):
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
 
@@ -186,7 +187,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api.SlackIntegration")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_explicit_repo_followup_handling(
         self,
         _name,
@@ -279,7 +280,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     )
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_app_mention_ignored_does_not_start_workflow(
         self,
         _name,
@@ -302,7 +303,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_app_mention_from_unknown_user_posts_in_thread_failure_reply(
         self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture
     ):
@@ -341,7 +342,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_unknown_user_in_unapproved_ext_shared_channel_suppresses_failure_reply(
         self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture
     ):
@@ -366,7 +367,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_app_mention_filters_candidates_to_user_accessible_only(self, mock_sync_connect, mock_asyncio_run):
         # When the workspace spans two orgs and the resolved PostHog user only
         # belongs to one of them, ``resolve_from_candidates`` filters the other
@@ -395,7 +396,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_app_mention_excludes_private_team_when_user_lacks_access_control_grant(
         self, mock_sync_connect, mock_asyncio_run
     ):
@@ -447,7 +448,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_app_mention_passes_resolved_user_id_into_workflow_inputs(self, mock_sync_connect, mock_asyncio_run):
         # The routing layer must propagate the resolved PostHog user id into the
         # mention workflow inputs so the workflow can skip its legacy in-workflow
@@ -463,7 +464,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_command_workflow_receives_resolved_user_id(self, mock_sync_connect, mock_asyncio_run):
         # Command path mirrors the mention path: routing resolves the user once
         # and the command workflow gets ``user_id`` so it skips its legacy
@@ -481,7 +482,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_command_text_routes_to_command_workflow(self, mock_sync_connect, mock_asyncio_run):
         # Command text in a mention must dispatch the command workflow, never the agent
         # mention workflow — even when a single coding-agent integration exists.
@@ -502,7 +503,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_command_workflow_receives_all_workspace_candidates(self, mock_sync_connect, mock_asyncio_run):
         # When multiple coding-agent integrations exist for the same workspace, all of
         # their IDs must be forwarded to the command workflow so it can handle project
@@ -536,7 +537,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_rules_add_without_repo_routes_to_command_workflow_for_picker(
         self, mock_sync_connect, mock_asyncio_run, _mock_us_claim
     ):
@@ -559,7 +560,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert kicked_off == PostHogCodeSlackMentionCommandWorkflow.run
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_link_shared_routes_to_unfurl(self, mock_unfurl):
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
         link_shared_event = {"type": "link_shared", "channel": "C001", "links": []}
@@ -574,7 +575,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert passed_integration.id == self.posthog_code_integration.id
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_link_shared_works_with_only_notifications_integration(self, mock_unfurl):
         # Delete the coding-agent integration and create a notifications-only integration for same workspace
         self.posthog_code_integration.delete()
@@ -599,7 +600,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert passed_integration.integration_id == "T12345"
 
     @patch("products.slack_app.backend.api._proxy_event_and_return_route")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_us_no_local_proxies_to_eu(self, mock_proxy):
         mock_proxy.return_value = "proxied"
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
@@ -613,7 +614,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert mock_proxy.call_args.args[1] == "eu.posthog.com"
 
     @patch("products.slack_app.backend.api._proxy_event_and_return_route")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_proxy_failure_returns_proxy_failed(self, mock_proxy):
         mock_proxy.return_value = "proxy_failed"
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
@@ -627,7 +628,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api._proxy_event_and_return_route")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_no_local_with_loop_header_returns_no_integration(self, mock_sync_connect, mock_asyncio_run, mock_proxy):
         request = self.factory.post(
             "/slack/event-callback/",
@@ -648,7 +649,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api._proxy_event_and_return_route")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_eu_local_match_with_us_lookup_true_proxies_to_us(
         self, mock_sync_connect, mock_asyncio_run, mock_proxy, mock_lookup
     ):
@@ -673,7 +674,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_eu_local_match_with_us_lookup_false_handles_locally(
         self, mock_sync_connect, mock_asyncio_run, mock_lookup
     ):
@@ -693,7 +694,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api._proxy_event_and_return_route")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_eu_local_match_with_us_lookup_failure_optimistically_proxies(
         self, mock_sync_connect, mock_asyncio_run, mock_proxy, mock_lookup
     ):
@@ -717,7 +718,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace")
     @patch("products.slack_app.backend.api._proxy_event_and_return_route")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_eu_no_local_proxies_to_us_without_lookup(self, mock_proxy, mock_lookup):
         mock_proxy.return_value = "proxied"
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
@@ -733,9 +734,41 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert mock_proxy.call_args.args[1] == "us.posthog.com"
 
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace")
+    @patch("products.slack_app.backend.api._proxy_event_and_return_route")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
+    def test_hosted_dev_does_not_cross_region_proxy(self, mock_sync_connect, mock_asyncio_run, mock_proxy, mock_lookup):
+        # The hosted dev environment (app.dev.posthog.dev) runs as a single region and must not
+        # probe or proxy to us.posthog.com — it has no row in that workspace and the upstream
+        # responds 403 to every such hit (regression for slack_app_region_proxy_non_success).
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="app.dev.posthog.dev")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_lookup.assert_not_called()
+        mock_proxy.assert_not_called()
+        mock_sync_connect.assert_called_once()
+
+    @patch("products.slack_app.backend.api._proxy_event_and_return_route")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
+    def test_hosted_dev_no_local_match_drops_instead_of_proxying(self, mock_proxy):
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="app.dev.posthog.dev")
+
+        from products.slack_app.backend.api import ROUTE_NO_INTEGRATION, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T_UNKNOWN")
+
+        assert result == ROUTE_NO_INTEGRATION
+        mock_proxy.assert_not_called()
+
+    @patch("products.slack_app.backend.api.does_other_region_claim_workspace")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_eu_local_match_with_loop_header_skips_lookup_and_handles(
         self, mock_sync_connect, mock_asyncio_run, mock_lookup
     ):
@@ -768,7 +801,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_app_mention_with_missing_scopes_posts_reauth_and_skips_workflow(
         self,
         _name,
@@ -833,7 +866,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api.SlackIntegration")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_over_quota_team_still_starts_workflow_for_in_workflow_enforcement(
         self,
         mock_sync_connect,
@@ -919,7 +952,7 @@ class TestChannelApprovalGate(TestCase):
     @patch("products.slack_app.backend.api._post_channel_approval_prompt")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_external_channel_without_approval_posts_prompt(self, mock_sync_connect, mock_asyncio_run, mock_prompt):
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
 
@@ -935,7 +968,7 @@ class TestChannelApprovalGate(TestCase):
     @patch("products.slack_app.backend.api._post_channel_approval_prompt")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_external_channel_with_approval_starts_workflow(self, mock_sync_connect, mock_asyncio_run, mock_prompt):
         from django.utils import timezone
 
@@ -962,7 +995,7 @@ class TestChannelApprovalGate(TestCase):
     @patch("products.slack_app.backend.api._post_channel_approval_prompt")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_non_external_channel_starts_workflow_without_prompt(
         self, mock_sync_connect, mock_asyncio_run, mock_prompt
     ):
@@ -982,7 +1015,7 @@ class TestChannelApprovalGate(TestCase):
     @patch("products.slack_app.backend.api._post_channel_approval_prompt")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_pending_row_without_approval_still_prompts(self, mock_sync_connect, mock_asyncio_run, mock_prompt):
         # A row with ``approved_at`` NULL has no semantic weight today, but must not bypass the
         # gate — only ``approved_at`` being set counts as approval.

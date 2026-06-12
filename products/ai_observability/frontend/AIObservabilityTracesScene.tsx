@@ -403,7 +403,7 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
 
-type NormalizedMessage = ReturnType<typeof normalizeMessages>[number]
+type NormalizedMessage = ReturnType<typeof normalizeMessages>['messages'][number]
 
 function hasDisplayableContent(message: NormalizedMessage): boolean {
     const { content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
@@ -500,13 +500,13 @@ function safeNormalize(
     raw: unknown,
     defaultRole: string,
     { strict }: { strict: boolean } = { strict: false }
-): ReturnType<typeof normalizeMessages> {
+): NormalizedMessage[] {
     const unwrapped = unwrapMessageContainer(raw, strict)
     if (unwrapped == null) {
         return []
     }
     try {
-        return normalizeMessages(unwrapped, defaultRole)
+        return normalizeMessages(unwrapped, defaultRole).messages
     } catch (e) {
         console.warn('Error normalizing trace messages', e)
         return []
