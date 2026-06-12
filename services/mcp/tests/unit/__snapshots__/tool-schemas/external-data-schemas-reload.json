@@ -79,7 +79,7 @@
                                 "type": "string"
                             },
                             "operator": {
-                                "enum": [">", ">=", "<", "<=", "=", "!=", "IN", "NOT IN"],
+                                "description": "One of: > >= < <= = != IN \"NOT IN\".",
                                 "type": "string"
                             },
                             "value": {
