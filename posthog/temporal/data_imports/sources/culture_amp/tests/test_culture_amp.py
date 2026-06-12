@@ -163,17 +163,17 @@ class TestEmployeeDemographicsFanOut:
 
         flat = [row for batch in batches for row in batch]
         assert [(r["_employee_id"], r["value"]) for r in flat] == [("e1", "eng"), ("e2", "sales")]
-        assert [call.args[0].next_employee_index for call in manager.save_state.call_args_list] == [1, 2]
+        assert [call.args[0].last_processed_employee_id for call in manager.save_state.call_args_list] == ["e1", "e2"]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_employee_index(self, mock_session):
+    def test_resumes_from_saved_employee_id(self, mock_session):
         mock_session.return_value.post.return_value = _token_response()
         mock_session.return_value.get.side_effect = [
             _response(_page([{"id": "e1"}, {"id": "e2"}])),
             _response(_page([{"name": "department", "value": "sales"}])),
         ]
 
-        manager = _make_manager(CultureAmpResumeConfig(next_employee_index=1))
+        manager = _make_manager(CultureAmpResumeConfig(last_processed_employee_id="e1"))
         batches = list(get_rows("cid", "sec", "entity-1", "employee_demographics", mock.MagicMock(), manager))
 
         flat = [row for batch in batches for row in batch]
@@ -181,6 +181,23 @@ class TestEmployeeDemographicsFanOut:
         urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
         assert len(urls) == 2
         assert "/employees/e2/demographics" in urls[1]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_resumes_from_beginning_when_saved_employee_removed(self, mock_session):
+        # The employee whose id was saved (e9) is gone from the refetched list,
+        # so the sync restarts from the top rather than skipping anyone.
+        mock_session.return_value.post.return_value = _token_response()
+        mock_session.return_value.get.side_effect = [
+            _response(_page([{"id": "e1"}, {"id": "e2"}])),
+            _response(_page([{"name": "department", "value": "eng"}])),
+            _response(_page([{"name": "department", "value": "sales"}])),
+        ]
+
+        manager = _make_manager(CultureAmpResumeConfig(last_processed_employee_id="e9"))
+        batches = list(get_rows("cid", "sec", "entity-1", "employee_demographics", mock.MagicMock(), manager))
+
+        flat = [row for batch in batches for row in batch]
+        assert [r["_employee_id"] for r in flat] == ["e1", "e2"]
 
 
 class TestCultureAmpSourceResponse:

@@ -28,10 +28,11 @@ class CultureAmpRetryableError(Exception):
 
 @dataclasses.dataclass
 class CultureAmpResumeConfig:
-    # Cursor endpoints: the afterKey of the next unfetched page. Fan-out: the
-    # index of the next employee plus the cursor within that employee's pages.
+    # Cursor endpoints: the afterKey of the next unfetched page. Fan-out: the id
+    # of the last fully-processed employee, re-located in a freshly-fetched list
+    # on resume so an employee added/removed mid-sync can't shift the position.
     cursor: Optional[str] = None
-    next_employee_index: Optional[int] = None
+    last_processed_employee_id: Optional[str] = None
 
 
 def _get_session(client_secret: str) -> requests.Session:
@@ -146,9 +147,15 @@ def get_rows(
             employee_ids.extend(str(row["id"]) for row in page)
 
         start_index = 0
-        if resume_config is not None and resume_config.next_employee_index is not None:
-            start_index = resume_config.next_employee_index
-            logger.debug(f"Culture Amp: resuming {endpoint} from employee index {start_index}")
+        if resume_config is not None and resume_config.last_processed_employee_id is not None:
+            start_id = resume_config.last_processed_employee_id
+            logger.debug(f"Culture Amp: resuming {endpoint} from after employee id {start_id}")
+            try:
+                start_index = employee_ids.index(start_id) + 1
+            except ValueError:
+                # The saved employee no longer exists; restart from the beginning
+                # (merge dedupes on primary key, so re-yielding is safe).
+                start_index = 0
 
         for index in range(start_index, len(employee_ids)):
             employee_id = employee_ids[index]
@@ -157,7 +164,7 @@ def get_rows(
                 yield [{**row, "_employee_id": employee_id} for row in page]
             # Save state AFTER yielding so a crash re-yields the in-flight
             # employee (merge dedupes on primary key).
-            resumable_source_manager.save_state(CultureAmpResumeConfig(next_employee_index=index + 1))
+            resumable_source_manager.save_state(CultureAmpResumeConfig(last_processed_employee_id=employee_id))
         return
 
     params: dict[str, Any] = {}
