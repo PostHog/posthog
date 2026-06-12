@@ -541,7 +541,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setScale: (scale: number) => ({ scale }),
         togglePlayPause: true,
         seekToTimestamp: (timestamp: number, forcePlay: boolean = false) => ({ timestamp, forcePlay }),
-        seekToTime: (timeInMilliseconds: number) => ({ timeInMilliseconds }),
+        seekToTime: (timeInMilliseconds: number, forcePlay: boolean = false) => ({ timeInMilliseconds, forcePlay }),
         seekForward: (amount?: number) => ({ amount }),
         seekBackward: (amount?: number) => ({ amount }),
         seekToStart: true,
@@ -1755,9 +1755,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const currentTime = values.currentPlayerTime || 0
             let targetTime = currentTime - amount
 
-            // If in a gap > 3s or would land in a gap > 3s: go to end of previous activity - amount
+            // When skipping inactivity, rewinding into a gap > 3s would just bounce forward
+            // to the gap's end again, so land before the gap instead — applying only the
+            // not-yet-rewound part of the jump so the total rewind stays predictable.
             // Otherwise: normal rewind
-            if (values.sessionPlayerData.start && values.currentTimestamp) {
+            if (values.skipInactivitySetting && values.sessionPlayerData.start && values.currentTimestamp) {
                 const startTimestamp = values.sessionPlayerData.start.valueOf()
                 const segments = values.sessionPlayerData.segments
                 const currentSegment = values.segmentForTimestamp(values.currentTimestamp)
@@ -1775,22 +1777,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const findSegmentIndex = (segment: RecordingSegment): number =>
                     segments.findIndex((s) => s.startTimestamp === segment.startTimestamp && s.kind === segment.kind)
 
-                const seekToPrevActivityEnd = (segment: RecordingSegment): void => {
+                const seekToPrevActivityEnd = (segment: RecordingSegment, rewindMs: number): void => {
                     const prevActivity = findPrevActivitySegment(findSegmentIndex(segment))
                     if (prevActivity) {
                         const prevStart = prevActivity.startTimestamp - startTimestamp
                         const prevEnd = prevActivity.endTimestamp - startTimestamp
-                        targetTime = Math.max(prevStart, prevEnd - amount)
+                        targetTime = Math.max(prevStart, prevEnd - rewindMs)
                     }
                 }
 
                 if (currentSegment?.kind === 'gap' && currentSegment.durationMs > minGapDuration) {
-                    seekToPrevActivityEnd(currentSegment)
+                    seekToPrevActivityEnd(currentSegment, amount)
                 } else {
                     const targetTimestamp = startTimestamp + targetTime
                     const targetSegment = values.segmentForTimestamp(targetTimestamp)
                     if (targetSegment?.kind === 'gap' && targetSegment.durationMs > minGapDuration) {
-                        seekToPrevActivityEnd(targetSegment)
+                        const rewoundBeforeGap = currentTime - (targetSegment.endTimestamp - startTimestamp)
+                        seekToPrevActivityEnd(targetSegment, Math.max(amount - rewoundBeforeGap, 0))
                     }
                 }
             }
@@ -1810,7 +1813,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }, 'seekIndicatorTimer')
         },
 
-        seekToTime: ({ timeInMilliseconds }) => {
+        seekToTime: ({ timeInMilliseconds, forcePlay }) => {
             if (values.currentTimestamp === undefined) {
                 return
             }
@@ -1825,7 +1828,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.sessionPlayerData.end.valueOf()
             )
 
-            actions.seekToTimestamp(newTimestamp)
+            if (forcePlay && values.playingState === SessionPlayerState.PAUSE) {
+                // setPlay seeks to currentTimestamp, so set the target first — seeking and then
+                // playing would rebuild the replayer twice, which can take seconds on large recordings
+                actions.setCurrentTimestamp(newTimestamp)
+                actions.setPlay()
+            } else {
+                actions.seekToTimestamp(newTimestamp, forcePlay)
+            }
         },
         seekToStart: () => {
             actions.seekToTime(0)
