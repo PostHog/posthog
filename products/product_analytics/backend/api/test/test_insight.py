@@ -1694,73 +1694,70 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["filters_hash"], original_filters_hash)
 
-    def test_partial_query_update_preserves_visualization_settings(self) -> None:
-        """Regression for #54870. When an MCP client (or any caller) sends a
-        partial query update with only kind+source, the existing display /
-        chartSettings / tableSettings must be preserved instead of being
-        silently dropped to the default table view."""
-        existing_query = {
-            "kind": "DataVisualizationNode",
-            "source": {
-                "kind": "HogQLQuery",
-                "query": "SELECT count() FROM events",
-            },
-            "display": "BoldNumber",
-            "chartSettings": {"seriesBreakdownColumn": None},
-            "tableSettings": {"conditionalFormatting": []},
-        }
-        insight_id, _ = self.dashboard_api.create_insight({"name": "BigNum", "query": existing_query})
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {
-                "query": {
+    @parameterized.expand(
+        [
+            (
+                "all_keys_omitted_preserves_all",
+                {
+                    "display": "BoldNumber",
+                    "chartSettings": {"seriesBreakdownColumn": None},
+                    "tableSettings": {"conditionalFormatting": []},
+                },
+                {
                     "kind": "DataVisualizationNode",
                     "source": {
                         "kind": "HogQLQuery",
                         "query": "SELECT count() FROM events WHERE event = '$pageview'",
                     },
-                }
-            },
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        updated_query = response.json()["query"]
-        self.assertEqual(updated_query["source"]["query"], "SELECT count() FROM events WHERE event = '$pageview'")
-        self.assertEqual(updated_query["display"], "BoldNumber")
-        self.assertEqual(updated_query["chartSettings"], {"seriesBreakdownColumn": None})
-        self.assertEqual(updated_query["tableSettings"], {"conditionalFormatting": []})
-
-    def test_partial_query_update_lets_explicit_viz_settings_override(self) -> None:
-        """A caller that explicitly sends a new display / chartSettings /
-        tableSettings still wins — the preservation logic must only fill in
-        omitted keys, not block intentional updates."""
-        existing_query = {
-            "kind": "DataVisualizationNode",
-            "source": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
-            "display": "BoldNumber",
-            "chartSettings": {"seriesBreakdownColumn": None},
-        }
-        insight_id, _ = self.dashboard_api.create_insight({"name": "BigNum", "query": existing_query})
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {
-                "query": {
+                },
+                {
+                    "display": "BoldNumber",
+                    "chartSettings": {"seriesBreakdownColumn": None},
+                    "tableSettings": {"conditionalFormatting": []},
+                },
+            ),
+            (
+                "explicit_display_wins_chartSettings_preserved",
+                {
+                    "display": "BoldNumber",
+                    "chartSettings": {"seriesBreakdownColumn": None},
+                },
+                {
                     "kind": "DataVisualizationNode",
                     "source": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
                     "display": "ActionsBar",
-                }
-            },
+                },
+                {
+                    "display": "ActionsBar",
+                    "chartSettings": {"seriesBreakdownColumn": None},
+                },
+            ),
+        ]
+    )
+    def test_partial_query_update_merges_visualization_settings(
+        self, _name: str, existing_extras: dict, patch_query: dict, expected_extras: dict
+    ) -> None:
+        """Regression for #54870. PATCH callers that omit display /
+        chartSettings / tableSettings on a query update must keep the existing
+        values; PATCH callers that explicitly send a new value must override it."""
+        existing_query = {
+            "kind": "DataVisualizationNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            **existing_extras,
+        }
+        insight_id, _ = self.dashboard_api.create_insight({"name": "viz-test", "query": existing_query})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"query": patch_query},
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         updated_query = response.json()["query"]
-        self.assertEqual(updated_query["display"], "ActionsBar")
-        # chartSettings was omitted on this call, so it should still be preserved.
-        self.assertEqual(updated_query["chartSettings"], {"seriesBreakdownColumn": None})
+        self.assertEqual(updated_query["source"], patch_query["source"])
+        for key, expected_value in expected_extras.items():
+            self.assertEqual(updated_query.get(key), expected_value, f"{key} mismatch")
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self) -> None:
