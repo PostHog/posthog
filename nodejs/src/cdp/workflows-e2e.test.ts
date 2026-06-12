@@ -828,6 +828,42 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 10000)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
+
+        it('does not collapse a delay before a wait when the wait event fires during the delay', async () => {
+            // trigger -> delay(5m) -> wait_until_condition(wakeup_event) -> matched / timeout. The
+            // wait's event firing DURING the delay must not wake the job: the delay handler no longer
+            // pre-advances currentAction to the wait, so while parked the job is at the delay (not the
+            // wait) and the matcher leaves it alone. The delay is honored.
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    delay: { type: 'delay', config: { delay_duration: '5m' } },
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: { events: [eventNameFilter('wakeup_event')], max_wait_duration: '5m' },
+                    },
+                    function_matched: fetchAction('https://example.com/matched'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay', type: 'continue' },
+                    { from: 'delay', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'function_matched', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'exit', type: 'continue' },
+                    { from: 'function_matched', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The wait's event fires during the delay — the job must stay parked in the delay.
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
     })
 
     describe('wait_until_time_window: window in the future', () => {
@@ -852,10 +888,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             globals = createGlobals()
         })
 
-        it('should reschedule to the time window start and execute after it opens', async () => {
+        it('parks until the window opens and does not advance early on a premature resume', async () => {
             await triggerWorkflow(globals)
 
-            // Job should be rescheduled to the future time window
+            // Job should be rescheduled to the future time window.
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const rescheduled = jobs.filter(
@@ -863,18 +899,17 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 )
                 expect(rescheduled.length).toBe(1)
             }, 5000)
-
-            // Fetch should NOT be called yet
             expect(mockFetch).not.toHaveBeenCalled()
 
-            // Fast-forward: set the scheduled time to now so the worker picks it up
+            // A premature resume (the window is still in the future) must re-park, not advance to the
+            // next step. The handler stays at the wait_until_time_window step and reschedules, so the
+            // step that follows the window never runs early.
             await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available'`)
-
-            await waitForExpect(() => {
-                expect(mockFetch).toHaveBeenCalledTimes(1)
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             }, 10000)
-
-            expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-time-window', expect.anything())
+            expect(mockFetch).not.toHaveBeenCalled()
         })
     })
 

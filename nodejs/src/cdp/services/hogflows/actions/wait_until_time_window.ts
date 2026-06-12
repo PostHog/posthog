@@ -17,10 +17,15 @@ export class WaitUntilTimeWindowHandler implements ActionHandler {
         action,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'wait_until_time_window' }>>): ActionHandlerResult {
         const nextTime = getWaitUntilTime(action, invocation.person)
-        return {
-            nextAction: findContinueAction(invocation),
-            scheduledAt: nextTime ?? undefined,
+
+        // Same as the delay handler: while still waiting for the window, park WITHOUT advancing
+        // currentAction, so the job doesn't look like it has reached the next step (which the
+        // subscription matcher could wake early). Advance only once the window has opened.
+        if (nextTime) {
+            return { scheduledAt: nextTime }
         }
+
+        return { nextAction: findContinueAction(invocation) }
     }
 }
 
