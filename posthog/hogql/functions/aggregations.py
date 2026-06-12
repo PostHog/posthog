@@ -145,8 +145,6 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
         using_placeholder_arguments=True,
     ),
     "every": HogQLFunctionMeta(
-        # accurateCastOrNull (not bare toBool) so a non-boolean aggregated value yields NULL
-        # instead of a hard ClickHouse parse error that fails the whole query.
         "accurateCastOrNull(min({}), 'Bool')",
         1,
         1,
