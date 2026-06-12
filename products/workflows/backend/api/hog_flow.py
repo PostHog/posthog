@@ -184,6 +184,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "type: event|person|group}. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
+            "Dictionary input values are template strings too — write booleans/numbers as single-expression "
+            "templates ('{true}', '{42}'), which evaluate to the typed value. "
             "delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; "
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
