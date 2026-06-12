@@ -43,32 +43,32 @@ class TestTokenCaching:
         assert _token_cache_key("u", "p") != _token_cache_key("u", "other")
 
     @mock.patch(f"{_MODULE}.cache")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_login_mints_and_caches_token(self, mock_session, mock_cache):
+    @mock.patch(f"{_MODULE}.requests.get")
+    def test_login_mints_and_caches_token(self, mock_get, mock_cache):
         mock_cache.get.return_value = None
-        mock_session.return_value.get.return_value = _response({"OB-TOKEN-V1": "tok-1"})
+        mock_get.return_value = _response({"OB-TOKEN-V1": "tok-1"})
 
         assert validate_credentials("u", "p") is True
-        login_call = mock_session.return_value.get.call_args
+        login_call = mock_get.call_args
         assert login_call.args[0] == "https://api.outbrain.com/amplify/v0.1/login"
         assert login_call.kwargs["auth"] == ("u", "p")
         mock_cache.set.assert_called_once()
         assert mock_cache.set.call_args.args[1] == "tok-1"
 
     @mock.patch(f"{_MODULE}.cache")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_cached_token_skips_login(self, mock_session, mock_cache):
+    @mock.patch(f"{_MODULE}.requests.get")
+    def test_cached_token_skips_login(self, mock_get, mock_cache):
         # /login is capped at 2 requests/hour, so the cache must short-circuit.
         mock_cache.get.return_value = "tok-cached"
 
         assert validate_credentials("u", "p") is True
-        mock_session.return_value.get.assert_not_called()
+        mock_get.assert_not_called()
 
     @mock.patch(f"{_MODULE}.cache")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_login_without_token_in_response_fails(self, mock_session, mock_cache):
+    @mock.patch(f"{_MODULE}.requests.get")
+    def test_login_without_token_in_response_fails(self, mock_get, mock_cache):
         mock_cache.get.return_value = None
-        mock_session.return_value.get.return_value = _response({"message": "nope"})
+        mock_get.return_value = _response({"message": "nope"})
 
         assert validate_credentials("u", "p") is False
 
@@ -136,19 +136,22 @@ class TestEntityStreams:
         flat = [row for batch in batches for row in batch]
         assert [r["_marketer_id"] for r in flat] == ["m2"]
 
+    @mock.patch(f"{_MODULE}.requests.get")
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_mid_sync_401_re_mints_token(self, mock_session, mock_cache):
+    def test_mid_sync_401_re_mints_token(self, mock_session, mock_get, mock_cache):
         mock_cache.get.return_value = "tok-stale"
+        # The data requests run on the tracked session; the mid-sync re-mint
+        # logs in on an untracked session (requests.get).
         mock_session.return_value.get.side_effect = [
             _response({}, status_code=401),
-            _response({"OB-TOKEN-V1": "tok-fresh"}),
             _response({"marketers": [{"id": "m1"}]}),
         ]
+        mock_get.return_value = _response({"OB-TOKEN-V1": "tok-fresh"})
 
         batches = list(get_rows("u", "p", "marketers", mock.MagicMock(), _make_manager()))
 
         assert [row["id"] for batch in batches for row in batch] == ["m1"]
-        retry_headers = mock_session.return_value.get.call_args_list[2].kwargs["headers"]
+        retry_headers = mock_session.return_value.get.call_args_list[1].kwargs["headers"]
         assert retry_headers == {"OB-TOKEN-V1": "tok-fresh"}
 
 

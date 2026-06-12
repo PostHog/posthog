@@ -51,8 +51,13 @@ def _token_cache_key(username: str, password: str) -> str:
     return f"data_imports_outbrain_token_{digest}"
 
 
-def _login(session: requests.Session, username: str, password: str) -> str:
-    response = session.get(
+def _login(username: str, password: str) -> str:
+    # The login response body returns OB-TOKEN-V1 in plaintext, and the token is
+    # not known until the response arrives, so it cannot be value-redacted from a
+    # captured HTTP sample. The login host is the fixed, trusted Outbrain API
+    # (no user-supplied host, so no SSRF concern), so issue it on an untracked
+    # session to keep the token out of HTTP sample capture entirely.
+    response = requests.get(
         f"{OUTBRAIN_BASE_URL}/login",
         auth=(username, password),
         timeout=REQUEST_TIMEOUT_SECONDS,
@@ -64,14 +69,14 @@ def _login(session: requests.Session, username: str, password: str) -> str:
     return token
 
 
-def _get_token(session: requests.Session, username: str, password: str, force_refresh: bool = False) -> str:
+def _get_token(username: str, password: str, force_refresh: bool = False) -> str:
     cache_key = _token_cache_key(username, password)
     if not force_refresh:
         cached = cache.get(cache_key)
         if cached:
             return cached
 
-    token = _login(session, username, password)
+    token = _login(username, password)
     cache.set(cache_key, token, TOKEN_CACHE_TTL_SECONDS)
     return token
 
@@ -79,7 +84,7 @@ def _get_token(session: requests.Session, username: str, password: str, force_re
 def validate_credentials(username: str, password: str) -> bool:
     """Confirm the credentials are valid via the cached-token login flow."""
     try:
-        _get_token(_get_session(password), username, password)
+        _get_token(username, password)
         return True
     except Exception:
         return False
@@ -95,8 +100,10 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = OUTBRAIN_ENDPOINTS[endpoint]
-    session = _get_session(password)
-    token = _get_token(session, username, password)
+    token = _get_token(username, password)
+    # Build the session with the token in redact_values so it is masked from
+    # logged URLs and captured HTTP samples on every data request.
+    session = _get_session(password, token)
 
     @retry(
         retry=retry_if_exception_type((OutbrainRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -105,13 +112,15 @@ def get_rows(
         reraise=True,
     )
     def fetch(url: str) -> dict[str, Any]:
-        nonlocal token
+        nonlocal token, session
         response = session.get(url, headers={"OB-TOKEN-V1": token}, timeout=REQUEST_TIMEOUT_SECONDS)
 
         # Tokens last 30 days; if the cached one has expired mid-sync, re-mint
-        # once (the fresh token replaces it in the cache).
+        # once (the fresh token replaces it in the cache). Rebuild the session so
+        # the new token value is registered in redact_values.
         if response.status_code == 401:
-            token = _get_token(session, username, password, force_refresh=True)
+            token = _get_token(username, password, force_refresh=True)
+            session = _get_session(password, token)
             response = session.get(url, headers={"OB-TOKEN-V1": token}, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
@@ -169,9 +178,7 @@ def get_rows(
                         f"{OUTBRAIN_BASE_URL}/marketers/{quote(marketer_id)}/campaigns?"
                         f"{urlencode({'limit': PAGE_SIZE, 'offset': offset})}"
                     )
-                    data = fetch(url)
-                    items = data.get(campaigns_config.data_key) if isinstance(data, dict) else None
-                    batch = [row for row in items if isinstance(row, dict)] if isinstance(items, list) else []
+                    batch = rows_of(fetch(url), campaigns_config.data_key)
                     campaign_ids.extend(str(c["id"]) for c in batch if c.get("id"))
                     if len(batch) < PAGE_SIZE:
                         break
@@ -220,7 +227,8 @@ def get_rows(
         for row in rows:
             enriched = {**row, "_marketer_id": marketer_id}
             if config.kind == "periodic_report":
-                metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+                metadata_value = row.get("metadata")
+                metadata = metadata_value if isinstance(metadata_value, dict) else {}
                 row_date = metadata.get("fromDate") or metadata.get("id")
                 if not row_date:
                     continue
