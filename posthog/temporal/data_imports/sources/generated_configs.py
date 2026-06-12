@@ -1442,7 +1442,17 @@ class ZoomSourceConfig(config.Config):
 
 @config.config
 class ZuoraSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal[
+        "us_production",
+        "us_api_sandbox",
+        "us_cloud_production",
+        "us_cloud_sandbox",
+        "eu_production",
+        "eu_sandbox",
+        "central_sandbox",
+    ] = config.value(default="us_production")
 
 
 def get_config_for_source(source: ExternalDataSourceType):

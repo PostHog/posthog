@@ -184,6 +184,7 @@ the row lists both.
 | wrike            | HTTP                        | requests                                                        | ✅                          |
 | zendesk          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zoom             | HTTP                        | requests                                                        | ✅                          |
+| zuora            | HTTP                        | requests                                                        | ✅                          |
 
 ### Notes on partially-tracked sources
 
@@ -310,7 +311,6 @@ doesn't conflict with concurrent PRs.
 - youtube_analytics
 - zoho_crm
 - zoominfo
-- zuora
 
 ---
 
