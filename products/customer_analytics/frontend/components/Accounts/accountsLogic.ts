@@ -72,7 +72,13 @@ function normalizeRoleFilter(value: unknown): RoleFilterValue {
 
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
 
-export type AccountFilterType = 'tag' | 'csm' | 'account_executive' | 'account_owner' | 'unassigned_only'
+export type AccountFilterType =
+    | 'tag'
+    | 'csm'
+    | 'account_executive'
+    | 'account_owner'
+    | 'unassigned_only'
+    | 'my_accounts'
 
 // `column` matches the visible column name (alias-stripped) so any selected
 // column can drive the sort.
@@ -113,6 +119,7 @@ export interface AccountsViewUrlState {
     search?: string
     tags?: string[]
     unassigned?: boolean
+    mine?: boolean
     csm?: number[]
     accountExecutive?: number[]
     accountOwner?: number[]
@@ -146,6 +153,7 @@ export const accountsLogic = kea<accountsLogicType>([
         setSearchQuery: (query: string) => ({ query }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAllRolesUnassigned: (value: boolean) => ({ value }),
+        setAssignedToCurrentUser: (value: boolean) => ({ value }),
         setCsmFilter: (value: RoleFilterValue) => ({ value }),
         setAccountExecutiveFilter: (value: RoleFilterValue) => ({ value }),
         setAccountOwnerFilter: (value: RoleFilterValue) => ({ value }),
@@ -195,6 +203,12 @@ export const accountsLogic = kea<accountsLogicType>([
             false,
             {
                 setAllRolesUnassigned: (_, { value }) => value,
+            },
+        ],
+        assignedToCurrentUser: [
+            false,
+            {
+                setAssignedToCurrentUser: (_, { value }) => value,
             },
         ],
         csmFilter: [
@@ -257,6 +271,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
                 s.allRolesUnassigned,
+                s.assignedToCurrentUser,
             ],
             (
                 searchQuery: string,
@@ -264,7 +279,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 csmFilter: RoleFilterValue,
                 accountExecutiveFilter: RoleFilterValue,
                 accountOwnerFilter: RoleFilterValue,
-                allRolesUnassigned: boolean
+                allRolesUnassigned: boolean,
+                assignedToCurrentUser: boolean
             ): number =>
                 [
                     !!searchQuery.trim(),
@@ -273,6 +289,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     accountExecutiveFilter.length > 0,
                     accountOwnerFilter.length > 0,
                     allRolesUnassigned,
+                    assignedToCurrentUser,
                 ].filter(Boolean).length,
         ],
         viewUrlState: [
@@ -280,6 +297,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.searchQuery,
                 s.tagsFilter,
                 s.allRolesUnassigned,
+                s.assignedToCurrentUser,
                 s.csmFilter,
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
@@ -291,6 +309,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 searchQuery: string,
                 tagsFilter: string[],
                 allRolesUnassigned: boolean,
+                assignedToCurrentUser: boolean,
                 csmFilter: RoleFilterValue,
                 accountExecutiveFilter: RoleFilterValue,
                 accountOwnerFilter: RoleFilterValue,
@@ -308,6 +327,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (allRolesUnassigned) {
                     state.unassigned = true
+                }
+                if (assignedToCurrentUser) {
+                    state.mine = true
                 }
                 if (csmFilter.length > 0) {
                     state.csm = csmFilter
@@ -335,6 +357,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.searchQuery,
                 s.tagsFilter,
                 s.allRolesUnassigned,
+                s.assignedToCurrentUser,
                 s.csmFilter,
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
@@ -347,6 +370,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 searchQuery: string,
                 tagsFilter: string[],
                 allRolesUnassigned: boolean,
+                assignedToCurrentUser: boolean,
                 csmFilter: RoleFilterValue,
                 accountExecutiveFilter: RoleFilterValue,
                 accountOwnerFilter: RoleFilterValue,
@@ -372,6 +396,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (allRolesUnassigned) {
                     source.allRolesUnassigned = true
+                }
+                if (assignedToCurrentUser) {
+                    source.assignedToCurrentUser = true
                 }
                 if (csmFilter.length > 0) {
                     source.csm = csmFilter
@@ -443,11 +470,18 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.value = values.allRolesUnassigned
                     properties.is_cleared = !values.allRolesUnassigned
                     break
+                case 'my_accounts':
+                    properties.value = values.assignedToCurrentUser
+                    properties.is_cleared = !values.assignedToCurrentUser
+                    break
             }
             posthog.capture(AccountsEvents.FilterChanged, properties)
         },
         setAllRolesUnassigned: ({ value }) => {
             if (value) {
+                if (values.assignedToCurrentUser) {
+                    actions.setAssignedToCurrentUser(false)
+                }
                 if (values.csmFilter.length > 0) {
                     actions.setCsmFilter([])
                 }
@@ -459,14 +493,41 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
             }
         },
+        // "My accounts" (current user is CSM or AE) clears the unassigned flag
+        // (a genuine contradiction) and the CSM/AE pickers (ANDing the shortcut
+        // with an explicit pick on the same fields is more confusing than
+        // useful). The owner picker stays orthogonal.
+        setAssignedToCurrentUser: ({ value }) => {
+            if (value) {
+                if (values.allRolesUnassigned) {
+                    actions.setAllRolesUnassigned(false)
+                }
+                if (values.csmFilter.length > 0) {
+                    actions.setCsmFilter([])
+                }
+                if (values.accountExecutiveFilter.length > 0) {
+                    actions.setAccountExecutiveFilter([])
+                }
+            }
+        },
         setCsmFilter: ({ value }) => {
-            if (value.length > 0 && values.allRolesUnassigned) {
-                actions.setAllRolesUnassigned(false)
+            if (value.length > 0) {
+                if (values.allRolesUnassigned) {
+                    actions.setAllRolesUnassigned(false)
+                }
+                if (values.assignedToCurrentUser) {
+                    actions.setAssignedToCurrentUser(false)
+                }
             }
         },
         setAccountExecutiveFilter: ({ value }) => {
-            if (value.length > 0 && values.allRolesUnassigned) {
-                actions.setAllRolesUnassigned(false)
+            if (value.length > 0) {
+                if (values.allRolesUnassigned) {
+                    actions.setAllRolesUnassigned(false)
+                }
+                if (values.assignedToCurrentUser) {
+                    actions.setAssignedToCurrentUser(false)
+                }
             }
         },
         setAccountOwnerFilter: ({ value }) => {
@@ -554,6 +615,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (values.allRolesUnassigned) {
                     actions.setAllRolesUnassigned(false)
                 }
+                if (values.assignedToCurrentUser) {
+                    actions.setAssignedToCurrentUser(false)
+                }
                 if (values.csmFilter.length > 0) {
                     actions.setCsmFilter([])
                 }
@@ -610,6 +674,7 @@ export const accountsLogic = kea<accountsLogicType>([
             setSearchQuery: toUrl,
             setTagsFilter: toUrl,
             setAllRolesUnassigned: toUrl,
+            setAssignedToCurrentUser: toUrl,
             setCsmFilter: toUrl,
             setAccountExecutiveFilter: toUrl,
             setAccountOwnerFilter: toUrl,
@@ -640,6 +705,11 @@ export const accountsLogic = kea<accountsLogicType>([
             const unassigned = view.unassigned ?? false
             if (unassigned !== values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(unassigned)
+            }
+
+            const mine = view.mine ?? false
+            if (mine !== values.assignedToCurrentUser) {
+                actions.setAssignedToCurrentUser(mine)
             }
 
             const csm = normalizeRoleFilter(view.csm)

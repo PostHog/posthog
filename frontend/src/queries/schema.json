@@ -38,6 +38,10 @@
                 "allRolesUnassigned": {
                     "type": "boolean"
                 },
+                "assignedToCurrentUser": {
+                    "description": "Match accounts where the requesting user is the CSM or the account executive. The user id is resolved server-side from the authenticated request, never the client.",
+                    "type": "boolean"
+                },
                 "csm": {
                     "description": "Match accounts whose CSM is any of these user ids (OR semantics).",
                     "items": {

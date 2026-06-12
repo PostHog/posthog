@@ -11,13 +11,21 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 
 export function AccountsTabFilters(): JSX.Element {
-    const { searchInput, tagsFilter, allRolesUnassigned, csmFilter, accountExecutiveFilter, accountOwnerFilter } =
-        useValues(accountsLogic)
+    const {
+        searchInput,
+        tagsFilter,
+        allRolesUnassigned,
+        assignedToCurrentUser,
+        csmFilter,
+        accountExecutiveFilter,
+        accountOwnerFilter,
+    } = useValues(accountsLogic)
     const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
         setSearchInput,
         setTagsFilter,
         setAllRolesUnassigned,
+        setAssignedToCurrentUser,
         setCsmFilter,
         setAccountExecutiveFilter,
         setAccountOwnerFilter,
@@ -102,6 +110,17 @@ export function AccountsTabFilters(): JSX.Element {
                     reportFilterChange('account_owner')
                 }}
                 dataAttr="accounts-owner-filter"
+            />
+            <LemonCheckbox
+                checked={assignedToCurrentUser}
+                onChange={(value) => {
+                    setAssignedToCurrentUser(value)
+                    reportFilterChange('my_accounts')
+                }}
+                label="My accounts"
+                info="Accounts where you are the CSM or account executive"
+                disabledReason={accountsLoading ? 'Loading…' : undefined}
+                data-attr="accounts-my-accounts-filter"
             />
             <LemonCheckbox
                 checked={allRolesUnassigned}

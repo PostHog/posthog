@@ -2328,6 +2328,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     accountExecutive?: integer[]
     /** Match accounts whose account owner is any of these user ids (OR semantics). */
     accountOwner?: integer[]
+    /** Match accounts where the requesting user is the CSM or the account executive. The user id is resolved server-side from the authenticated request, never the client. */
+    assignedToCurrentUser?: boolean
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression

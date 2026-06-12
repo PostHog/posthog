@@ -138,6 +138,104 @@ describe('accountsLogic', () => {
         expect(logic.values.accountOwnerFilter).toEqual([])
     })
 
+    describe('assignedToCurrentUser ("my accounts")', () => {
+        it('starts disabled and adds nothing to the query', () => {
+            expect(logic.values.assignedToCurrentUser).toBe(false)
+            const source = logic.values.hogqlQuery.source as AccountsQuery
+            expect(source.assignedToCurrentUser).toBeUndefined()
+        })
+
+        it('toggling on sets the flag on the AccountsQuery', () => {
+            logic.actions.setAssignedToCurrentUser(true)
+            expect(logic.values.assignedToCurrentUser).toBe(true)
+            expect((logic.values.hogqlQuery.source as AccountsQuery).assignedToCurrentUser).toBe(true)
+        })
+
+        it('toggling off removes the flag from the AccountsQuery', () => {
+            logic.actions.setAssignedToCurrentUser(true)
+            logic.actions.setAssignedToCurrentUser(false)
+            expect((logic.values.hogqlQuery.source as AccountsQuery).assignedToCurrentUser).toBeUndefined()
+        })
+
+        it('counts toward activeFilterCount', () => {
+            expect(logic.values.activeFilterCount).toBe(0)
+            logic.actions.setAssignedToCurrentUser(true)
+            expect(logic.values.activeFilterCount).toBe(1)
+        })
+
+        it('enabling it clears the unassigned flag', async () => {
+            logic.actions.setAllRolesUnassigned(true)
+            logic.actions.setAssignedToCurrentUser(true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.assignedToCurrentUser).toBe(true)
+            expect(logic.values.allRolesUnassigned).toBe(false)
+        })
+
+        it('enabling it clears the CSM and AE pickers but keeps the owner filter', async () => {
+            logic.actions.setCsmFilter([7])
+            logic.actions.setAccountExecutiveFilter([8])
+            logic.actions.setAccountOwnerFilter([9])
+            logic.actions.setAssignedToCurrentUser(true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.assignedToCurrentUser).toBe(true)
+            expect(logic.values.csmFilter).toEqual([])
+            expect(logic.values.accountExecutiveFilter).toEqual([])
+            expect(logic.values.accountOwnerFilter).toEqual([9])
+        })
+
+        it('enabling the unassigned flag clears my-accounts', async () => {
+            logic.actions.setAssignedToCurrentUser(true)
+            logic.actions.setAllRolesUnassigned(true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.allRolesUnassigned).toBe(true)
+            expect(logic.values.assignedToCurrentUser).toBe(false)
+        })
+
+        it('selecting a CSM clears my-accounts', async () => {
+            logic.actions.setAssignedToCurrentUser(true)
+            logic.actions.setCsmFilter([7])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.csmFilter).toEqual([7])
+            expect(logic.values.assignedToCurrentUser).toBe(false)
+        })
+
+        it('selecting an AE clears my-accounts', async () => {
+            logic.actions.setAssignedToCurrentUser(true)
+            logic.actions.setAccountExecutiveFilter([8])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountExecutiveFilter).toEqual([8])
+            expect(logic.values.assignedToCurrentUser).toBe(false)
+        })
+
+        it('selecting an owner leaves my-accounts intact', async () => {
+            logic.actions.setAssignedToCurrentUser(true)
+            logic.actions.setAccountOwnerFilter([9])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountOwnerFilter).toEqual([9])
+            expect(logic.values.assignedToCurrentUser).toBe(true)
+        })
+
+        it('round-trips through the view hash param', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAssignedToCurrentUser(true)
+            }).toFinishAllListeners()
+            expect(router.values.hashParams.view).toEqual({ mine: true })
+        })
+
+        it('restores my-accounts from the view hash param', async () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { mine: true } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.assignedToCurrentUser).toBe(true)
+        })
+    })
+
     describe('sortOrder', () => {
         it('starts unset and produces no orderBy on the AccountsQuery', () => {
             expect(logic.values.sortOrder).toBeNull()

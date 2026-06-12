@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -67,5 +67,31 @@ describe('AccountsTabFilters', () => {
         renderFilters()
 
         expect(screen.getByText('Any Owner')).toBeInTheDocument()
+    })
+
+    function myAccountsCheckbox(): HTMLInputElement {
+        return screen.getByText('My accounts').closest('.LemonCheckbox')!.querySelector('input')!
+    }
+
+    it('renders the "My accounts" checkbox', () => {
+        renderFilters()
+
+        expect(screen.getByText('My accounts')).toBeInTheDocument()
+        expect(myAccountsCheckbox().checked).toBe(false)
+    })
+
+    it('reflects a restored my-accounts filter as checked', () => {
+        logic.actions.setAssignedToCurrentUser(true)
+        renderFilters()
+
+        expect(myAccountsCheckbox().checked).toBe(true)
+    })
+
+    it('clicking it enables the my-accounts filter on the logic', () => {
+        renderFilters()
+
+        fireEvent.click(myAccountsCheckbox())
+
+        expect(logic.values.assignedToCurrentUser).toBe(true)
     })
 })

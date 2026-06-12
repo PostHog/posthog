@@ -20335,6 +20335,14 @@ class AccountsQuery(BaseModel):
         description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
     )
     allRolesUnassigned: bool | None = None
+    assignedToCurrentUser: bool | None = Field(
+        default=None,
+        description=(
+            "Match accounts where the requesting user is the CSM or the account"
+            " executive. The user id is resolved server-side from the authenticated"
+            " request, never the client."
+        ),
+    )
     csm: list[int] | None = Field(
         default=None,
         description="Match accounts whose CSM is any of these user ids (OR semantics).",

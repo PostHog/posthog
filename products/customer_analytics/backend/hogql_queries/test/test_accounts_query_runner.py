@@ -11,7 +11,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
-from posthog.models import Tag
+from posthog.models import Tag, User
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 
@@ -27,12 +27,12 @@ except ImportError:
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
-    def _run_query(self, **query_kwargs) -> tuple[AccountsQueryRunner, AccountsQueryResponse]:
-        runner = AccountsQueryRunner(query=AccountsQuery(**query_kwargs), team=self.team)
+    def _run_query(self, user: User | None = None, **query_kwargs) -> tuple[AccountsQueryRunner, AccountsQueryResponse]:
+        runner = AccountsQueryRunner(query=AccountsQuery(**query_kwargs), team=self.team, user=user)
         return runner, runner.calculate()
 
-    def _ids(self, **query_kwargs) -> list[str]:
-        runner, response = self._run_query(**query_kwargs)
+    def _ids(self, user: User | None = None, **query_kwargs) -> list[str]:
+        runner, response = self._run_query(user=user, **query_kwargs)
         name_idx = runner.columns.index("name")
         return [row[name_idx]["id"] for row in response.results]
 
@@ -196,6 +196,84 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         create_account(team_id=other_team.id, name="Theirs", _properties={"csm": {"id": 7, "email": "a@x.com"}})
         mine = create_account(team_id=self.team.id, name="Mine", _properties={"csm": {"id": 7, "email": "a@x.com"}})
         self.assertEqual(self._ids(csm=[7]), [str(mine.id)])
+
+    @parameterized.expand(
+        [
+            ("csm", "csm"),
+            ("account_executive", "account_executive"),
+        ]
+    )
+    def test_assigned_to_current_user_matches_when_user_holds_role(self, _name, role_key):
+        mine = create_account(
+            team_id=self.team.id,
+            name="Mine",
+            _properties={role_key: {"id": self.user.id, "email": self.user.email}},
+        )
+        create_account(
+            team_id=self.team.id,
+            name="Someone else's",
+            _properties={role_key: {"id": self.user.id + 1, "email": "other@x.com"}},
+        )
+        self.assertEqual(self._ids(user=self.user, assignedToCurrentUser=True), [str(mine.id)])
+
+    def test_assigned_to_current_user_unions_csm_and_account_executive_but_not_owner(self):
+        as_csm = create_account(
+            team_id=self.team.id, name="As CSM", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        )
+        as_ae = create_account(
+            team_id=self.team.id,
+            name="As AE",
+            _properties={"account_executive": {"id": self.user.id, "email": self.user.email}},
+        )
+        create_account(
+            team_id=self.team.id,
+            name="As owner only",
+            _properties={"account_owner": {"id": self.user.id, "email": self.user.email}},
+        )
+        create_account(team_id=self.team.id, name="Unassigned")
+
+        self.assertEqual(
+            set(self._ids(user=self.user, assignedToCurrentUser=True)),
+            {str(as_csm.id), str(as_ae.id)},
+        )
+
+    def test_assigned_to_current_user_without_authenticated_user_matches_nothing(self):
+        create_account(team_id=self.team.id, name="Has CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self.assertEqual(self._ids(user=None, assignedToCurrentUser=True), [])
+
+    def test_assigned_to_current_user_combines_with_search(self):
+        match = create_account(
+            team_id=self.team.id, name="Acme", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        )
+        create_account(
+            team_id=self.team.id, name="Globex", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        )
+        self.assertEqual(self._ids(user=self.user, assignedToCurrentUser=True, search="acme"), [str(match.id)])
+
+    def test_assigned_to_current_user_respects_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization)
+        create_account(
+            team_id=other_team.id, name="Theirs", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        )
+        mine = create_account(
+            team_id=self.team.id, name="Mine", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        )
+        self.assertEqual(self._ids(user=self.user, assignedToCurrentUser=True), [str(mine.id)])
+
+    def test_assigned_to_current_user_metrics_mode_counts_only_my_accounts(self):
+        create_account(
+            team_id=self.team.id, name="Mine", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        )
+        create_account(
+            team_id=self.team.id, name="Theirs", _properties={"csm": {"id": self.user.id + 1, "email": "x@x.com"}}
+        )
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(metrics=["count()"], select=[], assignedToCurrentUser=True),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        self.assertEqual(response.metricsResults, [1])
 
     def test_ordering_by_name_asc(self):
         banana = create_account(team_id=self.team.id, name="Banana")
