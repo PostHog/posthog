@@ -51,6 +51,10 @@ const meta: Meta = {
                     ],
                 },
                 '/api/environments/:team_id/session_recordings/:id': largeRecordingMetaJson,
+                '/api/environments/:team_id/session_recordings/:id/player_events': {
+                    session_events: largeRecordingEventsJson,
+                    related_events: { columns: [], results: [] },
+                },
                 '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
                     if (req.url.searchParams.get('source') === 'blob_v2') {
                         return res(ctx.text(largeRecordingJSONL))
