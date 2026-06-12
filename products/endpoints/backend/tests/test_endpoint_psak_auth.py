@@ -108,15 +108,32 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         acl_spy.assert_not_called()
 
+    def test_psak_run_updates_last_executed_at(self):
+        # Freshness tracking gates on "any API-key access method", not just personal API keys —
+        # a PSAK-only consumer must not look stale to the materialization-cleanup task.
+        token, _ = _make_psak(self.team, label="freshness-key")
+        self.assertIsNone(self.endpoint.last_executed_at)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/endpoints/my_endpoint/run/",
+            data={},
+            content_type="application/json",
+            **self._auth_headers(token),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.endpoint.refresh_from_db()
+        self.assertIsNotNone(self.endpoint.last_executed_at)
+        version = self.endpoint.get_version()
+        assert version is not None
+        self.assertIsNotNone(version.last_executed_at)
+
     def test_psak_run_is_captured_with_synthetic_distinct_id(self):
-        # report_user_action drops synthetic principals, so PSAK executions are captured
-        # explicitly — otherwise key-driven traffic would be invisible to deprecation monitoring.
+        # report_user_action handles synthetic principals by capturing with their distinct_id —
+        # otherwise key-driven traffic would be invisible to deprecation monitoring.
         token, psak = _make_psak(self.team, label="telemetry-key")
 
-        with (
-            patch("products.endpoints.backend.api.posthoganalytics.capture") as capture_mock,
-            patch("products.endpoints.backend.api.report_user_action") as report_mock,
-        ):
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture_mock:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/endpoints/my_endpoint/run/",
                 data={},
@@ -125,22 +142,20 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        report_mock.assert_not_called()
         executed_calls = [c for c in capture_mock.call_args_list if c.kwargs.get("event") == "endpoint executed"]
         self.assertEqual(len(executed_calls), 1)
         kwargs = executed_calls[0].kwargs
         self.assertEqual(kwargs["distinct_id"], f"psak-{self.team.id}-{psak.id}")
         self.assertEqual(kwargs["properties"]["auth_method"], "project_secret_api_key")
         self.assertEqual(kwargs["properties"]["endpoint_name"], "my_endpoint")
+        self.assertEqual(kwargs["groups"]["project"], str(self.team.uuid))
+        self.assertNotIn("$set_once", kwargs["properties"])
 
     def test_session_run_is_reported_as_user_action(self):
-        # The user-auth path keeps going through report_user_action, with the same event shape.
+        # The user-auth path keeps the same event shape, captured under the real user's distinct_id.
         self.client.force_login(self.user)
 
-        with (
-            patch("products.endpoints.backend.api.posthoganalytics.capture") as capture_mock,
-            patch("products.endpoints.backend.api.report_user_action") as report_mock,
-        ):
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture_mock:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/endpoints/my_endpoint/run/",
                 data={},
@@ -148,11 +163,12 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        report_mock.assert_called_once()
-        self.assertEqual(report_mock.call_args.kwargs["user"], self.user)
-        self.assertEqual(report_mock.call_args.kwargs["properties"]["auth_method"], "user")
-        executed_captures = [c for c in capture_mock.call_args_list if c.kwargs.get("event") == "endpoint executed"]
-        self.assertEqual(executed_captures, [])
+        executed_calls = [c for c in capture_mock.call_args_list if c.kwargs.get("event") == "endpoint executed"]
+        self.assertEqual(len(executed_calls), 1)
+        kwargs = executed_calls[0].kwargs
+        self.assertEqual(kwargs["distinct_id"], self.user.distinct_id)
+        self.assertEqual(kwargs["properties"]["auth_method"], "user")
+        self.assertEqual(kwargs["properties"]["endpoint_name"], "my_endpoint")
 
     def test_psak_in_body_is_not_accepted(self):
         token, _ = _make_psak(self.team, label="body-key")
@@ -283,16 +299,18 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("does not have access to the requested project", response.json().get("detail", ""))
 
-    def test_psak_does_not_authenticate_local_evaluation(self):
-        # local_evaluation only accepts Team.secret_api_token via TeamSecretTokenAuthentication.
-        token, _ = _make_psak(self.team, label="local-eval-key")
+    def test_psak_does_not_authenticate_legacy_team_token_surfaces(self):
+        # remote_config is the remaining Django surface for the legacy per-team
+        # Team.secret_api_token (local_evaluation now lives in the Rust flags service).
+        # A PSAK is also phs_-prefixed but must not be accepted there.
+        token, _ = _make_psak(self.team, label="remote-config-key")
 
         response = self.client.get(
-            "/api/feature_flag/local_evaluation/",
+            f"/api/projects/{self.team.id}/feature_flags/some_flag/remote_config/",
             **self._auth_headers(token),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
     def test_session_auth_still_works_on_endpoint_viewset(self):
         # Regression: wiring PSAK into authentication_classes must not break session auth.

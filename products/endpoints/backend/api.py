@@ -61,17 +61,19 @@ from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemViewSetMixin, cleanup_orphan_tags, set_tags_on_object
 from posthog.api.utils import action
-from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import (
+    Feature,
+    Product,
+    get_query_tag_value,
+    is_api_key_access_method,
+    tag_queries,
+)
 from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import (
-    get_request_analytics_properties,
-    groups as event_usage_groups,
-    report_user_action,
-)
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
@@ -1634,7 +1636,7 @@ class EndpointViewSet(
             execution_mode=execution_mode,
             query_id=client_query_id,
             user=cast(User, request.user),
-            is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+            is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
             cache_age_seconds=cache_age_seconds,
             analytics_props=get_request_analytics_properties(request),
         )
@@ -2357,37 +2359,24 @@ class EndpointViewSet(
         try:
             data = self._parse_run_request(request)
 
-            # One property bag for both paths, so the "endpoint executed" event has the same shape
-            # regardless of auth method. report_user_action drops non-User principals, so synthetic
-            # users (PSAK) are captured explicitly instead.
-            request_user = cast("User | SyntheticUser", request.user)
-            event_properties = {
-                **get_request_analytics_properties(request),
-                "endpoint_id": str(endpoint.id),
-                "endpoint_name": endpoint.name,
-                "has_filters_override": bool(data.filters_override),
-                "has_variables": bool(data.variables),
-                "has_limit": data.limit is not None,
-                "has_offset": data.offset is not None,
-                "refresh_mode": data.refresh.value if data.refresh else None,
-                "auth_method": "project_secret_api_key"
-                if isinstance(request_user, ProjectSecretAPIKeyUser)
-                else "user",
-            }
-            if isinstance(request_user, SyntheticUser):
-                posthoganalytics.capture(
-                    distinct_id=request_user.distinct_id,
-                    event="endpoint executed",
-                    properties=event_properties,
-                    groups=event_usage_groups(self.team.organization, self.team),
-                )
-            else:
-                report_user_action(
-                    user=request_user,
-                    event="endpoint executed",
-                    properties=event_properties,
-                    team=self.team,
-                )
+            report_user_action(
+                user=cast("User | SyntheticUser", request.user),
+                event="endpoint executed",
+                properties={
+                    "endpoint_id": str(endpoint.id),
+                    "endpoint_name": endpoint.name,
+                    "has_filters_override": bool(data.filters_override),
+                    "has_variables": bool(data.variables),
+                    "has_limit": data.limit is not None,
+                    "has_offset": data.offset is not None,
+                    "refresh_mode": data.refresh.value if data.refresh else None,
+                    "auth_method": "project_secret_api_key"
+                    if is_authenticated_via_project_secret_api_key(request)
+                    else "user",
+                },
+                team=self.team,
+                request=request,
+            )
 
             version_number = self._parse_int_param(data.version, request.query_params.get("version"), "version")
             limit = self._parse_int_param(data.limit, request.query_params.get("limit"), "limit", min_value=1)
@@ -2566,7 +2555,7 @@ class EndpointViewSet(
             ),
         )
 
-        if get_query_tag_value("access_method") == "personal_api_key":
+        if is_api_key_access_method(get_query_tag_value("access_method")):
             now = timezone.now()
             throttle = timedelta(minutes=30)
             if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > throttle):
