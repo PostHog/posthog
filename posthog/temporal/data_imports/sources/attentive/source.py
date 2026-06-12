@@ -92,7 +92,7 @@ class AttentiveSource(
                 "Attentive's API has no bulk read endpoints, so all tables are populated from webhook "
                 "events as they happen — history before the connection date is not backfilled."
             ),
-            iconPath="/static/services/attentive.png",
+            iconPath="/static/services/attentive.com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/attentive",
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(

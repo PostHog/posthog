@@ -56,7 +56,7 @@ class TestAttentiveSource:
         assert config.label == "Attentive"
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/attentive.png"
+        assert config.iconPath == "/static/services/attentive.com.png"
 
         field_names = [f.name for f in config.fields]
         assert field_names == ["api_key"]
