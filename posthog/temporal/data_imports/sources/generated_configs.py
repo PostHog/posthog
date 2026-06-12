@@ -740,7 +740,8 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class KustomerSourceConfig(config.Config):
-    pass
+    org_name: str
+    api_key: str
 
 
 @config.config

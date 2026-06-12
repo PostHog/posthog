@@ -95,6 +95,7 @@ the row lists both.
 | jira             | HTTP                        | requests                                                        | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly     | HTTP                        | requests                                                        | ✅                          |
+| kustomer         | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
 | lever            | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -256,7 +257,6 @@ doesn't conflict with concurrent PRs.
 - hibob
 - instagram
 - kafka
-- kustomer
 - lattice
 - lever
 - lightspeed_retail
