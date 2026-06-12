@@ -79,6 +79,7 @@ import {
     MetricInsightId,
 } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
+import { experimentMetricsLogic } from './experimentMetricsLogic'
 import { experimentSceneLogic } from './experimentSceneLogic'
 import {
     experimentsLogic,
@@ -1601,6 +1602,14 @@ export const experimentLogic = kea<experimentLogicType>([
             try {
                 const recalculationFlow = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
                 if (recalculationFlow) {
+                    // A config change (date / metric / exposure criteria / settings) invalidates the
+                    // cached results, so kick off a fresh recalculation. Page loads, manual reloads and
+                    // auto-refresh are handled elsewhere (afterMount / the reload button), so don't
+                    // re-trigger here for those. Fire BEFORE loading exposures so an exposures failure
+                    // can't skip the metric recalculation — the two are independent.
+                    if (triggeredBy === 'config_change' && values.experiment) {
+                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation()
+                    }
                     // Metric results come from experimentMetricsLogic (mounted by the metrics view);
                     // here we only refresh exposures, which still live in experimentLogic.
                     await asyncActions.loadExposures(forceRefresh)
@@ -2400,7 +2409,11 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.updateExperiment(updatePayload)
 
-            if (isPrimary) {
+            // Adding a breakdown changes how the metric is computed, so re-run results — recalculation
+            // flow triggers a fresh recalc via config_change; legacy flow reloads per-metric results.
+            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                actions.refreshExperimentResults(true, 'config_change')
+            } else if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
                 actions.loadSecondaryMetricsResults(true)
@@ -2431,7 +2444,12 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.updateExperiment(updatePayload)
 
-            if (isPrimary) {
+            // Removing a breakdown changes how the metric is computed, so re-run results. On the
+            // recalculation flow this routes through refreshExperimentResults('config_change') (which
+            // triggers a fresh recalculation); the legacy flow reloads the per-metric results directly.
+            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                actions.refreshExperimentResults(true, 'config_change')
+            } else if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
                 actions.loadSecondaryMetricsResults(true)
@@ -2458,9 +2476,15 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                     }
                 )
-                // Re-fetch metric and exposure results since the variant set changed.
-                actions.loadPrimaryMetricsResults(true)
-                actions.loadSecondaryMetricsResults(true)
+                // Re-fetch results since the variant set changed. On the recalculation flow this means a
+                // fresh recalc; on the legacy flow it's the per-metric loaders. Exposures refresh either way.
+                if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                    values.experiment &&
+                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation()
+                } else {
+                    actions.loadPrimaryMetricsResults(true)
+                    actions.loadSecondaryMetricsResults(true)
+                }
                 actions.loadExposures(true)
             } catch (error) {
                 lemonToast.error('Could not update variant exclusion. Please try again.')

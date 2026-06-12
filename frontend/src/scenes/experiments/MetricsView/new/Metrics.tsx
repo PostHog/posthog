@@ -14,7 +14,7 @@ import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
 import { METRIC_CONTEXTS } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { MetricsReorderModal } from '~/scenes/experiments/MetricsView/MetricsReorderModal'
 import { modalsLogic } from '~/scenes/experiments/modalsLogic'
-import { metricResults } from '~/scenes/experiments/utils'
+import { isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
 
 import { HowToReadTooltip } from './HowToReadTooltip'
@@ -26,7 +26,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
     // Guard here so the child can take a non-null, real experiment and mount keyed child logics safely.
-    if (!variants || !experiment?.id || experiment.id === 'new') {
+    if (!variants || !isSavedExperiment(experiment)) {
         return null
     }
 
@@ -47,11 +47,11 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
         secondaryMetricsResultsErrors,
     } = useValues(experimentMetricsLogic({ experiment }))
     const { featureFlags } = useValues(featureFlagLogic)
+    const recalculationFlow = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
 
     const { openPrimaryMetricsReorderModal, openSecondaryMetricsReorderModal } = useActions(modalsLogic)
 
     const type = isSecondary ? 'secondary' : 'primary'
-    const recalculationFlow = featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
 
     const metricsWithResults = recalculationFlow
         ? metricResults(experiment)(
