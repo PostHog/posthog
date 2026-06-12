@@ -34,7 +34,7 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         select: str,
         teams: str = "*",
         modifiers: HogQLQueryModifiers | None = None,
-        restricted_properties: list[tuple[str, int]] | None = None,
+        restricted_properties: set[tuple[str, int]] | None = None,
     ) -> tuple[str, HogQLContext]:
         context = HogQLContext(
             team_id=self.team.pk,
@@ -101,14 +101,14 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         # (or read restricted source properties), so it stands down entirely.
         sql, _ = self._print_select(
             "SELECT properties.$geoip_city_name FROM events",
-            restricted_properties=[(restricted_key, PropertyDefinition.Type.EVENT)],
+            restricted_properties={(restricted_key, PropertyDefinition.Type.EVENT)},
         )
         assert "dictGetStringOrDefault" not in sql
 
     def test_fallback_unaffected_by_unrelated_restriction(self) -> None:
         sql, _ = self._print_select(
             "SELECT properties.$geoip_city_name FROM events",
-            restricted_properties=[("$browser", PropertyDefinition.Type.EVENT)],
+            restricted_properties={("$browser", PropertyDefinition.Type.EVENT)},
         )
         assert "dictGetStringOrDefault" in sql
 
