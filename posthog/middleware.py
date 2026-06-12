@@ -26,6 +26,7 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.http import http_date
 
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
@@ -568,14 +569,19 @@ class EnvironmentsRedirectMiddleware:
     test_environments_redirect.KNOWN_ENVIRONMENT_ONLY_RESOURCES) pass through untouched,
     so a redirect can never land on a 404.
 
-    Gated by API_ENVIRONMENTS_REDIRECT_ENABLED (checked per request) so the redirect can
-    be switched off via env var without a code change. Whether or not the redirect is
-    enabled, redirectable /api/environments/* responses carry `Deprecation`, `Sunset`,
-    and `Link` headers announcing the successor path to integrators.
+    Gated by the `api-environments-redirect` feature flag, evaluated locally per request
+    (no network call, no flag events) — turning the flag off disables the redirect
+    instantly without a deploy or restart. If the flag can't be evaluated (missing,
+    local evaluation unavailable, SDK disabled) the redirect stays OFF. Whether or not
+    the redirect is enabled, redirectable /api/environments/* responses carry
+    `Deprecation`, `Sunset`, and `Link` headers announcing the successor path to
+    integrators.
     """
 
     ENVIRONMENTS_PREFIX = "/api/environments"
     PROJECTS_PREFIX = "/api/projects"
+    FEATURE_FLAG_KEY = "api-environments-redirect"
+    FEATURE_FLAG_DISTINCT_ID = "environments_api_redirect"
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
@@ -593,7 +599,7 @@ class EnvironmentsRedirectMiddleware:
         location = f"{target_path}?{query_string}" if query_string else target_path
 
         response: HttpResponse
-        if settings.API_ENVIRONMENTS_REDIRECT_ENABLED:
+        if self._redirect_enabled():
             response = HttpResponseTemporaryRedirectPreserveMethod(location)
         else:
             response = self.get_response(request)
@@ -604,6 +610,19 @@ class EnvironmentsRedirectMiddleware:
         if sunset:
             response["Sunset"] = sunset
         return response
+
+    @classmethod
+    def _redirect_enabled(cls) -> bool:
+        # only_evaluate_locally keeps this off the network on every request; a constant
+        # distinct id makes the flag an instance-wide on/off switch (roll out 0% or 100%).
+        return bool(
+            posthoganalytics.feature_enabled(
+                cls.FEATURE_FLAG_KEY,
+                cls.FEATURE_FLAG_DISTINCT_ID,
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
 
     @staticmethod
     def _projects_route_exists(target_path: str) -> bool:

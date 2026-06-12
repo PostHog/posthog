@@ -704,14 +704,12 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 ####
 # /api/environments deprecation
 
-# When `true`, requests to /api/environments/* get a method-preserving 307 redirect to the
-# equivalent /api/projects/* path (see posthog.middleware.EnvironmentsRedirectMiddleware).
-# Kill-switch for the /api/environments deprecation rollout: flip the env var to disable
-# the redirect instantly without a code change.
-API_ENVIRONMENTS_REDIRECT_ENABLED = get_from_env("API_ENVIRONMENTS_REDIRECT_ENABLED", False, type_cast=str_to_bool)
+# Requests to /api/environments/* get a method-preserving 307 redirect to the equivalent
+# /api/projects/* path, gated by the `api-environments-redirect` feature flag — see
+# posthog.middleware.EnvironmentsRedirectMiddleware.
 # ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
 # /api/environments/* responses. Empty string omits the header.
-API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-12-15")
+API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")
 
 # Query service SLO sampling rate. Each QueryRunner.run() call emits two events
 # (slo_operation_started + slo_operation_completed); unsampled, that's many millions of

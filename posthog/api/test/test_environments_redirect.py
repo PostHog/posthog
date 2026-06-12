@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from typing import cast
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.http import HttpResponse
 from django.test import override_settings
@@ -16,7 +17,8 @@ from rest_framework import status
 # Tests for EnvironmentsRedirectMiddleware: /api/environments/* must 307-redirect to the
 # equivalent /api/projects/* path (same id — Project ↔ primary Team are 1:1 and share it),
 # preserving method, body, and query string. 307 (not 301/302) is load-bearing: a plain
-# redirect lets clients downgrade writes to GET and drop the body.
+# redirect lets clients downgrade writes to GET and drop the body. The redirect is gated
+# by the `api-environments-redirect` feature flag, so tests patch the flag evaluation.
 
 ENVIRONMENTS_PREFIX = "api/environments"
 PROJECTS_PREFIX = "api/projects"
@@ -93,8 +95,13 @@ class TestEveryEnvironmentsRouteHasAProjectsCounterpart(APIBaseTest):
         )
 
 
-@override_settings(API_ENVIRONMENTS_REDIRECT_ENABLED=True)
 class TestEnvironmentsRedirect(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        flag_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
     def assert_redirected(self, path: str, expected_location: str, method: str = "GET") -> HttpResponse:
         # cast: the DRF stubs type APIClient.generic via the request-factory side, but at
         # runtime the client returns the response.
@@ -180,29 +187,42 @@ class TestEnvironmentsRedirect(APIBaseTest):
 
 
 class TestEnvironmentsRedirectKillSwitch(APIBaseTest):
-    def test_redirect_is_off_by_default_but_deprecation_headers_are_present(self):
+    def test_redirect_is_off_when_flag_unavailable_but_deprecation_headers_are_present(self):
+        # No patch: the analytics SDK is disabled under TEST, so the flag evaluates to
+        # None — the redirect must fail closed while deprecation headers still ship.
         response = self.client.get(f"/api/environments/{self.team.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response["Deprecation"], "true")
         self.assertIn(f"</api/projects/{self.team.id}/>", response["Link"])
         self.assertIn("Sunset", response.headers)
 
-    @override_settings(API_ENVIRONMENTS_REDIRECT_ENABLED=True)
-    def test_kill_switch_disables_redirect_without_restart(self):
-        self.assert_redirect_enabled()
-        with override_settings(API_ENVIRONMENTS_REDIRECT_ENABLED=False):
+    def test_flag_toggles_redirect_without_restart(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self.assert_redirect_enabled()
+        with patch("posthoganalytics.feature_enabled", return_value=False):
             response = self.client.get(f"/api/environments/{self.team.id}/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assert_redirect_enabled()
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self.assert_redirect_enabled()
+
+    def test_flag_is_evaluated_locally_without_emitting_events(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True) as flag_eval:
+            self.assert_redirect_enabled()
+        flag_eval.assert_called_once_with(
+            "api-environments-redirect",
+            "environments_api_redirect",
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
 
     def assert_redirect_enabled(self) -> None:
         response = self.client.get(f"/api/environments/{self.team.id}/")
         self.assertEqual(response.status_code, status.HTTP_307_TEMPORARY_REDIRECT)
 
-    @override_settings(API_ENVIRONMENTS_SUNSET_DATE="2026-12-15")
+    @override_settings(API_ENVIRONMENTS_SUNSET_DATE="2026-07-31")
     def test_sunset_header_is_http_date(self):
         response = self.client.get(f"/api/environments/{self.team.id}/")
-        self.assertEqual(response["Sunset"], "Tue, 15 Dec 2026 00:00:00 GMT")
+        self.assertEqual(response["Sunset"], "Fri, 31 Jul 2026 00:00:00 GMT")
 
     @override_settings(API_ENVIRONMENTS_SUNSET_DATE="")
     def test_sunset_header_is_omitted_when_unset(self):
