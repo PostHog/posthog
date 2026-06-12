@@ -7,9 +7,6 @@ export type AIObservabilityConfig = {
     TEMPORAL_CLIENT_CERT: string | undefined
     TEMPORAL_CLIENT_KEY: string | undefined
 
-    // Payload encryption — keys must match the Python EncryptionCodec
-    // (posthog/temporal/common/codec.py) so the evaluation worker can decrypt.
-    // Without a secret key, workflow inputs reach Temporal Cloud unencrypted.
     TEMPORAL_SECRET_KEY: string | undefined
     TEMPORAL_FALLBACK_SECRET_KEYS: string
 
@@ -35,8 +32,6 @@ export function getDefaultAIObservabilityConfig(): AIObservabilityConfig {
         TEMPORAL_CLIENT_ROOT_CA: undefined,
         TEMPORAL_CLIENT_CERT: undefined,
         TEMPORAL_CLIENT_KEY: undefined,
-        // Mirror Python's settings: TEMPORAL_SECRET_KEY defaults to SECRET_KEY,
-        // and fallback keys default to SECRET_KEY too (for key rotation).
         TEMPORAL_SECRET_KEY: process.env.SECRET_KEY,
         TEMPORAL_FALLBACK_SECRET_KEYS: process.env.SECRET_KEY ?? '',
         LLMA_EVAL_SCHEDULER_TOPIC: 'events',

@@ -90,8 +90,6 @@ export class TemporalService {
         const { TEMPORAL_SECRET_KEY, TEMPORAL_FALLBACK_SECRET_KEYS } = this.config
 
         if (!TEMPORAL_SECRET_KEY) {
-            // Without a key, workflow inputs (prompts, completions) reach Temporal Cloud
-            // in the clear, so warn loudly rather than silently degrading.
             logger.warn('⚠️ No TEMPORAL_SECRET_KEY configured — workflow payloads will NOT be encrypted')
             return undefined
         }
