@@ -284,6 +284,12 @@ export class HogFlowExecutorService {
                 )
             }
         }
+        // Event-based conversion goals are evaluated by the subscription matcher (against the live
+        // event stream), which flags the job when the conversion event fires. The property-based
+        // check above can't see those, so honor the flag here.
+        if (invocation.state.conversionMatched) {
+            conversionMatch = true
+        }
 
         switch (hogFlow.exit_condition) {
             case 'exit_on_trigger_not_matched':
