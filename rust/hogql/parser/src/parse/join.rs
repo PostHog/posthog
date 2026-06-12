@@ -1541,6 +1541,7 @@ fn token_extends_pivot_column_lhs(kind: TokenKind) -> bool {
             | TokenKind::LtEq
             | TokenKind::Gt
             | TokenKind::GtEq
+            | TokenKind::NullSafeEq
             | TokenKind::RegexSingle
             | TokenKind::RegexDouble
             | TokenKind::IRegexSingle
