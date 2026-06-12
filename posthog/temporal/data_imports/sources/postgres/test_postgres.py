@@ -57,6 +57,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_connection_dropped_error,
     _is_partitioned_table,
     _is_read_replica,
+    _is_unsupported_function_error,
     _normalize_function_names,
     _rls_active_from_conn,
     _role_subject_to_rls,
@@ -2759,3 +2760,55 @@ class TestRlsDetectionRealDb:
             dj_cursor.execute("CREATE TABLE test_rls_noschema (id SERIAL PRIMARY KEY)")
             result = _rls_active_from_conn(cast(Any, _DjangoBackedConnection(dj_cursor)), "", None)
             assert "public.test_rls_noschema" in result
+
+
+# Message a DuckDB/Flight-SQL-backed Postgres-wire engine returns when `row_security_active` is
+# absent — the engine accepts the connection but lacks the Postgres-only catalog function.
+_FLIGHT_MISSING_FUNCTION_MSG = (
+    "flight execute: rpc error: code = InvalidArgument desc = failed to prepare query: "
+    "Catalog Error: Scalar Function with name row_security_active does not exist!"
+)
+
+
+class TestIsUnsupportedFunctionError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG), True),
+            (Exception('function "row_security_active" does not exist'), True),
+            (Exception("Unknown function: row_security_active"), True),
+            # Real Postgres raises UndefinedFunction (SQLSTATE 42883) — recognised by type alone.
+            (psycopg.errors.UndefinedFunction("function row_security_active(oid) does not exist"), True),
+            # Different function missing -> not our concern, should still be captured.
+            (Exception("function some_other_func does not exist"), False),
+            # A genuine permission error mentioning the function must NOT be swallowed.
+            (Exception("permission denied for function row_security_active"), False),
+            (Exception("connection reset by peer"), False),
+        ],
+    )
+    def test_recognises_missing_function(self, error, expected):
+        assert _is_unsupported_function_error(error, "row_security_active") is expected
+
+
+class TestRlsActiveFromConnErrorHandling:
+    @staticmethod
+    def _conn_raising(exc: Exception):
+        conn = mock.MagicMock()
+        conn.cursor.return_value.__enter__.return_value.execute.side_effect = exc
+        return conn
+
+    def test_unsupported_function_error_is_not_captured(self):
+        # A Postgres-wire engine without `row_security_active` is an expected shape: degrade to no
+        # RLS warnings without flooding error tracking.
+        conn = self._conn_raising(psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG))
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_unexpected_error_is_still_captured(self):
+        conn = self._conn_raising(Exception("connection reset by peer"))
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_called_once()
