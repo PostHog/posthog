@@ -3492,6 +3492,7 @@ class TestIntegrationDeletionWorkflowGuard:
     def test_destroy_blocked_when_function_action_references_integration(
         self, reference_kind: str, template_id: str, client: HttpClient
     ):
+        input_value: int | dict
         if reference_kind == "bare_id_via_schema":
             HogFunctionTemplate.objects.create(
                 template_id=template_id,
