@@ -41,9 +41,15 @@ def _update(update: RecalculationProgressUpdate):
         return _update_raw(update)
 
 
-def _calculate(experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str):
+def _calculate(
+    experiment_id: int,
+    metric_uuid: str,
+    recalculation_id: str,
+    query_to: str,
+    metric_type: str = "primary",
+):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
-        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to)
+        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, metric_type)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -669,6 +675,9 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["execution_mode"] == "recalculation"
 
     def test_secondary_metric_is_not_marked_primary(self):
+        # metric_type is now threaded through from the workflow's discovery output rather than re-derived
+        # from a fresh DB lookup. The activity's caller (workflow) reads the value from
+        # ExperimentMetricToRecalculate; tests pass it explicitly to exercise the same path.
         exp = self._experiment(flag_key="an-secondary", secondary=[_mean_metric("s1")])
         recalc = self._recalc(exp, metric_uuids=["s1"])
 
@@ -677,7 +686,7 @@ class TestRecalculationAnalytics(BaseTest):
                 "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
             ) as mock_runner:
                 mock_runner.return_value.run.return_value.model_dump.return_value = {}
-                _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO)
+                _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO, metric_type="secondary")
 
         assert captured[0]["properties"]["is_primary"] is False
 

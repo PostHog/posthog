@@ -107,7 +107,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             async with semaphore:
                 return await temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
-                    args=[metric.experiment_id, metric.metric_uuid, recalculation_id, query_to],
+                    args=[metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.metric_type],
                     # No heartbeat: the activity's only long-running step is one blocking ClickHouse query
                     # with no progress hooks, so start_to_close_timeout is the real per-attempt ceiling.
                     start_to_close_timeout=timedelta(minutes=5),

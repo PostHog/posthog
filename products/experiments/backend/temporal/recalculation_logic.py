@@ -323,29 +323,21 @@ def _fail(recalculation_id: str, metric_uuid: str, step: str, message: str) -> M
 # ---------------------------------------------------------------------------
 
 
-def _metric_type_for_uuid(experiment: Experiment, metric_uuid: str) -> str:
-    """primary | secondary — which list the metric belongs to (inline or saved)."""
-    for metric in experiment.metrics or []:
-        if metric.get("uuid") == metric_uuid:
-            return "primary"
-    for metric in experiment.metrics_secondary or []:
-        if metric.get("uuid") == metric_uuid:
-            return "secondary"
-    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
-        if (link.saved_metric.query or {}).get("uuid") == metric_uuid:
-            return link.metadata.get("type", "primary") if link.metadata else "primary"
-    return "primary"
-
-
 def _capture_experiment_metric_event(
     experiment: Experiment,
     metric_uuid: str,
+    metric_type: str,
     metric_dict: dict | None,
     event: str,
     extra_properties: dict[str, Any],
 ) -> None:
     """Emit a per-metric product analytics event. Telemetry must never fail the activity, so any error
-    is swallowed. Attributed to the experiment creator, falling back to a team-scoped distinct_id."""
+    is swallowed. Attributed to the experiment creator, falling back to a team-scoped distinct_id.
+
+    `metric_type` is the primary/secondary classification carried from discovery
+    (`ExperimentMetricToRecalculate.metric_type`), threaded through the workflow + activity args so the
+    capture path doesn't have to re-query the M2M to resolve it.
+    """
     try:
         team = experiment.team
         distinct_id = (
@@ -362,7 +354,7 @@ def _capture_experiment_metric_event(
                     "team_id": team.id,
                     "metric_uuid": metric_uuid,
                     "metric_kind": (metric_dict or {}).get("metric_type"),
-                    "is_primary": _metric_type_for_uuid(experiment, metric_uuid) == "primary",
+                    "is_primary": metric_type == "primary",
                     "execution_mode": "recalculation",
                     **extra_properties,
                 },
@@ -385,7 +377,11 @@ def _capture_experiment_metric_event(
 
 @database_sync_to_async
 def _calculate_experiment_metric_for_recalculation_sync(
-    experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+    experiment_id: int,
+    metric_uuid: str,
+    recalculation_id: str,
+    query_to: str,
+    metric_type: str = "primary",
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -485,6 +481,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             _capture_experiment_metric_event(
                 experiment,
                 metric_uuid,
+                metric_type,
                 metric_dict,
                 "experiment metric finished",
                 {"duration_ms": round((time.perf_counter() - calc_started_at) * 1000)},
@@ -513,6 +510,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             _capture_experiment_metric_event(
                 experiment,
                 metric_uuid,
+                metric_type,
                 metric_dict,
                 "experiment metric error",
                 {
