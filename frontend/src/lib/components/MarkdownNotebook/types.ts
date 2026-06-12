@@ -49,6 +49,8 @@ export type NotebookListItem = {
     depth: number
     ordered?: boolean
     start?: number
+    /** GFM task list state (`- [ ]` / `- [x]`); only bullet items can be tasks. */
+    checked?: boolean
 }
 
 export type NotebookListBlockNode = {

@@ -38,6 +38,7 @@ const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
 const ORDERED_LIST_REGEX = /^\s*\d+[.)](?:\s+|$)/
 const BULLET_LIST_REGEX = /^\s*[-*+•](?:\s+|$)/
 const LIST_ITEM_REGEX = /^(\s*)(\d+[.)]|[-*+•])(?:\s+(.*))?$/
+const TASK_LIST_ITEM_REGEX = /^\[([ xX])\](?:\s+(.*))?$/
 const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
 const IMAGE_BLOCK_REGEX = /^!\[((?:\\.|[^\]\\])*)\]\(((?:\\.|[^)\\])*)\)$/
 const DIVIDER_BLOCK_REGEX = /^(?:-{3,}|\*{3,}|_{3,})$/
@@ -187,7 +188,8 @@ export function serializeNode(node: NotebookBlockNode): string {
                 } else {
                     orderedCounters[depth] = undefined
                 }
-                return `${linePrefix}${'  '.repeat(depth)}${marker} ${serializeInlineNodes(
+                const checkbox = !ordered && item.checked !== undefined ? (item.checked ? '[x] ' : '[ ] ') : ''
+                return `${linePrefix}${'  '.repeat(depth)}${marker} ${checkbox}${serializeInlineNodes(
                     trimTrailingHardBreaks(item.children)
                 )}`
             })
@@ -713,13 +715,16 @@ function parseListItemLine(line: string, listItemIndex: number): NotebookListBlo
     }
 
     const orderedMatch = match[2].match(/^(\d+)[.)]$/)
+    // GFM task markers only apply to bullet items — `1. [x]` stays literal text
+    const taskMatch = orderedMatch ? null : (match[3] ?? '').match(TASK_LIST_ITEM_REGEX)
 
     return {
         id: createStableNodeId(`list-item:${String(listItemIndex)}:${line}`, 0),
-        children: parseInlineMarkdown(match[3] ?? ''),
+        children: parseInlineMarkdown(taskMatch ? (taskMatch[2] ?? '') : (match[3] ?? '')),
         depth: getListItemDepth(match[1]),
         ordered: orderedMatch !== null,
         start: orderedMatch ? Number(orderedMatch[1]) : undefined,
+        checked: taskMatch ? taskMatch[1].toLowerCase() === 'x' : undefined,
     }
 }
 

@@ -134,7 +134,9 @@ function convertComponentNode(node: NotebookComponentBlockNode): JSONContent | n
 function convertListNode(node: NotebookListBlockNode): JSONContent {
     // Inverse of `serializeList` in markdownNotebookV2.ts: items with greater depth nest into the
     // previous shallower item's listItem as a child list.
-    const rootList = makeList(node.ordered, node.start)
+    const isTaskItem = (item: NotebookListBlockNode['items'][number]): boolean =>
+        !(item.ordered ?? node.ordered) && item.checked !== undefined
+    const rootList = makeList(node.ordered, node.start, node.items.length > 0 && isTaskItem(node.items[0]))
     const listStack: JSONContent[] = [rootList]
 
     for (const item of node.items) {
@@ -149,21 +151,30 @@ function convertListNode(node: NotebookListBlockNode): JSONContent {
                 // Nothing to nest under — keep the item at the current depth.
                 break
             }
-            const nestedList = makeList(item.ordered ?? node.ordered, item.start)
+            const nestedList = makeList(item.ordered ?? node.ordered, item.start, isTaskItem(item))
             parentItem.content = [...(parentItem.content ?? []), nestedList]
             listStack.push(nestedList)
         }
         const currentList = listStack[listStack.length - 1]
+        // The item type must match its list: a stray task marker inside a non-task run (or vice
+        // versa) coerces to the list's item type so the downgraded content stays schema-valid.
+        const itemNode: JSONContent =
+            currentList.type === 'taskList'
+                ? { type: 'taskItem', attrs: { checked: item.checked ?? false } }
+                : { type: 'listItem' }
         currentList.content = [
             ...(currentList.content ?? []),
-            { type: 'listItem', content: [makeParagraph(convertInlineNodes(item.children))] },
+            { ...itemNode, content: [makeParagraph(convertInlineNodes(item.children))] },
         ]
     }
 
     return rootList
 }
 
-function makeList(ordered: boolean, start: number | undefined): JSONContent {
+function makeList(ordered: boolean, start: number | undefined, task: boolean): JSONContent {
+    if (!ordered && task) {
+        return { type: 'taskList', content: [] }
+    }
     return {
         type: ordered ? 'orderedList' : 'bulletList',
         ...(ordered && start !== undefined && start !== 1 ? { attrs: { start } } : {}),

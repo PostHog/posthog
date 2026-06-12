@@ -5942,6 +5942,102 @@ Tail with **bold** text`)
         }
     )
 
+    it.each([
+        ['[] ', '- [ ]'],
+        ['[ ] ', '- [ ]'],
+        ['[x] ', '- [x]'],
+    ])('converts a task list shortcut "%s" at the start of a text row into a task list', (shortcut, markdown) => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
+
+        textBlock.textContent = shortcut
+        fireEvent.input(textBlock)
+
+        const taskItem = container.querySelector('li.MarkdownNotebook__list-item--task')
+        const checkbox = taskItem?.querySelector('input[type="checkbox"]') as HTMLInputElement
+        const listItem = container.querySelector('.MarkdownNotebook__list-item-content')
+
+        expect(taskItem).toBeInstanceOf(HTMLElement)
+        expect(checkbox.checked).toEqual(markdown === '- [x]')
+        expect(document.activeElement).toEqual(listItem)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${markdown}`)
+    })
+
+    it('converts a typed task marker at the start of a bullet list item into a task item', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle('- alpha'), onChange }))
+        const listItems = getEditableListItems(container)
+
+        act(() => {
+            listItems[0].textContent = '[x] alpha'
+        })
+        selectTextInElement(listItems[0], '[x] '.length, '[x] '.length)
+        fireEvent.input(listItems[0])
+
+        const checkbox = container.querySelector(
+            'li.MarkdownNotebook__list-item--task input[type="checkbox"]'
+        ) as HTMLInputElement
+
+        expect(checkbox).toBeInstanceOf(HTMLInputElement)
+        expect(checkbox.checked).toEqual(true)
+        expect(getEditableListItems(container)[0].textContent).toEqual('alpha')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] alpha`)
+    })
+
+    it('renders task checkboxes instead of bullets and toggles them through clicks', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('- [ ] open\n- [x] done'),
+                onChange,
+            })
+        )
+        const taskItems = Array.from(container.querySelectorAll('li.MarkdownNotebook__list-item--task'))
+        const checkboxes = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__task-checkbox input[type="checkbox"]')
+        ) as HTMLInputElement[]
+
+        expect(taskItems).toHaveLength(2)
+        expect(checkboxes.map((checkbox) => checkbox.checked)).toEqual([false, true])
+
+        fireEvent.click(checkboxes[0])
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] open\n- [x] done`)
+    })
+
+    it('keeps a task marker on an ordered list item as literal text without a checkbox', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle('1. [x] not a task') }))
+
+        expect(container.querySelector('li.MarkdownNotebook__list-item--task')).toBeNull()
+        expect(getEditableListItems(container)[0].textContent).toEqual('[x] not a task')
+    })
+
+    it('disables task checkboxes in view mode', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- [ ] open'), mode: 'view' })
+        )
+        const checkbox = container.querySelector(
+            '.MarkdownNotebook__task-checkbox input[type="checkbox"]'
+        ) as HTMLInputElement
+
+        expect(checkbox).toBeInstanceOf(HTMLInputElement)
+        expect(checkbox.disabled).toEqual(true)
+    })
+
+    it('creates a new unchecked task item when pressing Enter in a task item', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- [x] done'), onChange })
+        )
+        const listItems = getEditableListItems(container)
+
+        pressEnterInListItem(listItems[0], 'done'.length)
+        updateActiveContentEditableText('next')
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] done\n- [ ] next`)
+    })
+
     it('keeps ordered list items stable when creating several items from the keyboard', () => {
         expectNoDuplicateKeyWarnings(() => {
             const onChange = jest.fn()

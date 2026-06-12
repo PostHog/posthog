@@ -139,6 +139,69 @@ describe('markdownNotebookDowngrade', () => {
         })
     })
 
+    it('converts task lists to taskList with checked taskItems, nesting by depth', () => {
+        expect(convertMarkdownToNotebookContent('- [x] Done\n- [ ] Open\n  - [ ] Nested open')).toEqual({
+            type: 'doc',
+            content: [
+                {
+                    type: 'taskList',
+                    content: [
+                        {
+                            type: 'taskItem',
+                            attrs: { checked: true },
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Done' }] }],
+                        },
+                        {
+                            type: 'taskItem',
+                            attrs: { checked: false },
+                            content: [
+                                { type: 'paragraph', content: [{ type: 'text', text: 'Open' }] },
+                                {
+                                    type: 'taskList',
+                                    content: [
+                                        {
+                                            type: 'taskItem',
+                                            attrs: { checked: false },
+                                            content: [
+                                                {
+                                                    type: 'paragraph',
+                                                    content: [{ type: 'text', text: 'Nested open' }],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        })
+    })
+
+    it('coerces a stray plain item inside a task list run to a taskItem so the content stays schema-valid', () => {
+        expect(convertMarkdownToNotebookContent('- [x] Task\n- Plain')).toEqual({
+            type: 'doc',
+            content: [
+                {
+                    type: 'taskList',
+                    content: [
+                        {
+                            type: 'taskItem',
+                            attrs: { checked: true },
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Task' }] }],
+                        },
+                        {
+                            type: 'taskItem',
+                            attrs: { checked: false },
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Plain' }] }],
+                        },
+                    ],
+                },
+            ],
+        })
+    })
+
     it('wraps blockquoted lists in a blockquote', () => {
         expect(convertMarkdownToNotebookContent('> - One\n> - Two')).toEqual({
             type: 'doc',
