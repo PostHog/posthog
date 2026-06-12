@@ -119,7 +119,7 @@ class FakeSettings:
 
 async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
     if config.fallback_decryption_keys:
-        fallback_keys = config.fallback_decryption_keys.split(",")
+        fallback_keys = [k.strip() for k in config.fallback_decryption_keys.split(",") if k.strip()]
     else:
         fallback_keys = []
 
