@@ -1,0 +1,28 @@
+name: Merge freeze
+
+# A lightweight required check (added to the master ruleset) that lets merges be
+# paused operationally: normally a no-op pass, but it fails when the `MERGE_FREEZE`
+# repository variable is `true`, which blocks the merge queue. Triggers on
+# `merge_group` (not `pull_request`), so open PRs are unaffected until they enter
+# the queue and nothing needs to be rebased.
+
+on:
+    merge_group:
+
+permissions:
+    contents: read
+
+jobs:
+    freeze-check:
+        name: Merge freeze check
+        if: github.repository == 'PostHog/posthog'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - name: Check freeze flag
+              run: |
+                  if [ "${{ vars.MERGE_FREEZE }}" = "true" ]; then
+                    echo "::error::Merges are frozen (MERGE_FREEZE=true). Try again once the freeze is lifted."
+                    exit 1
+                  fi
+                  echo "Merges are open."
