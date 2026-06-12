@@ -518,7 +518,7 @@ class Db2SourceConfig(config.Config):
 
 @config.config
 class DeelSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config

@@ -84,6 +84,7 @@ the row lists both.
 | culture_amp      | HTTP                        | requests                                                        | ✅                          |
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog          | HTTP                        | requests                                                        | ✅                          |
+| deel             | HTTP                        | requests                                                        | ✅                          |
 | delighted        | HTTP                        | requests                                                        | ✅                          |
 | dixa             | HTTP                        | requests                                                        | ✅                          |
 | doit             | HTTP                        | requests                                                        | ✅                          |
@@ -251,7 +252,6 @@ doesn't conflict with concurrent PRs.
 - criteo
 - databricks
 - db2
-- deel
 - display_video_360
 - docusign
 - dropbox
