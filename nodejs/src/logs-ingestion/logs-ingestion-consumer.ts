@@ -185,12 +185,13 @@ export const logsDropFractionHistogram = new Histogram({
  * decided per row (content bytes), so we scale the header down by the dropped content fraction
  * to bill only what survived.
  *
- * This is an approximation: it weights by per-row content, which only equals each row's true wire
- * share when rows are uniform. The result is always ≤ the gross header (keptFraction ≤ 1), so a
- * message is never billed above today's gross. But vs the exact net the credit can be off in
- * either direction — within ~1% for uniform multi-row batches, but it under-credits (bills above
- * the exact net) for size-skewed drops or tiny / resource-heavy batches. Returns 0 when we can't
- * measure (no header or no per-row bytes), i.e. no credit rather than a wrong one.
+ * Weights are customer-content bytes per row (body + attributes + event_name) — NOT the per-row
+ * `bytes_uncompressed` field, whose near-constant denormalization overhead (duplicated resource
+ * attributes, server uuid) would skew the ratio toward record-count weighting. Content weights
+ * track "share of what the customer sent"; residual error vs true wire share (protobuf framing,
+ * per-batch resource blocks) is small and direction-neutral. The result is always ≤ the gross
+ * header (droppedFraction ≤ 1), so a message is never billed above today's gross. Returns 0 when
+ * we can't measure (no header or no content bytes), i.e. no credit rather than a wrong one.
  */
 export function billingByteReductionForDrops(headerBytes: number, bytesDropped: number, bytesTotal: number): number {
     if (headerBytes <= 0 || bytesDropped <= 0 || bytesTotal <= 0) {
@@ -289,8 +290,8 @@ export class LogsIngestionConsumer {
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
-              bytesDropped: number
-              bytesTotal: number
+              contentBytesDropped: number
+              contentBytesTotal: number
           }
         | {
               outcome: 'sampling_all_dropped'
@@ -298,8 +299,8 @@ export class LogsIngestionConsumer {
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
-              bytesDropped: number
-              bytesTotal: number
+              contentBytesDropped: number
+              contentBytesTotal: number
           }
     > {
         const samplingCache = this.deps.samplingRulesCache
@@ -342,8 +343,8 @@ export class LogsIngestionConsumer {
                     recordsDropped: sampled.recordsDropped,
                     recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
                     bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
-                    bytesDropped: sampled.bytesDropped,
-                    bytesTotal: sampled.bytesTotal,
+                    contentBytesDropped: sampled.contentBytesDropped,
+                    contentBytesTotal: sampled.contentBytesTotal,
                 }
             }
             return {
@@ -353,8 +354,8 @@ export class LogsIngestionConsumer {
                 recordsDropped: sampled.recordsDropped,
                 recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
                 bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
-                bytesDropped: sampled.bytesDropped,
-                bytesTotal: sampled.bytesTotal,
+                contentBytesDropped: sampled.contentBytesDropped,
+                contentBytesTotal: sampled.contentBytesTotal,
             }
         }
 
@@ -367,8 +368,8 @@ export class LogsIngestionConsumer {
             recordsDropped: 0,
             recordsDroppedByRuleId: new Map(),
             bytesDroppedByRuleId: new Map(),
-            bytesDropped: 0,
-            bytesTotal: 0,
+            contentBytesDropped: 0,
+            contentBytesTotal: 0,
         }
     }
 
@@ -579,8 +580,8 @@ export class LogsIngestionConsumer {
                             const header = message.bytesUncompressed
                             const contentCredit = billingByteReductionForDrops(
                                 header,
-                                resolved.bytesDropped,
-                                resolved.bytesTotal
+                                resolved.contentBytesDropped,
+                                resolved.contentBytesTotal
                             )
                             // Second estimator (record-weighted) for the accuracy-confidence signal:
                             // when content- and record-weighted credits diverge, the batch is size-skewed
@@ -599,9 +600,9 @@ export class LogsIngestionConsumer {
                             if (message.recordCount > 0) {
                                 logsDropBatchRowsHistogram.observe(message.recordCount)
                             }
-                            if (resolved.bytesTotal > 0) {
+                            if (resolved.contentBytesTotal > 0) {
                                 logsDropFractionHistogram.observe(
-                                    Math.min(1, resolved.bytesDropped / resolved.bytesTotal)
+                                    Math.min(1, resolved.contentBytesDropped / resolved.contentBytesTotal)
                                 )
                             }
                             if (header > 0) {
