@@ -20484,6 +20484,7 @@
                 "AmazonSQS",
                 "AmazonKinesis",
                 "AmazonCloudWatch",
+                "OpenAIAds",
                 "Custom"
             ],
             "type": "string"
@@ -40654,6 +40655,12 @@
         "SurveyAppearanceSchema": {
             "additionalProperties": false,
             "properties": {
+                "allowGoBack": {
+                    "type": "boolean"
+                },
+                "backButtonText": {
+                    "type": "string"
+                },
                 "backgroundColor": {
                     "type": "string"
                 },

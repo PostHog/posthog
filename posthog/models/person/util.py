@@ -617,9 +617,11 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person
     return _personhog_routed(
         "get_person_by_distinct_id",
         lambda: _fetch_person_by_distinct_id_via_personhog(team_id, distinct_id),
-        lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS)
-        .filter(team_id=team_id, persondistinctid__distinct_id=distinct_id)
-        .first(),
+        lambda: (
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+            .first()
+        ),
         team_id=team_id,
     )
 

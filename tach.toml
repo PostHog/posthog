@@ -666,17 +666,15 @@ from = [
     "products.experiments",
 ]
 
-# Temporal worker registration lives in posthog/management/commands/start_temporal_worker.py, which imports
-# ACTIVITIES and WORKFLOWS from each product's backend.temporal package, and schedule registration lives in
-# posthog/temporal/schedule.py, which imports each product's schedule-creation functions. Eight peer products
-# do the same thing, but experiments is the first isolated product to register a workflow, so the canonical
-# interface doesn't cover it yet. Narrowly expose just the registration symbols rather than widening every
-# isolated product's surface.
+# Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
+# doesn't cover the registration surface yet. Narrowly expose the symbols core imports (worker registration,
+# schedule registration, and the worker interceptor) rather than widening every isolated product's surface.
 
 [[interfaces]]
 expose = [
     "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
 ]
 from = [

@@ -6789,6 +6789,8 @@ class SurveyAppearanceSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    allowGoBack: bool | None = None
+    backButtonText: str | None = None
     backgroundColor: str | None = None
     borderColor: str | None = None
     buttonColor: str | None = None

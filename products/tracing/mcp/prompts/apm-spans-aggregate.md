@@ -34,7 +34,7 @@ Use `query.filterGroup` to narrow results to spans matching specific attributes.
 
 Filter `type` values:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
 - `span_attribute` — span-level attributes (e.g. "http.method", "http.status_code")
 - `span_resource_attribute` — resource-level attributes (e.g. k8s labels, deployment info)
 
