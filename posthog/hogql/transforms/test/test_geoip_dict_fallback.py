@@ -123,7 +123,8 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
 
     def test_person_properties_on_events_not_wrapped_under_poe(self) -> None:
         # Under persons-on-events, person properties live on the events table behind a virtual sub-table whose blob
-        # field is also named `properties` — it must not get the fallback (person geo is not what the incident blanked).
+        # field is also named `properties` — it must not get the fallback. The incident blanked person geo too, but
+        # recovering it is a separate, harder fix (out of scope here); event-time `$ip` recovery doesn't map to it.
         sql, _ = self._print_select(
             "SELECT person.properties.$geoip_city_name FROM events",
             modifiers=HogQLQueryModifiers(

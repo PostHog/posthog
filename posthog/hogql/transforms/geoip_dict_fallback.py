@@ -34,6 +34,11 @@ a user with `$ip` (or `$geoip_country_code`) restricted, those reads scrub to NU
 the blanked values stay blank — even though the derived city/postal is itself readable to them. Accepted deliberately:
 making that case recover would mean exempting the internal reads from the restriction boundary, which is not worth it
 for a temporary fix. Nothing leaks and nothing errors; recovery just quietly misses for those users.
+
+Scope: only event-property reads are covered. The incident also blanked person geo properties (the enrichment `$set`s
+the same `$geoip_*` fields onto persons) and the values baked into derived stores (sessions, web analytics
+preaggregated tables); those need their own fixes and are deliberately out of scope here — there is no per-person
+`$ip` to recover from at query time.
 """
 
 from datetime import timedelta
@@ -160,7 +165,10 @@ class GeoipDictFallback(CloningVisitor):
 
         Person/group properties keep their stored values — including under persons-on-events, where they live on the
         events table behind a virtual sub-table whose blob field is also named `properties` but resolves to the
-        `person_properties` / `group{N}_properties` column. Checking the resolved column name catches those.
+        `person_properties` / `group{N}_properties` column. Checking the resolved column name catches those. Note the
+        incident DID blank person geo properties too (the enrichment `$set`s the same fields onto persons), but
+        recovering them is a separate, harder fix that is deliberately out of scope here: this expression recovers
+        from the event-time `$ip`, which has no per-person equivalent to read.
         """
         expr_type = node.expr.type
         if not isinstance(expr_type, ast.FieldType) or expr_type.name != "properties":
