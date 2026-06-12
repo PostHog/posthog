@@ -91,6 +91,7 @@ the row lists both.
 | fullstory        | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | gitlab           | HTTP                        | requests                                                        | ✅                          |
+| gladly           | HTTP                        | requests                                                        | ✅                          |
 | gocardless       | HTTP                        | requests                                                        | ✅                          |
 | gong             | HTTP                        | requests                                                        | ✅                          |
 | google_ads       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
@@ -252,7 +253,6 @@ doesn't conflict with concurrent PRs.
 - facebook_pages
 - firebase
 - freshbooks
-- gladly
 - google_ad_manager
 - google_analytics
 - google_cloud_storage
