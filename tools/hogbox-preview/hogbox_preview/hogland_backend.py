@@ -19,11 +19,14 @@ preview; a clean per-box subdomain is a later SDK addition (mirror ``--web-port`
 
 from __future__ import annotations
 
+import os
+import json
 import pathlib
 import tempfile
 import subprocess
+import urllib.request
 
-from hogland import AccessType, Hogland
+from hogland import AccessType, AuthenticationError, Hogland
 
 from .backend import ExecResult, PreviewBackend
 
@@ -61,12 +64,18 @@ class HoglandBackend(PreviewBackend):
         box_id: str | None = None,
         token: str | None = None,
         timeout: float = 300.0,
+        oidc_audience: str | None = None,
     ):
         super().__init__(web_port=web_port)
         # Hogland() reads HOG_TOKEN / HOG_HOST from env; --host/--token override.
         # A generous timeout is required: create() blocks server-side until the
         # restore completes (tens of seconds), which trips the SDK's short
         # default and raises httpx.ReadTimeout mid-restore.
+        self._host = host
+        self._timeout = timeout
+        # In CI the bearer is a short-lived GitHub OIDC JWT; the bring-up outlives
+        # it (restore alone eats minutes), so exec/write_file re-mint on 401.
+        self._oidc_audience = oidc_audience or os.environ.get("HOG_OIDC_AUDIENCE")
         self._client = Hogland(token=token, base_url=host, timeout=timeout)
         self.snapshot = snapshot
         # The golden is pinned to this sizing; restore must MATCH it exactly
@@ -108,11 +117,22 @@ class HoglandBackend(PreviewBackend):
     def exec(self, command: str, *, timeout: int = 120) -> ExecResult:
         # The box exec API runs as root but doesn't set HOME; tools like git
         # (--global config) and docker expect it. Provide root's home.
-        r = self._require_box().exec(["bash", "-lc", command], timeout_seconds=timeout, env={"HOME": "/root"})
+        argv = ["bash", "-lc", command]
+        try:
+            r = self._require_box().exec(argv, timeout_seconds=timeout, env={"HOME": "/root"})
+        except AuthenticationError:
+            if not self._refresh_auth():
+                raise
+            r = self._require_box().exec(argv, timeout_seconds=timeout, env={"HOME": "/root"})
         return ExecResult(r.exit_code, r.stdout, r.stderr)
 
     def write_file(self, remote_path: str, content: str) -> None:
-        self._require_box().write_file(remote_path, content.encode(), mkdir=True)
+        try:
+            self._require_box().write_file(remote_path, content.encode(), mkdir=True)
+        except AuthenticationError:
+            if not self._refresh_auth():
+                raise
+            self._require_box().write_file(remote_path, content.encode(), mkdir=True)
 
     @property
     def web_url(self) -> str:
@@ -128,6 +148,37 @@ class HoglandBackend(PreviewBackend):
         box = self._resolve_box()
         if box is not None:
             box.destroy()
+
+    # --- CI token refresh ----------------------------------------------------
+    def _mint_oidc(self) -> str | None:
+        """Mint a fresh GitHub Actions OIDC token, or None when not in CI.
+
+        GitHub issues short-lived JWTs and the bring-up outlives one (the restore
+        alone eats minutes before the first stack step), so exec/write_file
+        re-mint on 401. The request URL + token are valid for the whole job, so
+        this can be called as often as needed. The audience must match the
+        deploy's github_oidc TrustMapping (HOG_OIDC_AUDIENCE)."""
+        url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL")
+        rtok = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+        if not (url and rtok and self._oidc_audience):
+            return None
+        req = urllib.request.Request(
+            f"{url}&audience={self._oidc_audience}",
+            headers={"Authorization": f"bearer {rtok}"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 — fixed GitHub host
+            return json.load(r).get("value")
+
+    def _refresh_auth(self) -> bool:
+        """Swap in a fresh OIDC token after a 401. Returns False outside CI
+        (nothing to re-mint — let the original AuthenticationError propagate)."""
+        fresh = self._mint_oidc()
+        if not fresh:
+            return False
+        self._client = Hogland(token=fresh, base_url=self._host, timeout=self._timeout)
+        if self._box is not None:
+            self._box = self._client.get(self._box_id)
+        return True
 
     # --- internal ------------------------------------------------------------
     def _require_box(self):
