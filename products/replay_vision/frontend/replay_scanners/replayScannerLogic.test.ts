@@ -18,12 +18,17 @@ import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
+    let observeSpy: jest.Mock
 
     beforeEach(() => {
+        observeSpy = jest.fn(() => [202, { workflow_id: 'wf-test' }])
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
                 '/api/projects/:team/vision/scanners/:id/observations/': { results: [] },
+            },
+            post: {
+                '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
             },
         })
         initKeaTests()
@@ -442,6 +447,7 @@ describe('replayScannerLogic', () => {
                     persisted.actions.triggerOnDemandObservation(input)
                 ).toDispatchActions(['triggerOnDemandObservationFailure'])
                 expect(persisted.values.triggeringOnDemandObservation).toBe(false)
+                expect(observeSpy).not.toHaveBeenCalled()
             } finally {
                 persisted.unmount()
             }
@@ -452,6 +458,7 @@ describe('replayScannerLogic', () => {
                 ['triggerOnDemandObservationFailure']
             )
             expect(logic.values.triggeringOnDemandObservation).toBe(false)
+            expect(observeSpy).not.toHaveBeenCalled()
         })
     })
 })

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconPlay } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
@@ -12,10 +12,21 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { replayScannerLogic } from '../replayScannerLogic'
 
 export function ScanSessionButton({ scannerId }: { scannerId: string }): JSX.Element {
-    const { triggeringOnDemandObservation } = useValues(replayScannerLogic({ id: scannerId }))
+    const { triggeringOnDemandObservation, onDemandObservationSuccessCount } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const { triggerOnDemandObservation } = useActions(replayScannerLogic({ id: scannerId }))
     const [open, setOpen] = useState(false)
     const [sessionId, setSessionId] = useState('')
+    const lastSeenSuccessCount = useRef(onDemandObservationSuccessCount)
+
+    useEffect(() => {
+        if (onDemandObservationSuccessCount > lastSeenSuccessCount.current) {
+            lastSeenSuccessCount.current = onDemandObservationSuccessCount
+            setSessionId('')
+            setOpen(false)
+        }
+    }, [onDemandObservationSuccessCount])
 
     const trimmed = sessionId.trim()
     const submit = (): void => {
@@ -23,8 +34,6 @@ export function ScanSessionButton({ scannerId }: { scannerId: string }): JSX.Ele
             return
         }
         triggerOnDemandObservation(trimmed)
-        setSessionId('')
-        setOpen(false)
     }
 
     return (

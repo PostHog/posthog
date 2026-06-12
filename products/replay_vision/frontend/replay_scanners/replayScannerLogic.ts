@@ -43,6 +43,8 @@ export type ObservationVerdictValue = 'yes' | 'no' | 'inconclusive'
 
 export const OBSERVATIONS_PAGE_SIZE = 50
 
+const OBSERVE_POLL_GRACE_MS = 30_000
+
 function currentTemplateKey(): string | null {
     const value = router.values.searchParams.template
     return typeof value === 'string' ? value : null
@@ -234,6 +236,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         triggerOnDemandObservation: (sessionId: string) => ({ sessionId }),
         triggerOnDemandObservationSuccess: true,
         triggerOnDemandObservationFailure: true,
+        refreshObservations: true,
     }),
 
     forms(({ props, values, actions }) => ({
@@ -328,6 +331,26 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 triggerOnDemandObservation: () => true,
                 triggerOnDemandObservationSuccess: () => false,
                 triggerOnDemandObservationFailure: () => false,
+            },
+        ],
+        onDemandObservationSuccessCount: [
+            0,
+            {
+                triggerOnDemandObservationSuccess: (state: number) => state + 1,
+            },
+        ],
+        pollUntil: [
+            0,
+            {
+                triggerOnDemandObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+            },
+        ],
+        refreshing: [
+            false,
+            {
+                refreshObservations: () => true,
+                loadObservationsSuccess: () => false,
+                loadObservationsFailure: () => false,
             },
         ],
         scannerLoading: [
@@ -752,13 +775,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     await visionScannersObserveCreate(String(teamId), props.id, { session_id: trimmed })
                     lemonToast.success('Scanning session — new observation will appear below shortly.')
                     actions.triggerOnDemandObservationSuccess()
-                    actions.loadObservations()
-                    actions.loadObservationStats()
+                    actions.refreshObservations()
                 } catch (error: any) {
                     lemonToast.error(`Failed to scan session${error.detail ? `: ${error.detail}` : ''}`)
                     actions.triggerOnDemandObservationFailure()
                 }
             },
+
+            refreshObservations: () => reloadObservationsAndStats(),
 
             loadObservations: async () => {
                 if (props.id === 'new') {
@@ -817,11 +841,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             loadObservationStatsSuccess: () => {
-                scheduleObservationPoll(cache.disposables, values.hasObservationsInFlight, reloadObservationsAndStats)
+                scheduleObservationPoll(
+                    cache.disposables,
+                    values.hasObservationsInFlight || Date.now() < values.pollUntil,
+                    reloadObservationsAndStats
+                )
             },
             // Reschedule on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
             loadObservationStatsFailure: () => {
-                scheduleObservationPoll(cache.disposables, values.hasObservationsInFlight, reloadObservationsAndStats)
+                scheduleObservationPoll(
+                    cache.disposables,
+                    values.hasObservationsInFlight || Date.now() < values.pollUntil,
+                    reloadObservationsAndStats
+                )
             },
         }
     }),
