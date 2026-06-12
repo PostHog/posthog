@@ -8558,6 +8558,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
         hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook", deleted=False)
         assert hog_function.enabled is True
+        assert hog_function.inputs is not None
         assert hog_function.inputs["source_id"]["value"] == data["id"]
 
     @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
