@@ -534,7 +534,15 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [visual-regression, vr-setup]
-        if: needs.vr-setup.outputs.run_id != '' && needs.visual-regression.result == 'success'
+        # always() so the skipped select-stories job (transitively in the needs
+        # chain on ready PRs) doesn't skip-propagate past the always() jobs above
+        # and leave the VR run uncompleted with its commit status stuck pending.
+        # Legit skips still work: no-VR cases leave run_id empty, and a failed or
+        # cancelled matrix fails the result == 'success' check.
+        if: |
+            always()
+            && needs.vr-setup.outputs.run_id != ''
+            && needs.visual-regression.result == 'success'
         steps:
             # Head checkout supplies the PR's snapshot baseline; the VR CLI itself is
             # built from the base branch below.

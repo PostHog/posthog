@@ -649,9 +649,8 @@ def create_run(
     the backend fetches baselines from GitHub and computes everything.
     Params kept for backward compat with older CLI versions.
 
-    is_partial tags the run as a subset (e.g. draft-PR-selective storybook); the
-    classifier then leaves baseline identifiers we didn't touch alone instead
-    of marking them as removed.
+    is_partial tags the run as a subset; the classifier then leaves baseline
+    identifiers we didn't touch alone instead of marking them as removed.
     """
     repo = get_repo(repo_id, team_id)
 
