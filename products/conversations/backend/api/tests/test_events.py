@@ -556,7 +556,7 @@ class TestConversationEvents(BaseTest):
         ]
     )
     @patch("products.conversations.backend.events.capture_internal_routed")
-    @patch("products.conversations.backend.events.execute_hogql_query")
+    @patch("posthog.hogql.query.execute_hogql_query")
     @patch("products.conversations.backend.events.get_group_types_for_project")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_analytics_fallback_groups(
@@ -594,7 +594,7 @@ class TestConversationEvents(BaseTest):
         ]
     )
     @patch("products.conversations.backend.events.capture_internal_routed")
-    @patch("products.conversations.backend.events.execute_hogql_query")
+    @patch("posthog.hogql.query.execute_hogql_query")
     @patch("products.conversations.backend.events.get_group_types_for_project")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_analytics_fallback_no_groups(
@@ -613,7 +613,7 @@ class TestConversationEvents(BaseTest):
         assert "$groups" not in call_kwargs["properties"]
 
     @patch("products.conversations.backend.events.capture_internal_routed")
-    @patch("products.conversations.backend.events.execute_hogql_query")
+    @patch("posthog.hogql.query.execute_hogql_query")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_membership_hit_skips_analytics_fallback(
         self, mock_get_persons, mock_hogql, mock_capture
@@ -633,9 +633,9 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["$groups"]["organization"] == str(person_org.id)
 
     @patch("products.conversations.backend.events.capture_internal_routed")
-    @patch("products.conversations.backend.events.execute_hogql_query")
+    @patch("posthog.hogql.query.execute_hogql_query")
     @patch("products.conversations.backend.events.get_group_types_for_project")
-    @patch("products.conversations.backend.events._get_persons_by_email")
+    @patch("products.conversations.backend.person_lookup._get_persons_by_email")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_email_channel_analytics_fallback_groups(
         self, mock_get_persons, mock_get_by_email, mock_group_types, mock_hogql, mock_capture
@@ -673,7 +673,7 @@ class TestConversationEvents(BaseTest):
         ]
     )
     @patch("products.conversations.backend.events.capture_internal_routed")
-    @patch("products.conversations.backend.events.execute_hogql_query")
+    @patch("posthog.hogql.query.execute_hogql_query")
     @patch("products.conversations.backend.events.get_group_types_for_project")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_analytics_fallback_result_is_cached(
