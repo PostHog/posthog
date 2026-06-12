@@ -82,6 +82,11 @@ function HogQLAlertPreviewRowsTable({
 
     return (
         <div className="deprecated-space-y-1">
+            {hiddenCount > 0 && !isAnyRow && (
+                // In last-row mode the trimmed rows are the older ones before the visible window,
+                // so the indicator sits above the table — below would read as newer data.
+                <div className="text-muted text-xs">+{pluralize(hiddenCount, 'older row', 'older rows')}</div>
+            )}
             <LemonTable
                 size="small"
                 dataSource={rows}
@@ -115,7 +120,7 @@ function HogQLAlertPreviewRowsTable({
                         : []),
                 ]}
             />
-            {hiddenCount > 0 && (
+            {hiddenCount > 0 && isAnyRow && (
                 <div className="text-muted text-xs">+{pluralize(hiddenCount, 'more row', 'more rows')}</div>
             )}
         </div>
