@@ -103,6 +103,7 @@ the row lists both.
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse       | HTTP                        | requests                                                        | ✅                          |
 | guru             | HTTP                        | requests                                                        | ✅                          |
+| hibob            | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | incident_io      | HTTP                        | requests                                                        | ✅                          |
 | intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -271,6 +272,7 @@ doesn't conflict with concurrent PRs.
 - heap
 - helpscout
 - hibob
+- incident_io
 - instagram
 - kafka
 - lever
