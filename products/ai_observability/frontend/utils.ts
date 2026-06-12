@@ -924,9 +924,6 @@ export function getSessionStartTimestamp(timestamp: string): string {
 
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMEvent(event)) {
-        // `$ai_span_name`/`$ai_model`/`$ai_provider` are strings by convention, but the
-        // event property bag is untyped. Narrow each one so a non-string value (e.g. an
-        // object) can never be returned as the title and rendered as a raw React child.
         const spanName = asString(event.properties.$ai_span_name)
 
         if (event.event === '$ai_generation') {

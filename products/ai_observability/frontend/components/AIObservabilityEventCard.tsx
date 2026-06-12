@@ -48,8 +48,7 @@ export function AIObservabilityEventCard({
     const latency = event.properties.$ai_latency
     const hasError = event.properties.$ai_error || event.properties.$ai_is_error
 
-    // Generation-specific properties. `$ai_model` is a string by convention but the
-    // event property bag is untyped, so narrow it before rendering (an object would crash React).
+    // Generation-specific properties
     const model = asString(event.properties.$ai_model) || 'Unknown model'
     const costContext = isGeneration || isEmbedding ? costContextFromProperties(event.properties) : undefined
 

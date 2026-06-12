@@ -13,9 +13,6 @@ export function TagDisplay({ eventProperties }: { eventProperties: EventType['pr
     // Reuse the loader's JSON-string defense so a stringified $ai_tags property
     // doesn't end up iterated character-by-character here.
     const tags: string[] = parseTagsCell(eventProperties.$ai_tags)
-    // These are strings by convention, but the event property bag is untyped. Narrow each one
-    // so a non-string value can't be rendered as a raw React child (React error #31) or crash a
-    // string method like `.slice()` below.
     const reasoning = asString(eventProperties.$ai_tag_reasoning)
     const taggerName = asString(eventProperties.$ai_tagger_name)
     const model = asString(eventProperties.$ai_model)
