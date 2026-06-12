@@ -544,7 +544,7 @@ class TestBuildPipeline:
         assert stream_param == ("DB.analytics.users",)
 
 
-class TestSnowflakeSourceRetryClassification:
+class TestSnowflakeSourceNonRetryableErrors:
     @pytest.fixture
     def source(self):
         return SnowflakeSource()
