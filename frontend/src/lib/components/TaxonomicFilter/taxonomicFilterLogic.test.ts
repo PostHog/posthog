@@ -10,6 +10,7 @@ import {
     taxonomicFilterLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -732,29 +733,98 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
-    describe('SuggestedFilters presence', () => {
+    describe('SuggestedFilters presence by variant', () => {
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'control',
+            })
+        })
+
         it.each([
             {
+                description: 'control: includes SuggestedFilters when explicitly listed',
+                variant: 'control',
                 groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                expectQuickFilters: true,
-                description: 'includes SuggestedFilters when listed in groupTypes',
+                expectPresent: true,
+                expectDefault: true,
             },
             {
+                description: 'control: does not auto-inject SuggestedFilters for a multi-group picker',
+                variant: 'control',
                 groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-                expectQuickFilters: false,
-                description: 'excludes SuggestedFilters when not listed in groupTypes',
+                expectPresent: false,
+                expectDefault: false,
             },
-        ])('$description', ({ groupTypes, expectQuickFilters }) => {
+            {
+                description: 'pill: auto-injects SuggestedFilters as the default for a multi-group picker',
+                variant: 'pill',
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                expectPresent: true,
+                expectDefault: true,
+            },
+            {
+                description: 'pill: does not auto-inject SuggestedFilters for a single substantive group',
+                variant: 'pill',
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                expectPresent: false,
+                expectDefault: false,
+            },
+        ])('$description', ({ variant, groupTypes, expectPresent, expectDefault }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
+            })
+
             const testLogicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: `testOptIn-${groupTypes.join('-')}`,
+                taxonomicFilterLogicKey: `testVariant-${variant}-${groupTypes.join('-')}`,
                 taxonomicGroupTypes: groupTypes,
             }
             const testLogic = taxonomicFilterLogic(testLogicProps)
             testLogic.mount()
 
             expect(testLogic.values.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)).toBe(
-                expectQuickFilters
+                expectPresent
             )
+            if (expectDefault) {
+                expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+            } else {
+                expect(testLogic.values.activeTab).not.toBe(TaxonomicFilterGroupType.SuggestedFilters)
+            }
+
+            testLogic.unmount()
+        })
+
+        it('pill flag resolving after mount still makes SuggestedFilters the default tab', () => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'testLateFlagDefault',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+            testLogic.mount()
+
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Events)
+
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            expect(testLogic.values.taxonomicGroupTypes).toContain(TaxonomicFilterGroupType.SuggestedFilters)
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+            testLogic.unmount()
+        })
+
+        it('an explicit tab choice made before the pill flag resolves is kept', () => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'testLateFlagExplicit',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+            testLogic.mount()
+
+            testLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Actions)
 
             testLogic.unmount()
         })

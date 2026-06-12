@@ -81,6 +81,7 @@ the row lists both.
 | front            | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | gitlab           | HTTP                        | requests                                                        | ✅                          |
+| gocardless       | HTTP                        | requests                                                        | ✅                          |
 | gong             | HTTP                        | requests                                                        | ✅                          |
 | google_ads       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
@@ -95,6 +96,7 @@ the row lists both.
 | jira             | HTTP                        | requests                                                        | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly     | HTTP                        | requests                                                        | ✅                          |
+| kustomer         | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
 | lever            | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -250,7 +252,6 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - fullstory
 - gladly
-- gocardless
 - google_ad_manager
 - google_analytics
 - google_cloud_storage
@@ -261,7 +262,6 @@ doesn't conflict with concurrent PRs.
 - hibob
 - instagram
 - kafka
-- kustomer
 - lattice
 - lever
 - lightspeed_retail
