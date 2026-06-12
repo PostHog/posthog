@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
@@ -22,7 +22,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 
 _FLAG_PATH = "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled"
-_GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.max_tools.generate_embedding"
+_GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.max_tools.async_generate_embedding"
 _EXECUTE_HOGQL_PATH = "products.replay_vision.backend.max_tools.execute_hogql_query"
 
 
@@ -176,7 +176,9 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_FLAG_PATH, return_value=True),
-            patch(_GENERATE_EMBEDDING_PATH, return_value=MagicMock(embedding=[0.1, 0.2, 0.3])) as mock_embed,
+            patch(
+                _GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1, 0.2, 0.3])
+            ) as mock_embed,
             patch(_EXECUTE_HOGQL_PATH, return_value=hogql_results),
         ):
             content, artifact = await self._tool()._arun_impl(query="broken submit button", scanner_id=str(scanner.id))
@@ -197,7 +199,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_FLAG_PATH, return_value=True),
-            patch(_GENERATE_EMBEDDING_PATH, return_value=MagicMock(embedding=[0.1])),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
             patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1)])),
         ):
             _, artifact = await self._tool(context={"scanner_id": str(scanner.id)})._arun_impl(query="button")
@@ -210,7 +212,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         scanner = await self._scanner()
         with (
             patch(_FLAG_PATH, return_value=True),
-            patch(_GENERATE_EMBEDDING_PATH, return_value=MagicMock(embedding=[0.1])),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
             patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[])),
         ):
             content, artifact = await self._tool()._arun_impl(query="anything", scanner_id=str(scanner.id))
@@ -238,7 +240,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_FLAG_PATH, return_value=True),
-            patch(_GENERATE_EMBEDDING_PATH, return_value=MagicMock(embedding=[0.1])),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
             patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs_a.id), 0.1), (str(obs_b.id), 0.2)])),
         ):
             content, artifact = await self._tool()._arun_impl(query="checkout problems")
@@ -258,7 +260,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_FLAG_PATH, return_value=True),
-            patch(_GENERATE_EMBEDDING_PATH, return_value=MagicMock(embedding=[0.1])),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
             # Both would rank highly; filter-first restricts the ClickHouse ranking to the YES result only.
             patch(_EXECUTE_HOGQL_PATH, side_effect=self._ch_stub([(obs_no, 0.1), (obs_yes, 0.2)])),
         ):
@@ -287,7 +289,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_FLAG_PATH, return_value=True),
-            patch(_GENERATE_EMBEDDING_PATH, return_value=MagicMock(embedding=[0.1])),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
             patch(_EXECUTE_HOGQL_PATH, side_effect=self._ch_stub([(obs_completed, 0.1), (obs_abandoned, 0.2)])),
         ):
             content, artifact = await self._tool()._arun_impl(
@@ -306,7 +308,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_FLAG_PATH, return_value=True),
-            patch(_GENERATE_EMBEDDING_PATH, return_value=MagicMock(embedding=[0.1])),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
             patch(_EXECUTE_HOGQL_PATH, side_effect=self._ch_stub([(obs_five, 0.1), (obs_zero, 0.2)])),
         ):
             content, artifact = await self._tool()._arun_impl(query="checkout", scanner_id=str(scanner.id), max_score=0)
@@ -324,7 +326,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_FLAG_PATH, return_value=True),
-            patch(_GENERATE_EMBEDDING_PATH, return_value=MagicMock(embedding=[0.1])),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
             patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1)])),
         ):
             content, _ = await self._tool()._arun_impl(query="x", scanner_id=str(scanner.id))
@@ -354,7 +356,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         scanner = await self._scanner()
         with (
             patch(_FLAG_PATH, return_value=True),
-            patch(_GENERATE_EMBEDDING_PATH, side_effect=RuntimeError("worker 403")),
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, side_effect=RuntimeError("worker 403")),
         ):
             content, artifact = await self._tool()._arun_impl(query="button", scanner_id=str(scanner.id))
 
