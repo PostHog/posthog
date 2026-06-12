@@ -122,7 +122,9 @@ class PriorityAssessment(BaseModel):
     explanation: str = Field(
         description=(
             "2-3 sentence justification for the priority level. "
-            "Reference quantified user impact, error frequency, or scope of affected code paths."
+            "Cite a quantified figure from your research — error frequency, affected user/session count, "
+            "or scope of affected code paths. If impact could not be measured, say so explicitly and explain "
+            "why the priority is not lowered further."
         ),
     )
     priority: Priority = Field(description="Priority (P0-P4)")

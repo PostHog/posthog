@@ -11,7 +11,7 @@ from tenacity import RetryCallState
 from posthog.temporal.data_imports.sources.notion.notion import (
     MAX_BLOCK_DEPTH,
     MAX_CHILD_PAGES_PER_PARENT,
-    MAX_RETRY_WAIT_SECONDS,
+    MAX_RETRY_AFTER_SECONDS,
     NOTION_VERSION,
     NotionResumeConfig,
     NotionRetryableError,
@@ -185,6 +185,27 @@ class TestNotion:
             )
         assert exc_info.value.retry_after is None
 
+    def test_request_retries_chunked_encoding_error(self) -> None:
+        # Notion can break the connection mid-response, which requests surfaces as a
+        # ChunkedEncodingError ("Connection broken: InvalidChunkLength"). It is transient and must be
+        # retried like other connection failures, not propagated as a fatal sync error.
+        attempts = {"count": 0}
+
+        def request(*_args: Any, **_kwargs: Any) -> FakeResponse:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise requests.exceptions.ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'')")
+            return FakeResponse({"results": []})
+
+        session = mock.MagicMock()
+        session.request.side_effect = request
+
+        with mock.patch(f"{MODULE}._wait_strategy", return_value=0):
+            result = _request(cast(requests.Session, session), "GET", "/v1/comments", mock.MagicMock(), params={})
+
+        assert result == {"results": []}
+        assert attempts["count"] == 2
+
     @parameterized.expand([("5", 5.0), (None, None), ("not-a-number", None)])
     def test_parse_retry_after(self, value: str | None, expected: float | None) -> None:
         assert _parse_retry_after(value) == expected
@@ -193,9 +214,16 @@ class TestNotion:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=3.0))
         assert _wait_strategy(cast(RetryCallState, state)) == 3.0
 
+    def test_wait_strategy_honors_multi_minute_retry_after(self) -> None:
+        # Notion routinely asks for several minutes under sustained load. Clamping that to the
+        # exponential ceiling retried inside the penalty window and exhausted attempts, so the
+        # full Retry-After must be honored.
+        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=336.0))
+        assert _wait_strategy(cast(RetryCallState, state)) == 336.0
+
     def test_wait_strategy_caps_retry_after(self) -> None:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=10_000.0))
-        assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_WAIT_SECONDS
+        assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_AFTER_SECONDS
 
     def test_comments_stream_respects_page_cap(self) -> None:
         # First call is the page search (one page, then done); every subsequent /v1/comments

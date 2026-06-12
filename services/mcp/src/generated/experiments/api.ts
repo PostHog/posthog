@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -4770,6 +4770,24 @@ export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Copy an experiment into another project in the same organization as a new draft.
+ */
+export const ExperimentsCopyToProjectCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
+    target_team_id: zod.number().describe('The team ID to copy the experiment to.'),
+    feature_flag_key: zod.string().optional().describe('Optional feature flag key to use in the destination team.'),
+    name: zod.string().optional().describe('Optional name for the copied experiment.'),
 })
 
 /**

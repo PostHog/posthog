@@ -59,6 +59,17 @@ describe('sessionRecordingsPlaylistLogic', () => {
         viewers: [],
         snapshot_source: 'web' as const,
     }
+    const outsideFiltersRecording = {
+        id: 'outside-filters-rec',
+        viewed: false,
+        recording_duration: 10,
+        start_time: '2023-01-12T16:55:36.404000Z',
+        end_time: '2023-01-12T16:55:46.404000Z',
+        console_error_count: 0,
+        viewers: [],
+        snapshot_source: 'web' as const,
+        matches_filters: false,
+    }
 
     beforeEach(() => {
         useMocks({
@@ -91,6 +102,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 results: ["List of specific user's recordings from server"],
                             },
                         ]
+                    } else if (searchParams.get('session_recording_id') === outsideFiltersRecording.id) {
+                        // a recording requested via direct link that doesn't match the filters
+                        // is included in results flagged with matches_filters false
+                        return [
+                            200,
+                            {
+                                results: [outsideFiltersRecording, ...listOfSessionRecordings],
+                            },
+                        ]
                     } else if (searchParams.get('offset') !== null) {
                         return [
                             200,
@@ -110,7 +130,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         ]
                     } else if (
                         (searchParams.get('having_predicates')?.length || 0) > 0 &&
-                        JSON.parse(searchParams.get('having_predicates') || '[]')[0]['value'] === 600
+                        JSON.parse(searchParams.get('having_predicates') || '[]')[0]?.['value'] === 600
                     ) {
                         return [
                             200,
@@ -211,6 +231,32 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     activeSessionRecording: listOfSessionRecordings[0],
                 })
                 expect(router.values.searchParams).not.toHaveProperty('sessionRecordingId', 'not-in-list')
+            })
+        })
+
+        describe('selectedRecordingOutsideFilters', () => {
+            it('is false when no recording is selected', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
+                    selectedRecordingOutsideFilters: false,
+                })
+            })
+
+            it('is false when the selected recording matches the filters', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        selectedRecordingId: 'abc',
+                        selectedRecordingOutsideFilters: false,
+                    })
+            })
+
+            it('is true when the selected recording is flagged as not matching the filters', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId(outsideFiltersRecording.id))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        selectedRecordingId: outsideFiltersRecording.id,
+                        selectedRecordingOutsideFilters: true,
+                    })
             })
         })
 
@@ -668,6 +714,67 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 .toMatchValues({
                     filters: { ...getDefaultFilters(), filter_group: filterGroup },
                 })
+        })
+
+        describe('session_ids filter', () => {
+            const emptyFilterGroup = {
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [] }],
+            }
+
+            it('reads session_ids from the URL, layers them over defaults and passes them to the query', async () => {
+                const listSpy = jest.spyOn(api.recordings, 'list')
+
+                router.actions.push('/replay/home', {
+                    filters: {
+                        session_ids: ['s1', 's2'],
+                        date_from: '-7d',
+                        filter_group: emptyFilterGroup,
+                        duration: [],
+                    },
+                })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['setFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        filters: expect.objectContaining({
+                            session_ids: ['s1', 's2'],
+                            date_from: '-7d',
+                        }),
+                    })
+
+                expect(convertUniversalFiltersToRecordingsQuery(logic.values.filters)).toEqual(
+                    expect.objectContaining({ session_ids: ['s1', 's2'] })
+                )
+                expect(listSpy).toHaveBeenLastCalledWith(
+                    expect.objectContaining({ session_ids: ['s1', 's2'], date_from: '-7d' })
+                )
+            })
+
+            it('clears session_ids via setFilters and reloads the list', async () => {
+                router.actions.push('/replay/home', {
+                    filters: {
+                        session_ids: ['s1', 's2'],
+                        date_from: '-7d',
+                        filter_group: emptyFilterGroup,
+                        duration: [],
+                    },
+                })
+                await expectLogic(logic)
+                    .toDispatchActions(['setFilters', 'loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        filters: expect.objectContaining({ session_ids: ['s1', 's2'] }),
+                    })
+
+                const listSpy = jest.spyOn(api.recordings, 'list')
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ session_ids: undefined })
+                }).toDispatchActions(['setFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+
+                expect(logic.values.filters.session_ids).toBeUndefined()
+                expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ session_ids: undefined }))
+            })
         })
 
         describe('deleting recordings', () => {

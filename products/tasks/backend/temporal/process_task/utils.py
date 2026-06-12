@@ -331,6 +331,7 @@ def get_sandbox_ph_mcp_configs(
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
     - eu.posthog.com → https://mcp-eu.posthog.com/mcp
+    - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
     - Other hosts → empty list (MCP not available)
     """
     url = _resolve_mcp_url()
@@ -362,6 +363,8 @@ def _resolve_mcp_url() -> str | None:
         return "https://mcp.posthog.com/mcp"
     if hostname == "eu.posthog.com":
         return "https://mcp-eu.posthog.com/mcp"
+    if hostname == "app.dev.posthog.dev":
+        return "https://mcp.dev.posthog.dev/mcp"
 
     # Local dev: point to the local wrangler dev MCP server via
     # host.docker.internal, since the sandbox runs in Docker.

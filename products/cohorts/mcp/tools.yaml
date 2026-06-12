@@ -230,6 +230,6 @@ tools:
     cohorts-update:
         operation: cohorts_update
         enabled: false
-    persons-cohorts-retrieve:
-        operation: persons_cohorts_retrieve
+    cohorts-used-in-retrieve:
+        operation: cohorts_used_in_retrieve
         enabled: false

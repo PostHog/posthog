@@ -24,7 +24,7 @@ import {
 } from './person-merge-types'
 import { PersonMessage } from './person-message'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
-import { PersonsStoreTransaction } from './persons-store-transaction'
+import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -547,7 +547,7 @@ export class PersonMergeService {
     }
 
     private async moveDistinctIdsBasedOnMode(
-        tx: PersonsStoreTransaction,
+        tx: PersonsStoreTransactionForBatch,
         currentSourcePerson: InternalPerson,
         currentTargetPerson: InternalPerson
     ): Promise<PersonMessage[]> {
@@ -568,7 +568,7 @@ export class PersonMergeService {
     }
 
     private async moveDistinctIdsInBatches(
-        tx: PersonsStoreTransaction,
+        tx: PersonsStoreTransactionForBatch,
         currentSourcePerson: InternalPerson,
         currentTargetPerson: InternalPerson,
         batchSize: number
@@ -612,7 +612,7 @@ export class PersonMergeService {
     }
 
     private async moveDistinctIdsWithLimit(
-        tx: PersonsStoreTransaction,
+        tx: PersonsStoreTransactionForBatch,
         currentSourcePerson: InternalPerson,
         currentTargetPerson: InternalPerson,
         limit: number | undefined
@@ -736,7 +736,7 @@ export class PersonMergeService {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: PersonsStoreTransaction
+        tx?: PersonsStoreTransactionForBatch
     ): Promise<void> {
         const kafkaMessages = await (tx || this.context.personStore).addDistinctId(person, distinctId, version)
         await this.context.produceMessages(kafkaMessages)

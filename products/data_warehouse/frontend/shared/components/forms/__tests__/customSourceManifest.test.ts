@@ -1,4 +1,13 @@
-import { buildManifest, extractAuthSecrets, ManifestState, parseManifestIntoState } from '../customSourceManifest'
+import {
+    buildManifest,
+    eligibleParentStreams,
+    extractAuthSecrets,
+    ManifestState,
+    parseManifestIntoState,
+    removeStreamFromList,
+    StreamForm,
+    updateStreamInList,
+} from '../customSourceManifest'
 
 const baseState = (): ManifestState => ({
     base_url: 'https://api.example.com',
@@ -24,6 +33,12 @@ const baseState = (): ManifestState => ({
             cursor_path: '',
             cursor_type: 'datetime',
             start_param: '',
+            datetime_format: '',
+            parent_stream: '',
+            parent_resolve_field: '',
+            parent_path_param: '',
+            include_from_parent: '',
+            passthrough_params: {},
         },
     ],
 })
@@ -259,6 +274,12 @@ describe('parseManifestIntoState', () => {
                 cursor_path: 'updated_at',
                 cursor_type: 'datetime',
                 start_param: 'since',
+                datetime_format: '',
+                parent_stream: '',
+                parent_resolve_field: '',
+                parent_path_param: '',
+                include_from_parent: '',
+                passthrough_params: {},
             },
         ]
 
@@ -399,12 +420,206 @@ describe('parseManifestIntoState', () => {
                 cursor_path: 'updated_at',
                 cursor_type: 'timestamp',
                 start_param: 'since',
+                datetime_format: '',
+                parent_stream: '',
+                parent_resolve_field: '',
+                parent_path_param: '',
+                include_from_parent: '',
+                passthrough_params: {},
             },
         ]
 
         const firstJson = JSON.stringify(buildManifest(original))
         const secondJson = JSON.stringify(buildManifest(parseManifestIntoState(firstJson)))
         expect(secondJson).toBe(firstJson)
+    })
+})
+
+// Spreads the base stream so new StreamForm fields only need a default in
+// baseState(), not in every fixture.
+const makeStream = (overrides: Partial<StreamForm>): StreamForm => ({
+    ...baseState().streams[0],
+    ...overrides,
+})
+
+describe('fan-out (parent/child)', () => {
+    const childState = (): ManifestState => {
+        const state = baseState()
+        state.streams = [
+            makeStream({
+                id: 'stream-forms',
+                name: 'forms',
+                path: '/forms',
+                data_selector: 'items',
+            }),
+            makeStream({
+                id: 'stream-responses',
+                name: 'responses',
+                path: '/forms/{form_id}/responses',
+                data_selector: 'items',
+                primary_key: 'token',
+                parent_stream: 'forms',
+                parent_resolve_field: 'id',
+                parent_path_param: 'form_id',
+                include_from_parent: 'id, title',
+            }),
+        ]
+        return state
+    }
+
+    it('emits a resolve param binding the parent field into the path placeholder', () => {
+        const manifest = buildManifest(childState()) as any
+        expect(manifest.resources[1].endpoint.params).toEqual({
+            form_id: { type: 'resolve', resource: 'forms', field: 'id' },
+        })
+    })
+
+    it('emits include_from_parent as a list when fields are provided', () => {
+        const manifest = buildManifest(childState()) as any
+        expect(manifest.resources[1].include_from_parent).toEqual(['id', 'title'])
+    })
+
+    it('still emits the resolve param when the dependency is half-filled, so the backend rejects it loudly', () => {
+        // Silently dropping a half-filled dependency would sync the stream as an
+        // unrelated top-level endpoint — wrong data with no error anywhere.
+        const state = childState()
+        state.streams[1].parent_path_param = '' // missing placeholder name
+        const manifest = buildManifest(state) as any
+        expect(manifest.resources[1].endpoint.params).toEqual({
+            '': { type: 'resolve', resource: 'forms', field: 'id' },
+        })
+    })
+
+    it('omits include_from_parent when no parent fields are listed', () => {
+        const state = childState()
+        state.streams[1].include_from_parent = ''
+        const manifest = buildManifest(state) as any
+        expect('params' in manifest.resources[1].endpoint).toBe(true)
+        expect('include_from_parent' in manifest.resources[1]).toBe(false)
+    })
+
+    it('keeps the top-level parent stream free of a resolve param', () => {
+        const manifest = buildManifest(childState()) as any
+        expect('params' in manifest.resources[0].endpoint).toBe(false)
+    })
+
+    it('offers only top-level streams as parents — one level of nesting, no cycles', () => {
+        const state = childState()
+        state.streams.push({
+            ...state.streams[0],
+            id: 'stream-users',
+            name: 'users',
+            path: '/users',
+        })
+        // The child stream may pick either top-level stream, but not itself.
+        expect(eligibleParentStreams(state.streams, 1)).toEqual(['forms', 'users'])
+        // A top-level stream can't pick the child (it has a parent) — so mutual
+        // cycles and grandchildren are unbuildable.
+        expect(eligibleParentStreams(state.streams, 0)).toEqual(['users'])
+        expect(eligibleParentStreams(state.streams, 2)).toEqual(['forms'])
+    })
+
+    it('renaming a parent stream follows through to its children', () => {
+        const streams = updateStreamInList(childState().streams, 0, { name: 'surveys' })
+        expect(streams[0].name).toBe('surveys')
+        expect(streams[1].parent_stream).toBe('surveys')
+    })
+
+    it('removing a parent stream clears its children back to top-level', () => {
+        const streams = removeStreamFromList(childState().streams, 0)
+        expect(streams).toHaveLength(1)
+        expect(streams[0].parent_stream).toBe('')
+        expect(streams[0].parent_resolve_field).toBe('')
+        expect(streams[0].parent_path_param).toBe('')
+        expect(streams[0].include_from_parent).toBe('')
+    })
+
+    it('keeps children attached when a duplicate-named stream is removed', () => {
+        // A sibling still carries the removed name, so the child's parent
+        // reference remains satisfiable and must not be cleared.
+        const state = childState()
+        state.streams.push(makeStream({ id: 'stream-forms-2', name: 'forms', path: '/forms-v2' }))
+        const streams = removeStreamFromList(state.streams, 0)
+        expect(streams.find((s) => s.name === 'responses')?.parent_stream).toBe('forms')
+    })
+
+    it('rename to a colliding name still cascades — the backend rejects the duplicate at save', () => {
+        const state = childState()
+        state.streams.push(makeStream({ id: 'stream-surveys', name: 'surveys', path: '/surveys' }))
+        const streams = updateStreamInList(state.streams, 0, { name: 'surveys' })
+        expect(streams[1].parent_stream).toBe('surveys')
+    })
+
+    it('keeps the first resolve param as the dependency when a manifest carries two', () => {
+        // The backend rejects multi-resolve manifests, but the parse path can
+        // still be handed one (raw JSON authoring) — the first becomes the
+        // editable dependency, the rest ride along in passthrough_params so a
+        // builder edit re-emits (and the backend re-rejects) them honestly.
+        const manifest = buildManifest(childState()) as any
+        manifest.resources[1].endpoint.params.other_id = { type: 'resolve', resource: 'forms', field: 'id' }
+        const child = parseManifestIntoState(JSON.stringify(manifest)).streams[1]
+        expect(child.parent_path_param).toBe('form_id')
+        expect(child.passthrough_params).toEqual({ other_id: { type: 'resolve', resource: 'forms', field: 'id' } })
+    })
+
+    it('preserves raw-authored static params through a builder round-trip', () => {
+        // The builder has no UI for static query params, but editing a stream
+        // must not silently drop ones authored in raw JSON.
+        const manifest = buildManifest(childState()) as any
+        manifest.resources[1].endpoint.params.status = 'active'
+        const rebuilt = buildManifest(parseManifestIntoState(JSON.stringify(manifest))) as any
+        expect(rebuilt.resources[1].endpoint.params).toEqual({
+            status: 'active',
+            form_id: { type: 'resolve', resource: 'forms', field: 'id' },
+        })
+    })
+
+    it('preserves a top-level stream’s static params even with no parent dependency', () => {
+        const manifest = buildManifest(childState()) as any
+        manifest.resources[0].endpoint.params = { limit: 100 }
+        const rebuilt = buildManifest(parseManifestIntoState(JSON.stringify(manifest))) as any
+        expect(rebuilt.resources[0].endpoint.params).toEqual({ limit: 100 })
+    })
+
+    it('hydrates the parent dependency back out on parse', () => {
+        const state = parseManifestIntoState(JSON.stringify(buildManifest(childState())))
+        const child = state.streams[1]
+        expect(child.parent_stream).toBe('forms')
+        expect(child.parent_resolve_field).toBe('id')
+        expect(child.parent_path_param).toBe('form_id')
+        expect(child.include_from_parent).toBe('id, title')
+    })
+
+    it('round-trips a fan-out manifest through build → parse → build without drift', () => {
+        const firstJson = JSON.stringify(buildManifest(childState()))
+        const secondJson = JSON.stringify(buildManifest(parseManifestIntoState(firstJson)))
+        expect(secondJson).toBe(firstJson)
+    })
+})
+
+describe('datetime_format (incremental cursor)', () => {
+    const incrementalState = (datetimeFormat: string): ManifestState => {
+        const state = baseState()
+        state.streams[0].incremental_enabled = true
+        state.streams[0].cursor_path = 'updated_at'
+        state.streams[0].datetime_format = datetimeFormat
+        return state
+    }
+
+    it('emits datetime_format inside endpoint.incremental when set', () => {
+        const manifest = buildManifest(incrementalState('%Y-%m-%dT%H:%M:%SZ')) as any
+        expect(manifest.resources[0].endpoint.incremental.datetime_format).toBe('%Y-%m-%dT%H:%M:%SZ')
+    })
+
+    it('omits datetime_format when blank', () => {
+        const manifest = buildManifest(incrementalState('   ')) as any
+        expect('datetime_format' in manifest.resources[0].endpoint.incremental).toBe(false)
+    })
+
+    it('hydrates datetime_format on parse and round-trips without drift', () => {
+        const firstJson = JSON.stringify(buildManifest(incrementalState('%Y-%m-%dT%H:%M:%SZ')))
+        expect(parseManifestIntoState(firstJson).streams[0].datetime_format).toBe('%Y-%m-%dT%H:%M:%SZ')
+        expect(JSON.stringify(buildManifest(parseManifestIntoState(firstJson)))).toBe(firstJson)
     })
 })
 
