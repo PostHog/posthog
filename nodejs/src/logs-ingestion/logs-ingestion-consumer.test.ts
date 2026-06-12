@@ -27,6 +27,7 @@ import {
     logsBytesDroppedCounter,
     logsBytesReceivedCounter,
     logsRecordsAllowedCounter,
+    logsRecordsBytesExceedPayloadCounter,
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
 } from './logs-ingestion-consumer'
@@ -986,6 +987,30 @@ describe('LogsIngestionConsumer', () => {
             )
             expect(bytesIngested?.value.count).toBe(1024)
             expect(bytesIngestedRecords?.value.count).toBe(900)
+        })
+
+        it('should flag and still emit when bytes_uncompressed_records exceeds bytes_uncompressed', async () => {
+            const exceedCounterSpy = jest.spyOn(logsRecordsBytesExceedPayloadCounter, 'inc')
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                bytes_uncompressed_records: '1500',
+                record_count: '5',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(exceedCounterSpy).toHaveBeenCalledWith({ team_id: team.id.toString() })
+
+            // The comparison metric is emitted as-is, even above the payload size —
+            // it exists precisely to surface this case.
+            const appMetricsMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+            const bytesIngested = appMetricsMessages.find((m) => m.value.metric_name === 'bytes_ingested')
+            const bytesIngestedRecords = appMetricsMessages.find(
+                (m) => m.value.metric_name === 'bytes_ingested_records'
+            )
+            expect(bytesIngested?.value.count).toBe(1024)
+            expect(bytesIngestedRecords?.value.count).toBe(1500)
         })
     })
 
