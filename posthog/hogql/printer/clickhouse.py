@@ -143,7 +143,7 @@ class ClickHousePrinter(BasePrinter):
                         )
                 args.append(self.visit(suffix_arg))
 
-        relevant_clickhouse_name = func_meta.clickhouse_name
+        relevant_clickhouse_name = self._registry_clickhouse_name(func_meta)
         if func_meta.overloads:
             # Prefer concrete fields/calls: transforms can leave a call's
             # recorded arg_types stale after fields are rewritten.

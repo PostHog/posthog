@@ -18,6 +18,7 @@ from posthog.hogql.data_provider import (
     PropertyKind,
     PropertyTypes,
 )
+from posthog.hogql.engine_config import EngineConfig
 from posthog.hogql.team_context import HogQLTeamContext
 
 from posthog.clickhouse.materialized_columns import (
@@ -25,9 +26,11 @@ from posthog.clickhouse.materialized_columns import (
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
 )
+from posthog.cloud_utils import is_ci, is_cloud
 from posthog.models import PropertyDefinition, Team
 from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from posthog.models.property import PropertyName, TableColumn
+from posthog.udf_versioner import VERSION_STR as UDF_VERSION_STR
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.actions.backend.models.action import Action
@@ -43,6 +46,16 @@ if TYPE_CHECKING:
     from posthog.models import User
 
 INLINE_COHORT_THRESHOLD_SECONDS = 10
+
+
+def default_engine_config() -> EngineConfig:
+    """Resolve the deployment's ``EngineConfig`` on the Django side.
+
+    UDF versioning applies on cloud, where UDF versions are deployed side by side, and
+    in CI — the latter so a UDF behavior change that forgot to bump the version fails
+    there against the versioned function names.
+    """
+    return EngineConfig(udf_version=UDF_VERSION_STR if is_cloud() or is_ci() else None)
 
 
 def _is_inline_flag_enabled(team: Team) -> bool:
