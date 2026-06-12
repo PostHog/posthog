@@ -425,3 +425,51 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
             with_recording_two_id,
             with_both_recording_id,
         ]
+
+    @parameterized.expand(
+        [
+            ["created_at"],
+            ["-created_at"],
+            ["last_modified_at"],
+            ["-last_modified_at"],
+            ["title"],
+            ["-title"],
+        ]
+    )
+    def test_ordering_by_allowed_fields_succeeds(self, order: str) -> None:
+        Notebook.objects.create(team=self.team, created_by=self.user, title="a")
+        Notebook.objects.create(team=self.team, created_by=self.user, title="b")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks?order={order}")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 2
+
+    @parameterized.expand(
+        [
+            ["text_content"],
+            ["nonexistent_field"],
+            ["created_at; drop table"],
+            ["-deleted"],
+        ]
+    )
+    def test_ordering_by_disallowed_field_returns_400(self, order: str) -> None:
+        Notebook.objects.create(team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks?order={order}")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "order" in str(response.json()).lower()
+
+    def test_ordering_defaults_to_last_modified_descending(self) -> None:
+        older = Notebook.objects.create(team=self.team, created_by=self.user, title="older")
+        newer = Notebook.objects.create(team=self.team, created_by=self.user, title="newer")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks")
+        assert response.status_code == status.HTTP_200_OK
+        assert [n["short_id"] for n in response.json()["results"]] == [newer.short_id, older.short_id]
+
+    def test_malformed_contains_filter_does_not_500(self) -> None:
+        self._create_notebook_with_content([RECORDING_CONTENT("recording_one")])
+
+        # a colon-heavy / malformed match pair should degrade gracefully rather than error
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks?contains=:::")
+        assert response.status_code == status.HTTP_200_OK

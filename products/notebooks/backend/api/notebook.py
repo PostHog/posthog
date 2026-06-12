@@ -56,6 +56,12 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
 
+# Model fields the notebooks list may be ordered by. The frontend maps the user's
+# chosen sort column straight into the `order` query param, so anything outside this
+# set would reach `order_by` untouched and raise a FieldError (surfacing as a 500).
+ALLOWED_ORDER_FIELDS = {"created_at", "last_modified_at", "title"}
+DEFAULT_ORDER = "-last_modified_at"
+
 
 def depluralize(string: str | None) -> str | None:
     if not string:
@@ -522,13 +528,24 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             queryset = queryset.filter(deleted=False, visibility=Notebook.Visibility.DEFAULT)
             queryset = self._filter_list_request(self.request, queryset)
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-last_modified_at")
+        queryset = queryset.order_by(self._validated_order())
 
         return queryset
+
+    def _validated_order(self) -> str:
+        order = self.request.GET.get("order", None)
+        if not order:
+            return DEFAULT_ORDER
+
+        if order.removeprefix("-") not in ALLOWED_ORDER_FIELDS:
+            raise serializers.ValidationError(
+                {
+                    "order": f"Invalid order field. Must be one of: {', '.join(sorted(ALLOWED_ORDER_FIELDS))}, "
+                    "optionally prefixed with '-' for descending order."
+                }
+            )
+
+        return order
 
     def _filter_list_request(self, request: Request, queryset: QuerySet, filters: dict | None = None) -> QuerySet:
         filters = filters or request.GET.dict()
@@ -559,51 +576,60 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 # and for recordings that type is "ph-recording"
                 # each of those objects can have attrs which is a dict with id for the recording
                 for match_pair in match_pairs:
-                    splat = match_pair.split(":")
-                    target = depluralize(splat[0])
-                    match_value: str | int | None = splat[1] if len(splat) > 1 else None
-
-                    if target:
-                        # the JSONB query requires a specific structure
-                        basic_structure = list[dict[str, Any]]
-                        nested_structure = basic_structure | list[dict[str, basic_structure]]
-
-                        presence_match_structure: basic_structure | nested_structure = [{"type": f"ph-{target}"}]
-
-                        try:
-                            # We try to parse the match as a number, as query params are always strings,
-                            # but an id could be an integer and wouldn't match
-                            if isinstance(match_value, str):  # because mypy
-                                match_value = int(match_value)
-                        except (ValueError, TypeError):
-                            pass
-
-                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match_value}}]
-                        if target == "replay-timestamp":
-                            # replay timestamps are not at the top level, they're one-level down in a content array
-                            presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
-                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match_value}}]}]
-                        elif target == "query":
-                            id_match_structure = [
-                                {
-                                    "attrs": {
-                                        "query": {
-                                            "kind": "SavedInsightNode",
-                                            "shortId": match_value,
-                                        }
-                                    }
-                                }
-                            ]
-
-                        if match_value == "true" or match_value is None:
-                            queryset = queryset.filter(content__content__contains=presence_match_structure)
-                        elif match_value == "false":
-                            queryset = queryset.exclude(content__content__contains=presence_match_structure)
-                        else:
-                            queryset = queryset.filter(content__content__contains=presence_match_structure)
-                            queryset = queryset.filter(content__content__contains=id_match_structure)
+                    try:
+                        queryset = self._apply_contains_match(queryset, match_pair)
+                    except Exception:
+                        # a single malformed match pair shouldn't break the whole list request
+                        logger.warning("notebook_contains_filter_skipped", match_pair=match_pair, exc_info=True)
 
         return queryset
+
+    def _apply_contains_match(self, queryset: QuerySet, match_pair: str) -> QuerySet:
+        splat = match_pair.split(":")
+        target = depluralize(splat[0])
+        match_value: str | int | None = splat[1] if len(splat) > 1 else None
+
+        if not target:
+            return queryset
+
+        # the JSONB query requires a specific structure
+        basic_structure = list[dict[str, Any]]
+        nested_structure = basic_structure | list[dict[str, basic_structure]]
+
+        presence_match_structure: basic_structure | nested_structure = [{"type": f"ph-{target}"}]
+
+        try:
+            # We try to parse the match as a number, as query params are always strings,
+            # but an id could be an integer and wouldn't match
+            if isinstance(match_value, str):  # because mypy
+                match_value = int(match_value)
+        except (ValueError, TypeError):
+            pass
+
+        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match_value}}]
+        if target == "replay-timestamp":
+            # replay timestamps are not at the top level, they're one-level down in a content array
+            presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
+            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match_value}}]}]
+        elif target == "query":
+            id_match_structure = [
+                {
+                    "attrs": {
+                        "query": {
+                            "kind": "SavedInsightNode",
+                            "shortId": match_value,
+                        }
+                    }
+                }
+            ]
+
+        if match_value == "true" or match_value is None:
+            return queryset.filter(content__content__contains=presence_match_structure)
+        elif match_value == "false":
+            return queryset.exclude(content__content__contains=presence_match_structure)
+        else:
+            queryset = queryset.filter(content__content__contains=presence_match_structure)
+            return queryset.filter(content__content__contains=id_match_structure)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
