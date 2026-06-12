@@ -297,6 +297,11 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     // actions. Empty filters compile to always-true bytecode (op 29), which must NOT wake on every
     // event. ['_H', 1, 29] is exactly what the Django compiler emits for empty filters.
     const emptyEventFilter = () => ({ filters: { events: [], bytecode: ['_H', 1, 29] } })
+    // A wait CONDITION with no property filters: the state left when a condition's last filter is
+    // removed, or one is added but never filled in. Django compiles it to the same always-true
+    // bytecode (op 29). Unlike an events entry, the executor evaluates the condition on entry, so
+    // without the guard this fires the wait immediately. Mirrors the serializer's compiled shape.
+    const emptyConditionFilters = () => ({ bytecode: ['_H', 1, 29], properties: [] })
 
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
@@ -783,6 +788,45 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('does not fire on entry for an empty property condition; takes the timeout branch', async () => {
+            // An empty condition compiles to always-true bytecode. The executor evaluates the
+            // condition on entry, so without the guard the wait advances down the matched branch
+            // immediately. With no events and no real condition it must park and time out instead.
+            await createWaitUntilWorkflow({
+                condition: { filters: emptyConditionFilters() },
+                max_wait_duration: '2s',
+            })
+            await triggerWorkflow(createGlobals())
+
+            // If it fired on entry this would be the matched branch; it must be the timeout branch.
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 15000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/timed-out', expect.anything())
+        })
+
+        it('does not fire on entry when an empty condition coexists with a real events entry; still wakes on the event', async () => {
+            // The reported bug: an empty (always-true) condition alongside a real "events to wait
+            // for" entry. Without the guard the empty condition matches on entry and the wait fires
+            // immediately, ignoring the configured event. It must park and only wake when the event
+            // actually fires.
+            await createWaitUntilWorkflow({
+                condition: { filters: emptyConditionFilters() },
+                events: [eventNameFilter('wakeup_event')],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The configured event fires — the matcher wakes the job via the events entry.
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
     })
 

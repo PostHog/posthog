@@ -312,18 +312,21 @@ class TestGetColumns:
         cur = MagicMock()
         cur.__enter__.return_value = cur
         cur.fetchall.return_value = [
-            ("users", "id", "integer", "NO"),
-            ("users", "email", "varchar", "YES"),
-            ("orders", "id", "bigint", "NO"),
+            ("public", "users", "id", "integer", "NO"),
+            ("public", "users", "email", "varchar", "YES"),
+            ("public", "orders", "id", "bigint", "NO"),
         ]
         conn.cursor.return_value = cur
 
         result = impl.get_columns(conn, _make_config(), names=None)
 
+        # Pinned schema → bare table keys (single-namespace fast path).
         assert result == {
             "users": [("id", "integer", False), ("email", "varchar", True)],
             "orders": [("id", "bigint", False)],
         }
+        executed_sql = cur.execute.call_args.args[0]
+        assert "table_schema = %(schema)s" in executed_sql
 
     def test_returns_empty_when_no_rows(self, impl):
         conn = MagicMock()
@@ -333,6 +336,43 @@ class TestGetColumns:
         conn.cursor.return_value = cur
 
         assert impl.get_columns(conn, _make_config(), names=["foo"]) == {}
+
+    def test_blank_schema_qualifies_and_excludes_system_schemas(self, impl):
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        # Same table name in two schemas must stay distinct.
+        cur.fetchall.return_value = [
+            ("analytics", "users", "id", "integer", "NO"),
+            ("public", "users", "id", "bigint", "NO"),
+        ]
+        conn.cursor.return_value = cur
+
+        result = impl.get_columns(conn, _make_config(schema=""), names=None)
+
+        assert result == {
+            "analytics.users": [("id", "integer", False)],
+            "public.users": [("id", "bigint", False)],
+        }
+        executed_sql, executed_params = cur.execute.call_args.args
+        assert "table_schema NOT IN" in executed_sql
+        assert "pg_temp_%" in executed_sql
+        assert set(executed_params.values()) >= {"pg_catalog", "information_schema", "pg_internal", "pg_automv"}
+
+    def test_blank_schema_with_qualified_names_filters_by_pair(self, impl):
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.fetchall.return_value = [("analytics", "users", "id", "integer", "NO")]
+        conn.cursor.return_value = cur
+
+        result = impl.get_columns(conn, _make_config(schema=""), names=["analytics.users"])
+
+        assert result == {"analytics.users": [("id", "integer", False)]}
+        executed_sql, executed_params = cur.execute.call_args.args
+        assert "table_schema = %(sch_0)s AND table_name = %(tbl_0)s" in executed_sql
+        assert executed_params["sch_0"] == "analytics"
+        assert executed_params["tbl_0"] == "users"
 
 
 class TestGetPrimaryKeys:
@@ -344,11 +384,36 @@ class TestGetPrimaryKeys:
         conn = MagicMock()
         cur = MagicMock()
         cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [("users", "id"), ("users", "tenant_id"), ("orders", "id")]
+        cur.fetchall.return_value = [
+            ("public", "users", "id"),
+            ("public", "users", "tenant_id"),
+            ("public", "orders", "id"),
+        ]
         conn.cursor.return_value = cur
 
         result = impl.get_primary_keys(conn, _make_config(), ["users", "orders", "items"])
         assert result == {"users": ["id", "tenant_id"], "orders": ["id"], "items": None}
+
+    def test_blank_schema_keeps_same_table_name_distinct(self, impl):
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.fetchall.return_value = [("analytics", "users", "id"), ("public", "users", "uid")]
+        conn.cursor.return_value = cur
+
+        result = impl.get_primary_keys(conn, _make_config(schema=""), ["analytics.users", "public.users"])
+        assert result == {"analytics.users": ["id"], "public.users": ["uid"]}
+
+    def test_blank_schema_bare_name_degrades_without_crashing(self, impl):
+        # Unknown-schema key must not crash the batch query (None can't sort with str schemas).
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.fetchall.return_value = []
+        conn.cursor.return_value = cur
+
+        result = impl.get_primary_keys(conn, _make_config(schema=""), ["users"])
+        assert result == {"users": None}
 
     def test_swallows_errors_and_returns_none_per_table(self, impl):
         conn = MagicMock()
@@ -359,6 +424,37 @@ class TestGetPrimaryKeys:
 
         result = impl.get_primary_keys(conn, _make_config(), ["users"])
         assert result == {"users": None}
+
+
+class TestGetRowCounts:
+    def test_returns_empty_for_no_tables(self, impl):
+        assert impl.get_row_counts(MagicMock(), _make_config(), []) == {}
+
+    def test_blank_schema_counts_tables_and_views_per_namespace(self, impl):
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        # 1: SET statement_timeout, 2: svv_table_info, 3: pg_views, 4: UNION ALL view counts.
+        cur.fetchall.side_effect = [
+            [("analytics", "events", 500)],  # svv_table_info (materialized tables)
+            [("public", "events")],  # pg_views (views aren't in svv_table_info)
+            [("public", "events", 42)],  # COUNT(*) per view
+        ]
+        conn.cursor.return_value = cur
+
+        result = impl.get_row_counts(conn, _make_config(schema=""), ["analytics.events", "public.events"])
+
+        # Same table name in two namespaces stays distinct; the view falls through to COUNT(*).
+        assert result == {"analytics.events": 500, "public.events": 42}
+
+    def test_returns_empty_on_exception(self, impl):
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.execute.side_effect = Exception("denied")
+        conn.cursor.return_value = cur
+
+        assert impl.get_row_counts(conn, _make_config(), ["users"]) == {}
 
 
 class TestGetLeadingIndexColumns:
@@ -374,11 +470,11 @@ class TestGetLeadingIndexColumns:
         assert impl.get_leading_index_columns(MagicMock(), _make_config(), []) == {}
 
     def test_returns_leading_compound_sortkey(self, impl):
-        # tablename, column, sortkey
+        # schemaname, tablename, column, sortkey
         conn = self._make_conn(
             [
-                ("messages", "created_at", 1),
-                ("messages", "user_id", 2),
+                ("public", "messages", "created_at", 1),
+                ("public", "messages", "user_id", 2),
             ]
         )
         result = impl.get_leading_index_columns(conn, _make_config(), ["messages"])
@@ -387,13 +483,26 @@ class TestGetLeadingIndexColumns:
     def test_treats_interleaved_sortkey_as_indexed(self, impl):
         conn = self._make_conn(
             [
-                ("messages", "a", -1),
-                ("messages", "b", 2),
-                ("messages", "c", -3),
+                ("public", "messages", "a", -1),
+                ("public", "messages", "b", 2),
+                ("public", "messages", "c", -3),
             ]
         )
         result = impl.get_leading_index_columns(conn, _make_config(), ["messages"])
         assert result == {"messages": {"a", "b", "c"}}
+
+    def test_blank_schema_classifies_sortkeys_per_namespace(self, impl):
+        conn = self._make_conn(
+            [
+                ("analytics", "messages", "created_at", 1),
+                ("public", "messages", "a", -1),
+                ("public", "messages", "b", 2),
+            ]
+        )
+        result = impl.get_leading_index_columns(
+            conn, _make_config(schema=""), ["analytics.messages", "public.messages"]
+        )
+        assert result == {"analytics.messages": {"created_at"}, "public.messages": {"a", "b"}}
 
     def test_tables_with_no_sortkey_are_empty(self, impl):
         conn = self._make_conn([])
@@ -407,6 +516,27 @@ class TestGetLeadingIndexColumns:
         cur.execute.side_effect = Exception("denied")
         conn.cursor.return_value = cur
         assert impl.get_leading_index_columns(conn, _make_config(), ["t"]) is None
+
+
+class TestGetSourceMetadata:
+    def test_pinned_schema_stamps_config_namespace(self, impl):
+        metadata = impl.get_source_metadata(MagicMock(), _make_config(), ["users", "orders"])
+        assert metadata.schema_by_table == {"users": "public", "orders": "public"}
+        assert metadata.table_name_by_table == {"users": "users", "orders": "orders"}
+        assert metadata.catalog_by_table == {"users": None, "orders": None}
+
+    def test_blank_schema_splits_qualified_display_names(self, impl):
+        metadata = impl.get_source_metadata(MagicMock(), _make_config(schema=""), ["analytics.users", "public.users"])
+        assert metadata.schema_by_table == {"analytics.users": "analytics", "public.users": "public"}
+        assert metadata.table_name_by_table == {"analytics.users": "users", "public.users": "users"}
+        assert metadata.catalog_by_table == {"analytics.users": None, "public.users": None}
+
+    def test_blank_schema_does_not_guess_namespace_for_bare_name(self, impl):
+        # A bare key in multi-schema mode is unexpected (discovery always qualifies); never invent
+        # a schema we'd then fail to query — leave it unknown so the resolver self-heals.
+        metadata = impl.get_source_metadata(MagicMock(), _make_config(schema=""), ["users"])
+        assert metadata.schema_by_table == {"users": None}
+        assert metadata.table_name_by_table == {"users": "users"}
 
 
 # ---------------------------------------------------------------------------
@@ -526,3 +656,70 @@ class TestBuildPipeline:
         impl = RedshiftImplementation()
         impl.build_pipeline(_make_config(), _make_inputs(), chunk_size_override=4242)
         mocked_chunk_size.assert_not_called()
+
+    def test_routes_per_row_namespace_from_schema_metadata(self, build_pipeline_mocks, mocker):
+        get_meta = mocker.patch.object(
+            RedshiftImplementation,
+            "get_table_metadata",
+            return_value=Table(
+                name="users",
+                parents=("analytics",),
+                columns=[RedshiftColumn(name="id", data_type="integer", nullable=False)],
+                type="table",
+            ),
+        )
+        impl = RedshiftImplementation()
+        inputs = _make_inputs(
+            schema_name="analytics.users",
+            schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
+        )
+
+        response = impl.build_pipeline(_make_config(schema=""), inputs)
+
+        # Per-row schema + unqualified table threaded into the metadata query.
+        assert get_meta.call_args.args[1] == "analytics"
+        assert get_meta.call_args.args[2] == "users"
+        # Delta subdir is the underscore-normalized qualified name.
+        assert response.name == "analytics_users"
+
+    def test_legacy_row_falls_back_to_config_schema(self, build_pipeline_mocks, mocker):
+        get_meta = mocker.patch.object(
+            RedshiftImplementation,
+            "get_table_metadata",
+            return_value=Table(
+                name="messages",
+                parents=("public",),
+                columns=[RedshiftColumn(name="id", data_type="integer", nullable=False)],
+                type="table",
+            ),
+        )
+        impl = RedshiftImplementation()
+        # No schema_metadata, bare table name, pinned config schema.
+        response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="messages"))
+
+        assert get_meta.call_args.args[1] == "public"
+        assert get_meta.call_args.args[2] == "messages"
+        assert response.name == "messages"
+
+    def test_dwh_storage_key_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
+        mocker.patch.object(
+            RedshiftImplementation,
+            "get_table_metadata",
+            return_value=Table(
+                name="users",
+                parents=("analytics",),
+                columns=[RedshiftColumn(name="id", data_type="integer", nullable=False)],
+                type="table",
+            ),
+        )
+        impl = RedshiftImplementation()
+        inputs = _make_inputs(
+            schema_name="analytics.users",
+            schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
+            dwh_storage_key="users",
+        )
+
+        response = impl.build_pipeline(_make_config(schema=""), inputs)
+
+        # Migrated row keeps its original subdir rather than moving to `analytics_users`.
+        assert response.name == "users"

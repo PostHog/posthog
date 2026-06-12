@@ -213,6 +213,22 @@ class RecentActions(_Section):
     recent: list[ActionEntry]
 
 
+class KnowledgeSourceEntry(_Section):
+    id: str
+    name: str
+    source_type: str
+    status: str
+    updated_at: str | None
+
+
+class BusinessKnowledge(_Section):
+    total_count: int
+    ready_count: int
+    document_count: int
+    chunk_count: int
+    recent: list[KnowledgeSourceEntry]
+
+
 class TopEvent(_Section):
     event: str
     count: int
@@ -249,4 +265,5 @@ class Inventory(_Section):
     recent_notebooks: RecentNotebooks
     recent_cohorts: RecentCohorts
     recent_actions: RecentActions
+    business_knowledge: BusinessKnowledge
     top_events: list[TopEvent] | None

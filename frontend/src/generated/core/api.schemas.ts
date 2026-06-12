@@ -314,6 +314,8 @@ export interface ProjectBackwardCompatBasicApi {
     readonly id: number
     readonly uuid: string
     readonly organization: string
+    /** ID of the project this environment belongs to. */
+    readonly project_id: number
     readonly api_token: string
     readonly name: string
     readonly completed_snippet_onboarding: boolean
@@ -344,6 +346,8 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
     onboarding_completed_at?: string | null
     updated_at?: string
 }
+
+export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
 export type EffectiveMembershipLevelEnumApi =
     (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
@@ -530,6 +534,392 @@ export const AvailableSetupTaskIdsEnumApi = {
     TestEndpoint: 'test_endpoint',
     CreateEarlyAccessFeature: 'create_early_access_feature',
     UpdateFeatureStage: 'update_feature_stage',
+} as const
+
+/**
+ * * `AED` - AED
+ * * `AFN` - AFN
+ * * `ALL` - ALL
+ * * `AMD` - AMD
+ * * `ANG` - ANG
+ * * `AOA` - AOA
+ * * `ARS` - ARS
+ * * `AUD` - AUD
+ * * `AWG` - AWG
+ * * `AZN` - AZN
+ * * `BAM` - BAM
+ * * `BBD` - BBD
+ * * `BDT` - BDT
+ * * `BGN` - BGN
+ * * `BHD` - BHD
+ * * `BIF` - BIF
+ * * `BMD` - BMD
+ * * `BND` - BND
+ * * `BOB` - BOB
+ * * `BRL` - BRL
+ * * `BSD` - BSD
+ * * `BTC` - BTC
+ * * `BTN` - BTN
+ * * `BWP` - BWP
+ * * `BYN` - BYN
+ * * `BZD` - BZD
+ * * `CAD` - CAD
+ * * `CDF` - CDF
+ * * `CHF` - CHF
+ * * `CLP` - CLP
+ * * `CNY` - CNY
+ * * `COP` - COP
+ * * `CRC` - CRC
+ * * `CVE` - CVE
+ * * `CZK` - CZK
+ * * `DJF` - DJF
+ * * `DKK` - DKK
+ * * `DOP` - DOP
+ * * `DZD` - DZD
+ * * `EGP` - EGP
+ * * `ERN` - ERN
+ * * `ETB` - ETB
+ * * `EUR` - EUR
+ * * `FJD` - FJD
+ * * `GBP` - GBP
+ * * `GEL` - GEL
+ * * `GHS` - GHS
+ * * `GIP` - GIP
+ * * `GMD` - GMD
+ * * `GNF` - GNF
+ * * `GTQ` - GTQ
+ * * `GYD` - GYD
+ * * `HKD` - HKD
+ * * `HNL` - HNL
+ * * `HRK` - HRK
+ * * `HTG` - HTG
+ * * `HUF` - HUF
+ * * `IDR` - IDR
+ * * `ILS` - ILS
+ * * `INR` - INR
+ * * `IQD` - IQD
+ * * `IRR` - IRR
+ * * `ISK` - ISK
+ * * `JMD` - JMD
+ * * `JOD` - JOD
+ * * `JPY` - JPY
+ * * `KES` - KES
+ * * `KGS` - KGS
+ * * `KHR` - KHR
+ * * `KMF` - KMF
+ * * `KRW` - KRW
+ * * `KWD` - KWD
+ * * `KYD` - KYD
+ * * `KZT` - KZT
+ * * `LAK` - LAK
+ * * `LBP` - LBP
+ * * `LKR` - LKR
+ * * `LRD` - LRD
+ * * `LTL` - LTL
+ * * `LVL` - LVL
+ * * `LSL` - LSL
+ * * `LYD` - LYD
+ * * `MAD` - MAD
+ * * `MDL` - MDL
+ * * `MGA` - MGA
+ * * `MKD` - MKD
+ * * `MMK` - MMK
+ * * `MNT` - MNT
+ * * `MOP` - MOP
+ * * `MRU` - MRU
+ * * `MTL` - MTL
+ * * `MUR` - MUR
+ * * `MVR` - MVR
+ * * `MWK` - MWK
+ * * `MXN` - MXN
+ * * `MYR` - MYR
+ * * `MZN` - MZN
+ * * `NAD` - NAD
+ * * `NGN` - NGN
+ * * `NIO` - NIO
+ * * `NOK` - NOK
+ * * `NPR` - NPR
+ * * `NZD` - NZD
+ * * `OMR` - OMR
+ * * `PAB` - PAB
+ * * `PEN` - PEN
+ * * `PGK` - PGK
+ * * `PHP` - PHP
+ * * `PKR` - PKR
+ * * `PLN` - PLN
+ * * `PYG` - PYG
+ * * `QAR` - QAR
+ * * `RON` - RON
+ * * `RSD` - RSD
+ * * `RUB` - RUB
+ * * `RWF` - RWF
+ * * `SAR` - SAR
+ * * `SBD` - SBD
+ * * `SCR` - SCR
+ * * `SDG` - SDG
+ * * `SEK` - SEK
+ * * `SGD` - SGD
+ * * `SRD` - SRD
+ * * `SSP` - SSP
+ * * `STN` - STN
+ * * `SYP` - SYP
+ * * `SZL` - SZL
+ * * `THB` - THB
+ * * `TJS` - TJS
+ * * `TMT` - TMT
+ * * `TND` - TND
+ * * `TOP` - TOP
+ * * `TRY` - TRY
+ * * `TTD` - TTD
+ * * `TWD` - TWD
+ * * `TZS` - TZS
+ * * `UAH` - UAH
+ * * `UGX` - UGX
+ * * `USD` - USD
+ * * `UYU` - UYU
+ * * `UZS` - UZS
+ * * `VES` - VES
+ * * `VND` - VND
+ * * `VUV` - VUV
+ * * `WST` - WST
+ * * `XAF` - XAF
+ * * `XCD` - XCD
+ * * `XOF` - XOF
+ * * `XPF` - XPF
+ * * `YER` - YER
+ * * `ZAR` - ZAR
+ * * `ZMW` - ZMW
+ */
+export type BaseCurrencyEnumApi = (typeof BaseCurrencyEnumApi)[keyof typeof BaseCurrencyEnumApi]
+
+export const BaseCurrencyEnumApi = {
+    Aed: 'AED',
+    Afn: 'AFN',
+    All: 'ALL',
+    Amd: 'AMD',
+    Ang: 'ANG',
+    Aoa: 'AOA',
+    Ars: 'ARS',
+    Aud: 'AUD',
+    Awg: 'AWG',
+    Azn: 'AZN',
+    Bam: 'BAM',
+    Bbd: 'BBD',
+    Bdt: 'BDT',
+    Bgn: 'BGN',
+    Bhd: 'BHD',
+    Bif: 'BIF',
+    Bmd: 'BMD',
+    Bnd: 'BND',
+    Bob: 'BOB',
+    Brl: 'BRL',
+    Bsd: 'BSD',
+    Btc: 'BTC',
+    Btn: 'BTN',
+    Bwp: 'BWP',
+    Byn: 'BYN',
+    Bzd: 'BZD',
+    Cad: 'CAD',
+    Cdf: 'CDF',
+    Chf: 'CHF',
+    Clp: 'CLP',
+    Cny: 'CNY',
+    Cop: 'COP',
+    Crc: 'CRC',
+    Cve: 'CVE',
+    Czk: 'CZK',
+    Djf: 'DJF',
+    Dkk: 'DKK',
+    Dop: 'DOP',
+    Dzd: 'DZD',
+    Egp: 'EGP',
+    Ern: 'ERN',
+    Etb: 'ETB',
+    Eur: 'EUR',
+    Fjd: 'FJD',
+    Gbp: 'GBP',
+    Gel: 'GEL',
+    Ghs: 'GHS',
+    Gip: 'GIP',
+    Gmd: 'GMD',
+    Gnf: 'GNF',
+    Gtq: 'GTQ',
+    Gyd: 'GYD',
+    Hkd: 'HKD',
+    Hnl: 'HNL',
+    Hrk: 'HRK',
+    Htg: 'HTG',
+    Huf: 'HUF',
+    Idr: 'IDR',
+    Ils: 'ILS',
+    Inr: 'INR',
+    Iqd: 'IQD',
+    Irr: 'IRR',
+    Isk: 'ISK',
+    Jmd: 'JMD',
+    Jod: 'JOD',
+    Jpy: 'JPY',
+    Kes: 'KES',
+    Kgs: 'KGS',
+    Khr: 'KHR',
+    Kmf: 'KMF',
+    Krw: 'KRW',
+    Kwd: 'KWD',
+    Kyd: 'KYD',
+    Kzt: 'KZT',
+    Lak: 'LAK',
+    Lbp: 'LBP',
+    Lkr: 'LKR',
+    Lrd: 'LRD',
+    Ltl: 'LTL',
+    Lvl: 'LVL',
+    Lsl: 'LSL',
+    Lyd: 'LYD',
+    Mad: 'MAD',
+    Mdl: 'MDL',
+    Mga: 'MGA',
+    Mkd: 'MKD',
+    Mmk: 'MMK',
+    Mnt: 'MNT',
+    Mop: 'MOP',
+    Mru: 'MRU',
+    Mtl: 'MTL',
+    Mur: 'MUR',
+    Mvr: 'MVR',
+    Mwk: 'MWK',
+    Mxn: 'MXN',
+    Myr: 'MYR',
+    Mzn: 'MZN',
+    Nad: 'NAD',
+    Ngn: 'NGN',
+    Nio: 'NIO',
+    Nok: 'NOK',
+    Npr: 'NPR',
+    Nzd: 'NZD',
+    Omr: 'OMR',
+    Pab: 'PAB',
+    Pen: 'PEN',
+    Pgk: 'PGK',
+    Php: 'PHP',
+    Pkr: 'PKR',
+    Pln: 'PLN',
+    Pyg: 'PYG',
+    Qar: 'QAR',
+    Ron: 'RON',
+    Rsd: 'RSD',
+    Rub: 'RUB',
+    Rwf: 'RWF',
+    Sar: 'SAR',
+    Sbd: 'SBD',
+    Scr: 'SCR',
+    Sdg: 'SDG',
+    Sek: 'SEK',
+    Sgd: 'SGD',
+    Srd: 'SRD',
+    Ssp: 'SSP',
+    Stn: 'STN',
+    Syp: 'SYP',
+    Szl: 'SZL',
+    Thb: 'THB',
+    Tjs: 'TJS',
+    Tmt: 'TMT',
+    Tnd: 'TND',
+    Top: 'TOP',
+    Try: 'TRY',
+    Ttd: 'TTD',
+    Twd: 'TWD',
+    Tzs: 'TZS',
+    Uah: 'UAH',
+    Ugx: 'UGX',
+    Usd: 'USD',
+    Uyu: 'UYU',
+    Uzs: 'UZS',
+    Ves: 'VES',
+    Vnd: 'VND',
+    Vuv: 'VUV',
+    Wst: 'WST',
+    Xaf: 'XAF',
+    Xcd: 'XCD',
+    Xof: 'XOF',
+    Xpf: 'XPF',
+    Yer: 'YER',
+    Zar: 'ZAR',
+    Zmw: 'ZMW',
+} as const
+
+export interface TeamRevenueAnalyticsConfigApi {
+    base_currency?: BaseCurrencyEnumApi
+    events?: unknown
+    goals?: unknown
+    filter_test_accounts?: boolean
+}
+
+/**
+ * * `first_touch` - First Touch
+ * * `last_touch` - Last Touch
+ * * `linear` - Linear
+ * * `time_decay` - Time Decay
+ * * `position_based` - Position Based
+ */
+export type AttributionModeEnumApi = (typeof AttributionModeEnumApi)[keyof typeof AttributionModeEnumApi]
+
+export const AttributionModeEnumApi = {
+    FirstTouch: 'first_touch',
+    LastTouch: 'last_touch',
+    Linear: 'linear',
+    TimeDecay: 'time_decay',
+    PositionBased: 'position_based',
+} as const
+
+export interface TeamMarketingAnalyticsConfigApi {
+    sources_map?: unknown
+    conversion_goals?: unknown
+    /**
+     * @minimum 1
+     * @maximum 90
+     */
+    attribution_window_days?: number
+    attribution_mode?: AttributionModeEnumApi
+    campaign_name_mappings?: unknown
+    custom_source_mappings?: unknown
+    campaign_field_preferences?: unknown
+}
+
+export interface TeamCustomerAnalyticsConfigApi {
+    /** Event used as the activity signal (DAU/WAU/MAU). */
+    activity_event?: unknown
+    /** Event used to count signup pageviews on dashboards. */
+    signup_pageview_event?: unknown
+    /** Event used to count signups on dashboards. */
+    signup_event?: unknown
+    /** Event used to count subscriptions on dashboards. */
+    subscription_event?: unknown
+    /** Event used to count payments on dashboards. */
+    payment_event?: unknown
+    /**
+     * Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.
+     * @nullable
+     */
+    account_group_type_index?: number | null
+}
+
+export interface TeamWorkflowsConfigApi {
+    /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
+    capture_workflows_engagement_events?: boolean
+}
+
+/**
+ * * `0` - Disabled
+ * * `1` - Stateless
+ * * `2` - Stateful
+ */
+export type CookielessServerHashModeEnumApi =
+    (typeof CookielessServerHashModeEnumApi)[keyof typeof CookielessServerHashModeEnumApi]
+
+export const CookielessServerHashModeEnumApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
 } as const
 
 /**
@@ -1320,6 +1710,50 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /** ID of the project this environment belongs to. */
+    readonly project_id: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
+    revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
+    marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
+    customer_analytics_config?: TeamCustomerAnalyticsConfigApi
+    workflows_config?: TeamWorkflowsConfigApi
+    base_currency?: BaseCurrencyEnumApi
+    /**
+     * Enables capturing clicks that had no effect (rage-click detection).
+     * @nullable
+     */
+    capture_dead_clicks?: boolean | null
+    cookieless_server_hash_mode?: CookielessServerHashModeEnumApi | null
+    /** @nullable */
+    human_friendly_comparison_periods?: boolean | null
+    /** @nullable */
+    feature_flag_confirmation_enabled?: boolean | null
+    /** @nullable */
+    feature_flag_confirmation_message?: string | null
+    /**
+     * Whether to automatically apply default evaluation contexts to new feature flags
+     * @nullable
+     */
+    default_evaluation_contexts_enabled?: boolean | null
+    /**
+     * Whether to require at least one evaluation context tag when creating new feature flags
+     * @nullable
+     */
+    require_evaluation_contexts?: boolean | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    default_data_theme?: number | null
+    onboarding_tasks?: unknown
+    /** @nullable */
+    web_analytics_pre_aggregated_tables_enabled?: boolean | null
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -1333,6 +1767,8 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
     onboarding_completed_at?: string | null
     updated_at?: string
 }
+
+export type PatchedProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
 /**
  * Mixin for serializers to add user access control fields
@@ -2122,6 +2558,50 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+    /** ID of the project this environment belongs to. */
+    readonly project_id?: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+    readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
+    revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
+    marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
+    customer_analytics_config?: TeamCustomerAnalyticsConfigApi
+    workflows_config?: TeamWorkflowsConfigApi
+    base_currency?: BaseCurrencyEnumApi
+    /**
+     * Enables capturing clicks that had no effect (rage-click detection).
+     * @nullable
+     */
+    capture_dead_clicks?: boolean | null
+    cookieless_server_hash_mode?: CookielessServerHashModeEnumApi | null
+    /** @nullable */
+    human_friendly_comparison_periods?: boolean | null
+    /** @nullable */
+    feature_flag_confirmation_enabled?: boolean | null
+    /** @nullable */
+    feature_flag_confirmation_message?: string | null
+    /**
+     * Whether to automatically apply default evaluation contexts to new feature flags
+     * @nullable
+     */
+    default_evaluation_contexts_enabled?: boolean | null
+    /**
+     * Whether to require at least one evaluation context tag when creating new feature flags
+     * @nullable
+     */
+    require_evaluation_contexts?: boolean | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    default_data_theme?: number | null
+    onboarding_tasks?: unknown
+    /** @nullable */
+    web_analytics_pre_aggregated_tables_enabled?: boolean | null
 }
 
 export interface PromotedProductIntentApi {
@@ -2960,7 +3440,7 @@ export interface UserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review: boolean
 }
 
@@ -3062,7 +3542,7 @@ export interface PatchedUserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review?: boolean
 }
 

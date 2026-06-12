@@ -36,8 +36,8 @@ export type {
     BoxPlotProps,
     BoxPlotTooltipContext,
 } from './charts/BoxPlot/BoxPlot'
-export { computeBoxBand, computeBoxRect, computeSeriesBoxes } from './charts/BoxPlot/computeBoxLayout'
-export type { BoxPlotDatum, BoxPlotSeries, BoxRect } from './charts/BoxPlot/computeBoxLayout'
+export type { BoxPlotDatum, BoxPlotSeries } from './charts/BoxPlot/types'
+export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
 

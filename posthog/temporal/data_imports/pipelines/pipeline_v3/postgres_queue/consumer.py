@@ -17,11 +17,14 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
 
+from django.db import close_old_connections
+
 import psycopg
 import structlog
 from asgiref.sync import sync_to_async
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BatchQueue, PendingBatch
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     ACTIVE_GROUPS,
@@ -32,6 +35,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics 
     POLL_DURATION_SECONDS,
     RECOVERY_SWEEPS_TOTAL,
     RUNS_FAILED_TOTAL,
+    RUNS_RECONCILED_TOTAL,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock import release_v3_pipeline_lock
 
@@ -47,6 +51,11 @@ POLL_INTERVAL_SECONDS = 2.0
 RECOVERY_INTERVAL_SECONDS = 30.0
 RETRY_BACKOFF_BASE_SECONDS = 15
 HEARTBEAT_INTERVAL_SECONDS = 5.0
+
+# Reconcile sweep: catch runs whose queue batch failed but whose ExternalDataJob was left non-terminal.
+RECONCILE_INTERVAL_SECONDS = 300.0
+RECONCILE_GRACE_SECONDS = 120  # don't race a _fail_run that is still in flight
+RECONCILE_LOOKBACK_SECONDS = 6 * 60 * 60  # keep the queue scan cheap
 
 
 @dataclass
@@ -64,6 +73,10 @@ class ConsumerConfig:
     recovery_interval_seconds: float = RECOVERY_INTERVAL_SECONDS
     retry_backoff_base_seconds: int = RETRY_BACKOFF_BASE_SECONDS
     recovery_grace_seconds: int | None = None
+    reconcile_interval_seconds: float = RECONCILE_INTERVAL_SECONDS
+    reconcile_grace_seconds: int = RECONCILE_GRACE_SECONDS
+    reconcile_lookback_seconds: int = RECONCILE_LOOKBACK_SECONDS
+    reconcile_limit: int = 100
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
@@ -91,21 +104,53 @@ class BatchConsumer:
         self._shutdown = asyncio.Event()
         self._conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_conn: psycopg.AsyncConnection[Any] | None = None
+        # Serialize reconnects: concurrent groups all hit _ensure_*_conn on a bounce; without a lock each would dial its own connection and orphan all but the last.
+        self._main_conn_lock = asyncio.Lock()
+        self._recovery_conn_lock = asyncio.Lock()
         self._recovery_task: asyncio.Task[None] | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
+        # Monotonic stamp of the last reconcile sweep; runs inside the recovery loop so both share one connection.
+        self._last_reconcile_monotonic = 0.0
+
+    async def _connect(self) -> psycopg.AsyncConnection[Any]:
+        return await psycopg.AsyncConnection.connect(
+            self._config.database_url,
+            autocommit=True,
+        )
+
+    async def _ensure_main_conn(self) -> psycopg.AsyncConnection[Any]:
+        """Return the main queue connection, reconnecting if a failover/pgbouncer bounce dropped it."""
+        if self._conn is not None and not self._conn.closed and not self._conn.broken:
+            return self._conn
+        async with self._main_conn_lock:
+            # Re-check under the lock: another coroutine may have already reconnected while we waited.
+            if self._conn is None or self._conn.closed or self._conn.broken:
+                logger.warning("queue_db_main_connection_reconnecting")
+                self._conn = await self._connect()
+            return self._conn
+
+    async def _ensure_recovery_conn(self) -> psycopg.AsyncConnection[Any]:
+        """Return the recovery/reconcile connection, reconnecting so a dropped one can't disable the sweeps forever."""
+        if self._recovery_conn is not None and not self._recovery_conn.closed and not self._recovery_conn.broken:
+            return self._recovery_conn
+        async with self._recovery_conn_lock:
+            if self._recovery_conn is None or self._recovery_conn.closed or self._recovery_conn.broken:
+                logger.warning("queue_db_recovery_connection_reconnecting")
+                self._recovery_conn = await self._connect()
+            return self._recovery_conn
+
+    async def _wait_or_shutdown(self, timeout: float) -> None:
+        try:
+            await asyncio.wait_for(self._shutdown.wait(), timeout=timeout)
+        except TimeoutError:
+            pass
 
     async def run(self) -> None:
         """Main loop: poll → group → process → unlock → repeat."""
         self._install_signal_handlers()
 
-        self._conn = await psycopg.AsyncConnection.connect(
-            self._config.database_url,
-            autocommit=True,
-        )
-        self._recovery_conn = await psycopg.AsyncConnection.connect(
-            self._config.database_url,
-            autocommit=True,
-        )
+        self._conn = await self._connect()
+        self._recovery_conn = await self._connect()
 
         logger.info(
             "batch_consumer_started",
@@ -124,22 +169,24 @@ class BatchConsumer:
                     self._health_reporter()
 
                 poll_start = time.monotonic()
-                batches = await BatchQueue.get_unprocessed_and_lock(
-                    self._conn,
-                    limit=self._config.poll_limit,
-                    retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
-                )
+                try:
+                    conn = await self._ensure_main_conn()
+                    batches = await BatchQueue.get_unprocessed_and_lock(
+                        conn,
+                        limit=self._config.poll_limit,
+                        retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
+                    )
+                except psycopg.OperationalError as e:
+                    # Queue DB unreachable — keep the pod alive; the next iteration reconnects.
+                    logger.exception("poll_failed_queue_db_unreachable")
+                    capture_exception(e)
+                    await self._wait_or_shutdown(self._config.poll_interval_seconds)
+                    continue
                 POLL_DURATION_SECONDS.observe(time.monotonic() - poll_start)
                 POLL_BATCHES_FETCHED.observe(len(batches))
 
                 if not batches:
-                    try:
-                        await asyncio.wait_for(
-                            self._shutdown.wait(),
-                            timeout=self._config.poll_interval_seconds,
-                        )
-                    except TimeoutError:
-                        pass
+                    await self._wait_or_shutdown(self._config.poll_interval_seconds)
                     continue
 
                 groups = _group_by_key(batches)
@@ -168,6 +215,8 @@ class BatchConsumer:
     ) -> None:
         """Process all batches for a (team_id, schema_id) sequentially, then unlock."""
         team_id, schema_id = key
+        # Unlock on the session that acquired the advisory locks, even if a reconnect swaps self._conn mid-group.
+        lock_conn = self._conn
         await self._semaphore.acquire()
         try:
             for batch in batches:
@@ -181,7 +230,19 @@ class BatchConsumer:
                         remaining=len(batches) - batches.index(batch),
                     )
                     break
-                succeeded = await self._process_single(batch)
+                try:
+                    succeeded = await self._process_single(batch)
+                except Exception as e:
+                    # A queue-DB write failing mid-batch (e.g. stale conn after a bounce) must cost this group, not the pod.
+                    logger.exception(
+                        "process_single_unhandled_error",
+                        team_id=team_id,
+                        external_data_schema_id=schema_id,
+                        batch_id=batch.id,
+                        batch_index=batch.batch_index,
+                    )
+                    capture_exception(e)
+                    succeeded = False
                 if not succeeded:
                     # Stop processing sibling batches in this group
                     logger.info(
@@ -195,8 +256,17 @@ class BatchConsumer:
                     break
         finally:
             self._semaphore.release()
-            assert self._conn is not None
-            await BatchQueue.unlock_for_batches(self._conn, batches=batches)
+            try:
+                assert lock_conn is not None
+                await BatchQueue.unlock_for_batches(lock_conn, batches=batches)
+            except Exception as e:
+                # A dead session already released its locks server-side; don't crash every concurrent group.
+                logger.exception(
+                    "unlock_for_batches_failed",
+                    team_id=team_id,
+                    external_data_schema_id=schema_id,
+                )
+                capture_exception(e)
 
     async def _process_single(self, batch: PendingBatch) -> bool:
         """Increment attempt, check max retries, then process the batch.
@@ -204,8 +274,6 @@ class BatchConsumer:
         Binds per-batch contextvars so every downstream log line (including loader calls)
         routes to log_entries under the right schema/workflow.
         """
-        assert self._conn is not None
-
         team_id = str(batch.team_id)
         schema_id = batch.schema_id
         attempt = batch.latest_attempt + 1
@@ -255,8 +323,6 @@ class BatchConsumer:
             structlog.contextvars.unbind_contextvars(*bound_keys)
 
     async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> bool:
-        assert self._conn is not None
-
         # Check before we even try — if already at max, fail the whole run.
         if attempt > self._config.max_attempts:
             logger.error(
@@ -282,7 +348,7 @@ class BatchConsumer:
         # Pre-increment: if we OOM here, recovery sees attempt=N+1
         # and knows this attempt was consumed.
         await BatchQueue.update_status(
-            self._conn,
+            await self._ensure_main_conn(),
             batch_id=batch.id,
             job_state=SourceBatchStatus.State.EXECUTING,
             attempt=attempt,
@@ -295,7 +361,7 @@ class BatchConsumer:
             BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).observe(duration)
 
             await BatchQueue.update_status(
-                self._conn,
+                await self._ensure_main_conn(),
                 batch_id=batch.id,
                 job_state=SourceBatchStatus.State.SUCCEEDED,
                 attempt=attempt,
@@ -322,6 +388,7 @@ class BatchConsumer:
                     batch_index=batch.batch_index,
                     attempt=attempt,
                 )
+                capture_exception(e)
                 await self._fail_run(batch, reason=f"max retries exceeded: {e}")
             else:
                 logger.warning(
@@ -332,7 +399,7 @@ class BatchConsumer:
                     error=str(e),
                 )
                 await BatchQueue.update_status(
-                    self._conn,
+                    await self._ensure_main_conn(),
                     batch_id=batch.id,
                     job_state=SourceBatchStatus.State.WAITING_RETRY,
                     attempt=attempt,
@@ -346,18 +413,26 @@ class BatchConsumer:
         reason: str,
         conn: psycopg.AsyncConnection[Any] | None = None,
     ) -> None:
-        """Fail all pending batches in this run and mark the ExternalDataJob as failed."""
-        conn = conn or self._conn
-        assert conn is not None
+        """Fail all pending batches in this run and mark the ExternalDataJob as failed; each step is isolated so a failure can't crash the consumer."""
+        conn = conn or await self._ensure_main_conn()
 
-        await BatchQueue.fail_run(conn, run_uuid=batch.run_uuid, reason=reason)
-        RUNS_FAILED_TOTAL.inc()
+        try:
+            await BatchQueue.fail_run(conn, run_uuid=batch.run_uuid, reason=reason)
+            RUNS_FAILED_TOTAL.inc()
+        except Exception as e:
+            logger.exception("fail_run_queue_update_failed", batch_id=batch.id, run_uuid=batch.run_uuid)
+            capture_exception(e)
 
-        await sync_to_async(_update_job_status_to_failed)(
-            job_id=batch.job_id,
-            team_id=batch.team_id,
-            error=reason,
-        )
+        try:
+            await sync_to_async(_update_job_status_to_failed)(
+                job_id=batch.job_id,
+                team_id=batch.team_id,
+                error=reason,
+            )
+        except Exception as e:
+            # Leave the job for the reconcile sweep rather than crashing the consumer.
+            logger.exception("fail_run_job_status_update_failed", job_id=batch.job_id, run_uuid=batch.run_uuid)
+            capture_exception(e)
 
         workflow_run_id = batch.metadata.get("workflow_run_id")
         if workflow_run_id:
@@ -392,8 +467,69 @@ class BatchConsumer:
 
             try:
                 await self._recovery_sweep()
-            except Exception:
+            except Exception as e:
                 logger.exception("recovery_sweep_error")
+                capture_exception(e)
+
+            now = time.monotonic()
+            if now - self._last_reconcile_monotonic >= self._config.reconcile_interval_seconds:
+                self._last_reconcile_monotonic = now
+                try:
+                    await self._reconcile_failed_runs()
+                except Exception as e:
+                    logger.exception("reconcile_sweep_error")
+                    capture_exception(e)
+
+    async def _reconcile_failed_runs(self) -> None:
+        """Mark ExternalDataJobs Failed when their run has a failed queue batch but the app-DB write never landed."""
+        conn = await self._ensure_recovery_conn()
+
+        refs = await BatchQueue.get_failed_runs(
+            conn,
+            grace_seconds=self._config.reconcile_grace_seconds,
+            lookback_seconds=self._config.reconcile_lookback_seconds,
+            limit=self._config.reconcile_limit,
+        )
+        for ref in refs:
+            try:
+                reconciled = await sync_to_async(_mark_job_failed_if_not_terminal)(
+                    job_id=ref.job_id,
+                    team_id=ref.team_id,
+                    error=ref.reason or "run failed (reconciled from queue)",
+                )
+            except Exception as e:
+                logger.exception("reconcile_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
+                capture_exception(e)
+                continue
+
+            if not reconciled:
+                continue  # job was already terminal — nothing to reconcile
+
+            RUNS_RECONCILED_TOTAL.inc()
+            logger.warning(
+                "run_reconciled_to_failed",
+                job_id=ref.job_id,
+                run_uuid=ref.run_uuid,
+                team_id=ref.team_id,
+                external_data_schema_id=ref.schema_id,
+            )
+
+            # Release the V3 pipeline lock too, otherwise it blocks the schema's next sync until its TTL expires.
+            if ref.workflow_run_id:
+                try:
+                    await sync_to_async(release_v3_pipeline_lock)(
+                        team_id=ref.team_id,
+                        schema_id=ref.schema_id,
+                        token=ref.workflow_run_id,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "failed_to_release_v3_pipeline_lock",
+                        job_id=ref.job_id,
+                        schema_id=ref.schema_id,
+                        exc_info=True,
+                    )
+                    capture_exception(e)
 
     async def _heartbeat_loop(self) -> None:
         """Report liveness on a fixed cadence, independent of batch processing."""
@@ -410,8 +546,7 @@ class BatchConsumer:
 
     async def _recovery_sweep(self) -> None:
         """Recover batches left in 'executing' by a crashed pod."""
-        conn = self._recovery_conn or self._conn
-        assert conn is not None
+        conn = await self._ensure_recovery_conn()
 
         grace_seconds = self._config.recovery_grace_seconds
         assert grace_seconds is not None
@@ -492,7 +627,12 @@ class BatchConsumer:
             await self._recovery_conn.close()
 
         if self._conn is not None and not self._conn.closed:
-            await self._conn.execute("SELECT pg_advisory_unlock_all()")
+            try:
+                await self._conn.execute("SELECT pg_advisory_unlock_all()")
+            except Exception as e:
+                # A broken session already lost its advisory locks; still close below.
+                logger.exception("advisory_unlock_all_failed_on_shutdown")
+                capture_exception(e)
             await self._conn.close()
 
         logger.info("batch_consumer_stopped")
@@ -506,6 +646,9 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
     from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
+    # Drop stale app-DB connections so this write reconnects instead of leaving the job stuck in Running.
+    close_old_connections()
+
     existing = ExternalDataJob.objects.filter(id=job_id, team_id=team_id, status=ExternalDataJob.Status.FAILED).first()
     if existing is not None:
         return
@@ -517,6 +660,20 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
         logger=structlog.get_logger(),
         latest_error=error,
     )
+
+
+def _mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:
+    """Mark a non-terminal ExternalDataJob Failed; returns True if it transitioned (terminal jobs are a no-op)."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    close_old_connections()
+
+    job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).only("status").first()
+    if job is None or job.status in TERMINAL_JOB_STATUSES:
+        return False
+
+    _update_job_status_to_failed(job_id=job_id, team_id=team_id, error=error)
+    return True
 
 
 def _group_by_key(batches: list[PendingBatch]) -> dict[tuple[int, str], list[PendingBatch]]:

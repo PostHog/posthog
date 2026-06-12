@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { IconFeedback } from 'lib/lemon-ui/icons'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -15,10 +14,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
+import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
-import { TraceFlameChart } from './TraceFlameChart'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingFilterBar } from './TracingFilterBar'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
@@ -50,10 +49,12 @@ function TracingSceneContents(): JSX.Element {
         spansLoading,
         isTraceOpen,
         selectedTraceId,
+        selectedSpanId,
+        selectedTraceTs,
         sparklineData,
         sparklineLoading,
         totalSpansMatchingFilters,
-        modalSpans,
+        openTraceSpans,
         isLoadingFullTrace,
         aggregation,
         aggregationLoading,
@@ -65,11 +66,16 @@ function TracingSceneContents(): JSX.Element {
         compareFlameSpanName,
         hasMoreToLoad,
         visibleRowDateRange,
+        durationHistogramData,
+        durationHistogramLoading,
+        visibleRowDurationRange,
+        isDurationMode,
         expandedSpanIds,
     } = useValues(tracingSceneLogic())
     const {
         openTrace,
         closeTrace,
+        selectSpan,
         setDateRange,
         setOverlayWindows,
         openCompareFlame,
@@ -77,6 +83,7 @@ function TracingSceneContents(): JSX.Element {
         fetchNextPage,
         setVisibleRowRange,
         toggleExpandSpan,
+        setSort,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const compareMode = filters.compareMode
@@ -148,11 +155,13 @@ function TracingSceneContents(): JSX.Element {
             <TracingSetupPrompt>
                 <TracingSparkline
                     sparklineData={sparklineData}
-                    sparklineLoading={sparklineLoading}
+                    sparklineLoading={sparklineLoading || (isDurationMode && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
                     displayTimezone="UTC"
                     compare={compareConfig}
                     visibleRowDateRange={visibleRowDateRange}
+                    durationHistogram={isDurationMode ? durationHistogramData : null}
+                    visibleRowDurationRange={visibleRowDurationRange}
                 />
                 <SceneDivider />
                 <TracingFilterBar />
@@ -179,6 +188,15 @@ function TracingSceneContents(): JSX.Element {
                         onVisibleRowRangeChange={setVisibleRowRange}
                         expandedSpanIds={expandedSpanIds}
                         onToggleExpand={toggleExpandSpan}
+                        orderBy={filters.orderBy}
+                        orderDirection={filters.orderDirection}
+                        onSort={(column) =>
+                            // Click an active column to flip direction; a new column starts at DESC.
+                            setSort(
+                                column,
+                                column === filters.orderBy && filters.orderDirection === 'DESC' ? 'ASC' : 'DESC'
+                            )
+                        }
                         emptyState={
                             <div className="flex flex-col items-center gap-1">
                                 <span>No spans found</span>
@@ -192,23 +210,21 @@ function TracingSceneContents(): JSX.Element {
                             // element; react-modal then scrolls it back into view when restoring focus
                             // on close. Blur so the restore target is <body>, which doesn't scroll.
                             ;(document.activeElement as HTMLElement | null)?.blur?.()
-                            openTrace(span.trace_id)
+                            openTrace(span.trace_id, { ts: span.timestamp })
                         }}
                     />
                 )}
             </TracingSetupPrompt>
-            <LemonModal
-                title="Trace waterfall"
-                description={selectedTraceId ? `Trace ${selectedTraceId}` : undefined}
+            <TraceDrawer
                 isOpen={isTraceOpen}
+                traceId={selectedTraceId}
+                ts={selectedTraceTs}
+                spans={openTraceSpans}
+                loading={isLoadingFullTrace}
+                selectedSpanId={selectedSpanId}
+                onSelectSpan={selectSpan}
                 onClose={closeTrace}
-                width="90vw"
-            >
-                <div className="relative min-h-32">
-                    {isLoadingFullTrace && <SpinnerOverlay />}
-                    <TraceFlameChart spans={modalSpans} />
-                </div>
-            </LemonModal>
+            />
             <LemonModal
                 title={`Call tree diff: ${compareFlameSpanName ?? ''}`}
                 isOpen={compareFlameSpanName !== null}

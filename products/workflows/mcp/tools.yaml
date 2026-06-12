@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Workflows
 feature: workflows
-url_prefix: /pipeline/destinations
+url_prefix: /workflows
 ui_apps:
     workflow:
         type: detail
@@ -90,7 +90,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: hog-{id}
+        enrich_url: '{id}/workflow'
         title: Create workflow
         description: >
             Create a workflow. Needs an actions array with exactly one type='trigger' (config.type:
@@ -117,7 +117,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: hog-{id}
+        enrich_url: '{id}/workflow'
         title: Get workflow
         description: >
             Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
@@ -259,7 +259,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: hog-{id}
+        enrich_url: '{id}/workflow'
         title: Update workflow
         description: >
             Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking

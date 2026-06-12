@@ -324,6 +324,9 @@ export interface SignalsScoutSignalExtra extends SignalExtraBase {
     evidence: SignalsScoutEvidenceEntry[]
     /** Free-form short keys the harness can use for cross-run dedupe. */
     dedupe_keys?: string[]
+    /** Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the finding. Each scout
+     * maintains and evolves its own vocabulary over time; the harness normalizes and caps these at emit. */
+    tags?: string[]
     /** Optional time window the finding refers to. */
     time_range?: {
         date_from: string

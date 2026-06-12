@@ -259,6 +259,8 @@ export interface SessionRecordingApi {
     readonly summary_outcome: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
+    /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+    readonly matches_filters: boolean
 }
 
 export interface PaginatedSessionRecordingListApi {
@@ -319,6 +321,8 @@ export interface PatchedSessionRecordingApi {
     readonly summary_outcome?: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
+    /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+    readonly matches_filters?: boolean
 }
 
 /**

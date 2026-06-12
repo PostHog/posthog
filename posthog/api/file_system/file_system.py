@@ -194,7 +194,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # GET /instructions/ and /instructions/versions/ are reads; PUT/PATCH/DELETE on
     # /instructions/ resolve to `publish_instructions` / `delete_instructions` via DRF's
     # method mapping, so they go in the write bucket.
-    scope_object_read_actions = ["list", "retrieve", "instructions", "instructions_versions"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "instructions",
+        "instructions_versions",
+        "unfiled",
+        "count",
+        "count_by_path",
+    ]
     scope_object_write_actions = [
         "create",
         "update",
@@ -203,6 +211,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "destroy",
         "publish_instructions",
         "delete_instructions",
+        "move",
+        "link",
+        "log_view",
+        "undo_delete",
     ]
 
     def _basename_regex(self, value: str) -> str:

@@ -220,10 +220,10 @@ export function PersonsModal({
                             ) : (
                                 <span>
                                     {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
-                                    <b>
+                                    <span className="font-semibold text-default">
                                         {totalActorsCount || 'No'} unique{' '}
                                         {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
-                                    </b>
+                                    </span>
                                 </span>
                             )}
                         </div>

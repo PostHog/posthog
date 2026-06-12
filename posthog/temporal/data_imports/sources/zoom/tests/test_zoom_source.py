@@ -48,10 +48,10 @@ class TestZoomSource:
         assert fields["account_id"].secret is False
         assert fields["client_id"].secret is False
 
-    def test_source_config_is_alpha_and_unreleased(self) -> None:
+    def test_source_config_is_alpha(self) -> None:
         config = ZoomSource().get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
 
     def test_get_schemas_lists_all_endpoints_as_full_refresh(self) -> None:
         schemas = ZoomSource().get_schemas(_config(), team_id=1)

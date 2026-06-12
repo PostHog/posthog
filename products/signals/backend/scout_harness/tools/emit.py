@@ -25,6 +25,7 @@ in `products/signals/backend/api.py` validates against.
 
 from __future__ import annotations
 
+import re
 import uuid
 import logging
 from dataclasses import asdict, dataclass
@@ -52,6 +53,16 @@ MAX_EVIDENCE_ENTRIES = 20
 # judgment. Pinned to 1.0 so a fresh report's `total_weight` meets `WEIGHT_THRESHOLD`
 # (default 1.0) immediately. See products/signals/backend/scout_harness/AGENTS.md.
 SCOUT_SIGNAL_WEIGHT = 1.0
+
+# Tags are slugs: lowercase kebab-case so the per-scout vocabulary converges instead of
+# fragmenting on casing/punctuation (`cost_spike` vs `Cost Spike` vs `cost-spike`). The
+# harness normalizes rather than rejects near-misses — agents shouldn't burn a turn on a
+# formatting 400 — but an unsalvageable tag (empty after normalization, or overlong) is a
+# hard error so the vocabulary never accretes junk entries.
+MAX_TAGS_PER_FINDING = 10
+MAX_TAG_LENGTH = 50
+_TAG_INVALID_CHARS = re.compile(r"[^a-z0-9-]+")
+_TAG_HYPHEN_RUNS = re.compile(r"-{2,}")
 
 # Cap on a caller-supplied `finding_id`. The deterministic `source_id` is
 # `run:<uuid>:finding:<finding_id>` (~49 fixed chars), and both `finding_id` and `source_id`
@@ -110,6 +121,7 @@ async def emit_finding(
     time_range: tuple[str, str] | None = None,
     mcp_trace_id: str | None = None,
     finding_id: str | None = None,
+    tags: list[str] | None = None,
 ) -> EmitResult:
     """Async entry: route DB calls through `database_sync_to_async` so async callers
     (the harness runner inside Temporal) don't block the event loop.
@@ -119,6 +131,7 @@ async def emit_finding(
     _assert_team_owns_run(team, run)
     _validate_inputs(description, confidence, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
+    tags = normalize_tags(tags)
     extra = _build_extra(
         run_id=str(run.id),
         task_run_id=str(run.task_run_id),
@@ -132,6 +145,7 @@ async def emit_finding(
         dedupe_keys=dedupe_keys,
         time_range=time_range,
         mcp_trace_id=mcp_trace_id,
+        tags=tags,
     )
     attempt_extra = _log_extra(
         team_id=team.id,
@@ -175,6 +189,7 @@ async def emit_finding(
         confidence=confidence,
         severity=severity,
         source_id=source_id,
+        tags=tags,
     )
     logger.info(
         "signals_scout.emit: emitted",
@@ -196,6 +211,7 @@ def emit_finding_sync(
     time_range: tuple[str, str] | None = None,
     mcp_trace_id: str | None = None,
     finding_id: str | None = None,
+    tags: list[str] | None = None,
 ) -> EmitResult:
     """Sync entry used by the DRF view path.
 
@@ -207,6 +223,7 @@ def emit_finding_sync(
     _assert_team_owns_run(team, run)
     _validate_inputs(description, confidence, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
+    tags = normalize_tags(tags)
     extra = _build_extra(
         run_id=str(run.id),
         task_run_id=str(run.task_run_id),
@@ -220,6 +237,7 @@ def emit_finding_sync(
         dedupe_keys=dedupe_keys,
         time_range=time_range,
         mcp_trace_id=mcp_trace_id,
+        tags=tags,
     )
     attempt_extra = _log_extra(
         team_id=team.id,
@@ -262,6 +280,7 @@ def emit_finding_sync(
         confidence=confidence,
         severity=severity,
         source_id=source_id,
+        tags=tags,
     )
     logger.info(
         "signals_scout.emit: emitted",
@@ -285,6 +304,34 @@ def _assert_team_owns_run(team: Team, run: SignalScoutRun) -> None:
     """
     if team.id != run.team_id:
         raise RuntimeError(f"emit_finding: team {team.id} does not own run {run.id} (team {run.team_id})")
+
+
+def normalize_tags(tags: list[str] | None) -> list[str] | None:
+    """Normalize agent-supplied tags to deduped lowercase kebab-case slugs.
+
+    Whitespace/underscores become hyphens, anything outside `[a-z0-9-]` is stripped,
+    hyphen runs collapse, and duplicates (post-normalization) are dropped preserving
+    first-seen order. A tag that normalizes to nothing or exceeds `MAX_TAG_LENGTH`
+    raises `InvalidEmitError` — silently dropping it would make the agent believe a
+    tag stuck when it didn't. Returns None for None/empty input so `_build_extra`
+    omits the field entirely.
+    """
+    if not tags:
+        return None
+    if len(tags) > MAX_TAGS_PER_FINDING:
+        raise InvalidEmitError(f"tags has {len(tags)} entries, max is {MAX_TAGS_PER_FINDING}")
+    normalized: list[str] = []
+    for raw in tags:
+        slug = re.sub(r"[\s_]+", "-", raw.strip().lower())
+        slug = _TAG_INVALID_CHARS.sub("", slug)
+        slug = _TAG_HYPHEN_RUNS.sub("-", slug).strip("-")
+        if not slug:
+            raise InvalidEmitError(f"tag {raw!r} is empty after slug normalization")
+        if len(slug) > MAX_TAG_LENGTH:
+            raise InvalidEmitError(f"tag {raw!r} exceeds {MAX_TAG_LENGTH} chars after normalization ({len(slug)})")
+        if slug not in normalized:
+            normalized.append(slug)
+    return normalized
 
 
 def _validate_inputs(
@@ -319,10 +366,11 @@ def _build_extra(
     dedupe_keys: list[str] | None,
     time_range: tuple[str, str] | None,
     mcp_trace_id: str | None,
+    tags: list[str] | None,
 ) -> dict[str, Any]:
     """Shape the extra payload to match `SignalsScoutSignalExtra` (extra='forbid'),
     omitting optional fields when not provided so pydantic doesn't see a `None` for
-    fields that don't accept it."""
+    fields that don't accept it. `tags` must already be normalized via `normalize_tags`."""
     extra: dict[str, Any] = {
         "scout_run_id": run_id,
         "task_run_id": task_run_id,
@@ -338,6 +386,8 @@ def _build_extra(
         extra["severity"] = severity
     if dedupe_keys is not None:
         extra["dedupe_keys"] = list(dedupe_keys)
+    if tags is not None:
+        extra["tags"] = list(tags)
     if time_range is not None:
         extra["time_range"] = {"date_from": time_range[0], "date_to": time_range[1]}
     if mcp_trace_id is not None:
@@ -358,6 +408,7 @@ def _record_emit(
     confidence: float,
     severity: str | None,
     source_id: str,
+    tags: list[str] | None,
 ) -> None:
     """Persist the emit: bump the run's tally (`emitted_finding_ids` + `emitted_count`) and
     write a `SignalScoutEmission` row carrying the finding's content, in one transaction.
@@ -391,6 +442,7 @@ def _record_emit(
                 confidence=confidence,
                 severity=severity,
                 source_id=source_id,
+                tags=tags or [],
             )
     except Exception:
         # Tally and emission row are best-effort; the signal already emitted. Log and move on
