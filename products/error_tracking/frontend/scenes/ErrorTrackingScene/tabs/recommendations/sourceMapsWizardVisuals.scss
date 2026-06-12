@@ -28,25 +28,3 @@
         transform: rotate(0deg);
     }
 }
-
-// Green "copied" overlay that fades out — same feedback CommandBlock gives,
-// minus its scale bounce.
-.SourceMapsWizard__flash {
-    position: absolute;
-    inset: 0;
-    color: var(--color-success);
-    pointer-events: none;
-    animation: SourceMapsWizard-flash 1500ms ease-out forwards;
-}
-
-/* stylelint-disable-next-line keyframes-name-pattern */
-@keyframes SourceMapsWizard-flash {
-    0%,
-    50% {
-        opacity: 1;
-    }
-
-    100% {
-        opacity: 0;
-    }
-}

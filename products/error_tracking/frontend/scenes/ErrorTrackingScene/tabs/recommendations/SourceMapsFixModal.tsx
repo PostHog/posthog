@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconCheckCircle, IconCopy, IconTerminal, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSegmentedButton, LemonTextArea } from '@posthog/lemon-ui'
@@ -39,17 +39,16 @@ export function SourceMapsFixModal(): JSX.Element {
     )
 }
 
-// Local command renderer instead of CommandBlock: same rainbow text and green
-// "copied" flash, but no scale bounce on click, and a theme-aware hairline border.
+// Local command renderer instead of CommandBlock: same rainbow text, but no
+// scale bounce or color flash on click, and a theme-aware hairline border.
 function WizardCommand({ onCopy }: { onCopy: (key: number) => void }): JSX.Element {
     const { wizardCommand } = useValues(sourceMapsFixWizardLogic)
-    const [copyKey, setCopyKey] = useState(0)
+    const copyCount = useRef(0)
 
     const handleCopy = (): void => {
         void copyToClipboard(wizardCommand, 'Wizard command')
-        const next = copyKey + 1
-        setCopyKey(next)
-        onCopy(next)
+        copyCount.current += 1
+        onCopy(copyCount.current)
     }
 
     return (
@@ -60,20 +59,9 @@ function WizardCommand({ onCopy }: { onCopy: (key: number) => void }): JSX.Eleme
             className="group inline-flex items-center gap-2 px-4 py-3 font-mono text-sm cursor-pointer max-w-full transition-colors rounded-lg bg-surface-primary border border-primary hover:border-blue-500"
         >
             <IconTerminal className="size-4 text-muted" />
-            <span className="relative min-w-0">
-                <code className="rainbow-text rainbow-text-animating !bg-transparent !p-0 !border-0 select-all">
-                    {wizardCommand}
-                </code>
-                {copyKey > 0 && (
-                    <code
-                        key={copyKey}
-                        className="SourceMapsWizard__flash !bg-transparent !p-0 !border-0"
-                        aria-hidden="true"
-                    >
-                        {wizardCommand}
-                    </code>
-                )}
-            </span>
+            <code className="rainbow-text rainbow-text-animating !bg-transparent !p-0 !border-0 select-all min-w-0">
+                {wizardCommand}
+            </code>
             <IconCopy className="size-4 text-muted group-hover:text-primary" />
         </button>
     )
