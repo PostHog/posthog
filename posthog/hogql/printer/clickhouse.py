@@ -242,14 +242,14 @@ class ClickHousePrinter(BasePrinter):
 
         if node.name == "embedText":
             return self.visit_constant(resolve_embed_text(self.context.team, node))
-        elif node.name in ("lookupGeoipCityName", "lookupGeoipPostalCode"):
+        elif node.name in ("_lookupGeoipCityName", "_lookupGeoipPostalCode"):
             # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1), remove with the
             # geoip_dict_fallback transform. toIPv6OrDefault
             # covers both families (v4 input becomes a ::ffff: mapped address, which the ip_trie dict resolves against
             # its IPv4 prefixes); empty or invalid input becomes '::', which misses and returns the '' default.
             if not geoip_dict_fallback_enabled_for_team(self.context.team_id):
                 raise QueryError(f"{node.name} is not available on this instance")
-            target = "$geoip_city_name" if node.name == "lookupGeoipCityName" else "$geoip_postal_code"
+            target = "$geoip_city_name" if node.name == "_lookupGeoipCityName" else "$geoip_postal_code"
             # Mirror the transform's restricted-property guard for direct calls: the function must not let a user
             # derive a restricted geo property from a readable `$ip`.
             # Deferred: PropertyDefinition pulls in the Django model layer; keep it off this module's import path.
@@ -264,7 +264,7 @@ class ClickHousePrinter(BasePrinter):
             }
             if not restricted_event_properties.isdisjoint((target, "$ip")):
                 raise QueryError(f"{node.name} is not allowed: a property it derives from or produces is restricted")
-            attribute = "city_name" if node.name == "lookupGeoipCityName" else "postal_code"
+            attribute = "city_name" if node.name == "_lookupGeoipCityName" else "postal_code"
             geoip_dict = get_geoip_city_postal_dict()
             return (
                 f"dictGetStringOrDefault('{geoip_dict}', '{attribute}', toIPv6OrDefault(coalesce({args[0]}, '')), '')"

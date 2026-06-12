@@ -153,12 +153,12 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         assert "JSONExtract" not in sql
 
     def test_lookup_functions_render_for_direct_use_when_enabled(self) -> None:
-        sql, _ = self._print_select("SELECT lookupGeoipCityName('89.160.20.129') FROM events")
+        sql, _ = self._print_select("SELECT _lookupGeoipCityName('89.160.20.129') FROM events")
         assert f"dictGetStringOrDefault('{get_geoip_city_postal_dict()}', 'city_name'" in sql
 
     def test_lookup_functions_rejected_when_fallback_disabled(self) -> None:
         with pytest.raises(QueryError, match="not available"):
-            self._print_select("SELECT lookupGeoipCityName('89.160.20.129') FROM events", teams="")
+            self._print_select("SELECT _lookupGeoipCityName('89.160.20.129') FROM events", teams="")
 
     @parameterized.expand(
         [
@@ -171,7 +171,7 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         # derive it from a readable `$ip`.
         with pytest.raises(QueryError, match="restricted"):
             self._print_select(
-                "SELECT lookupGeoipPostalCode(properties.$ip) FROM events",
+                "SELECT _lookupGeoipPostalCode(properties.$ip) FROM events",
                 restricted_properties={(restricted_key, PropertyDefinition.Type.EVENT)},
             )
 

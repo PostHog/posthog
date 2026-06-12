@@ -13,7 +13,7 @@ leaves nothing persisted in `team.modifiers` or saved queries to scrub at remova
 runtime that the dictionary exists (cached in-process like materialized-column discovery), so the transform stands
 down instead of printing failing SQL wherever the manually provisioned dictionary is absent. Delete this file with
 its callsite in `printer/utils.py`, the cache-payload entry in `query_runner.py`, the env setting, and the
-`lookupGeoip*` functions once the backfill is done.
+`_lookupGeoip*` functions once the backfill is done.
 
 Runs between logical property lowering and ClickHouse property resolution: each affected `PropertyAccess` becomes a
 conditional over three property reads (the property itself, `$geoip_country_code`, `$ip`), and the resolution pass
@@ -38,8 +38,8 @@ from posthog.cache_utils import cache_for
 from posthog.clickhouse.client import sync_execute
 
 FALLBACK_PROPERTY_TO_FUNCTION = {
-    "$geoip_city_name": "lookupGeoipCityName",
-    "$geoip_postal_code": "lookupGeoipPostalCode",
+    "$geoip_city_name": "_lookupGeoipCityName",
+    "$geoip_postal_code": "_lookupGeoipPostalCode",
 }
 
 # The fallback expression reads these alongside the wrapped property, so a restriction on any of them disables it.
