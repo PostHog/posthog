@@ -143,9 +143,7 @@ export function MultipleChoiceQuestionViz({
     const highlightedChoiceLabel = activeChoiceLabel || armedChoiceLabel
 
     const barColors = useMemo(() => {
-        // One hue for every choice — the color carries no meaning, so varying it per row is noise;
-        // highlight/dim does the signaling when a choice filter is armed or active.
-        const baseColors = chartData.map(() => CHART_INSIGHTS_COLORS[0])
+        const baseColors = chartData.map((_, i) => CHART_INSIGHTS_COLORS[i % CHART_INSIGHTS_COLORS.length])
         return computeBarColors(
             baseColors,
             chartData.map((d) => d.label),
