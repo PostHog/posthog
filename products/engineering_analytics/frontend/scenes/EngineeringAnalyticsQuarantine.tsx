@@ -39,15 +39,20 @@ function nextExpiry(): string {
     return dayjs().add(EXTEND_DAYS, 'day').format('YYYY-MM-DD')
 }
 
+/** Single-quote a value for a POSIX shell, escaping embedded single quotes so a
+ * selector, reason, or owner containing a `'` still copies as a runnable command. */
+function shellQuote(value: string): string {
+    return `'${value.replace(/'/g, "'\\''")}'`
+}
+
 function removeCommand(row: QuarantineEntryRow): string {
-    return `hogli test:quarantine remove '${row.id}'`
+    return `hogli test:quarantine remove ${shellQuote(row.id)}`
 }
 
 function extendCommand(row: QuarantineEntryRow): string {
-    // JSON.stringify double-quotes reason/owner so the copied command survives spaces and quotes.
-    return `hogli test:quarantine add '${row.id}' --expires ${nextExpiry()} --reason ${JSON.stringify(
+    return `hogli test:quarantine add ${shellQuote(row.id)} --expires ${nextExpiry()} --reason ${shellQuote(
         row.reason
-    )} --owner ${JSON.stringify(row.owner)}`
+    )} --owner ${shellQuote(row.owner)}`
 }
 
 const ADD_EXAMPLE =
@@ -131,6 +136,33 @@ export function EngineeringAnalyticsQuarantine(): JSX.Element {
     // Production with no GitHub source and no local checkout: the endpoint 400s, same as the other tabs.
     if (quarantineLoadFailed) {
         return <ConnectGitHubSource />
+    }
+
+    // A fetch failure (timeout, 5xx, unsafe repo) also comes back as available:false, but with
+    // parse_errors set — surface those instead of the "no file" explainer, which only fits a true 404.
+    if (quarantine && !quarantine.available && quarantine.parseErrors.length > 0) {
+        return (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
+                <IconShieldLock className="size-8 text-tertiary" />
+                <div className="text-lg font-semibold">Couldn't read the quarantine file</div>
+                <div className="w-full max-w-xl">
+                    <LemonBanner type="warning">
+                        <ul className="ml-4 list-disc text-left">
+                            {quarantine.parseErrors.map((error, index) => (
+                                <li key={index} className="font-mono text-xs">
+                                    {error}
+                                </li>
+                            ))}
+                        </ul>
+                    </LemonBanner>
+                </div>
+                {quarantine.repoFullName && (
+                    <p className="text-sm text-secondary">
+                        Repository: <span className="font-mono">{quarantine.repoFullName}</span>
+                    </p>
+                )}
+            </div>
+        )
     }
 
     // A file that does not exist is a normal state, not an error — explain how to start one.
