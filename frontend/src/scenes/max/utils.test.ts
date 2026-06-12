@@ -5,7 +5,7 @@ import {
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
 
-import { EnhancedToolCall } from './Thread'
+import { EnhancedToolCall } from './max-constants'
 import { isMultiQuestionFormMessage, threadEndsWithMultiQuestionForm } from './utils'
 
 describe('max/utils', () => {

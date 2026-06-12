@@ -9,10 +9,10 @@
  */
 /**
  * * `pending` - Pending
- * `running` - Running
- * `succeeded` - Succeeded
- * `failed` - Failed
- * `ineligible` - Ineligible
+ * * `running` - Running
+ * * `succeeded` - Succeeded
+ * * `failed` - Failed
+ * * `ineligible` - Ineligible
  */
 export type ObservationStatusEnumApi = (typeof ObservationStatusEnumApi)[keyof typeof ObservationStatusEnumApi]
 
@@ -26,9 +26,9 @@ export const ObservationStatusEnumApi = {
 
 /**
  * * `monitor` - Monitor
- * `classifier` - Classifier
- * `scorer` - Scorer
- * `summarizer` - Summarizer
+ * * `classifier` - Classifier
+ * * `scorer` - Scorer
+ * * `summarizer` - Summarizer
  */
 export type ScannerTypeEnumApi = (typeof ScannerTypeEnumApi)[keyof typeof ScannerTypeEnumApi]
 
@@ -41,7 +41,7 @@ export const ScannerTypeEnumApi = {
 
 /**
  * * `gemini-3-flash-preview` - Gemini 3 Flash
- * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
+ * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
@@ -66,22 +66,22 @@ export interface ScannerSnapshotApi {
     /** Scanner name at run time. */
     name: string
     /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
-
-  * `monitor` - Monitor
-  * `classifier` - Classifier
-  * `scorer` - Scorer
-  * `summarizer` - Summarizer */
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
     /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
     scanner_version: number
     /** Concrete model that ran the observation.
-
-  * `gemini-3-flash-preview` - Gemini 3 Flash
-  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+     *
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
     model: ScannerModelEnumApi
     /** Concrete provider that ran the observation.
-
-  * `google` - Google */
+     *
+     * * `google` - Google */
     provider: ScannerProviderEnumApi
     /** Whether the observation was run with Signal emission enabled. */
     emits_signals: boolean
@@ -104,7 +104,7 @@ export interface ScannerResultApi {
 
 /**
  * * `schedule` - Schedule
- * `on_demand` - On demand
+ * * `on_demand` - On demand
  */
 export type ObservationTriggerEnumApi = (typeof ObservationTriggerEnumApi)[keyof typeof ObservationTriggerEnumApi]
 
@@ -115,13 +115,13 @@ export const ObservationTriggerEnumApi = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -175,12 +175,12 @@ export interface ReplayObservationApi {
     /** Session recording id this scanner was applied to. */
     readonly session_id: string
     /** Observation status (pending, running, succeeded, failed, ineligible).
-
-  * `pending` - Pending
-  * `running` - Running
-  * `succeeded` - Succeeded
-  * `failed` - Failed
-  * `ineligible` - Ineligible */
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
     /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error. */
     readonly error_reason: string
@@ -191,9 +191,9 @@ export interface ReplayObservationApi {
     /** Result data persisted on success; null until the observation succeeds. */
     readonly scanner_result: ScannerResultApi | null
     /** Whether this observation came from the schedule or an on-demand request.
-
-  * `schedule` - Schedule
-  * `on_demand` - On demand */
+     *
+     * * `schedule` - Schedule
+     * * `on_demand` - On demand */
     readonly triggered_by: ObservationTriggerEnumApi
     /** User who triggered an on-demand observation; null for scheduled observations. */
     readonly triggered_by_user: UserBasicApi | null
@@ -226,6 +226,8 @@ export interface VisionQuotaApi {
     readonly period_start: string
     /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
     readonly period_end: string
+    /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+    readonly projected_monthly_observations: number
 }
 
 export interface ReplayScannerApi {
@@ -238,11 +240,11 @@ export interface ReplayScannerApi {
     /** Free-form description shown in the scanner management UI. */
     description?: string
     /** What the scanner does: monitor, classifier, scorer, or summarizer.
-
-  * `monitor` - Monitor
-  * `classifier` - Classifier
-  * `scorer` - Scorer
-  * `summarizer` - Summarizer */
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
@@ -255,13 +257,13 @@ export interface ReplayScannerApi {
      */
     sampling_rate?: number
     /** LLM provider. v1 is Google-only.
-
-  * `google` - Google */
+     *
+     * * `google` - Google */
     provider?: ScannerProviderEnumApi
     /** Concrete model to use for this scanner.
-
-  * `gemini-3-flash-preview` - Gemini 3 Flash
-  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+     *
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -269,6 +271,11 @@ export interface ReplayScannerApi {
     emits_signals?: boolean
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version: number
+    /**
+     * Latest projected observations/month for this scanner. Null until first computed.
+     * @nullable
+     */
+    readonly estimated_monthly_observations: number | null
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -296,11 +303,11 @@ export interface PatchedReplayScannerApi {
     /** Free-form description shown in the scanner management UI. */
     description?: string
     /** What the scanner does: monitor, classifier, scorer, or summarizer.
-
-  * `monitor` - Monitor
-  * `classifier` - Classifier
-  * `scorer` - Scorer
-  * `summarizer` - Summarizer */
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer */
     scanner_type?: ScannerTypeEnumApi
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
@@ -313,13 +320,13 @@ export interface PatchedReplayScannerApi {
      */
     sampling_rate?: number
     /** LLM provider. v1 is Google-only.
-
-  * `google` - Google */
+     *
+     * * `google` - Google */
     provider?: ScannerProviderEnumApi
     /** Concrete model to use for this scanner.
-
-  * `gemini-3-flash-preview` - Gemini 3 Flash
-  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+     *
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -327,6 +334,11 @@ export interface PatchedReplayScannerApi {
     emits_signals?: boolean
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version?: number
+    /**
+     * Latest projected observations/month for this scanner. Null until first computed.
+     * @nullable
+     */
+    readonly estimated_monthly_observations?: number | null
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -488,6 +500,38 @@ export interface EstimateResponseApi {
     sampling_rate: number
 }
 
+/**
+ * Per-scanner-type count of enabled vs total scanners.
+ */
+export interface ScannerTypeStatsApi {
+    /** Number of enabled scanners of this type. */
+    enabled: number
+    /** Number of scanners of this type (enabled + disabled). */
+    total: number
+}
+
+/**
+ * One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`.
+ */
+export interface ScannerStatsByTypeApi {
+    monitor: ScannerTypeStatsApi
+    classifier: ScannerTypeStatsApi
+    scorer: ScannerTypeStatsApi
+    summarizer: ScannerTypeStatsApi
+}
+
+/**
+ * Team-wide scanner counts independent of any list-filter state.
+ */
+export interface ScannerStatsResponseApi {
+    /** Total scanners on the team. */
+    total: number
+    /** Number of enabled scanners on the team. */
+    enabled: number
+    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+    by_type: ScannerStatsByTypeApi
+}
+
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -578,6 +622,10 @@ export type VisionScannersObservationsListParams = {
 }
 
 export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
+     */
+    recent_days?: number
     /**
      * Filter to observations of a specific session recording.
      */

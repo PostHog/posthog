@@ -1,6 +1,6 @@
 """Configuration constants for the MCP analytics intent clustering workflow.
 
-Timeouts and retry policies mirror ``posthog/temporal/llm_analytics/trace_clustering/constants.py``
+Timeouts and retry policies mirror ``posthog/temporal/ai_observability/trace_clustering/constants.py``
 — the workloads have the same shape (CPU-bound compute → external embedding
 worker → ClickHouse-backed aggregates → ClickHouse write). Diverging numbers
 without a real reason creates two competing reference points; reuse keeps

@@ -11,14 +11,14 @@ export interface BatchingContext {
     messageId: number
 }
 
-export interface BeforeBatchInput<TInput, CInput> {
+export interface BeforeBatchInput<TInput, CInput, CBatch = Record<never, object>> {
     elements: OkResultWithContext<TInput, CInput>[]
-    batchId: number
+    batchContext: { batchId: number } & CBatch
 }
 
 export interface BeforeBatchOutput<TInput, CInput, CBatch> {
-    elements: OkResultWithContext<TInput & CBatch, CInput>[]
-    batchContext: CBatch
+    elements: OkResultWithContext<TInput, CInput>[]
+    batchContext: CBatch & { batchId: number }
 }
 
 export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = never> {
@@ -27,14 +27,20 @@ export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = ne
     batchId: number
 }
 
-export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never> {
-    elements: BatchPipelineResultWithContext<TOutput, COutput, R>
-    batchContext: CBatch
-}
+/**
+ * What an afterBatch pipeline produces. Structurally the same as
+ * `AfterBatchInput` — extending it means a passthrough step (one that
+ * returns its input untouched) satisfies the afterBatch contract without
+ * needing an explicit Input→Output transformer in front. The runtime
+ * downstream of `afterPipeline.process(...)` only reads `elements`, so
+ * carrying `batchId` through is harmless.
+ */
+export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never>
+    extends AfterBatchInput<TOutput, COutput, CBatch, R> {}
 
-export type BeforeBatchStep<TInput, CInput, CBatch> = (
-    input: BeforeBatchInput<TInput, CInput>
-) => Promise<PipelineResult<BeforeBatchOutput<TInput, CInput, CBatch>>>
+export type BeforeBatchStep<TInput, CInput, CBatchInput, CBatchOutput = CBatchInput> = (
+    input: BeforeBatchInput<TInput, CInput, CBatchInput>
+) => Promise<PipelineResult<BeforeBatchOutput<TInput, CInput, CBatchOutput>>>
 
 export type AfterBatchStep<TOutput, COutput, CBatch, R extends string = never> = (
     input: AfterBatchInput<TOutput, COutput, CBatch, R>
@@ -54,7 +60,7 @@ const BATCHING_PIPELINE_DEFAULTS: BatchingPipelineOptions = {
 }
 
 interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never> {
-    batchContext: CBatch
+    batchContext: CBatch & { batchId: number }
     messageIds: number[]
     inflight: Set<number>
     results: Map<number, PipelineResultWithContext<TOutput, COutput, R>>
@@ -94,28 +100,34 @@ export class BatchingPipeline<
     TInput,
     TOutput,
     CInput,
-    CBatch,
+    CBatchOutput,
     COutput extends BatchingContext,
     R extends string = never,
 > {
     private nextBatchId = 0
     private nextMessageId = 0
-    private batches = new Map<number, TrackedBatch<TOutput, CBatch, COutput, R>>()
+    private batches = new Map<number, TrackedBatch<TOutput, CBatchOutput, COutput, R>>()
     private messageIdToBatchId = new Map<number, number>()
     private completedResults: BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>>[] = []
 
     private options: BatchingPipelineOptions
 
     constructor(
-        private subPipeline: BatchPipeline<TInput & CBatch, TOutput, CInput & BatchingContext, COutput, R>,
+        private subPipeline: BatchPipeline<
+            TInput & CBatchOutput & { batchId: number },
+            TOutput,
+            CInput & BatchingContext,
+            COutput,
+            R
+        >,
         private beforePipeline: Pipeline<
             BeforeBatchInput<TInput, CInput>,
-            BeforeBatchOutput<TInput, CInput, CBatch>,
+            BeforeBatchOutput<TInput, CInput, CBatchOutput>,
             Record<string, never>
         >,
         private afterPipeline: Pipeline<
-            AfterBatchInput<TOutput, COutput, CBatch, R>,
-            AfterBatchOutput<TOutput, COutput, CBatch, R>,
+            AfterBatchInput<TOutput, COutput, CBatchOutput, R>,
+            AfterBatchOutput<TOutput, COutput, CBatchOutput, R>,
             Record<string, never>
         >,
         options?: Partial<BatchingPipelineOptions>
@@ -134,7 +146,7 @@ export class BatchingPipeline<
 
         const batchId = this.nextBatchId++
 
-        const beforeInput: BeforeBatchInput<TInput, CInput> = { elements, batchId }
+        const beforeInput: BeforeBatchInput<TInput, CInput> = { elements, batchContext: { batchId } }
         const beforeResult = await this.beforePipeline.process(createOkContext(beforeInput, {}))
 
         if (!isOkResult(beforeResult.result)) {
@@ -158,7 +170,13 @@ export class BatchingPipeline<
             this.messageIdToBatchId.set(messageId, batchId)
 
             return {
-                result: element.result,
+                result: {
+                    ...element.result,
+                    value: {
+                        ...element.result.value,
+                        ...batchContext,
+                    },
+                },
                 context: {
                     ...element.context,
                     messageId,
@@ -218,7 +236,7 @@ export class BatchingPipeline<
                         this.messageIdToBatchId.delete(id)
                     }
 
-                    const afterInput: AfterBatchInput<TOutput, COutput, CBatch, R> = {
+                    const afterInput: AfterBatchInput<TOutput, COutput, CBatchOutput, R> = {
                         elements: orderedResults,
                         batchContext: batch.batchContext,
                         batchId,

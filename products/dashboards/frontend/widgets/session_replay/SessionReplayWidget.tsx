@@ -12,7 +12,13 @@ import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessi
 import type { RecordingsQuery } from '~/queries/schema/schema-general'
 import type { SessionRecordingType } from '~/types'
 
-import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
+import {
+    WidgetCardBodyMessage,
+    WidgetCardContent,
+    WidgetContentFooter,
+    WidgetListCount,
+    WIDGET_LIST_COUNT_RECORDINGS,
+} from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseSessionReplayWidgetConfig } from './sessionReplayWidgetConfigValidation'
 
@@ -20,6 +26,8 @@ type SessionReplayWidgetResult = {
     results?: SessionRecordingType[]
     hasMore?: boolean
     limit?: number
+    totalCount?: number
+    totalCountCapped?: boolean
 }
 
 function SessionReplayWidgetRecordingRow({
@@ -82,12 +90,24 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     }
 
     return (
-        <WidgetCardContent>
-            <div className="flex flex-col">
-                {recordings.map((recording) => (
-                    <SessionReplayWidgetRecordingRow key={recording.id} recording={recording} order={order} />
-                ))}
-            </div>
-        </WidgetCardContent>
+        <>
+            <WidgetCardContent>
+                <div className="flex flex-col">
+                    {recordings.map((recording) => (
+                        <SessionReplayWidgetRecordingRow key={recording.id} recording={recording} order={order} />
+                    ))}
+                </div>
+            </WidgetCardContent>
+            <WidgetContentFooter>
+                <WidgetListCount
+                    shown={recordings.length}
+                    totalCount={payload?.totalCount}
+                    totalCountIsLowerBound={payload?.totalCountCapped}
+                    noun={WIDGET_LIST_COUNT_RECORDINGS}
+                    hasMore={payload?.hasMore}
+                    dataAttr="session-replay-widget-count"
+                />
+            </WidgetContentFooter>
+        </>
     )
 }

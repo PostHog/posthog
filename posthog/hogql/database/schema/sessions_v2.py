@@ -1,8 +1,6 @@
 import re
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import BounceRatePageViewMode, CustomChannelRule, SessionsV2JoinMode
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -34,10 +32,13 @@ from posthog.models.raw_sessions.sessions_v2 import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema_enums import BounceRatePageViewMode, SessionsV2JoinMode
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 if TYPE_CHECKING:
+    from posthog.schema import CustomChannelRule
+
     from posthog.models.team import Team
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {

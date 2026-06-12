@@ -14,7 +14,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
-from posthog.tasks.email import send_new_ticket_notification
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
@@ -127,16 +126,19 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
             # Customer-facing analytics (to customer's project)
             if is_team_message:
-                capture_message_sent(ticket, comment_id, content or "", created_by_id)
+                author = User.objects.filter(id=created_by_id).first() if created_by_id else None
+                capture_message_sent(ticket, comment_id, content or "", author=author)
             else:
+                author = None
                 capture_message_received(ticket, comment_id, content or "")
 
             # Internal analytics (PostHog tracking its own usage)
             props = {"channel_source": ticket.channel_source}
-            if is_team_message and created_by_id:
-                user = User.objects.filter(id=created_by_id).first()
-                if user:
-                    report_user_action(user, "support message sent", props, team=ticket.team)
+            if is_team_message:
+                if author:
+                    report_user_action(author, "support message sent", props, team=ticket.team)
+                else:
+                    report_team_action(ticket.team, "support message sent", props)
             else:
                 report_team_action(ticket.team, "support message received", props)
             # Send email notification on first customer message (i.e. new ticket)
@@ -144,6 +146,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 try:
                     conversations_settings = ticket.team.conversations_settings or {}
                     if conversations_settings.get("notification_recipients"):
+                        # posthog.tasks.__init__ eagerly imports every task module; this signal
+                        # module is wired at django.setup(), so import the task lazily.
+                        from posthog.tasks.email import send_new_ticket_notification  # noqa: PLC0415
+
                         send_new_ticket_notification.delay(
                             ticket_id=item_id,
                             team_id=team_id,
@@ -350,6 +356,10 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
 
     author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
     if author_type == "customer":
+        return
+
+    # Don't echo messages that originated from email back via email
+    if isinstance(item_context, dict) and item_context.get("from_email"):
         return
 
     team_id = instance.team_id

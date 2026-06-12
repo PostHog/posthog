@@ -69,9 +69,11 @@ Example: "Your Stripe data isn't in PostHog yet. If you connect a Stripe source,
 
 ### 5. Offer to set up the source
 
-If the user wants to proceed, hand off to the **`setting-up-a-data-warehouse-source`** skill — it covers the full
-three-step flow (wizard → db-schema → create), sync-type selection, webhook registration, and prefix guidance.
-Do not duplicate that workflow here.
+If the user wants to proceed, the fastest path is the one-step `data-warehouse-source-setup` tool (validate creds →
+discover tables → sync defaults → create, in one call), with `data-warehouse-source-connect-link` to collect
+credentials securely in the browser rather than in chat. For anything beyond the happy path (hand-picking tables,
+non-default sync types, webhooks, CDC), hand off to the **`setting-up-a-data-warehouse-source`** skill, which covers
+the full flow, sync-type selection, webhook registration, and prefix guidance. Do not duplicate that workflow here.
 
 ### 6. Show what's possible after import
 
@@ -87,7 +89,7 @@ Common join patterns:
 
 - **Don't guess table names.** Always check `posthog:read-data-warehouse-schema` and `posthog:external-data-schemas-list` before saying data doesn't exist.
 - **Check prefixes.** Imported tables are often prefixed (e.g. `stripe_charges` not `charges`). The user might not know the prefix.
-- **OAuth sources require the UI.** Some sources (Google Ads, Meta Ads, Hubspot with OAuth) require browser-based OAuth flows. You can't complete these via MCP — direct the user to the PostHog UI at `/data-warehouse/new`.
+- **Collect credentials securely.** Use `data-warehouse-source-connect-link` to hand the user a browser link — it opens a minimal connect page rendering the source's full connection form (OAuth or credentials, whichever the source offers) that stashes the details temporarily without creating the source. Afterwards pass `{"credential_id": <id>}` (discovered via `data-warehouse-stored-credentials-list`) to `data-warehouse-source-setup` — stored credentials are single-use and expire after 24 hours. Don't collect passwords or OAuth tokens in chat.
 - **Not all systems are supported.** If the user's system isn't in the wizard list, suggest using Postgres/MySQL as a bridge if they can export to a database, or mention that custom sources can be requested.
 
 ## Related tools
@@ -96,6 +98,8 @@ Common join patterns:
 - `posthog:external-data-schemas-list`: Check what tables are already imported
 - `posthog:read-data-warehouse-schema`: See all queryable tables including views
 - `posthog:external-data-sources-wizard`: Get available source types
+- `posthog:data-warehouse-source-connect-link`: Get a secure browser/OAuth link to collect credentials
+- `posthog:data-warehouse-source-setup`: One-step create (validate, discover tables, apply sync defaults, create)
 - `posthog:execute-sql`: Run queries to demonstrate what's possible
 
 ## Related skills

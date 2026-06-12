@@ -109,3 +109,15 @@ class TestRetrievalEval(BaseTest):
         assert r.source_name == "Refund Policy"
         assert r.chunk_id is not None
         assert r.source_id is not None
+
+    def test_ranking_returns_most_relevant_source_first(self) -> None:
+        # A term that only appears in the onboarding doc must rank that doc's
+        # chunk first — FTS relevance ordering, not insertion order.
+        results = logic.search_knowledge(self.team.id, "tracking snippet")
+        assert len(results) > 0
+        assert results[0].source_name == "Onboarding Guide"
+
+    def test_stopword_only_query_returns_nothing(self) -> None:
+        # `english` config drops stopwords, so a query of only stopwords yields an
+        # empty tsquery and therefore no matches (rather than erroring).
+        assert logic.search_knowledge(self.team.id, "the and of") == []

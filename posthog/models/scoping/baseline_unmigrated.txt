@@ -155,7 +155,6 @@ SignalTeamConfig
 SingleSessionSummary
 SlackThreadTaskMapping
 SourceBatch
-StreamlitApp
 Subscription
 SubscriptionDelivery
 Survey
@@ -167,6 +166,7 @@ TaskRun
 TeamConversationsTeamsConfig
 TeamFeatureFlagDefaultsConfig
 TeamSessionSummariesConfig
+TeamWorkflowsConfig
 Text
 Threshold
 Ticket

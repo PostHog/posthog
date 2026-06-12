@@ -157,6 +157,46 @@ class TestErrorTracking(APIBaseTest):
             ],
         )
 
+    def test_issue_update_rejects_deprecated_status(self):
+        issue = self.create_issue(["fingerprint"])
+
+        for deprecated_status in ("archived", "pending_release"):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": deprecated_status},
+            )
+            assert response.status_code == 400, response.json()
+            body = response.json()
+            assert body["type"] == "validation_error", body
+            assert body["attr"] == "status", body
+            assert deprecated_status in body["detail"], body
+
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.ACTIVE
+
+    def test_issue_bulk_rejects_deprecated_status(self):
+        issue = self.create_issue()
+
+        for deprecated_status in ("archived", "pending_release"):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+                data={"ids": [issue.id], "action": "set_status", "status": deprecated_status},
+            )
+            assert response.status_code == 400, response.json()
+
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.ACTIVE
+
+    def test_issue_update_serializes_legacy_status_for_reads(self):
+        # Legacy rows that still hold archived/pending_release should still serialize OK on read,
+        # so the cleanup is decoupled from the backfill.
+        issue = self.create_issue()
+        ErrorTrackingIssue.objects.filter(id=issue.id).update(status=ErrorTrackingIssue.Status.ARCHIVED)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "archived"
+
     def test_issue_merge(self):
         issue_one = self.create_issue(fingerprints=["fingerprint_one"])
         issue_two = self.create_issue(fingerprints=["fingerprint_two"])

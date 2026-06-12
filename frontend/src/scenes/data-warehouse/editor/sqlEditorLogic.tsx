@@ -6,6 +6,7 @@ import {
     beforeUnmount,
     connect,
     kea,
+    key,
     listeners,
     path,
     props,
@@ -14,12 +15,13 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
+import { Suspense, lazy } from 'react'
 
-import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Spinner, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -27,9 +29,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual, slugify } from 'lib/utils'
@@ -46,7 +46,6 @@ import { insightsModel } from '~/models/insightsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery, queryExportContext } from '~/queries/query'
-import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -393,10 +392,12 @@ function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | un
     model.pushStackElement()
 }
 
+const LazyQuery = lazy(() => import('~/queries/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> })))
+
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
-    tabAwareScene(),
+    key((props) => props.tabId),
     connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
@@ -1193,7 +1194,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
-                tryShowMCPHint('sql.execute')
+                const compactQuery = query.replace(/\s+/g, ' ').trim()
+                const truncated = compactQuery.length > 80 ? compactQuery.slice(0, 77) + '…' : compactQuery
+                tryShowMCPHint('sql.execute', truncated ? { derivedPrompt: `Run this SQL: ${truncated}` } : undefined)
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
                 const multiDagEnabled = !!values.featureFlags[FEATURE_FLAGS.DATA_MODELING_MULTI_DAG]
@@ -1509,18 +1512,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             >
                                 {(query) => (
                                     <div className="bg-bg-light max-h-[60vh] overflow-auto">
-                                        <Query
-                                            readOnly
-                                            embedded
-                                            query={{
-                                                ...currentVisualizationQuery,
-                                                source: {
-                                                    ...currentVisualizationQuery.source,
-                                                    query,
-                                                },
-                                                display: defaultDisplay,
-                                            }}
-                                        />
+                                        <Suspense fallback={<Spinner />}>
+                                            <LazyQuery
+                                                readOnly
+                                                embedded
+                                                query={{
+                                                    ...currentVisualizationQuery,
+                                                    source: {
+                                                        ...currentVisualizationQuery.source,
+                                                        query,
+                                                    },
+                                                    display: defaultDisplay,
+                                                }}
+                                            />
+                                        </Suspense>
                                     </div>
                                 )}
                             </SaveTargetCycler>
@@ -2087,7 +2092,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         syncUrlWithQuery: () => {
             if (values.isEmbeddedMode) {
                 return
@@ -2107,7 +2112,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
     })),
-    tabAwareUrlToAction(({ actions, values, props }) => ({
+    urlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
             if (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene)) {
                 return
@@ -2354,8 +2359,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_query) {
-                    // Open query string
-                    actions.createTab(searchParams.open_query)
+                    // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
+                    actions.createTab(String(searchParams.open_query))
                     tabAdded = true
                 } else if (
                     hashParams.q &&
@@ -2364,9 +2369,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     !insightShortIdFromUrl &&
                     (values.queryInput === null ||
                         !activeTabMatchesUrlTarget(values.activeTab, {}) ||
-                        values.queryInput !== hashParams.q)
+                        values.queryInput !== String(hashParams.q))
                 ) {
-                    actions.createTab(hashParams.q)
+                    // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
+                    actions.createTab(String(hashParams.q))
                     tabAdded = true
                 } else if (values.queryInput === null) {
                     actions.createTab('')

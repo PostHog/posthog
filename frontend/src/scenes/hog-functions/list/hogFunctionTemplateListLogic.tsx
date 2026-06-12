@@ -302,6 +302,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             posthog.capture('notify_me_pipeline', {
                 name: template.name,
                 type: template.type,
+                // Canonical template id (e.g. "managed-<SourceType>" for coming-soon
+                // warehouse sources) so consumers can match requests exactly instead
+                // of via the free-text display name.
+                template_id: template.id,
                 email: values.user?.email,
             })
 

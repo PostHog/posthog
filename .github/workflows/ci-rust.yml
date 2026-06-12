@@ -84,6 +84,13 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
+                  filter: blob:none
+                  sparse-checkout: |
+                      rust/
+                      proto/
+                      .github/rust-images.yml
+                      .github/actions/rust-compute-affected/
+                  sparse-checkout-cone-mode: false
                   clean: false
 
             - name: Install rust
@@ -245,6 +252,9 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
@@ -253,7 +263,7 @@ jobs:
               with:
                   shared-key: 'v2-rust-ci'
                   workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Run cargo build
               env:
@@ -331,24 +341,17 @@ jobs:
             - name: Install protoc
               uses: ./.github/actions/setup-protoc
 
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
-
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
-                  skip-token-revoke: true
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -452,6 +455,9 @@ jobs:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
 
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
@@ -460,7 +466,7 @@ jobs:
               with:
                   shared-key: 'v2-rust-ci'
                   workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Check format
               run: cargo fmt -- --check

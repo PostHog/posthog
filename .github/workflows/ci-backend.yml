@@ -69,7 +69,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
@@ -78,7 +78,7 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
-            persons-SQL: ${{ steps.filter.outputs['persons-SQL'] || 'true' }}
+            persons_sql: ${{ steps.filter.outputs.persons_sql || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
@@ -155,6 +155,7 @@ jobs:
                         - requirements-dev.txt
                         - mypy.ini
                         - pytest.ini
+                        - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
@@ -162,10 +163,20 @@ jobs:
                         - rust/feature-flags/src/properties/property_models.rs
                         - frontend/src/products.json # Loaded at runtime by posthog/products.py
                         - 'products/*/manifest.tsx' # Generates products.json
-                        # hogli db commands used for test database setup
-                        - 'tools/hogli-commands/hogli_commands/**'
+                        # hogli setup commands this workflow runs: db:restore-test-db
+                        # and product:bootstrap/lint. Scoped to the modules those
+                        # commands actually import — framework, manifest, boot
+                        # modules, db_schema, product — so unrelated hogli commands
+                        # (doctor, devbox, ...) don't trigger this suite.
                         - 'tools/hogli/**'
                         - hogli.yaml
+                        - 'tools/hogli-commands/hogli_commands/db_schema.py'
+                        - 'tools/hogli-commands/hogli_commands/prechecks.py'
+                        - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
+                        - 'tools/hogli-commands/hogli_commands/hint_hook.py'
+                        - 'tools/hogli-commands/hogli_commands/hints.py'
+                        - 'tools/hogli-commands/hogli_commands/product/**'
+                        - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -203,6 +214,7 @@ jobs:
                         - requirements-dev.txt
                         - mypy.ini
                         - pytest.ini
+                        - conftest.py # Root conftest loads for every pytest run
                         - .test_durations
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
@@ -226,7 +238,7 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
-                      persons-SQL:
+                      persons_sql:
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
                       timing_scripts:
@@ -302,7 +314,7 @@ jobs:
 
     detect-snapshot-mode:
         name: Detect snapshot mode
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
@@ -416,6 +428,8 @@ jobs:
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
+                  # Kill switch — drop comma-separated products from the matrix; empty = run all.
+                  SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
               run: |
                   # turbo-discover.js uses Turbo's Git affectedness to detect
                   # changed products. Non-isolated product changes trigger the
@@ -439,7 +453,7 @@ jobs:
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 30
+        timeout-minutes: 40
         name: Product tests (${{ matrix.group }})
         strategy:
             fail-fast: false
@@ -504,7 +518,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
@@ -636,6 +650,9 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
+        permissions:
+            contents: read
+            actions: write # to cancel this run when a deterministic check fails
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
         steps:
@@ -654,7 +671,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -664,6 +681,13 @@ jobs:
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            # Boundary between network-dependent setup (can flake) and the pure
+            # static checks below — the cancel step at the end uses it to avoid
+            # canceling the whole run on a transient setup failure.
+            - name: Mark setup complete
+              id: setup-complete
+              run: echo "Setup complete — any failure below is a deterministic check failure"
 
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
@@ -685,6 +709,23 @@ jobs:
 
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
+
+            # A failure in the static checks above is deterministic — a retry can
+            # never fix it, so the rest of the run (50+ test shards) is wasted spend.
+            # PR-only: master and merge queue runs must complete (deploy gate,
+            # snapshots). Same-repo only: fork PR tokens are read-only.
+            - name: Cancel run on deterministic check failure
+              if: >
+                  failure() &&
+                  steps.setup-complete.outcome == 'success' &&
+                  github.event_name == 'pull_request' &&
+                  github.event.pull_request.head.repo.full_name == github.repository
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+              run: |
+                  echo "::notice::Repo checks failed deterministically — canceling the remaining jobs in this run. A retry cannot fix this failure; push a fix to start a new run."
+                  gh run cancel ${{ github.run_id }}
 
     # Validates product.yaml owners against PostHog/posthog collaborator teams.
     # Gated on the product_yamls paths filter so we only spend a GitHub API call
@@ -722,7 +763,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   # Reuse the app token already minted above instead of a second mint.
                   token: ${{ steps.app-token.outputs.token || github.token }}
 
@@ -757,7 +798,7 @@ jobs:
     # in check-openapi-types below.
     check-migrations:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs['persons-SQL'] == 'true'
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true'
         timeout-minutes: 20
         # The "Publish Migration risk check" step posts the check via the
         # posthog-tests app token, which carries its own checks:write
@@ -809,7 +850,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -991,6 +1032,12 @@ jobs:
 
             - name: Run migration risk analysis and post comment
               if: github.event_name == 'pull_request'
+              # Step timeout: an analyzer hang fails THIS step (a failure, which
+              # !cancelled() still publishes as a definitive verdict) instead of
+              # running out the 20-min job timeout — a job timeout counts as a
+              # cancellation, which the publish step now skips, silently stranding
+              # the consumer. Normal analysis finishes in well under a minute.
+              timeout-minutes: 5
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
@@ -1076,7 +1123,11 @@ jobs:
               # rotation, app misconfig) must not redden check-migrations
               # when migration validation itself passed. On failure the
               # token output is empty and the publish step below is skipped.
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+              #
+              # !cancelled(): a cancelled run was superseded by a newer one that
+              # publishes the verdict, so don't mint a token here. (${{ }} wraps
+              # the leading !, a YAML tag indicator.)
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
               id: migration-risk-app-token
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -1095,11 +1146,16 @@ jobs:
               # Published via the posthog-tests app token (see the token step
               # above) so the check lands in that app's own check suite.
               #
-              # Always published — even with zero migrations to analyze, or
-              # when the analyzer crashed — so every PR ends up with a
+              # Published on success or genuine failure (including an analyzer
+              # crash, or zero migrations to analyze) so every PR ends up with a
               # definitive verdict on its head SHA. Consumers can then treat
               # "no completed check yet" purely as "CI hasn't finished" and
               # don't need a fallback heuristic.
+              #
+              # !cancelled(): a cancelled job skipped the analyzer, leaving no
+              # migration_analysis.json, so an always() publish would stamp a
+              # spurious "❌ Analyzer failed". The newer run that superseded it
+              # publishes the real verdict; genuine crashes still publish here.
               #
               # Skipped on PRs from forks: the app token can't be minted there
               # (secrets are withheld from fork-triggered workflows), so the
@@ -1111,7 +1167,7 @@ jobs:
               # Also skipped when the token step failed: its output is then
               # empty and the check-runs POST would 401 and redden the job
               # for a reason unrelated to migration validation.
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != ''
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != '' }}
               env:
                   GITHUB_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -1371,6 +1427,7 @@ jobs:
         timeout-minutes: 20
         permissions:
             contents: read
+            actions: write # to cancel this run when the OpenAPI check fails
 
         name: Validate OpenAPI types
         runs-on: depot-ubuntu-latest
@@ -1416,7 +1473,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -1566,6 +1623,23 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
+            # Schema generation and type drift failures are deterministic — a retry
+            # can never fix them, so the rest of the run is wasted spend. Keyed on the
+            # check step so transient setup or commit failures don't cancel anything.
+            # PR-only and same-repo only: fork PR tokens are read-only.
+            - name: Cancel run on deterministic check failure
+              if: >
+                  failure() &&
+                  steps.openapi-check.outcome == 'failure' &&
+                  github.event_name == 'pull_request' &&
+                  github.event.pull_request.head.repo.full_name == github.repository
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+              run: |
+                  echo "::notice::OpenAPI check failed deterministically — canceling the remaining jobs in this run. A retry cannot fix this failure; push a fix to start a new run."
+                  gh run cancel ${{ github.run_id }}
+
     build_django_matrix:
         name: Build Django matrix
         needs: [changes, get_clickhouse_versions, turbo-discover]
@@ -1573,7 +1647,7 @@ jobs:
             always() &&
             needs.changes.outputs.backend == 'true' &&
             needs.get_clickhouse_versions.result == 'success'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
@@ -1604,7 +1678,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": false,
-                      "python-version": "3.12.12",
+                      "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
                       group: .,
@@ -1617,7 +1691,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": true,
-                      "python-version": "3.12.12",
+                      "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
                       group: .,
@@ -1630,7 +1704,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Temporal",
                       "person-on-events": false,
-                      "python-version": "3.12.12",
+                      "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
                       group: .,
@@ -1647,7 +1721,7 @@ jobs:
                       | .value + {
                           segment: "Core",
                           "person-on-events": false,
-                          "python-version": "3.12.12",
+                          "python-version": "3.13.13",
                           compat: true,
                           artifact_key: ("compat-" + ((.key + 1)|tostring))
                         }
@@ -1707,6 +1781,15 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref }}
                   lfs: true
                   clean: false
+
+            # Put signal-fanout on PATH so the pytest steps below can use it as
+            # their `shell:` wrapper. GHA's `shell:` field doesn't allow
+            # ${{ github.workspace }} expansion, so a plain name on PATH is the
+            # only portable way to reference it.
+            - name: Install signal-fanout
+              shell: bash
+              run: sudo install -m 0755 .github/scripts/signal-fanout /usr/local/bin/signal-fanout
+
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -1941,7 +2024,12 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
-              shell: bash
+              # Wrap bash with signal-fanout so the runner's cancel signal is
+              # propagated to the entire process tree (incl. pytest). Without
+              # this, GHA only signals the top-level bash and pytest survives
+              # until the runner's 10s SIGKILL — which sometimes misses
+              # detached descendants entirely. Installed earlier on PATH.
+              shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
                   pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
@@ -2005,7 +2093,8 @@ jobs:
             - name: Run Temporal tests
               id: run-temporal-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
-              shell: bash
+              # See "Run Core tests" for why signal-fanout wraps bash here.
+              shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               env:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
@@ -2105,7 +2194,7 @@ jobs:
         name: Get ClickHouse versions
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         outputs:
             # Oldest supported version for main Django tests (JSON array for matrix)
@@ -2257,50 +2346,48 @@ jobs:
         timeout-minutes: 5
         if: always()
         steps:
-            - name: Check matrix outcome
+            - name: Summarize dependency results
               run: |
-                  # The `needs.django.result` will be 'success' only if all jobs in the matrix succeeded.
-                  # Otherwise, it will be 'failure'.
-                  if [[ "${{ needs.django.result }}" != "success" && "${{ needs.django.result }}" != "skipped" ]]; then
-                    echo "One or more jobs in the Django test matrix failed."
-                    exit 1
-                  fi
+                  {
+                    echo "### Backend CI dependency results"
+                    echo "| Dependency | Result |"
+                    echo "| --- | --- |"
+                    echo "| django | ${{ needs.django.result }} |"
+                    echo "| check-migrations | ${{ needs.check-migrations.result }} |"
+                    echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
+                    echo "| async-migrations | ${{ needs.async-migrations.result }} |"
+                    echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
+                    echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
+                    echo "| handle-snapshots | ${{ needs.handle-snapshots.result }} |"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
 
-                  # Check migration validation - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ]]; then
-                    echo "Migration checks failed."
-                    exit 1
-                  fi
+            - name: Check dependency results
+              run: |
+                  check_required_result() {
+                    local label="$1"
+                    local result="$2"
 
-                  # Check OpenAPI type validation - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-openapi-types.result }}" != "success" && "${{ needs.check-openapi-types.result }}" != "skipped" ]]; then
-                    echo "OpenAPI type checks failed."
-                    exit 1
-                  fi
+                    if [[ "$result" == "success" || "$result" == "skipped" ]]; then
+                      return
+                    fi
 
-                  # Check async migrations - must pass for Django Tests to be green
-                  if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
-                    echo "Async migrations tests failed."
-                    exit 1
-                  fi
+                    if [[ "$result" == "cancelled" ]]; then
+                      echo "::error::$label was cancelled or timed out."
+                    else
+                      echo "::error::$label failed with result '$result'."
+                    fi
 
-                  # Check repo checks (product lint, IDOR, operator parity, tach)
-                  if [[ "${{ needs.repo-checks.result }}" != "success" && "${{ needs.repo-checks.result }}" != "skipped" ]]; then
-                    echo "Repo checks failed."
                     exit 1
-                  fi
+                  }
 
-                  # Check Turbo discover - must pass for Django Tests to be green
-                  if [[ "${{ needs.turbo-discover.result }}" != "success" && "${{ needs.turbo-discover.result }}" != "skipped" ]]; then
-                    echo "Turbo discover failed."
-                    exit 1
-                  fi
-
-                  # Check Turbo tests (products) - must pass for Django Tests to be green
-                  if [[ "${{ needs.turbo-tests.result }}" != "success" && "${{ needs.turbo-tests.result }}" != "skipped" ]]; then
-                    echo "Turbo tests failed."
-                    exit 1
-                  fi
+                  check_required_result "Django test matrix" "${{ needs.django.result }}"
+                  check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
+                  check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
+                  check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
+                  check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
+                  check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
 
                   # Check handle-snapshots result (OK if skipped, but fail if it failed)
                   if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
@@ -2308,7 +2395,7 @@ jobs:
                     exit 1
                   fi
 
-                  echo "All checks passed."
+                  echo "All backend and product checks passed."
 
     test-selection-verdict:
         needs: [django, turbo-tests, changes]

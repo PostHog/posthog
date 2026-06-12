@@ -562,6 +562,8 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
         return query.trendsFilter?.showLegend
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showLegend
     }
     return undefined
 }
@@ -569,6 +571,15 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 export const getShowAlertThresholdLines = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showAlertThresholdLines
+    }
+    return undefined
+}
+
+export const getShowAnnotations = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showAnnotations
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showAnnotations
     }
     return undefined
 }
@@ -589,6 +600,13 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
         return query.trendsFilter?.showValuesOnSeries
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.showValuesOnSeries
+    }
+    return undefined
+}
+
+export const getShowPercentagesOnSeries = (query: InsightQueryNode): boolean | undefined => {
+    if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showPercentagesOnSeries
     }
     return undefined
 }

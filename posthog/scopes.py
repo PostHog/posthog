@@ -39,6 +39,7 @@ APIScopeObject = Literal[
     "desktop_recording",
     "early_access_feature",
     "endpoint",
+    "engineering_analytics",
     "error_tracking",
     "evaluation",
     "element",
@@ -96,6 +97,7 @@ APIScopeObject = Literal[
     "ticket",
     "task",
     "tracing",
+    "field_note",
     "uploaded_media",
     "usage_metric",
     "user",
@@ -245,6 +247,26 @@ OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
 
 
+def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
+    """Keep only self-serve-grantable scopes from a declared list, deduped, order preserved.
+
+    The single allow-list for scopes a self-registering client declares, covering both DCR
+    (the RFC 7591 `scope` string, split before it gets here) and CIMD (`com.posthog.scopes`).
+    `UNPRIVILEGED_SCOPES` drops privileged (`llm_gateway:*`), internal, hidden, and unknown
+    strings: none may reach a per-app ceiling, since `/authorize` would otherwise grant them
+    on a user-consented token. Non-string entries are dropped too, so raw partner JSON is safe
+    to pass straight in.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for token in scopes:
+        if not isinstance(token, str) or token not in UNPRIVILEGED_SCOPES or token in seen:
+            continue
+        seen.add(token)
+        result.append(token)
+    return result
+
+
 def effective_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
     """The scope set a request resolves against: the explicit `app_scopes` ceiling,
     or the broad `UNPRIVILEGED_SCOPES` default when the app has none."""
@@ -283,6 +305,30 @@ def scopes_within_ceiling(
         return "*" not in to_check and to_check.issubset(app)
     allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
     return to_check.issubset(allowed)
+
+
+def scopes_outside_ceiling(
+    requested: Iterable[str],
+    app_scopes: Iterable[str],
+    *,
+    allow_wildcard_under_empty_ceiling: bool = False,
+) -> list[str]:
+    """The requested scopes that fall outside an app's ceiling — the inverse of
+    `scopes_within_ceiling`, naming *which* scopes triggered an `invalid_scope`
+    rejection rather than just whether one did. For instrumentation only; the
+    resolution rules mirror `scopes_within_ceiling` exactly so the two never drift.
+
+    Returns a sorted list, empty when every requested scope is grantable.
+    """
+    app = frozenset(app_scopes or [])
+    to_check = set(requested) - ALWAYS_ALLOWED_SCOPES
+    if not to_check:
+        return []
+    if app:
+        # `*` is never grantable under an explicit ceiling, even if listed.
+        return sorted(s for s in to_check if s == "*" or s not in app)
+    allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
+    return sorted(to_check - allowed)
 
 
 def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:

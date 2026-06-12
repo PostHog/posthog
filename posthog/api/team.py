@@ -1,7 +1,6 @@
 import re
 import json
 import math
-import hashlib
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -31,7 +30,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
-from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -96,6 +95,7 @@ from products.feature_flags.backend.models.evaluation_context import (
 )
 from products.logs.backend.models import TeamLogsConfig
 from products.signals.backend.models import SignalSourceConfig
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
 
@@ -283,6 +283,7 @@ TEAM_CONFIG_FIELDS = (
     "conversations_enabled",
     "conversations_settings",
     "proactive_tasks_enabled",
+    "workflows_config",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -405,6 +406,21 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
         instance.save()
         return instance
+
+
+class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    capture_workflows_engagement_events = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When enabled, workflows engagement activity (email sends, opens, clicks, bounces, "
+            "spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) "
+            "alongside the existing workflow metrics."
+        ),
+    )
+
+    class Meta:
+        model = TeamWorkflowsConfig
+        fields = ["capture_workflows_engagement_events"]
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -534,13 +550,13 @@ LIVE_EVENTS_TOKEN_TTL_SECONDS = 24 * 60 * 60
 def _live_events_token_cache_key(team: Team, user_id: int | None) -> str:
     """Build the cache key for the live-events JWT.
 
-    Includes a short fingerprint of `settings.SECRET_KEY` so that rotating the
-    signing secret automatically partitions the cache namespace - cached tokens
-    signed with the old key become unreachable rather than served until TTL.
+    Includes a short fingerprint of `settings.JWT_SIGNING_KEY` so that rotating the
+    signing key automatically partitions the cache namespace - cached tokens signed
+    with the old key become unreachable rather than served until TTL.
     Hashing also defends the cache key against future api-token formats that
     might contain the `:` separator we use between components.
     """
-    signing_fingerprint = hashlib.sha256(settings.SECRET_KEY.encode()).hexdigest()[:16]
+    signing_fingerprint = signing_key_fingerprint(settings.JWT_SIGNING_KEY)
     return f"live_events_token:{signing_fingerprint}:{team.id}:{user_id}:{team.api_token}:{team.organization_id}"
 
 
@@ -550,8 +566,8 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     The JWT itself is valid for 7 days. The cache TTL is 24h, so any token returned
     from cache still has at least 6 days of remaining validity. The cache key includes
     every field that ends up in the claims so api-token rotations or organization
-    moves automatically force a fresh mint, plus a SECRET_KEY fingerprint so signing-
-    key rotation auto-partitions the cache namespace (no manual flush needed).
+    moves automatically force a fresh mint, plus a JWT_SIGNING_KEY fingerprint so
+    signing-key rotation auto-partitions the cache namespace (no manual flush needed).
     """
     cache_key = _live_events_token_cache_key(team, user_id)
     cached = get_safe_cache(cache_key)
@@ -582,6 +598,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
+    workflows_config = TeamWorkflowsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
@@ -727,6 +744,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return None
 
         serializer = TeamCustomerAnalyticsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+        return serializer.validated_data
+
+    @staticmethod
+    def validate_workflows_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamWorkflowsConfigSerializer(data=value)
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
@@ -1269,6 +1296,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("customer_analytics_config", None):
             self._update_customer_analytics_config(instance, config_data)
 
+        if config_data := validated_data.pop("workflows_config", None):
+            self._update_workflows_config(instance, config_data)
+
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
                 instance, validated_data["session_recording_retention_period"]
@@ -1491,6 +1521,28 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "customer_analytics_config", old_config, new_config)
         return instance
 
+    def _update_workflows_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {
+            field: getattr(instance.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields
+        }
+
+        serializer = TeamWorkflowsConfigSerializer(
+            instance.workflows_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {
+            field: getattr(instance.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields
+        }
+        self._capture_diff(instance, "workflows_config", old_config, new_config)
+        return instance
+
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):
         retention_feature = instance.organization.get_available_feature(AvailableFeature.SESSION_REPLAY_DATA_RETENTION)
         highest_retention_entitlement = parse_feature_to_entitlement(retention_feature)
@@ -1651,14 +1703,28 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         user = cast(User, self.request.user)
 
-        # Queue background task to handle all deletion
-        # bulky postgres, batch exports, team record, ClickHouse, email
-        delete_project_data_and_notify_task.delay(
-            team_ids=[team_id],
-            project_id=None,  # Only deleting a team, not the whole project
-            user_id=user.id,
-            project_name=team_name,
+        # Hand off all deletion work (bulky postgres, batch exports, team record,
+        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
+        # is enabled for this org; otherwise keep the legacy Celery task.
+        from posthog.temporal.delete_teams.dispatch import (
+            delete_via_temporal_enabled,
+            start_delete_project_data_workflow,
         )
+
+        if delete_via_temporal_enabled(str(organization_id)):
+            start_delete_project_data_workflow(
+                team_ids=[team_id],
+                project_id=None,  # Only deleting a team, not the whole project
+                user_id=user.id,
+                project_name=team_name,
+            )
+        else:
+            delete_project_data_and_notify_task.delay(
+                team_ids=[team_id],
+                project_id=None,  # Only deleting a team, not the whole project
+                user_id=user.id,
+                project_name=team_name,
+            )
 
         log_activity(
             organization_id=cast(UUIDT, organization_id),

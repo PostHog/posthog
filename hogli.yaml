@@ -278,7 +278,10 @@ core:
             - hogli: db:restore-schema
               prompt: Restore pre-migrated schema from CI? (faster than migrations)
               else: migrations:run
-            - dev:demo-data
+            # Skip demo-data's own network flag sync (us.posthog.com) — the
+            # dev:sync-flags step below enables all flags from constants.tsx locally.
+            - name: dev:demo-data
+              cmd: python manage.py generate_demo_data --skip-flag-sync
             - dev:sync-flags
             - dev:api-key
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
@@ -428,6 +431,15 @@ deploy:
             \ migrate # One-way migrate all (MinIO \u2192 SeaweedFS)\n  hogli deploy:migrate-storage-hobby\
             \ exports -n     # Dry run exports only"
         prompt: true
+    deploy:upgrade-objectstorage:
+        bin_script: upgrade-objectstorage
+        description: "Dev: salvage objectstorage data from the old MinIO volume into the\
+            \ running SeaweedFS (interactive)\n\nExamples:\n  hogli deploy:upgrade-objectstorage\
+            \              # Detect and copy the orphaned MinIO volume\n  hogli deploy:upgrade-objectstorage\
+            \ --list       # List all MinIO volumes"
+        services:
+            - docker
+        prompt: true
 build:
     build:
         click: hogli_commands.build:build
@@ -474,6 +486,12 @@ build:
         cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt
             schema/tool-inputs.json
         description: Generate MCP tool-inputs.json schema from Zod definitions
+    build:widget-types:
+        steps:
+            - cmd: python bin/build-dashboard-widget-types.py
+            - cmd: pnpm --filter=@posthog/frontend exec node
+                  ../products/dashboards/frontend/bin/generate-widget-config-zod.mjs
+        description: Generate dashboard widget config codegen artifacts (enum preflight, Zod)
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
@@ -493,6 +511,7 @@ build:
     build:openapi:
         steps:
             - build:openapi-schema
+            - build:widget-types
             - build:openapi-types
             - build:openapi-mcp-types
             - build:openapi-mcp
@@ -523,12 +542,12 @@ docker:
         click: hogli_commands.devenv.cli:docker_services_up
         description: Start Docker services based on your intent config
     docker:services:down:
-        cmd: docker compose -f docker-compose.dev.yml down
+        cmd: docker compose -f docker-compose.dev.yml --profile "*" down --remove-orphans
         description: Stop Docker infrastructure services
         services:
             - docker
     docker:services:remove:
-        cmd: docker compose -f docker-compose.dev.yml down -v
+        cmd: docker compose -f docker-compose.dev.yml --profile "*" down -v --remove-orphans
         description: Stop Docker infrastructure services and remove all volumes (complete
             wipe)
         services:
@@ -787,6 +806,9 @@ tools:
     doctor:zombies:
         click: hogli_commands.doctor:doctor_zombies
         description: Find and kill orphaned PostHog dev processes
+    doctor:report:
+        click: hogli_commands.doctor:doctor_report
+        description: Dump a paste-ready dev-environment diagnostics report for devex triage
     product:bootstrap:
         click: hogli_commands.product.cli:cmd_bootstrap
         description: Scaffold a new product with canonical structure
@@ -995,4 +1017,16 @@ environment:
     wait:for:postgres:tables:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
+        hidden: true
+    dev:sandbox:
+        bin_script: dev-sandbox
+        description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate when POSTHOG_DEV_SANDBOX=1)'
+        hidden: true
+    dev:sandbox:selftest:
+        bin_script: dev-sandbox-selftest
+        description: 'Verify the dev sandbox profile: blocks credentials/escapes, allows the toolchain'
+        hidden: true
+    build:dashboard:widget:types:
+        bin_script: build-dashboard-widget-types.py
+        description: Widget enum preflight, date options, and form-field manifest codegen
         hidden: true
