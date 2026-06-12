@@ -1213,7 +1213,9 @@ def _exchange_refresh_token(request: Request) -> Response:
         user = old_refresh.user
         scoped_teams = old_refresh.scoped_teams
         old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
-        carried_label = old_refresh.access_token.label if old_refresh.access_token else old_refresh.label
+        # The refresh token is the durable label carrier (the access token row is replaced
+        # each rotation), so read it from there on every path.
+        carried_label = old_refresh.label
 
         sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
         if sessions_revoked_at is not None and old_refresh.created < sessions_revoked_at:
