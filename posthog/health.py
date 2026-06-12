@@ -18,6 +18,7 @@
 # behaviour in deployments.
 
 import os
+import importlib
 from collections.abc import Callable
 from typing import Literal, cast, get_args
 from urllib.parse import urljoin
@@ -48,6 +49,10 @@ service_dependencies: dict[ServiceRole, list[str]] = {
         # NOTE: migrations run in a separate job before the version is even deployed. This check is unnecessary
         # "postgres_migrations_uptodate",
         "cache",
+        # The web process compiles HogQL bytecode on the query path, which eagerly
+        # imports the bundled `common.hogvm` subtree. Fail readiness if a stripped
+        # image shipped without it rather than silently degrading every query.
+        "hogvm",
         # NOTE: we do not include clickhouse for web, as even without clickhouse we
         # want to be able to display something to the user.
         # "clickhouse"
@@ -65,9 +70,11 @@ service_dependencies: dict[ServiceRole, list[str]] = {
         # "postgres_migrations_uptodate",
         "clickhouse",
         "celery_broker",
+        # The worker refreshes query caches, which compiles HogQL bytecode (see "web").
+        "hogvm",
     ],
     "decide": ["http"],
-    "query": ["http", "postgres", "cache"],
+    "query": ["http", "postgres", "cache", "hogvm"],
     "report": ["http"],
 }
 
@@ -140,6 +147,7 @@ def readyz(request: HttpRequest):
         "postgres_migrations_uptodate": are_postgres_migrations_uptodate,
         "celery_broker": is_celery_broker_connected,
         "cache": is_cache_backend_connected,
+        "hogvm": is_hogvm_importable,
     }
 
     conditional_checks = {}
@@ -275,6 +283,43 @@ def is_cache_backend_connected() -> bool:
         logger.debug("cache_backend_connection_failure", exc_info=True)
         return False
 
+    return True
+
+
+_hogvm_importable: bool | None = None
+
+
+def is_hogvm_importable() -> bool:
+    """
+    Check that the bundled HogVM Python package (`common.hogvm`) is importable.
+
+    HogQL bytecode compilation (`posthog/hogql/compiler/bytecode.py`) eagerly imports
+    `common.hogvm.python.*` at module load. That subtree is copied into the image by a
+    dedicated `COPY common/hogvm` Docker step and is only importable because the repo
+    root sits on PYTHONPATH. A partial or version-skewed image that ships without it
+    breaks every query that compiles bytecode with an unattributable
+    `ModuleNotFoundError: No module named 'common'` — but only lazily, once a query
+    lands, so the process otherwise looks healthy while silently degrading queries.
+    Surfacing it here lets a stripped image fail the readiness probe and stall the
+    deploy instead of quietly serving cache misses.
+
+    The result is cached after the first success — the import only needs to be proven
+    once per process, and a successful import is permanent.
+
+    Returns `True` if importable, `False` otherwise.
+    """
+    global _hogvm_importable
+    if _hogvm_importable:
+        return True
+    try:
+        importlib.import_module("common.hogvm.python.execute")
+        importlib.import_module("common.hogvm.python.stl.bytecode")
+    except Exception:
+        logger.exception("hogvm_import_failure")
+        _hogvm_importable = False
+        return False
+
+    _hogvm_importable = True
     return True
 
 

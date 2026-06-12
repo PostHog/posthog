@@ -168,6 +168,44 @@ def test_readyz_accepts_role_worker_and_filters_by_relevant_services(client: Cli
 
     assert resp.status_code == 200, resp.content
 
+    with simulate_hogvm_import_error():
+        resp = get_readyz(client=client, role="worker")
+
+    assert resp.status_code == 503, resp.content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role", ["web", "worker", "query"])
+def test_readyz_fails_when_hogvm_not_importable(client: Client, role: str):
+    """
+    A stripped/version-skewed image missing the bundled `common.hogvm` subtree
+    breaks HogQL bytecode compilation. The roles that compile bytecode on the
+    query/cache-refresh path must fail readiness so the deploy stalls instead of
+    silently degrading queries.
+    """
+    with simulate_hogvm_import_error():
+        resp = get_readyz(client=client, role=role)
+
+    assert resp.status_code == 503, resp.content
+    assert resp.json()["hogvm"] is False
+
+
+@pytest.mark.django_db
+def test_readyz_ignores_hogvm_for_roles_that_do_not_compile_bytecode(client: Client):
+    with simulate_hogvm_import_error():
+        resp = get_readyz(client=client, role="decide")
+
+    assert resp.status_code == 200, resp.content
+
+
+@pytest.mark.django_db
+def test_readyz_supports_excluding_hogvm_check(client: Client):
+    with simulate_hogvm_import_error():
+        resp = get_readyz(client=client, role="web", exclude=["hogvm"])
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["hogvm"] is False
+
 
 @pytest.mark.django_db
 def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
@@ -197,6 +235,11 @@ def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
     assert resp.status_code == 503, resp.content
 
     with simulate_cache_cannot_connect():
+        resp = get_readyz(client=client)
+
+    assert resp.status_code == 503, resp.content
+
+    with simulate_hogvm_import_error():
         resp = get_readyz(client=client)
 
     assert resp.status_code == 503, resp.content
@@ -325,6 +368,25 @@ def simulate_cache_cannot_connect():
             django_redis.exceptions.ConnectionInterrupted(mock.Mock())
         )
         yield
+
+
+@contextmanager
+def simulate_hogvm_import_error():
+    """
+    Simulates a stripped/version-skewed image where the bundled `common.hogvm`
+    subtree is missing, so HogQL bytecode compilation can't import it.
+    """
+    import posthog.health
+
+    original = posthog.health._hogvm_importable
+    posthog.health._hogvm_importable = None
+    try:
+        with patch("posthog.health.importlib.import_module") as import_mock:
+            import_mock.side_effect = ModuleNotFoundError("No module named 'common'", name="common")
+            yield
+    finally:
+        # Reset so later tests re-prove the (real) import rather than reusing the cache.
+        posthog.health._hogvm_importable = original
 
 
 @contextmanager

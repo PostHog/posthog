@@ -11,10 +11,28 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
 
-from common.hogvm.python.execute import BytecodeResult, execute_bytecode
-from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_VERSION, Operation
-from common.hogvm.python.stl import STL
-from common.hogvm.python.stl.bytecode import BYTECODE_STL
+try:
+    from common.hogvm.python.execute import BytecodeResult, execute_bytecode
+    from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_VERSION, Operation
+    from common.hogvm.python.stl import STL
+    from common.hogvm.python.stl.bytecode import BYTECODE_STL
+except ModuleNotFoundError as e:
+    # `common.hogvm` is copied into the image by a dedicated `COPY common/hogvm` Docker
+    # step and is only importable because the repo root is on PYTHONPATH. A partial or
+    # version-skewed image that ships without it raises a bare "No module named 'common'"
+    # here, which is impossible to attribute. Re-raise with the actual cause so a stripped
+    # image is diagnosable. The `/_readyz` `hogvm` check is meant to catch this at deploy
+    # time before any query lands; this is the backstop if it slips through.
+    if (e.name or "").split(".")[0] == "common":
+        raise ModuleNotFoundError(
+            "Could not import the bundled HogVM package `common.hogvm`, required for HogQL "
+            "bytecode compilation. This usually means a partial or version-skewed deploy "
+            "shipped an image without the `COPY common/hogvm` layer (or the repo root is "
+            f"missing from PYTHONPATH). Underlying error: {e}",
+            name=e.name,
+            path=e.path,
+        ) from e
+    raise
 
 if TYPE_CHECKING:
     from posthog.models import Team
