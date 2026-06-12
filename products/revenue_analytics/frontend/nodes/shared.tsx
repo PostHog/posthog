@@ -3,9 +3,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     InsightEmptyState,
     InsightErrorState,
@@ -14,17 +12,16 @@ import {
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { extractValidationError, isTimeoutError } from '~/queries/nodes/InsightViz/utils'
 import { AnyResponseType, GoalLine, RevenueAnalyticsGoal, TrendsFilter } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { GraphDataset, GraphType } from '~/types'
+import { GraphDataset } from '~/types'
 
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
-import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { RevenueAnalyticsChart, RevenueAnalyticsChartKind } from './RevenueAnalyticsChart'
 
 // Simple interface for the tile props, letting us create tiles with a consistent interface
@@ -143,15 +140,6 @@ const DISPLAY_MODE_TO_CHART_KIND: Record<string, RevenueAnalyticsChartKind> = {
     table: 'line',
 }
 
-const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
-    line: GraphType.Line,
-    area: GraphType.Line,
-    bar: GraphType.Bar,
-
-    // not really supported, but here to satisfy the type checker
-    table: GraphType.Line,
-}
-
 export interface RevenueAnalyticsLineGraphProps {
     'data-attr': string
     datasets: GraphDataset[]
@@ -161,29 +149,10 @@ export interface RevenueAnalyticsLineGraphProps {
 }
 
 // Wrapper around the time-series chart, applying the consistent display mode and date filter.
-// Gated by REVENUE_ANALYTICS_QUILL_CHARTS: on → quill charts, off → legacy Chart.js LineGraph.
 export const RevenueAnalyticsLineGraph = (props: RevenueAnalyticsLineGraphProps): JSX.Element => {
     const { insightsDisplayMode, dateFilter } = useValues(revenueAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const legend = props.legend ?? { display: props.datasets.length > 1 }
-
-    if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_QUILL_CHARTS]) {
-        return (
-            <LineGraph
-                data-attr={props['data-attr']}
-                datasets={props.datasets}
-                labels={props.labels}
-                type={DISPLAY_MODE_TO_GRAPH_TYPE[insightsDisplayMode]}
-                isArea={insightsDisplayMode !== 'line'}
-                isInProgress={!dateFilter.dateTo}
-                legend={{ display: legend.display, position: 'right', reverse: legend.reverse }}
-                trendsFilter={props.trendsFilter ?? { aggregationAxisFormat: 'numeric' }}
-                labelGroupType="none"
-                goalLines={props.trendsFilter?.goalLines}
-            />
-        )
-    }
 
     return (
         <RevenueAnalyticsChart

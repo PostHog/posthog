@@ -459,7 +459,6 @@ export const FEATURE_FLAGS = {
     REPLAY_VIDEO_BASED_SUMMARIZATION: 'replay-video-based-summarization', // owner: #team-replay
     REPLAY_VISION: 'replay-vision', // owner: #team-replay
     REVENUE_ANALYTICS: 'revenue-analytics', // owner: @rafaeelaudibert #team-customer-analytics
-    REVENUE_ANALYTICS_QUILL_CHARTS: 'revenue-analytics-quill-charts', // owner: #team-customer-analytics, gates rendering revenue analytics charts with quill instead of the legacy Chart.js LineGraph
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     SCENE_ALERTS_LABEL_EXPERIMENT: 'scene-alerts-label-experiment', // owner: @mattp #team-analytics-platform multivariate=control,get-notified,monitor-changes,set-up-alert
     SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection

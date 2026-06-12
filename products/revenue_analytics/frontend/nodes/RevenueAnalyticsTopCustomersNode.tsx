@@ -1,15 +1,12 @@
 import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -19,7 +16,7 @@ import {
     RevenueAnalyticsTopCustomersQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { GraphDataset, GraphType } from '~/types'
+import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { RevenueAnalyticsChart } from './RevenueAnalyticsChart'
@@ -46,7 +43,6 @@ export function RevenueAnalyticsTopCustomersNode(props: {
     useAttachedLogic(logic, props.attachTo)
 
     const { baseCurrency } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { response, responseLoading, queryId } = useValues(logic)
 
     if (responseLoading) {
@@ -105,27 +101,14 @@ export function RevenueAnalyticsTopCustomersNode(props: {
             <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
                 <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
                     <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                        {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_QUILL_CHARTS] ? (
-                            <RevenueAnalyticsChart
-                                dataAttr="revenue-analytics-top-customers-node-graph"
-                                kind="line"
-                                datasets={datasets}
-                                labels={labels}
-                                isInProgress={!dateFilter.dateTo}
-                                trendsFilter={trendsFilter}
-                            />
-                        ) : (
-                            <LineGraph
-                                data-attr="revenue-analytics-top-customers-node-graph"
-                                type={GraphType.Line}
-                                datasets={datasets}
-                                labels={labels}
-                                isInProgress={!dateFilter.dateTo}
-                                trendsFilter={trendsFilter}
-                                incompletenessOffsetFromEnd={1}
-                                labelGroupType="none"
-                            />
-                        )}
+                        <RevenueAnalyticsChart
+                            dataAttr="revenue-analytics-top-customers-node-graph"
+                            kind="line"
+                            datasets={datasets}
+                            labels={labels}
+                            isInProgress={!dateFilter.dateTo}
+                            trendsFilter={trendsFilter}
+                        />
                     </BindLogic>
                 </BindLogic>
             </div>
