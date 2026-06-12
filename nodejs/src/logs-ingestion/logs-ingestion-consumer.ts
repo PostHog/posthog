@@ -213,6 +213,7 @@ export class LogsIngestionConsumer {
     private samplingService: LogsSamplingService
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
+    private readonly billingProrateEnabled: boolean
 
     protected groupId: string
     protected topic: string
@@ -255,6 +256,7 @@ export class LogsIngestionConsumer {
         this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = mergedConfig.LOGS_SAMPLING_KILLSWITCH
+        this.billingProrateEnabled = mergedConfig.LOGS_BILLING_PRORATE_ENABLED
     }
 
     private isSamplingEvalEnabledForTeam(teamId: number): boolean {
@@ -611,13 +613,17 @@ export class LogsIngestionConsumer {
                                 )
                             }
 
-                            const billingRow = usageStats.get(message.teamId)
-                            if (billingRow) {
-                                billingRow.bytesAllowed = Math.max(0, billingRow.bytesAllowed - contentCredit)
-                                billingRow.recordsAllowed = Math.max(
-                                    0,
-                                    billingRow.recordsAllowed - resolved.recordsDropped
-                                )
+                            // Shadow mode unless LOGS_BILLING_PRORATE_ENABLED: the credit above is
+                            // computed and counted (observability) but billed usage is untouched.
+                            if (this.billingProrateEnabled) {
+                                const billingRow = usageStats.get(message.teamId)
+                                if (billingRow) {
+                                    billingRow.bytesAllowed = Math.max(0, billingRow.bytesAllowed - contentCredit)
+                                    billingRow.recordsAllowed = Math.max(
+                                        0,
+                                        billingRow.recordsAllowed - resolved.recordsDropped
+                                    )
+                                }
                             }
                         }
 
