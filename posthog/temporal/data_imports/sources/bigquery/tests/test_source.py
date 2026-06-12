@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BigQueryImplementation,
     _bq_select_clause,
     _get_query,
+    _get_rows_to_sync,
     delete_all_temp_destination_tables,
 )
 from posthog.temporal.data_imports.sources.bigquery.source import BigQuerySource
@@ -206,6 +207,35 @@ def test_bigquery_get_query_binds_row_filters_as_parameters():
         ("row_filter_0", "INT64", 21),
         ("row_filter_1", "STRING", "x'; DROP TABLE y; --"),
     ]
+
+
+def test_bigquery_get_rows_to_sync_runs_count_query_when_filtered():
+    # With row filters present the whole-table `num_rows` shortcut is invalid, so a COUNT(*)
+    # query with bound parameters runs instead.
+    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
+    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.return_value = iter([[123]])
+    client.query.return_value = job
+
+    result = _get_rows_to_sync(
+        table=table,
+        client=client,
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        logger=mock.MagicMock(),
+        row_filters=[
+            ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+        ],
+    )
+
+    assert result == 123
+    client.get_table.assert_not_called()  # num_rows shortcut skipped when filtered
+    count_query = client.query.call_args.args[0]
+    assert "COUNT(*)" in count_query
+    job_config = client.query.call_args.kwargs["job_config"]
+    assert [p.name for p in job_config.query_parameters] == ["row_filter_0_0", "row_filter_0_1"]
 
 
 def test_bigquery_get_query_in_filter_expands_to_one_param_per_value():

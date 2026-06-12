@@ -28,7 +28,10 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from posthog.temporal.data_imports.sources.common.job_context import bind_job_context
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.common.sql.predicates import validate_and_coerce_row_filters
+from posthog.temporal.data_imports.sources.common.sql.predicates import (
+    RowFilterValidationError,
+    validate_and_coerce_row_filters,
+)
 from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -146,7 +149,15 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         # Re-validate the persisted row filters against the current schema metadata so a
         # stale filter (column dropped, type changed) fails loudly here rather than emitting
         # a broken query downstream. Values are coerced to bound-parameter-ready Python types.
-        row_filters = validate_and_coerce_row_filters(schema.row_filters, schema.schema_metadata)
+        # Surface an actionable, schema-scoped message so a drifted filter is fixable rather
+        # than an opaque failure.
+        try:
+            row_filters = validate_and_coerce_row_filters(schema.row_filters, schema.schema_metadata)
+        except RowFilterValidationError as e:
+            raise RowFilterValidationError(
+                f"Row filter on schema '{schema.name}' no longer matches the current table schema ({e}). "
+                f"Fix or remove the row filter in the schema's configuration to resume syncing."
+            ) from e
 
         if SourceRegistry.is_registered(source_type):
             source_inputs = SourceInputs(
