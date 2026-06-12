@@ -8,7 +8,7 @@ from django.test import override_settings
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import TableNode
+from posthog.hogql.database.models import DateTimeDatabaseField, FieldOrTable, StringDatabaseField, TableNode
 from posthog.hogql.database.s3_table import build_function_call
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
@@ -17,6 +17,20 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
+_DATETIME_FIELDS: dict[str, FieldOrTable] = {
+    "cloudid": StringDatabaseField(name="cloudid"),
+    "maintenanceenddate": DateTimeDatabaseField(name="maintenanceenddate"),
+}
+
+
+def _create_s3_table_with_datetime(name: str) -> DataWarehouseTable:
+    return DataWarehouseTable(
+        name=name,
+        url="https://s3.eu-west-3.amazonaws.com/datasets-documentation/aapl_stock.csv",
+        format="CSVWithNames",
+        fields=_DATETIME_FIELDS,
+    )
 
 
 class TestS3Table(BaseTest):
@@ -292,6 +306,60 @@ class TestS3Table(BaseTest):
                     clickhouse,
                     f"SELECT events.uuid AS uuid, events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date AS Date FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
                 )
+
+    def _init_database_with_datetime_tables(self):
+        self.database = Database.create_for(team=self.team)
+        self.database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "licenses": TableNode(name="licenses", table=_create_s3_table_with_datetime("licenses")),
+                    "licenses_2": TableNode(name="licenses_2", table=_create_s3_table_with_datetime("licenses_2")),
+                }
+            )
+        )
+        self.context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=self.database,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+
+    def test_s3_join_datetime_group_and_order_by_not_timezone_wrapped(self):
+        # A JOINed S3 table is wrapped in `(SELECT * FROM s3(...))` at print time, which only
+        # projects raw columns. Wrapping its DateTime column in `toTimeZone(col, tz)` in GROUP BY /
+        # ORDER BY then references a column that no longer exists after aggregation, raising
+        # `Not found column ... in block`. The column must be emitted raw so it matches what the
+        # subquery projects.
+        with override_settings(DATAWAREHOUSE_LOCAL_ACCESS_KEY=None, DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None):
+            self._init_database_with_datetime_tables()
+
+            clickhouse = self._select(
+                query=(
+                    "SELECT licenses.maintenanceenddate FROM licenses "
+                    "JOIN licenses_2 ON licenses.cloudid = licenses_2.cloudid "
+                    "GROUP BY licenses.maintenanceenddate ORDER BY licenses.maintenanceenddate"
+                ),
+                dialect="clickhouse",
+            )
+
+            assert "(SELECT * FROM s3(" in clickhouse  # the JOINed S3 table is subquery-wrapped
+            assert "toTimeZone" not in clickhouse  # ... so its DateTime column stays raw
+            assert "GROUP BY licenses.maintenanceenddate" in clickhouse
+            assert "ORDER BY licenses.maintenanceenddate ASC" in clickhouse
+
+    def test_s3_single_table_datetime_still_timezone_wrapped(self):
+        # A standalone (non-joined) S3 table is NOT wrapped in a subquery, so timezone conversion
+        # for time bucketing must be preserved — only the JOINed case changes.
+        with override_settings(DATAWAREHOUSE_LOCAL_ACCESS_KEY=None, DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None):
+            self._init_database_with_datetime_tables()
+
+            clickhouse = self._select(
+                query="SELECT maintenanceenddate FROM licenses GROUP BY maintenanceenddate ORDER BY maintenanceenddate",
+                dialect="clickhouse",
+            )
+
+            assert "(SELECT * FROM s3(" not in clickhouse  # standalone table is not wrapped
+            assert "toTimeZone(licenses.maintenanceenddate" in clickhouse
 
     def test_s3_build_function_call_without_context(self):
         res = build_function_call(

@@ -156,3 +156,37 @@ class TestS3ParquetTimezoneConversion(ClickhouseTestMixin, BaseTest):
                 assert row[1] is not None, f"MergeTree: toTimeZone NULL for id={row[0]}"
         finally:
             sync_execute(f"DROP TABLE IF EXISTS {table_name}")
+
+    def test_join_wrapped_subquery_group_order_by_timezone_wrapped_datetime_fails(self):
+        """Reproduces the production failure: a JOINed S3 table is wrapped in `(SELECT * FROM s3(...))`,
+        which only projects raw columns, so `toTimeZone(t.created_at, 'UTC')` in GROUP BY / ORDER BY
+        references a column that no longer exists after aggregation."""
+        with self.assertRaises(Exception) as ctx:
+            _s3_query(
+                self.url,
+                self.schema,
+                """SELECT toTimeZone(t.created_at, 'UTC') AS created_at
+                FROM (SELECT * FROM {s3_source}) AS t
+                JOIN (SELECT * FROM {s3_source}) AS t2 ON t.id = t2.id
+                WHERE t.id IS NOT NULL
+                GROUP BY toTimeZone(t.created_at, 'UTC')
+                ORDER BY toTimeZone(t.created_at, 'UTC')""",
+            )
+        assert "Not found column" in str(ctx.exception)
+
+    def test_join_wrapped_subquery_group_order_by_raw_datetime_succeeds(self):
+        """The fix emits the JOINed S3 DateTime column raw (no toTimeZone wrap), so GROUP BY / ORDER BY
+        reference the column the subquery actually projects and the query executes."""
+        rows = _s3_query(
+            self.url,
+            self.schema,
+            """SELECT t.created_at AS created_at
+            FROM (SELECT * FROM {s3_source}) AS t
+            JOIN (SELECT * FROM {s3_source}) AS t2 ON t.id = t2.id
+            WHERE t.id IS NOT NULL
+            GROUP BY t.created_at
+            ORDER BY t.created_at""",
+        )
+        assert len(rows) == 3
+        for row in rows:
+            assert row[0] is not None

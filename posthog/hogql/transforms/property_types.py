@@ -227,6 +227,8 @@ class PropertySwapper(CloningVisitor):
         self.setTimeZones = setTimeZones
         self._inside_call_depth = 0
         self._inside_where_depth = 0
+        # id()s of FROM/JOIN table types the printer will wrap in a `(SELECT * FROM s3(...))` subquery
+        self._join_wrapped_s3_table_types: set[int] = set()
 
     def visit_select_query(self, node: ast.SelectQuery):
         # We need to track when we're inside WHERE/PREWHERE so that the
@@ -237,6 +239,10 @@ class PropertySwapper(CloningVisitor):
         # We replicate that here, wrapping only where/prewhere with our flag.
         saved_where_depth = self._inside_where_depth
         self._inside_where_depth = 0  # each SelectQuery gets its own scope
+
+        # Each SelectQuery has its own set of JOINed S3 tables the printer will subquery-wrap.
+        saved_wrapped_s3 = self._join_wrapped_s3_table_types
+        self._join_wrapped_s3_table_types = self._collect_join_wrapped_s3_table_types(node)
 
         # Visit everything except where/prewhere normally (depth=0, no stripping)
         ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
@@ -257,6 +263,7 @@ class PropertySwapper(CloningVisitor):
         interpolate = [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
 
         self._inside_where_depth = saved_where_depth  # restore parent scope
+        self._join_wrapped_s3_table_types = saved_wrapped_s3
 
         return ast.SelectQuery(
             start=None if self.clear_locations else node.start,
@@ -514,9 +521,46 @@ class PropertySwapper(CloningVisitor):
         # These typically already produce timezone-aware values.
         return expr
 
+    def _collect_join_wrapped_s3_table_types(self, node: ast.SelectQuery) -> set[int]:
+        """Identify FROM/JOIN entries the printer will wrap in a `(SELECT * FROM s3(...))` subquery.
+
+        The printer wraps a JOINed S3 table in that subquery at print time (see
+        ClickHousePrinter._print_table_ref). The subquery only projects the raw columns, so a
+        DateTime column referenced as `toTimeZone(col, tz)` in GROUP BY/ORDER BY no longer exists in
+        the post-aggregation block and ClickHouse throws `Not found column ... in block`. We replicate
+        the printer's wrap condition here so visit_field can skip the toTimeZone wrap for exactly those
+        columns. Non-joined S3 tables are not wrapped, so their time-bucketing behaviour is unchanged.
+        """
+        wrapped: set[int] = set()
+        join = node.select_from
+        while join is not None:
+            outer_type = join.type
+            table_type = outer_type
+            while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+                table_type = table_type.table_type
+            if (
+                isinstance(table_type, ast.TableType)
+                and isinstance(table_type.table, S3Table)
+                and (
+                    join.next_join is not None
+                    or join.join_type == "JOIN"
+                    or (join.join_type is not None and join.join_type.startswith("GLOBAL "))
+                )
+            ):
+                wrapped.add(id(outer_type))
+            join = join.next_join
+        return wrapped
+
+    def _is_join_wrapped_s3_field(self, field_type: ast.FieldType) -> bool:
+        return id(field_type.table_type) in self._join_wrapped_s3_table_types
+
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
-            if self.setTimeZones and isinstance(node.type.resolve_database_field(self.context), DateTimeDatabaseField):
+            if (
+                self.setTimeZones
+                and isinstance(node.type.resolve_database_field(self.context), DateTimeDatabaseField)
+                and not self._is_join_wrapped_s3_field(node.type)
+            ):
                 nullable = node.type.is_nullable(self.context)
                 return ast.Call(
                     name="toTimeZone",
