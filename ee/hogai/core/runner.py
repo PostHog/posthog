@@ -47,6 +47,7 @@ from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.tool import ApprovalRequest
 from ee.hogai.utils.exceptions import (
+    AGENT_RECURSION_LIMIT_COUNTER,
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
     HTTPX_TRANSPORT_EXCEPTIONS,
     LLM_API_EXCEPTIONS,
@@ -101,6 +102,15 @@ class SubagentCallbackHandler(CallbackHandler):
 
 
 class BaseAgentRunner(ABC):
+    # When the graph exhausts the recursion limit, re-run it once with the agent forced to wrap
+    # up (tools unbound) so the user still gets a best-effort answer instead of a dead-end prompt.
+    # Disabled for agents that legitimately loop a lot (e.g. deep research) and won't honor the
+    # forced hard limit, where the retry would only spin again.
+    FORCE_SUMMARY_ON_RECURSION_LIMIT: bool = True
+    # Tool-call count injected on recovery — large enough to exceed any agent's hard limit so the
+    # root node unbinds tools and is forced to produce a final answer.
+    _RECURSION_FORCE_STOP_COUNT: int = 1_000_000_000
+
     _team: Team
     _graph: CompiledStateGraph
     _user: User
@@ -303,18 +313,45 @@ class BaseAgentRunner(ABC):
                 # TRICKY: don't reset state. The interrupt handling code
                 # below will process the interrupt via aget_state().
                 pass
-            except GraphRecursionError:
-                recursion_limit_message = AssistantMessage(
-                    content="I've reached the maximum number of steps. Would you like me to continue?",
-                    id=str(uuid4()),
-                )
-                yield AssistantEventType.MESSAGE, recursion_limit_message
+            except GraphRecursionError as e:
+                # Try once to coax a best-effort answer out of the agent before giving up. We bump
+                # the tool-call count past the hard limit and re-run the graph: the root node then
+                # runs with tools unbound and must answer in a single turn instead of looping.
+                recovered = False
+                if self._use_checkpointer and self.FORCE_SUMMARY_ON_RECURSION_LIMIT:
+                    try:
+                        snapshot = await self._graph.aget_state(config)
+                        forced_state = validate_state_update(snapshot.values, self._state_type).model_copy(
+                            update={"root_tool_calls_count": self._RECURSION_FORCE_STOP_COUNT}
+                        )
+                        async for update in self._graph.astream(
+                            forced_state, config=config, stream_mode=stream_mode, subgraphs=stream_subgraphs
+                        ):
+                            if messages := await self._process_update(update):
+                                for message in messages:
+                                    if isinstance(message, get_args(AssistantStreamedMessageUnion)):
+                                        yield AssistantEventType.MESSAGE, cast(AssistantStreamedMessageUnion, message)
+                                    # Only count it as recovered once a real answer reaches the user.
+                                    if isinstance(message, AssistantMessage) and message.content:
+                                        recovered = True
+                    except Exception as retry_error:
+                        # Best-effort only — never make the recursion failure worse. Fall through
+                        # to the soft prompt below.
+                        logger.warning("recursion_limit_summary_failed", error=str(retry_error))
 
-                if self._use_checkpointer:
-                    await self._graph.aupdate_state(
-                        config,
-                        self._partial_state_type(messages=[recursion_limit_message]),
+                self._capture_recursion_limit(e, recovered=recovered)
+
+                if not recovered:
+                    recursion_limit_message = AssistantMessage(
+                        content="I've reached the maximum number of steps. Would you like me to continue?",
+                        id=str(uuid4()),
                     )
+                    yield AssistantEventType.MESSAGE, recursion_limit_message
+                    if self._use_checkpointer:
+                        await self._graph.aupdate_state(
+                            config,
+                            self._partial_state_type(messages=[recursion_limit_message]),
+                        )
                 return  # Don't run interrupt handling after recursion error
             except LLM_CLIENT_EXCEPTIONS as e:
                 # Client/validation errors (400, 422) - these won't resolve on retry
@@ -664,6 +701,25 @@ class BaseAgentRunner(ABC):
             with _tracer.start_as_current_span("posthog_ai.runner.unlock_conversation"):
                 self._conversation.status = Conversation.Status.IDLE
                 await self._conversation.asave(update_fields=["status", "updated_at"])
+
+    def _capture_recursion_limit(self, e: Exception, *, recovered: bool) -> None:
+        """Record a recursion-limit exhaustion so these runs stop being silent."""
+        AGENT_RECURSION_LIMIT_COUNTER.labels(recovered=str(recovered).lower()).inc()
+        logger.warning("agent_recursion_limit_reached", recovered=recovered, thread_id=str(self._conversation.id))
+        posthoganalytics.capture_exception(
+            e,
+            distinct_id=self._user.distinct_id if self._user else None,
+            properties={
+                "$session_id": self._session_id,
+                "$ai_trace_id": self._trace_id,
+                "$ai_error": "graph_recursion_limit",
+                "thread_id": self._conversation.id,
+                "error_type": "graph_recursion_limit",
+                "recovered": recovered,
+                "tag": "max_ai",
+                "$groups": event_usage.groups(team=self._team),
+            },
+        )
 
     def _capture_exception(self, e: Exception):
         posthoganalytics.capture_exception(

@@ -42,6 +42,10 @@ VERBOSE_NODES: set["MaxNodeName"] = STREAMING_NODES | {
 
 
 class ResearchAgentRunner(BaseAgentRunner):
+    # Deep research keeps tools bound regardless of the tool-call count, so forcing a wrap-up on
+    # recursion-limit exhaustion would just spin again — fall straight through to the soft prompt.
+    FORCE_SUMMARY_ON_RECURSION_LIMIT = False
+
     _state: Optional[AssistantState]
     _initial_state: Optional[AssistantState | PartialAssistantState]
 

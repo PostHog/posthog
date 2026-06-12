@@ -39,6 +39,7 @@ from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.prompts import (
     ROOT_CONVERSATION_SUMMARY_PROMPT,
     ROOT_HARD_LIMIT_REACHED_PROMPT,
+    ROOT_REPEATED_TOOL_CALL_PROMPT,
     ROOT_TOOL_DOES_NOT_EXIST,
 )
 from ee.hogai.core.agent_modes.toolkit import AgentToolkitManager
@@ -100,6 +101,12 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
     """
     Determines the maximum number of tool calls allowed in a single generation.
     """
+    MAX_IDENTICAL_TOOL_CALLS = 3
+    """
+    How many times the agent may call the same tool with identical arguments back-to-back
+    before the loop is treated as stuck and the agent is forced to wrap up. Catches spins
+    (e.g. repeated no-op `todo_write` re-plans) long before the slower MAX_TOOL_CALLS limit.
+    """
     THINKING_CONFIG = {"type": "enabled", "budget_tokens": 10240}
     """
     Determines the thinking configuration for the model.
@@ -137,6 +144,16 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         tools = cast("list[MaxTool]", tools)
         model = self._get_model(state, tools)
 
+        # Detect a stuck loop (same tool called with identical args repeatedly). When stuck or at
+        # the hard limit, the model is run with tools unbound (see `_get_model`) and a wrap-up
+        # message is appended so the agent is forced to answer instead of spinning forever.
+        repeated_tool_calls = self._count_trailing_identical_tool_calls(state.messages)
+        loop_stuck = repeated_tool_calls >= self.MAX_IDENTICAL_TOOL_CALLS
+        force_stop = loop_stuck or self._is_hard_limit_reached(state.root_tool_calls_count)
+        limit_prompt = ROOT_REPEATED_TOOL_CALL_PROMPT if loop_stuck else ROOT_HARD_LIMIT_REACHED_PROMPT
+        if loop_stuck:
+            await self._capture_loop_spin(state, config, repeated_tool_calls)
+
         # Add context messages on start of the conversation.
         messages_to_replace: Sequence[AssistantMessageUnion] = []
         if self._is_first_turn(state) and (
@@ -146,7 +163,11 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
         # Calculate the initial window.
         langchain_messages = self._construct_messages(
-            messages_to_replace or state.messages, state.root_conversation_start_id, state.root_tool_calls_count
+            messages_to_replace or state.messages,
+            state.root_conversation_start_id,
+            state.root_tool_calls_count,
+            force_stop=force_stop,
+            limit_prompt=limit_prompt,
         )
         window_id = state.root_conversation_start_id
         start_id = state.start_id
@@ -181,7 +202,13 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             messages_to_replace = insertion_result.messages
 
             # Update the window
-            langchain_messages = self._construct_messages(messages_to_replace, window_id, state.root_tool_calls_count)
+            langchain_messages = self._construct_messages(
+                messages_to_replace,
+                window_id,
+                state.root_tool_calls_count,
+                force_stop=force_stop,
+                limit_prompt=limit_prompt,
+            )
 
         system_prompts = cast(list[BaseMessage], system_prompts)
         assert len(system_prompts) > 0
@@ -303,8 +330,9 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         )
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
-        # This will remove the functions, so the agent doesn't have any other option but to exit.
-        if self._is_hard_limit_reached(state.root_tool_calls_count):
+        # This will remove the functions, so the agent doesn't have any other option but to exit. We also unbind tools when
+        # the loop is stuck repeating the same call, so a spin can't keep burning turns and tokens.
+        if self._should_force_stop(state):
             return base_model
 
         return base_model.bind_tools(tools, parallel_tool_calls=True)
@@ -314,6 +342,9 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         messages: Sequence[AssistantMessageUnion],
         window_start_id: str | None = None,
         tool_calls_count: int | None = None,
+        *,
+        force_stop: bool = False,
+        limit_prompt: str = ROOT_HARD_LIMIT_REACHED_PROMPT,
     ) -> list[BaseMessage]:
         conversation_window = self._window_manager.get_messages_in_window(messages, window_start_id)
 
@@ -323,8 +354,10 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         # Convert to Anthropic messages
         history = self._convert_to_langchain_messages(conversation_window, tool_result_messages)
 
-        # Force the agent to stop if the tool call limit is reached.
-        history = self._add_limit_message_if_reached(history, tool_calls_count)
+        # Force the agent to stop if the tool call limit is reached or the loop is stuck.
+        history = self._add_limit_message_if_reached(
+            history, tool_calls_count, force_stop=force_stop, limit_prompt=limit_prompt
+        )
 
         # Append a single cache control to the last human message or last tool message,
         # so we cache the full prefix of the conversation.
@@ -344,11 +377,16 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         return self._window_manager.get_messages_in_window(filtered_messages, window_start_id)
 
     def _add_limit_message_if_reached(
-        self, messages: list[BaseMessage], tool_calls_count: int | None
+        self,
+        messages: list[BaseMessage],
+        tool_calls_count: int | None,
+        *,
+        force_stop: bool = False,
+        limit_prompt: str = ROOT_HARD_LIMIT_REACHED_PROMPT,
     ) -> list[BaseMessage]:
-        """Append a hard limit reached message if the tool calls count is reached."""
-        if self._is_hard_limit_reached(tool_calls_count):
-            return [*messages, LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT)]
+        """Append a wrap-up message if the tool call limit is reached or the loop is stuck."""
+        if force_stop or self._is_hard_limit_reached(tool_calls_count):
+            return [*messages, LangchainHumanMessage(content=limit_prompt)]
         return messages
 
     def _get_tool_map(self, messages: Sequence[AssistantMessageUnion]) -> Mapping[str, AssistantToolCallMessage]:
@@ -379,6 +417,63 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
     def _is_hard_limit_reached(self, tool_calls_count: int | None) -> bool:
         return tool_calls_count is not None and tool_calls_count >= self.MAX_TOOL_CALLS
+
+    def _should_force_stop(self, state: AssistantState) -> bool:
+        """Whether to run the model with tools unbound, forcing the agent to wrap up."""
+        return self._is_hard_limit_reached(state.root_tool_calls_count) or self._is_loop_stuck(state)
+
+    def _is_loop_stuck(self, state: AssistantState) -> bool:
+        return self._count_trailing_identical_tool_calls(state.messages) >= self.MAX_IDENTICAL_TOOL_CALLS
+
+    def _count_trailing_identical_tool_calls(self, messages: Sequence[AssistantMessageUnion]) -> int:
+        """Count how many of the most recent tool calls are identical (same name + args).
+
+        A long run of identical calls means the agent is spinning rather than making progress —
+        e.g. repeatedly re-writing the same to-do list. Interleaving any different tool call
+        breaks the run, since that signals the agent is still doing real work.
+        """
+        signatures: list[tuple[str, str]] = [
+            (tool_call.name, repr(tool_call.args))
+            for message in messages
+            if isinstance(message, AssistantMessage) and message.tool_calls
+            for tool_call in message.tool_calls
+        ]
+        if not signatures:
+            return 0
+
+        last_signature = signatures[-1]
+        count = 0
+        for signature in reversed(signatures):
+            if signature != last_signature:
+                break
+            count += 1
+        return count
+
+    async def _capture_loop_spin(self, state: AssistantState, config: RunnableConfig, repeated_count: int) -> None:
+        """Emit telemetry when a stuck loop is detected, so spins stop being invisible."""
+        user_distinct_id = self._get_user_distinct_id(config)
+        if not user_distinct_id:
+            return
+        tool_name = next(
+            (
+                message.tool_calls[-1].name
+                for message in reversed(state.messages)
+                if isinstance(message, AssistantMessage) and message.tool_calls
+            ),
+            None,
+        )
+        logger.warning("agent_loop_spin_detected", extra={"tool_name": tool_name, "repeated_count": repeated_count})
+        with _tracer.start_as_current_span("posthoganalytics.capture"):
+            await database_sync_to_async(posthoganalytics.capture)(
+                distinct_id=user_distinct_id,
+                event="ai loop spin detected",
+                properties={
+                    **self._get_debug_props(config),
+                    "tool_name": tool_name,
+                    "repeated_count": repeated_count,
+                },
+                groups=groups(None, self._team),
+            )
 
     def _process_output_message(self, message: LangchainAIMessage) -> list[AssistantMessage]:
         """Process the output message."""

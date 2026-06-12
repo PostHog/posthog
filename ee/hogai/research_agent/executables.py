@@ -19,6 +19,8 @@ class ResearchAgentExecutable(PlanModeExecutable):
     """
 
     MAX_TOOL_CALLS = 1_000_000
+    # Deep research legitimately calls the same tools many times; don't trip the stuck-loop guard.
+    MAX_IDENTICAL_TOOL_CALLS = 1_000_000
     THINKING_CONFIG = {"type": "enabled", "budget_tokens": 4096}
     MAX_TOKENS = 16_384
 

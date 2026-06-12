@@ -517,6 +517,106 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         result = node._is_hard_limit_reached(tool_calls_count)
         self.assertEqual(result, expected)
 
+    @staticmethod
+    def _tool_call_turns(tool_calls: list[tuple[str, dict]]) -> list[AssistantMessageUnion]:
+        """Build an assistant/tool-result message sequence, one tool call per turn."""
+        messages: list[AssistantMessageUnion] = [HumanMessage(content="Do the thing", id="h")]
+        for i, (name, args) in enumerate(tool_calls):
+            messages.append(
+                AssistantMessage(
+                    content="",
+                    id=f"a{i}",
+                    tool_calls=[AssistantToolCall(id=f"c{i}", name=name, args=args)],
+                )
+            )
+            messages.append(AssistantToolCallMessage(content="ok", id=f"r{i}", tool_call_id=f"c{i}"))
+        return messages
+
+    @parameterized.expand(
+        [
+            ("no_tool_calls", [], 0),
+            ("single_call", [("todo_write", {"todos": []})], 1),
+            ("three_identical", [("todo_write", {"a": 1})] * 3, 3),
+            (
+                "different_args_break_run",
+                [("todo_write", {"a": 1}), ("todo_write", {"a": 2}), ("todo_write", {"a": 3})],
+                1,
+            ),
+            (
+                "interleaved_tool_breaks_run",
+                [("todo_write", {"a": 1}), ("todo_write", {"a": 1}), ("search", {"q": "x"}), ("todo_write", {"a": 1})],
+                1,
+            ),
+            (
+                "trailing_run_only",
+                [("search", {"q": "x"}), ("todo_write", {"a": 1}), ("todo_write", {"a": 1})],
+                2,
+            ),
+        ]
+    )
+    def test_count_trailing_identical_tool_calls(self, _name, tool_calls, expected):
+        node = _create_agent_node(self.team, self.user)
+        messages = self._tool_call_turns(tool_calls)
+        self.assertEqual(node._count_trailing_identical_tool_calls(messages), expected)
+
+    @parameterized.expand(
+        [
+            ("below_threshold", [("todo_write", {"a": 1})] * 2, False),
+            ("at_threshold", [("todo_write", {"a": 1})] * 3, True),
+            ("above_threshold", [("todo_write", {"a": 1})] * 5, True),
+        ]
+    )
+    def test_is_loop_stuck(self, _name, tool_calls, expected):
+        node = _create_agent_node(self.team, self.user)
+        state = AssistantState(messages=self._tool_call_turns(tool_calls))
+        self.assertEqual(node._is_loop_stuck(state), expected)
+
+    async def test_loop_stuck_removes_tools_and_forces_answer(self):
+        """A stuck loop (identical repeated tool calls) unbinds tools and forces a final answer."""
+        mock_with_tokens = MagicMock()
+        ainvoke_mock = AsyncMock()
+        ainvoke_mock.return_value = LangchainAIMessage(
+            content=[{"text": "Here's my best-effort answer.", "type": "text"}], id="final"
+        )
+        mock_with_tokens.ainvoke = ainvoke_mock
+
+        with (
+            patch("ee.hogai.core.agent_modes.executables.MaxChatAnthropic", return_value=mock_with_tokens),
+            patch(
+                "ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count",
+                return_value=1000,
+            ),
+            patch("ee.hogai.core.agent_modes.executables.get_llm_gateway_variant", return_value="control"),
+        ):
+            node = _create_agent_node(self.team, self.user)
+            state = AssistantState(messages=self._tool_call_turns([("todo_write", {"a": 1})] * 3))
+
+            next_state = await node.arun(state, {})
+
+            message = next_state.messages[-1]
+            self.assertIsInstance(message, AssistantMessage)
+            assert isinstance(message, AssistantMessage)
+            self.assertEqual(message.content, "Here's my best-effort answer.")
+            self.assertEqual(message.tool_calls, [])
+
+            # bind_tools is never called when the loop is stuck, so the model can't keep spinning.
+            self.assertFalse(mock_with_tokens.bind_tools.called)
+
+    @patch(
+        "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
+    )
+    async def test_construct_messages_with_repeated_tool_calls(self, mock_model):
+        """The repeated-tool-call wrap-up prompt is appended when force_stop is set."""
+        from ee.hogai.core.agent_modes.prompts import ROOT_REPEATED_TOOL_CALL_PROMPT
+
+        node = _create_agent_node(self.team, self.user)
+        messages = [HumanMessage(content="Test", id="1")]
+        result = node._construct_messages(messages, None, None, force_stop=True, limit_prompt=ROOT_REPEATED_TOOL_CALL_PROMPT)
+
+        human_messages = [msg for msg in result if isinstance(msg, LangchainHumanMessage)]
+        self.assertGreater(len(human_messages), 1)
+        self.assertIn("same tool with identical arguments", human_messages[-1].content)
+
     async def test_node_increments_tool_count_on_tool_call(self):
         """Test that RootNode increments tool count when assistant makes a tool call"""
         with patch(

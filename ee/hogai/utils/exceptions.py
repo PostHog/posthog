@@ -64,6 +64,15 @@ AGENT_RUN_UNHANDLED_ERROR_COUNTER = Counter(
     ["error_type"],
 )
 
+# An agent run that exhausted the LangGraph recursion limit — the graph kept looping until
+# it ran out of supersteps. Usually a sign the agent got stuck (e.g. repeated no-op tool
+# calls) rather than a code bug. A sustained rate means agents are spinning in production.
+AGENT_RECURSION_LIMIT_COUNTER = Counter(
+    "posthog_ai_agent_recursion_limit_total",
+    "Total number of agent runs that hit the LangGraph recursion limit",
+    ["recovered"],
+)
+
 
 def resolve_llm_provider(exc: Exception) -> str:
     """Extract the LLM provider name from an exception.

@@ -8,9 +8,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import openai
 import anthropic
+from langgraph.errors import GraphRecursionError
 from parameterized import parameterized
 
-from posthog.schema import AssistantEventType, FailureMessage
+from posthog.schema import AssistantEventType, AssistantMessage, FailureMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -741,3 +742,114 @@ class TestRunnerConversationTitleAction(BaseTest):
         self.assertEqual(len(conversation_events), 1)
         _, conversation = conversation_events[0]
         self.assertEqual(conversation.title, "Streamed Title")
+
+
+class TestRunnerRecursionLimitHandling(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+    def _create_runner(self, *, astream_side_effect, force_summary=True):
+        from ee.hogai.core.runner import BaseAgentRunner
+
+        mock_graph = MagicMock()
+        mock_graph.astream = MagicMock(side_effect=astream_side_effect)
+        mock_graph.aget_state = AsyncMock(return_value=MagicMock(values={}, next=None))
+        mock_graph.aupdate_state = AsyncMock()
+
+        mock_stream_processor = MagicMock()
+        mock_stream_processor.mark_id_as_streamed = MagicMock()
+
+        mock_graph_class = MagicMock()
+        mock_graph_instance = MagicMock()
+        mock_graph_instance.compile_full_graph = MagicMock(return_value=mock_graph)
+        mock_graph_class.return_value = mock_graph_instance
+
+        class TestRunner(BaseAgentRunner):
+            FORCE_SUMMARY_ON_RECURSION_LIMIT = force_summary
+
+            def get_initial_state(self):
+                return AssistantState(messages=[])
+
+            def get_resumed_state(self):
+                return PartialAssistantState(messages=[])
+
+        runner = TestRunner(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            graph_class=cast(type[BaseAssistantGraph], mock_graph_class),
+            state_type=AssistantState,
+            partial_state_type=PartialAssistantState,
+            stream_processor=mock_stream_processor,
+        )
+        runner._graph = mock_graph
+        return runner, mock_graph
+
+    async def _collect(self, runner):
+        results = []
+        async for event_type, message in runner.astream(
+            stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+        ):
+            results.append((event_type, message))
+        return results
+
+    async def test_recursion_limit_recovers_with_best_effort_answer(self):
+        """On recursion exhaustion the agent is re-run with tools unbound and the answer is delivered."""
+
+        async def _retry_stream(*args, **kwargs):
+            yield "sentinel-update"
+
+        runner, mock_graph = self._create_runner(
+            astream_side_effect=[_async_generator_that_raises(GraphRecursionError()), _retry_stream()]
+        )
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch.object(
+                runner, "_process_update", new_callable=AsyncMock, return_value=[AssistantMessage(content="Best effort")]
+            ),
+            patch("ee.hogai.core.runner.validate_state_update", return_value=AssistantState(messages=[])),
+            patch("ee.hogai.core.runner.AGENT_RECURSION_LIMIT_COUNTER") as mock_counter,
+            patch("ee.hogai.core.runner.posthoganalytics") as mock_posthog,
+        ):
+            results = await self._collect(runner)
+
+            # The best-effort answer is delivered; no dead-end "maximum number of steps" prompt.
+            messages = [m for _, m in results]
+            self.assertTrue(any(isinstance(m, AssistantMessage) and m.content == "Best effort" for m in messages))
+            self.assertFalse(any("maximum number of steps" in getattr(m, "content", "") for m in messages))
+
+            # The retry forced the tool-call count past the hard limit.
+            mock_graph.aupdate_state.assert_called()
+            forced_state = mock_graph.aupdate_state.call_args[0][1]
+            self.assertEqual(forced_state.root_tool_calls_count, runner._RECURSION_FORCE_STOP_COUNT)
+
+            # Telemetry: counter labeled recovered=true and exception captured with $ai_error.
+            mock_counter.labels.assert_called_with(recovered="true")
+            mock_counter.labels.return_value.inc.assert_called_once()
+            mock_posthog.capture_exception.assert_called_once()
+            self.assertEqual(
+                mock_posthog.capture_exception.call_args[1]["properties"]["$ai_error"], "graph_recursion_limit"
+            )
+
+    async def test_recursion_limit_falls_back_to_soft_prompt_when_recovery_disabled(self):
+        """Agents that opt out (e.g. deep research) still get the soft prompt and telemetry."""
+        runner, mock_graph = self._create_runner(
+            astream_side_effect=[_async_generator_that_raises(GraphRecursionError())], force_summary=False
+        )
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.AGENT_RECURSION_LIMIT_COUNTER") as mock_counter,
+            patch("ee.hogai.core.runner.posthoganalytics"),
+        ):
+            results = await self._collect(runner)
+
+            messages = [m for _, m in results]
+            self.assertTrue(any("maximum number of steps" in getattr(m, "content", "") for m in messages))
+            # No retry happened, so the graph was streamed exactly once.
+            self.assertEqual(mock_graph.astream.call_count, 1)
+            mock_counter.labels.assert_called_with(recovered="false")

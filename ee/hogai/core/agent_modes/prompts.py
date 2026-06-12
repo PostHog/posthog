@@ -2,6 +2,10 @@ ROOT_HARD_LIMIT_REACHED_PROMPT = """
 You have reached the maximum number of iterations, a security measure to prevent infinite loops. Now, summarize the conversation so far and answer my question if you can. Then, ask me if I'd like to continue what you were doing.
 """.strip()
 
+ROOT_REPEATED_TOOL_CALL_PROMPT = """
+You have called the same tool with identical arguments several times in a row without making progress. This is a sign that you are stuck in a loop. Stop calling tools now. Using only what you already know, give me the best answer you can to my original question. If you genuinely cannot answer, briefly explain what is blocking you and what you would need to continue.
+""".strip()
+
 ROOT_TOOL_DOES_NOT_EXIST = """
 This tool does not exist.
 <system_reminder>
