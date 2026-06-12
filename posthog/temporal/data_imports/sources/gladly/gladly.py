@@ -63,9 +63,12 @@ def _format_timestamp(value: Any) -> str:
 
 def validate_credentials(organization: str, agent_email: str, api_token: str) -> bool:
     """Confirm the credentials are valid with a cheap agents probe."""
+    # Resolve the org first so a malformed organization surfaces its own ValueError
+    # rather than being mislabelled as a credentials problem by the caller.
+    base_url = _base_url(organization)
     try:
         response = _get_session(agent_email, api_token).get(
-            f"{_base_url(organization)}/agents",
+            f"{base_url}/agents",
             timeout=15,
         )
         return response.status_code == 200
@@ -94,7 +97,9 @@ def get_rows(
         reraise=True,
     )
     def fetch(url: str) -> requests.Response:
-        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        # stream=True keeps the large JSONL export files off the heap — iter_lines()
+        # then streams them. The small jobs-list call still works with .json().
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise GladlyRetryableError(f"Gladly API error (retryable): status={response.status_code}, url={url}")
@@ -122,16 +127,19 @@ def get_rows(
 
     for job in jobs:
         job_updated_at = job["updatedAt"]
-        if cutoff is not None and job_updated_at <= cutoff:
+        # Strict less-than: jobs sharing the cutoff timestamp are re-yielded rather
+        # than skipped, so a late-arriving job with the same updatedAt as the
+        # watermark isn't lost. Merge-on-id dedupes the boundary job's re-yielded rows.
+        if cutoff is not None and job_updated_at < cutoff:
             continue
 
         files = job.get("files") or []
         if config.filename not in files:
             continue
 
-        job_id = job.get("id")
-        if not job_id:
-            continue
+        # id is required per the export contract and is needed for the download
+        # URL — a missing one is a broken API response, so fail loud.
+        job_id = job["id"]
 
         response = fetch(f"{base_url}/export/jobs/{quote(job_id)}/files/{quote(config.filename)}")
         chunk: list[dict[str, Any]] = []

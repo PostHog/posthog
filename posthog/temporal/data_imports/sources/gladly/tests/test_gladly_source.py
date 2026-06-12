@@ -100,6 +100,15 @@ class TestGladlySource:
             assert error_message == "Invalid Gladly credentials"
         mock_validate.assert_called_once_with("myorg", "agent@x.com", "token")
 
+    @mock.patch("posthog.temporal.data_imports.sources.gladly.source.validate_gladly_credentials")
+    def test_validate_credentials_surfaces_invalid_organization(self, mock_validate):
+        mock_validate.side_effect = ValueError("Invalid Gladly organization: bad org")
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == "Invalid Gladly organization: bad org"
+
     def test_get_resumable_source_manager_binds_resume_config(self):
         inputs = mock.MagicMock()
         manager = self.source.get_resumable_source_manager(inputs)

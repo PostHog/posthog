@@ -111,8 +111,13 @@ Your organization is the first part of your Gladly URL — for `myorg.gladly.com
     def validate_credentials(
         self, config: GladlySourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_gladly_credentials(config.organization, config.agent_email, config.api_token):
-            return True, None
+        try:
+            if validate_gladly_credentials(config.organization, config.agent_email, config.api_token):
+                return True, None
+        except ValueError as e:
+            # A malformed organization is a distinct, actionable error — surface it
+            # instead of the generic credentials message.
+            return False, str(e)
 
         return False, "Invalid Gladly credentials"
 

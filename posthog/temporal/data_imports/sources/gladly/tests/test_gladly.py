@@ -120,9 +120,38 @@ class TestGetRows:
         ]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_skips_jobs_at_or_before_watermark(self, mock_session):
+    def test_incremental_skips_jobs_strictly_before_watermark(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _jobs_response([_job("j1", "2024-01-01T00:00:00.000Z"), _job("j2", "2024-01-02T00:00:00.000Z")]),
+            _jsonl_response([{"id": "c2"}]),
+        ]
+
+        manager = _make_manager()
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                "customers",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-01-01T12:00:00.000Z",
+            )
+        )
+
+        flat = [row for batch in batches for row in batch]
+        assert [r["id"] for r in flat] == ["c2"]
+        # Only one file download happened.
+        assert mock_session.return_value.get.call_count == 2
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_job_sharing_watermark_timestamp_is_reprocessed(self, mock_session):
+        # A late-arriving job with the same updatedAt as the watermark must not be
+        # dropped — it is re-yielded and merge-on-id dedupes any overlapping rows.
+        mock_session.return_value.get.side_effect = [
+            _jobs_response([_job("j1", "2024-01-01T00:00:00.000Z"), _job("j2", "2024-01-01T00:00:00.000Z")]),
+            _jsonl_response([{"id": "c1"}]),
             _jsonl_response([{"id": "c2"}]),
         ]
 
@@ -140,22 +169,39 @@ class TestGetRows:
             )
         )
 
-        flat = [row for batch in batches for row in batch]
-        assert [r["id"] for r in flat] == ["c2"]
-        # Only one file download happened.
-        assert mock_session.return_value.get.call_count == 2
+        assert [row["id"] for batch in batches for row in batch] == ["c1", "c2"]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resume_state_supersedes_older_watermark(self, mock_session):
         mock_session.return_value.get.side_effect = [
-            _jobs_response([_job("j1", "2024-01-01T00:00:00.000Z"), _job("j2", "2024-01-02T00:00:00.000Z")]),
+            _jobs_response(
+                [
+                    _job("j1", "2024-01-01T00:00:00.000Z"),
+                    _job("j2", "2024-01-02T00:00:00.000Z"),
+                    _job("j3", "2024-01-03T00:00:00.000Z"),
+                ]
+            ),
+            _jsonl_response([{"id": "c3"}]),
         ]
 
-        manager = _make_manager(GladlyResumeConfig(last_job_updated_at="2024-01-02T00:00:00.000Z"))
-        batches = list(get_rows("myorg", "agent@x.com", "token", "customers", mock.MagicMock(), manager))
+        # Resume cutoff (between j2 and j3) supersedes the older incremental watermark,
+        # so j1 and j2 are skipped and only j3 is processed.
+        manager = _make_manager(GladlyResumeConfig(last_job_updated_at="2024-01-02T12:00:00.000Z"))
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                "customers",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-01-01T00:00:00.000Z",
+            )
+        )
 
-        assert batches == []
-        assert mock_session.return_value.get.call_count == 1
+        assert [row["id"] for batch in batches for row in batch] == ["c3"]
+        assert mock_session.return_value.get.call_count == 2
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_jobs_missing_the_stream_file_are_skipped(self, mock_session):
