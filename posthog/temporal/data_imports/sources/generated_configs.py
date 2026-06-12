@@ -974,7 +974,8 @@ class OrttoSourceConfig(config.Config):
 
 @config.config
 class OutbrainSourceConfig(config.Config):
-    pass
+    username: str
+    password: str
 
 
 @config.config

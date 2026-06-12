@@ -130,6 +130,7 @@ the row lists both.
 | notion           | HTTP                        | requests                                                        | ✅                          |
 | omnisend         | HTTP                        | requests                                                        | ✅                          |
 | ortto            | HTTP                        | requests                                                        | ✅                          |
+| outbrain         | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
 | optimizely       | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
@@ -282,7 +283,6 @@ doesn't conflict with concurrent PRs.
 - oracle
 - oracle_ebs
 - oracle_fusion
-- outbrain
 - outreach
 - pagerduty
 - pardot
