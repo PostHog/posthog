@@ -53,7 +53,7 @@ Filter by service names. Use `apm-services-list` to discover available services.
 
 ## query.statusCodes
 
-Filter by HTTP status codes (list of integers).
+Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.
 
 ## query.orderBy
 
