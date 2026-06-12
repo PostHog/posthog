@@ -1,4 +1,7 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use serde_json::json;
 
 use tokio::sync::mpsc;
 use tonic::{Status, Streaming};
@@ -294,21 +297,21 @@ async fn resolve_one_exception(
             .symbol_resolver
             .resolve_java_exception(team_id, exception)
             .await
-            .map_err(to_unhandled)?
+            .map_err(|err| capture_unhandled(team_id, err))?
     } else if ExceptionResolver::is_dart_exception(&exception) {
         let _permit = acquire_permit(&stage).await?;
         stage
             .symbol_resolver
             .resolve_dart_exception(team_id, exception)
             .await
-            .map_err(to_unhandled)?
+            .map_err(|err| capture_unhandled(team_id, err))?
     } else {
         exception
     };
 
     FrameResolver::resolve_exception_frames(team_id, exception, &debug_images, stage)
         .await
-        .map_err(to_unhandled)
+        .map_err(|err| capture_unhandled(team_id, err))
 }
 
 async fn acquire_permit(
@@ -320,7 +323,9 @@ async fn acquire_permit(
         .map_err(|_| ResolveOneError::Overloaded)
 }
 
-fn to_unhandled(err: UnhandledError) -> ResolveOneError {
+fn capture_unhandled(team_id: i32, err: UnhandledError) -> ResolveOneError {
+    let err = Arc::new(err);
+    common_posthog::capture_exception(err.clone(), [("team_id", json!(team_id))]);
     ResolveOneError::Unhandled(err.to_string())
 }
 

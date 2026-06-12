@@ -48,13 +48,13 @@ fn get_request_id(headers: &HeaderMap) -> String {
 }
 
 pub enum ProcessEventsError {
-    Unhandled(UnhandledError),
+    Unhandled(Arc<UnhandledError>),
     Backpressure,
 }
 
 impl From<UnhandledError> for ProcessEventsError {
     fn from(value: UnhandledError) -> Self {
-        Self::Unhandled(value)
+        Self::Unhandled(Arc::new(value))
     }
 }
 
@@ -216,5 +216,19 @@ pub async fn process_events(
         }
     }
 
-    output.map_err(ProcessEventsError::from)
+    match output {
+        Ok(batch) => Ok(batch),
+        Err(err) => {
+            let err = Arc::new(err);
+            common_posthog::capture_exception(
+                err.clone(),
+                [
+                    ("request_id", json!(request_id)),
+                    ("batch_event_count", json!(batch_event_count)),
+                    ("team_count", json!(team_count)),
+                ],
+            );
+            Err(ProcessEventsError::Unhandled(err))
+        }
+    }
 }
