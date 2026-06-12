@@ -295,39 +295,190 @@ describe('alertFormLogic', () => {
     })
 
     describe('deriveHogQLAlertPreview', () => {
+        const HOGQL_CONFIG = { type: 'HogQLAlertConfig' } as const
+        const ANY_ROW_CONFIG = { type: 'HogQLAlertConfig', evaluation: 'any_row' } as const
+        const ok = (overrides: Record<string, any>): Record<string, any> => ({
+            status: 'ok',
+            mode: 'last_row',
+            columnName: null,
+            labelColumnName: null,
+            currentValue: 0,
+            previousValue: null,
+            rowCount: 1,
+            breachingRows: null,
+            rows: expect.any(Array),
+            ...overrides,
+        })
+
         it.each([
-            ['no result loaded', null, null],
-            ['result not an array', { result: 'oops' }, null],
-            ['empty result', { result: [] }, { status: 'no-rows' }],
-            ['rows are not arrays', { result: [{ a: 1 }] }, { status: 'bad-shape' }],
+            ['no result loaded', null, HOGQL_CONFIG, null, null],
+            ['result not an array', { result: 'oops' }, HOGQL_CONFIG, null, null],
+            ['empty result', { result: [] }, HOGQL_CONFIG, null, { status: 'no-rows' }],
+            ['rows are not arrays', { result: [{ a: 1 }] }, HOGQL_CONFIG, null, { status: 'bad-shape' }],
             [
-                'multiple columns from response columns',
-                { result: [[1, '2024-01-01']], columns: ['count', 'day'] },
-                { status: 'multiple-columns', columnCount: 2, columnNames: ['count', 'day'] },
+                'date column is skipped by the numeric heuristic',
+                {
+                    result: [
+                        ['2024-01-01', 5],
+                        ['2024-01-02', 7],
+                    ],
+                    columns: ['day', 'count'],
+                },
+                HOGQL_CONFIG,
+                null,
+                ok({
+                    columnName: 'count',
+                    labelColumnName: 'day',
+                    currentValue: 7,
+                    previousValue: 5,
+                    rowCount: 2,
+                    rows: [
+                        { label: '2024-01-01', value: 5, breaching: false },
+                        { label: '2024-01-02', value: 7, breaching: false },
+                    ],
+                }),
             ],
             [
-                'multiple columns inferred from row width',
-                { result: [[1, '2024-01-01']] },
-                { status: 'multiple-columns', columnCount: 2, columnNames: null },
+                'two numeric columns are ambiguous',
+                { result: [[1, 2]], columns: ['a', 'b'] },
+                HOGQL_CONFIG,
+                null,
+                { status: 'ambiguous-columns', columnNames: ['a', 'b'] },
             ],
-            ['non-numeric value', { result: [['n/a']], columns: ['count'] }, { status: 'not-numeric', value: 'n/a' }],
+            [
+                'explicit column pick',
+                { result: [[1, 2]], columns: ['a', 'b'] },
+                { type: 'HogQLAlertConfig', column: 'b' },
+                null,
+                ok({ columnName: 'b', labelColumnName: 'a', currentValue: 2 }),
+            ],
+            [
+                'explicit column missing from result',
+                { result: [[1]], columns: ['a'] },
+                { type: 'HogQLAlertConfig', column: 'gone' },
+                null,
+                { status: 'missing-column', column: 'gone', columnNames: ['a'] },
+            ],
+            [
+                'non-numeric value',
+                { result: [['n/a']], columns: ['count'] },
+                HOGQL_CONFIG,
+                null,
+                { status: 'not-numeric', value: 'n/a' },
+            ],
             [
                 'non-finite value',
                 { result: [[Infinity]], columns: ['count'] },
+                HOGQL_CONFIG,
+                null,
                 { status: 'not-numeric', value: 'Infinity' },
             ],
             [
-                'single row',
-                { result: [[5]], columns: ['count'] },
-                { status: 'ok', currentValue: 5, previousValue: null, rowCount: 1 },
+                'null bucket evaluates as 0',
+                { result: [[null]], columns: ['count'] },
+                HOGQL_CONFIG,
+                null,
+                ok({ columnName: 'count', currentValue: 0 }),
             ],
             [
                 'multiple rows expose previous value',
                 { result: [[3], [7]], columns: ['count'] },
-                { status: 'ok', currentValue: 7, previousValue: 3, rowCount: 2 },
+                HOGQL_CONFIG,
+                null,
+                ok({ columnName: 'count', currentValue: 7, previousValue: 3, rowCount: 2 }),
             ],
-        ])('%s', (_name, insightData, expected) => {
-            expect(deriveHogQLAlertPreview(insightData as Record<string, any> | null)).toEqual(expected)
+            [
+                'backtest counts breaching rows against bounds',
+                { result: [[3], [7], [12]], columns: ['count'] },
+                HOGQL_CONFIG,
+                { upper: 10 },
+                ok({ columnName: 'count', currentValue: 12, previousValue: 7, rowCount: 3, breachingRows: 1 }),
+            ],
+            [
+                'boolean value is not numeric',
+                { result: [[true]], columns: ['flag'] },
+                HOGQL_CONFIG,
+                null,
+                { status: 'not-numeric', value: 'true' },
+            ],
+            [
+                'null cell evaluates as 0 and can breach in any-row mode',
+                { result: [['US', null]], columns: ['country', 'count'] },
+                // The all-null column defeats the numeric heuristic, so pick it explicitly.
+                { type: 'HogQLAlertConfig', evaluation: 'any_row', column: 'count' },
+                { upper: -1 },
+                ok({
+                    mode: 'any_row',
+                    columnName: 'count',
+                    labelColumnName: 'country',
+                    currentValue: 0,
+                    previousValue: null,
+                    rowCount: 1,
+                    breachingRows: 1,
+                    rows: [{ label: 'US', value: 0, breaching: true }],
+                }),
+            ],
+            [
+                'any-row over the row cap',
+                { result: Array.from({ length: 1001 }, (_, i) => [i]), columns: ['count'] },
+                { type: 'HogQLAlertConfig', evaluation: 'any_row' },
+                null,
+                { status: 'too-many-rows', rowCount: 1001 },
+            ],
+            [
+                'missing explicit label column',
+                { result: [['US', 1]], columns: ['country', 'count'] },
+                { type: 'HogQLAlertConfig', evaluation: 'any_row', label_column: 'gone' },
+                null,
+                { status: 'missing-column', column: 'gone', columnNames: ['country', 'count'] },
+            ],
+            [
+                'single column rows label by row number',
+                { result: [[5], [50]], columns: ['count'] },
+                { type: 'HogQLAlertConfig', evaluation: 'any_row' },
+                { upper: 10 },
+                ok({
+                    mode: 'any_row',
+                    columnName: 'count',
+                    currentValue: 50,
+                    previousValue: 5,
+                    rowCount: 2,
+                    breachingRows: 1,
+                    rows: [
+                        { label: 'row 1', value: 5, breaching: false },
+                        { label: 'row 2', value: 50, breaching: true },
+                    ],
+                }),
+            ],
+            [
+                'any-row mode reports breaching rows',
+                {
+                    result: [
+                        ['US', 0.1],
+                        ['DE', 0.4],
+                    ],
+                    columns: ['country', 'error_rate'],
+                },
+                ANY_ROW_CONFIG,
+                { upper: 0.25 },
+                ok({
+                    mode: 'any_row',
+                    columnName: 'error_rate',
+                    labelColumnName: 'country',
+                    currentValue: 0.4,
+                    previousValue: 0.1,
+                    rowCount: 2,
+                    breachingRows: 1,
+                    rows: [
+                        { label: 'US', value: 0.1, breaching: false },
+                        { label: 'DE', value: 0.4, breaching: true },
+                    ],
+                }),
+            ],
+        ])('%s', (_name, insightData, config, bounds, expected) => {
+            expect(
+                deriveHogQLAlertPreview(insightData as Record<string, any> | null, config as any, bounds as any)
+            ).toEqual(expected)
         })
     })
 })

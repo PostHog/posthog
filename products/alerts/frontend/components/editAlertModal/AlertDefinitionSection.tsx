@@ -8,16 +8,28 @@ import {
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
+    LemonTable,
+    LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AlertFormType, HogQLAlertPreview } from 'lib/components/Alerts/alertFormLogic'
-import { AlertSimulationResult, isFunnelsAlertConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
+import {
+    AlertFormType,
+    HOGQL_ANY_ROW_MAX_ROWS,
+    HogQLAlertPreview,
+    HogQLAlertPreviewRow,
+} from 'lib/components/Alerts/alertFormLogic'
+import {
+    AlertSimulationResult,
+    isFunnelsAlertConfig,
+    isHogQLAlertConfig,
+    isTrendsAlertConfig,
+} from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { alphabet } from 'lib/utils/strings'
+import { alphabet, pluralize } from 'lib/utils/strings'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
@@ -37,6 +49,8 @@ export interface AlertDefinitionSectionProps {
     funnelStepCount: number
     /** What a SQL alert would evaluate right now; null until the insight result loads. */
     hogqlPreview: HogQLAlertPreview | null
+    /** Result column names of the SQL insight, for the column pickers. */
+    hogqlColumns: string[] | null
     anomalyDetectionEnabled: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
@@ -47,6 +61,68 @@ export interface AlertDefinitionSectionProps {
     onSetSimulationDateFrom: (value: string) => void
     onClearSimulation: () => void
     onClearSimulationOverlay: () => void
+}
+
+const PREVIEW_TABLE_MAX_ROWS = 10
+
+/** Per-row view of what the alert would evaluate: breaching rows first (any-row) or the most
+ * recent rows (last-row backtest), capped to keep the modal compact. */
+function HogQLAlertPreviewRowsTable({
+    preview,
+}: {
+    preview: Extract<HogQLAlertPreview, { status: 'ok' }>
+}): JSX.Element | null {
+    const isAnyRow = preview.mode === 'any_row'
+    // For last-row evaluation the table is only interesting as a backtest, so require a threshold.
+    if (!isAnyRow && preview.breachingRows === null) {
+        return null
+    }
+    const rows = isAnyRow
+        ? [...preview.rows].sort((a, b) => Number(b.breaching) - Number(a.breaching)).slice(0, PREVIEW_TABLE_MAX_ROWS)
+        : preview.rows.slice(-PREVIEW_TABLE_MAX_ROWS) // chronological: the most recent rows
+    const hiddenCount = preview.rows.length - rows.length
+    const showStatus = preview.breachingRows !== null
+
+    return (
+        <div className="deprecated-space-y-1">
+            <LemonTable
+                size="small"
+                dataSource={rows}
+                columns={[
+                    {
+                        title: preview.labelColumnName ?? 'Row',
+                        render: (_, row: HogQLAlertPreviewRow) => row.label,
+                    },
+                    {
+                        title: preview.columnName ?? 'Value',
+                        render: (_, row: HogQLAlertPreviewRow) =>
+                            row.value !== null ? humanFriendlyNumber(row.value) : '—',
+                    },
+                    ...(showStatus
+                        ? [
+                              {
+                                  title: '',
+                                  render: (_: unknown, row: HogQLAlertPreviewRow) =>
+                                      row.breaching ? (
+                                          <LemonTag type="warning">breach</LemonTag>
+                                      ) : (
+                                          <LemonTag type="success">ok</LemonTag>
+                                      ),
+                              },
+                          ]
+                        : []),
+                ]}
+            />
+            {hiddenCount > 0 && (
+                <div className="text-muted text-xs">+{pluralize(hiddenCount, 'more row', 'more rows')}</div>
+            )}
+        </div>
+    )
+}
+
+/** Whether the form's SQL alert config is in any-row mode (every row checked, not just the last). */
+function isHogQLAnyRow(alertForm: AlertFormType): boolean {
+    return isHogQLAlertConfig(alertForm.config) && alertForm.config.evaluation === 'any_row'
 }
 
 /** Shows what the SQL alert would evaluate right now, surfacing shape problems before the first check. */
@@ -60,43 +136,81 @@ function HogQLAlertPreviewBanner({
     if (preview === null) {
         return (
             <LemonBanner type="info">
-                This alert evaluates the last row of the SQL insight's single-column result.
+                This alert evaluates the SQL insight's result — load the insight to preview the value.
             </LemonBanner>
         )
     }
     switch (preview.status) {
         case 'no-rows':
             return (
+                <LemonBanner type="info">
+                    The query currently returns no rows — the alert evaluates this as 0, so a lower bound can still
+                    fire.
+                </LemonBanner>
+            )
+        case 'too-many-rows':
+            return (
                 <LemonBanner type="warning">
-                    The query currently returns no rows — the alert will error until it returns at least one row.
+                    Any-row alerts evaluate at most {HOGQL_ANY_ROW_MAX_ROWS} rows, but the query returns{' '}
+                    {preview.rowCount} — add a LIMIT or aggregate the query, or the alert will fail to evaluate.
                 </LemonBanner>
             )
         case 'bad-shape':
             return (
                 <LemonBanner type="warning">
-                    The query result isn't plain rows of values — the alert requires a query returning a single numeric
-                    column.
+                    The query result isn't plain rows of values — the alert requires a query returning rows with a
+                    numeric column.
                 </LemonBanner>
             )
-        case 'multiple-columns':
+        case 'ambiguous-columns':
             return (
                 <LemonBanner type="warning">
-                    This query returns {preview.columnCount} columns
-                    {preview.columnNames ? ` (${preview.columnNames.join(', ')})` : ''}. The alert evaluates a single
-                    numeric column — remove the extra columns (for example, don't select the date column) or the alert
-                    will fail to evaluate.
+                    The value column can't be inferred
+                    {preview.columnNames ? ` (columns: ${preview.columnNames.join(', ')})` : ''} — pick the column to
+                    evaluate above.
+                </LemonBanner>
+            )
+        case 'missing-column':
+            return (
+                <LemonBanner type="warning">
+                    Column "{preview.column}" is no longer returned by the query
+                    {preview.columnNames ? ` (columns: ${preview.columnNames.join(', ')})` : ''} — pick another column
+                    to evaluate.
                 </LemonBanner>
             )
         case 'not-numeric':
             return (
                 <LemonBanner type="warning">
-                    The last row's value ({preview.value}) isn't a number — the alert requires a single numeric column.
+                    The evaluated value ({preview.value}) isn't a number — pick a numeric column to evaluate.
                 </LemonBanner>
             )
         case 'ok': {
             const isRelative =
                 conditionType === AlertConditionType.RELATIVE_INCREASE ||
                 conditionType === AlertConditionType.RELATIVE_DECREASE
+            const columnLabel = preview.columnName ? (
+                <>
+                    the <strong>{preview.columnName}</strong> column
+                </>
+            ) : (
+                'the result'
+            )
+            if (preview.mode === 'any_row') {
+                const breaching = preview.breachingRows
+                return (
+                    <LemonBanner type={breaching ? 'warning' : 'info'}>
+                        The alert checks every row of {columnLabel} —{' '}
+                        {breaching !== null ? (
+                            <>
+                                currently <strong>{breaching}</strong> of {preview.rowCount} rows breach the threshold
+                                {breaching > 0 ? ', so the alert would fire on its next check' : ''}.
+                            </>
+                        ) : (
+                            <>{preview.rowCount} rows. Set a threshold to preview which rows would breach.</>
+                        )}
+                    </LemonBanner>
+                )
+            }
             if (isRelative && preview.rowCount < 2) {
                 return (
                     <LemonBanner type="warning">
@@ -106,7 +220,7 @@ function HogQLAlertPreviewBanner({
             }
             return (
                 <LemonBanner type="info">
-                    The alert evaluates the last row of the result — currently{' '}
+                    The alert evaluates the last row of {columnLabel} — currently{' '}
                     <strong>{humanFriendlyNumber(preview.currentValue)}</strong>
                     {isRelative && preview.previousValue !== null ? (
                         <>
@@ -114,8 +228,15 @@ function HogQLAlertPreviewBanner({
                             vs <strong>{humanFriendlyNumber(preview.previousValue)}</strong> in the previous row
                         </>
                     ) : null}{' '}
-                    ({preview.rowCount} row{preview.rowCount === 1 ? '' : 's'}). Order the query chronologically so the
-                    last row is the most recent value.
+                    ({pluralize(preview.rowCount, 'row')}). Order the query chronologically so the last row is the most
+                    recent value.
+                    {!isRelative && preview.breachingRows !== null ? (
+                        <>
+                            {' '}
+                            With the current threshold, <strong>{preview.breachingRows}</strong> of {preview.rowCount}{' '}
+                            rows would have breached.
+                        </>
+                    ) : null}
                 </LemonBanner>
             )
         }
@@ -132,6 +253,7 @@ export function AlertDefinitionSection({
     formulaNodes,
     funnelStepCount,
     hogqlPreview,
+    hogqlColumns,
     anomalyDetectionEnabled,
     investigationAgentEnabled,
     simulationResult,
@@ -147,7 +269,10 @@ export function AlertDefinitionSection({
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
     const relativeConditionDisabledReason =
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
-        (isFunnelAlert && 'Funnel alerts only support absolute value conditions')
+        (isFunnelAlert && 'Funnel alerts only support absolute value conditions') ||
+        (isHogQLAnyRow(alertForm) && 'Any-row SQL alerts only support absolute value conditions')
+    const hogqlHasMultipleColumns = (hogqlColumns?.length ?? 0) > 1
+    const hogqlColumnOptions = (hogqlColumns ?? []).map((column) => ({ label: column, value: column }))
     return (
         <>
             {isBreakdownValid && (
@@ -218,7 +343,82 @@ export function AlertDefinitionSection({
                     </Group>
                 </div>
             ) : (
-                <HogQLAlertPreviewBanner preview={hogqlPreview} conditionType={alertForm.condition?.type} />
+                <>
+                    <div className="flex gap-3 items-center">
+                        <div>When</div>
+                        <Group name={['config']}>
+                            <LemonField name="evaluation" className="flex-auto">
+                                {({ value, onChange }) => (
+                                    <LemonSelect
+                                        fullWidth
+                                        data-attr="alertForm-hogql-evaluation"
+                                        value={value ?? 'last_row'}
+                                        onChange={(newValue) => {
+                                            onChange(newValue)
+                                            // Any-row mode checks unrelated rows — a relative condition is meaningless.
+                                            if (newValue === 'any_row') {
+                                                onSetAlertFormValue('condition', {
+                                                    type: AlertConditionType.ABSOLUTE_VALUE,
+                                                })
+                                            }
+                                        }}
+                                        options={[
+                                            {
+                                                label: 'the latest value (last row)',
+                                                value: 'last_row',
+                                                tooltip:
+                                                    'The query is expected to be ordered chronologically; the last row is the current value.',
+                                            },
+                                            {
+                                                label: 'any row',
+                                                value: 'any_row',
+                                                tooltip:
+                                                    'Every row is checked and the alert fires if any value breaches the threshold — e.g. one row per country.',
+                                            },
+                                        ]}
+                                    />
+                                )}
+                            </LemonField>
+                            {hogqlHasMultipleColumns && (
+                                <LemonField name="column" className="flex-auto">
+                                    {({ value, onChange }) => (
+                                        <LemonSelect
+                                            fullWidth
+                                            allowClear
+                                            data-attr="alertForm-hogql-column"
+                                            placeholder="auto (single numeric column)"
+                                            value={value ?? null}
+                                            onChange={onChange}
+                                            options={hogqlColumnOptions}
+                                        />
+                                    )}
+                                </LemonField>
+                            )}
+                        </Group>
+                    </div>
+                    {isHogQLAnyRow(alertForm) && hogqlHasMultipleColumns && (
+                        <div className="flex gap-3 items-center">
+                            <div>Labeled by</div>
+                            <Group name={['config']}>
+                                <LemonField name="label_column" className="flex-auto">
+                                    {({ value, onChange }) => (
+                                        <LemonSelect
+                                            fullWidth
+                                            allowClear
+                                            data-attr="alertForm-hogql-label-column"
+                                            placeholder="auto (first other column)"
+                                            value={value ?? null}
+                                            onChange={onChange}
+                                            options={hogqlColumnOptions}
+                                        />
+                                    )}
+                                </LemonField>
+                            </Group>
+                        </div>
+                    )}
+                    <HogQLAlertPreviewBanner preview={hogqlPreview} conditionType={alertForm.condition?.type} />
+                    {hogqlPreview?.status === 'ok' && <HogQLAlertPreviewRowsTable preview={hogqlPreview} />}
+                </>
             )}
 
             {anomalyDetectionEnabled && (

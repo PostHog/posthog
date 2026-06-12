@@ -37,6 +37,7 @@ import {
     AlertType,
     AlertTypeWrite,
     AnomalyPoint,
+    isHogQLAlertConfig,
     isTrendsAlertConfig,
 } from './types'
 
@@ -75,15 +76,73 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
     )
 }
 
-/** What a SQL alert would evaluate right now, mirroring the backend extractor's shape checks. */
+/** Mirror of the backend's any-row cap: more rows than this fails loud instead of skipping rows. */
+export const HOGQL_ANY_ROW_MAX_ROWS = 1000
+
+/** One result row as the alert would read it, for the configure-time preview table. */
+export interface HogQLAlertPreviewRow {
+    /** Label-column value, falling back to the row number — mirrors the backend's row labeling. */
+    label: string
+    value: number | null
+    breaching: boolean
+}
+
+/** What a SQL alert would evaluate right now, mirroring the backend extractor's column
+ * resolution and shape checks so problems surface at configure time, not at the first check. */
 export type HogQLAlertPreview =
     | { status: 'no-rows' }
     | { status: 'bad-shape' }
-    | { status: 'multiple-columns'; columnCount: number; columnNames: string[] | null }
+    | { status: 'too-many-rows'; rowCount: number }
+    | { status: 'ambiguous-columns'; columnNames: string[] | null }
+    | { status: 'missing-column'; column: string; columnNames: string[] | null }
     | { status: 'not-numeric'; value: string }
-    | { status: 'ok'; currentValue: number; previousValue: number | null; rowCount: number }
+    | {
+          status: 'ok'
+          mode: 'last_row' | 'any_row'
+          /** Resolved evaluated column name; null when the result has no column metadata. */
+          columnName: string | null
+          /** Resolved label column name; null when rows are labeled by row number. */
+          labelColumnName: string | null
+          currentValue: number
+          previousValue: number | null
+          rowCount: number
+          /** Rows whose value breaches the current absolute bounds; null when not computable. */
+          breachingRows: number | null
+          rows: HogQLAlertPreviewRow[]
+      }
 
-export function deriveHogQLAlertPreview(insightData: Record<string, any> | null): HogQLAlertPreview | null {
+const _cellValue = (row: unknown, index: number): number | null => {
+    if (!Array.isArray(row) || index >= row.length) {
+        return null
+    }
+    const cell = row[index]
+    if (cell === null) {
+        return 0 // None buckets evaluate as 0, matching the backend
+    }
+    return typeof cell === 'number' && Number.isFinite(cell) ? cell : null
+}
+
+/** Mirror of the backend heuristic: a column is numeric by its most recent non-null value. */
+const _columnIsNumeric = (rows: unknown[], index: number): boolean => {
+    for (let i = rows.length - 1; i >= 0; i--) {
+        const row = rows[i]
+        if (!Array.isArray(row) || index >= row.length) {
+            return false
+        }
+        const cell = row[index]
+        if (cell === null) {
+            continue
+        }
+        return typeof cell === 'number' && Number.isFinite(cell)
+    }
+    return false
+}
+
+export function deriveHogQLAlertPreview(
+    insightData: Record<string, any> | null,
+    config: AlertConfig | null | undefined,
+    bounds: InsightsThresholdBounds | null | undefined
+): HogQLAlertPreview | null {
     const rows = insightData?.result
     if (!Array.isArray(rows)) {
         return null // No result loaded yet — fall back to the static hint
@@ -95,21 +154,79 @@ export function deriveHogQLAlertPreview(insightData: Record<string, any> | null)
     if (!Array.isArray(lastRow)) {
         return { status: 'bad-shape' }
     }
+
+    const hogqlConfig = isHogQLAlertConfig(config) ? config : null
+    const mode = hogqlConfig?.evaluation ?? 'last_row'
+    if (mode === 'any_row' && rows.length > HOGQL_ANY_ROW_MAX_ROWS) {
+        return { status: 'too-many-rows', rowCount: rows.length }
+    }
     const columnNames = Array.isArray(insightData?.columns) ? insightData.columns.map(String) : null
-    const columnCount = columnNames?.length ?? lastRow.length
-    if (columnCount > 1) {
-        return { status: 'multiple-columns', columnCount, columnNames }
+
+    // Resolve the evaluated column the way the backend does: explicit pick, single column,
+    // or the single numeric column — anything else needs the user to choose.
+    let valueIndex: number
+    if (hogqlConfig?.column != null) {
+        const index = columnNames?.indexOf(hogqlConfig.column) ?? -1
+        if (index < 0) {
+            return { status: 'missing-column', column: hogqlConfig.column, columnNames }
+        }
+        valueIndex = index
+    } else if (lastRow.length === 1) {
+        valueIndex = 0
+    } else {
+        const numericIndexes = Array.from({ length: lastRow.length }, (_, i) => i).filter((i) =>
+            _columnIsNumeric(rows, i)
+        )
+        if (numericIndexes.length !== 1) {
+            return { status: 'ambiguous-columns', columnNames }
+        }
+        valueIndex = numericIndexes[0]
     }
-    const currentValue = lastRow[0]
-    if (typeof currentValue !== 'number' || !Number.isFinite(currentValue)) {
-        return { status: 'not-numeric', value: String(currentValue) }
+
+    const currentValue = _cellValue(lastRow, valueIndex)
+    if (currentValue === null) {
+        return { status: 'not-numeric', value: String(lastRow[valueIndex]) }
     }
-    const previousRow = rows.length > 1 ? rows[rows.length - 2] : null
-    const previousValue =
-        Array.isArray(previousRow) && typeof previousRow[0] === 'number' && Number.isFinite(previousRow[0])
-            ? previousRow[0]
-            : null
-    return { status: 'ok', currentValue, previousValue, rowCount: rows.length }
+
+    // Label column: explicit pick, else the first non-evaluated column (e.g. the GROUP BY key).
+    let labelIndex: number | null = null
+    if (hogqlConfig?.label_column != null) {
+        const index = columnNames?.indexOf(hogqlConfig.label_column) ?? -1
+        if (index < 0) {
+            return { status: 'missing-column', column: hogqlConfig.label_column, columnNames }
+        }
+        labelIndex = index
+    } else if (lastRow.length > 1) {
+        labelIndex = Array.from({ length: lastRow.length }, (_, i) => i).find((i) => i !== valueIndex) ?? null
+    }
+
+    // Per-row view (and backtest): with absolute bounds, mark which rows would breach right now.
+    const hasBounds = !!bounds && (bounds.lower != null || bounds.upper != null)
+    const previewRows: HogQLAlertPreviewRow[] = rows.map((row, i) => {
+        const value = _cellValue(row, valueIndex)
+        const labelCell = labelIndex !== null && Array.isArray(row) && labelIndex < row.length ? row[labelIndex] : null
+        return {
+            label: labelCell != null ? String(labelCell) : `row ${i + 1}`,
+            value,
+            breaching:
+                hasBounds &&
+                value !== null &&
+                ((bounds.lower != null && value < bounds.lower) || (bounds.upper != null && value > bounds.upper)),
+        }
+    })
+
+    const previousValue = rows.length > 1 ? _cellValue(rows[rows.length - 2], valueIndex) : null
+    return {
+        status: 'ok',
+        mode,
+        columnName: columnNames?.[valueIndex] ?? null,
+        labelColumnName: labelIndex !== null ? (columnNames?.[labelIndex] ?? null) : null,
+        currentValue,
+        previousValue,
+        rowCount: rows.length,
+        breachingRows: hasBounds ? previewRows.filter((row) => row.breaching).length : null,
+        rows: previewRows,
+    }
 }
 
 export interface AlertFormLogicProps {
@@ -427,9 +544,27 @@ export const alertFormLogic = kea<alertFormLogicType>([
             },
         ],
         hogqlAlertPreview: [
+            // Inputs are narrowed to the fields the preview reads, so name/interval/etc. keystrokes
+            // don't re-derive it (the per-row map can cover up to 1000 rows).
+            (s) => [
+                s.insightData,
+                (state, logicProps) => s.alertForm(state, logicProps)?.config,
+                (state, logicProps) => s.alertForm(state, logicProps)?.threshold?.configuration?.bounds,
+            ],
+            (
+                insightData: Record<string, any> | null,
+                config: AlertConfig | null | undefined,
+                bounds: InsightsThresholdBounds | null | undefined
+            ): HogQLAlertPreview | null =>
+                props.insightAlertKind === 'hogql' ? deriveHogQLAlertPreview(insightData, config, bounds) : null,
+        ],
+        /** Result column names of the SQL insight, for the column pickers. */
+        hogqlResultColumns: [
             (s) => [s.insightData],
-            (insightData): HogQLAlertPreview | null =>
-                props.insightAlertKind === 'hogql' ? deriveHogQLAlertPreview(insightData) : null,
+            (insightData): string[] | null =>
+                props.insightAlertKind === 'hogql' && Array.isArray(insightData?.columns)
+                    ? insightData.columns.map(String)
+                    : null,
         ],
     })),
 
