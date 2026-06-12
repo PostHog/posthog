@@ -1240,19 +1240,17 @@ class TestPrinter(BaseTest):
             "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
         )
 
-    def test_to_bool_is_null_safe(self):
-        # toBool must not hard-fail on non-boolean input (e.g. a UUID-shaped string).
-        # It routes through accurateCastOrNull so unparseable values become NULL instead
+    @parameterized.expand(
+        [
+            ("toBool", "toBool(uuid)", "accurateCastOrNull(events.uuid, %(hogql_val_0)s)"),
+            ("every", "every(uuid)", "accurateCastOrNull(min(events.uuid), 'Bool')"),
+        ]
+    )
+    def test_to_bool_is_null_safe(self, _name: str, expr: str, expected: str) -> None:
+        # Boolean casts must not hard-fail on non-boolean input (e.g. a UUID-shaped string).
+        # They route through accurateCastOrNull so unparseable values become NULL instead
         # of raising "Cannot parse boolean value here" and failing the whole query.
-        self.assertEqual(
-            self._expr("toBool(uuid)"),
-            "accurateCastOrNull(events.uuid, %(hogql_val_0)s)",
-        )
-        # every() aggregates via the same null-safe cast rather than bare toBool(min(...)).
-        self.assertEqual(
-            self._expr("every(uuid)"),
-            "accurateCastOrNull(min(events.uuid), 'Bool')",
-        )
+        self.assertEqual(self._expr(expr), expected)
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
