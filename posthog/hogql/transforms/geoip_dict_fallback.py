@@ -19,6 +19,12 @@ Runs between logical property lowering and ClickHouse property resolution: each 
 conditional over three property reads (the property itself, `$geoip_country_code`, `$ip`), and the resolution pass
 then routes each read through its materialized column where one exists — so on cloud the whole fallback runs off
 `mat_*` columns plus an in-RAM dictionary lookup, without touching the `properties` blob.
+
+Known limitation: property-level access control applies to the fallback's source reads like to any other read, so for
+a user with `$ip` (or `$geoip_country_code`) restricted, those reads scrub to NULL, the dictionary lookup misses, and
+the blanked values stay blank — even though the derived city/postal is itself readable to them. Accepted deliberately:
+making that case recover would mean exempting the internal reads from the restriction boundary, which is not worth it
+for a temporary fix. Nothing leaks and nothing errors; recovery just quietly misses for those users.
 """
 
 from datetime import timedelta
