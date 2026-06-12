@@ -226,6 +226,8 @@ from posthog.schema_enums import (
     SignalSourceProduct as SignalSourceProduct,
     SignalSourceType as SignalSourceType,
     SimpleIntervalType as SimpleIntervalType,
+    SlackIntegrationScope as SlackIntegrationScope,
+    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
     SnapchatAdsConversionValueFields as SnapchatAdsConversionValueFields,
@@ -2588,29 +2590,6 @@ class SimilarIssue(BaseModel):
     library: str | None = None
     name: str
     status: str
-
-
-class SlackIntegrationScope(StrEnum):
-    APP_MENTIONS_READ = "app_mentions:read"
-    CHANNELS_HISTORY = "channels:history"
-    CHANNELS_READ = "channels:read"
-    CHAT_WRITE = "chat:write"
-    CHAT_WRITE_CUSTOMIZE = "chat:write.customize"
-    GROUPS_HISTORY = "groups:history"
-    GROUPS_READ = "groups:read"
-    LINKS_READ = "links:read"
-    LINKS_WRITE = "links:write"
-    REACTIONS_READ = "reactions:read"
-    REACTIONS_WRITE = "reactions:write"
-    TEAM_READ = "team:read"
-    USERS_READ = "users:read"
-    USERS_READ_EMAIL = "users:read.email"
-
-
-class SlackIntegrationScopeInReview(StrEnum):
-    ASSISTANT_WRITE = "assistant:write"
-    IM_HISTORY = "im:history"
-    MPIM_READ = "mpim:read"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
