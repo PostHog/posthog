@@ -78,8 +78,18 @@ export class StickinessInsight extends ChartInsightBase {
     }
 
     async selectComparison(text: string): Promise<void> {
-        await this.comparisonButton.click()
-        await this.page.getByText(text).click()
+        await this.page.keyboard.press('Escape')
+        // On narrow viewports the button shows a short label ("Previous period" /
+        // "No comparison"), so verify with a substring common to both variants.
+        const appliedLabel = text.startsWith('No comparison') ? /no comparison/i : /previous period/i
+        await expect(async () => {
+            await this.comparisonButton.click({ timeout: 500 })
+            await this.page.getByRole('menuitem', { name: text }).click({ timeout: 500 })
+            // Verify the selection actually applied — an edit-mode remount can swallow
+            // the click, and the resulting query update is debounced by 500ms. Retry
+            // the whole open+click if the button label doesn't change.
+            await expect(this.comparisonButton).toContainText(appliedLabel, { timeout: 2000 })
+        }).toPass({ timeout: 15000 })
         await this.waitForChart()
     }
 
