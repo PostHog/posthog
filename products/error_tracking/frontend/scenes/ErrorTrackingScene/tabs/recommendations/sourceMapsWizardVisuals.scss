@@ -1,0 +1,52 @@
+// Hedgehog "casting a spell" wobble — played by remounting the <img> element
+// with a fresh key, so the animation runs from the start on every copy click.
+// Mirrors the onboarding WizardCommandBlock effect.
+
+.SourceMapsWizard__hogCast {
+    animation: SourceMapsWizard-hogCast 500ms ease-out;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes SourceMapsWizard-hogCast {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    20% {
+        transform: rotate(-8deg);
+    }
+
+    50% {
+        transform: rotate(5deg);
+    }
+
+    80% {
+        transform: rotate(-2deg);
+    }
+
+    100% {
+        transform: rotate(0deg);
+    }
+}
+
+// Green "copied" overlay that fades out — same feedback CommandBlock gives,
+// minus its scale bounce.
+.SourceMapsWizard__flash {
+    position: absolute;
+    inset: 0;
+    color: #36c46f;
+    pointer-events: none;
+    animation: SourceMapsWizard-flash 1500ms ease-out forwards;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes SourceMapsWizard-flash {
+    0%,
+    50% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+    }
+}
