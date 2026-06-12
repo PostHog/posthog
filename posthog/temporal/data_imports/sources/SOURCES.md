@@ -113,6 +113,7 @@ the row lists both.
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
 | pandadoc         | HTTP                        | requests                                                        | ✅                          |
 | pendo            | HTTP                        | requests                                                        | ✅                          |
+| personio         | HTTP                        | requests                                                        | ✅                          |
 | pingdom          | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads    | HTTP                        | requests                                                        | ✅                          |
 | pipedrive        | HTTP                        | requests                                                        | ✅                          |
@@ -278,7 +279,6 @@ doesn't conflict with concurrent PRs.
 - paylocity
 - paypal
 - pendo
-- personio
 - plaid
 - planetscale
 - qualtrics
