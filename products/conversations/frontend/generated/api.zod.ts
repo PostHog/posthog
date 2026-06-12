@@ -66,6 +66,9 @@ export const ConversationsAppendMessageCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer for appending a message to an existing conversation without triggering AI processing.')
 
+/**
+ * Cancel the conversation's in-progress run (sandbox or LangGraph).
+ */
 export const ConversationsCancelPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
 /**
@@ -92,6 +95,10 @@ export const ConversationsPermissionCreateBody = /* @__PURE__ */ zod
             .max(conversationsPermissionCreateBodyCustomInputMax)
             .optional()
             .describe("Optional feedback text sent with a 'reject_with_feedback' decision."),
+        traceId: zod
+            .uuid()
+            .optional()
+            .describe('Trace id the client associated with the run, for PERMISSION_RESPONDED telemetry correlation.'),
     })
     .describe('Approval reply for a sandbox-runtime `permission_request`.')
 
