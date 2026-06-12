@@ -1116,7 +1116,9 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
     monkeypatch.setattr(
         ducklake_module.posthoganalytics,
         "feature_enabled",
-        lambda *args, **kwargs: True,
+        # Key-aware: the gate checks the duckgres-batch-sink exclusion first,
+        # and a catch-all True would wrongly trip it.
+        lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
     monkeypatch.setattr(ducklake_module, "copy_data_imports_to_ducklake_activity", copy_stub)
@@ -1206,7 +1208,9 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
     monkeypatch.setattr(
         ducklake_module.posthoganalytics,
         "feature_enabled",
-        lambda *args, **kwargs: True,
+        # Key-aware: the gate checks the duckgres-batch-sink exclusion first,
+        # and a catch-all True would wrongly trip it.
+        lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
     monkeypatch.setattr(ducklake_module, "copy_data_imports_to_ducklake_activity", copy_stub)
