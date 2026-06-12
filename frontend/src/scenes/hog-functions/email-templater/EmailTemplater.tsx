@@ -205,7 +205,9 @@ function DestinationEmailTemplaterForm({
                                 className={clsx(
                                     activeContentTab === 'visual'
                                         ? 'flex flex-col flex-1'
-                                        : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                                        : // invisible releases the hidden editor's raster backing while
+                                          // visibility (unlike display:none) preserves its layout state
+                                          'absolute inset-0 -z-10 opacity-0 pointer-events-none invisible'
                                 )}
                             >
                                 <EmailEditor
@@ -577,7 +579,9 @@ function NativeEmailTemplaterForm({
                                 className={clsx(
                                     activeContentTab === 'visual'
                                         ? 'flex flex-col flex-1'
-                                        : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                                        : // invisible releases the hidden editor's raster backing while
+                                          // visibility (unlike display:none) preserves its layout state
+                                          'absolute inset-0 -z-10 opacity-0 pointer-events-none invisible'
                                 )}
                             >
                                 <EmailEditor

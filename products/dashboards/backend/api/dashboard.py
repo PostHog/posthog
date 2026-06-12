@@ -87,6 +87,7 @@ from products.dashboards.backend.widget_access import (
     get_widget_api_scope_error,
     get_widget_product_access_error,
 )
+from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
 from products.dashboards.backend.widget_create import prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import (
@@ -105,6 +106,7 @@ from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
     InsightSerializer,
     InsightViewSet,
+    _get_insight_type,
 )
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -956,6 +958,19 @@ def _check_dashboard_widget_count_limit(*, dashboard: Dashboard, user: User) -> 
     )
 
 
+def _tile_type_and_widget_type(tile: DashboardTile) -> tuple[str, str | None]:
+    if tile.text_id is not None:
+        return "text", None
+    if tile.button_tile_id is not None:
+        return "button", None
+    if tile.widget_id is not None:
+        widget_type = tile.widget.widget_type if tile.widget is not None else None
+        return "widget", widget_type
+    if tile.insight_id is not None:
+        return "insight", None
+    raise ValueError("Dashboard tile has no related content for analytics")
+
+
 def _report_dashboard_tile_added(
     *,
     user: User,
@@ -988,6 +1003,10 @@ def _report_dashboard_tile_added(
         "widget_type": widget_type,
         "dashboard_id": dashboard.id,
     }
+    feature_enabled = get_widget_feature_enabled(widget_type, dashboard.team)
+    if feature_enabled is not None:
+        # False means the user lands on the widget's setup/custom view rather than real data.
+        widget_properties["feature_enabled"] = feature_enabled
     if tile is not None:
         widget_properties["tile_id"] = tile.id
         if tile.widget_id is not None:
@@ -996,6 +1015,51 @@ def _report_dashboard_tile_added(
     report_user_action(
         user,
         "dashboard widget added",
+        widget_properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+
+def _report_dashboard_tile_removed(
+    *,
+    user: User,
+    dashboard: Dashboard,
+    tile: DashboardTile,
+    request: Request | None = None,
+) -> None:
+    tile_type, widget_type = _tile_type_and_widget_type(tile)
+    insight_type = _get_insight_type(tile.insight) if tile.insight is not None else None
+    properties: dict[str, Any] = {
+        "tile_type": tile_type,
+        "insight_type": insight_type,
+        "dashboard_id": dashboard.id,
+    }
+    if widget_type is not None:
+        properties["widget_type"] = widget_type
+
+    report_user_action(
+        user,
+        "dashboard tile removed",
+        properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+    if widget_type is None:
+        return
+
+    widget_properties: dict[str, Any] = {
+        "widget_type": widget_type,
+        "dashboard_id": dashboard.id,
+        "tile_id": tile.id,
+    }
+    if tile.widget_id is not None:
+        widget_properties["widget_id"] = str(tile.widget_id)
+
+    report_user_action(
+        user,
+        "dashboard widget removed",
         widget_properties,
         team=dashboard.team,
         request=request,
@@ -1489,16 +1553,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @staticmethod
     def _tile_added_analytics_fields(tile: DashboardTile) -> tuple[str, str | None]:
-        if tile.text_id is not None:
-            return "text", None
-        if tile.button_tile_id is not None:
-            return "button", None
-        if tile.widget_id is not None:
-            widget_type = tile.widget.widget_type if tile.widget is not None else None
-            return "widget", widget_type
-        if tile.insight_id is not None:
-            return "insight", None
-        raise ValueError("Dashboard tile has no related content for analytics")
+        return _tile_type_and_widget_type(tile)
 
     @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[DashboardTile | None, bool]:
@@ -2393,6 +2448,13 @@ class DashboardsViewSet(
                     [remaining_tile for remaining_tile in remaining if remaining_tile.id in changed_ids],
                     ["layouts"],
                 )
+
+        _report_dashboard_tile_removed(
+            user=cast(User, request.user),
+            dashboard=dashboard,
+            tile=tile,
+            request=request,
+        )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import type { WidgetAvailabilityConfig } from '../../widget_types/widgetAvailability'
@@ -8,11 +10,17 @@ import { WidgetCardProductIntroduction } from '../WidgetCardProductIntroduction/
 type WidgetAvailabilitySetupPromptProps = {
     availability: WidgetAvailabilityConfig
     className?: string
+    widgetType?: string
+    widgetId?: string
+    dashboardId?: number | null
 }
 
 export function WidgetAvailabilitySetupPrompt({
     availability,
     className,
+    widgetType,
+    widgetId,
+    dashboardId,
 }: WidgetAvailabilitySetupPromptProps): JSX.Element {
     const presentation = WIDGET_AVAILABILITY_PRESENTATION[availability.requirement]
 
@@ -30,7 +38,18 @@ export function WidgetAvailabilitySetupPrompt({
                 docsURL={availability.docsHref}
                 actionElementOverride={
                     <div className="flex flex-col items-center gap-4">
-                        <LemonButton type="primary" to={presentation.settingsUrl}>
+                        <LemonButton
+                            type="primary"
+                            to={presentation.settingsUrl}
+                            onClick={() => {
+                                posthog.capture('dashboard widget cross product activated', {
+                                    widget_type: widgetType,
+                                    widget_id: widgetId,
+                                    dashboard_id: dashboardId,
+                                    cta: availability.requirement,
+                                })
+                            }}
+                        >
                             {availability.setupActionLabel}
                         </LemonButton>
                     </div>

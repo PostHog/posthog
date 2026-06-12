@@ -2001,7 +2001,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             idempotency_key=ANY,
         )
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight", wraps=calculate_for_query_based_insight)
+    @patch(
+        "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
+        wraps=calculate_for_query_based_insight,
+    )
     def test_hourly_relative_increase_alert_respects_latest_data(
         self, mock_calculate: MagicMock, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
@@ -2071,7 +2074,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
             mock_send_breaches.assert_not_called()
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight", wraps=calculate_for_query_based_insight)
+    @patch(
+        "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
+        wraps=calculate_for_query_based_insight,
+    )
     def test_hourly_relative_decrease_alert_respects_latest_data(
         self, mock_calculate: MagicMock, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
