@@ -102,6 +102,7 @@ from products.replay_vision.backend.temporal.types import (
 )
 from products.replay_vision.backend.temporal.workflow import _extract_kind_for_type, _root_cause_message
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.signals.backend.models import SignalSourceConfig
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
@@ -1302,6 +1303,8 @@ async def _run_workflow(inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workf
         patch("temporalio.workflow.info", return_value=workflow_info),
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
+        # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
+        patch("temporalio.workflow.logger"),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
@@ -1344,6 +1347,8 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     assert emit_input.model_output == model_output
     cleanup_input = next(arg for fn, arg in mocks.activity_calls if fn is cleanup_gemini_file_activity)
     assert cleanup_input.gemini_file_name == "files/x"
+    succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
+    assert succeeded.scanner_result.signals_count == 0
 
 
 @pytest.mark.asyncio
@@ -2055,13 +2060,43 @@ class TestEmitObservationSignalActivity:
             assert emit_observation_signal_activity(inputs) == 0
         mock_emit.assert_not_awaited()
 
-    def test_fails_soft_when_the_facade_raises(self) -> None:
+    @pytest.mark.parametrize(
+        "error",
+        [RuntimeError("signals down"), ValueError("description exceeds the token limit")],
+        ids=["facade_down", "description_over_token_cap"],
+    )
+    def test_fails_soft_when_the_facade_raises(self, error: Exception) -> None:
         scanner = _make_scanner(emits_signals=True)
         observation = _make_observation(scanner)
 
-        with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock, side_effect=RuntimeError("signals down")) as mock_emit:
+        with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock, side_effect=error) as mock_emit:
             assert emit_observation_signal_activity(self._inputs(observation)) == 0
         mock_emit.assert_awaited_once()
+
+    def test_self_heals_a_missing_source_config(self) -> None:
+        scanner = _make_scanner(emits_signals=True)
+        observation = _make_observation(scanner)
+        assert not SignalSourceConfig.objects.filter(team=scanner.team).exists()
+
+        with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
+            assert emit_observation_signal_activity(self._inputs(observation)) == 1
+
+        mock_emit.assert_awaited_once()
+        config = SignalSourceConfig.objects.get(
+            team=scanner.team, source_product="replay_vision", source_type="scanner_finding"
+        )
+        assert config.enabled
+
+    def test_skips_when_the_source_is_explicitly_disabled(self) -> None:
+        scanner = _make_scanner(emits_signals=True)
+        observation = _make_observation(scanner)
+        SignalSourceConfig.objects.create(
+            team=scanner.team, source_product="replay_vision", source_type="scanner_finding", enabled=False
+        )
+
+        with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
+            assert emit_observation_signal_activity(self._inputs(observation)) == 0
+        mock_emit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -2098,3 +2133,32 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
 
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 1
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() -> None:
+    new_observation_id = uuid.uuid4()
+    model_output = MonitorOutput(verdict="yes", reasoning="user hit the broken CTA", confidence=0.9)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(
+                model_output=model_output,
+                signal=SignalFinding(description="Checkout CTA is broken on /cart", confidence=0.8),
+            ),
+        },
+        activity_errors={emit_observation_signal_activity: TimeoutError("start-to-close exceeded")},
+    )
+
+    await _run_workflow(_build_inputs(session_id="sess-sig-fail", team_id=99), mocks)
+
+    called = [fn for fn, _ in mocks.activity_calls]
+    assert mark_observation_failed_activity not in called
+    succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
+    assert succeeded.scanner_result.signals_count == 0

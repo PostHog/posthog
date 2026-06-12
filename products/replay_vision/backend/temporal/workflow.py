@@ -224,17 +224,22 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
             signals_count = 0
             if call_output.signal is not None:
-                # The activity fails soft (returns 0 on any error), so there's nothing to retry.
-                signals_count = await wf.execute_activity(
-                    emit_observation_signal_activity,
-                    EmitObservationSignalInputs(
-                        team_id=inputs.team_id,
-                        observation_id=observation_id,
-                        signal=call_output.signal,
-                    ),
-                    start_to_close_timeout=dt.timedelta(seconds=30),
-                    retry_policy=common.RetryPolicy(maximum_attempts=1),
-                )
+                # The activity fails soft (returns 0 on any error), so there's nothing to retry. The local
+                # catch covers Temporal-level failures (timeout, worker loss) — emission is advisory and
+                # must never demote an otherwise-successful observation to FAILED.
+                try:
+                    signals_count = await wf.execute_activity(
+                        emit_observation_signal_activity,
+                        EmitObservationSignalInputs(
+                            team_id=inputs.team_id,
+                            observation_id=observation_id,
+                            signal=call_output.signal,
+                        ),
+                        start_to_close_timeout=dt.timedelta(seconds=30),
+                        retry_policy=common.RetryPolicy(maximum_attempts=1),
+                    )
+                except Exception:
+                    wf.logger.exception("Signal emission activity failed for observation %s", observation_id)
             await wf.execute_activity(
                 emit_observation_event_activity,
                 EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),

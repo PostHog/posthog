@@ -7,7 +7,7 @@ from products.replay_vision.backend.temporal.constants import SIGNALS_SOURCE_PRO
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.scanners.base import MIN_SIGNAL_CONFIDENCE
 from products.replay_vision.backend.temporal.types import EmitObservationSignalInputs, ScannerSnapshot
-from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.facade.api import emit_signal, ensure_source_enabled
 
 logger = structlog.get_logger(__name__)
 
@@ -33,6 +33,14 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
         # Defense in depth: the snapshot gates emission even if a finding slipped through the schema.
         if not snapshot.emits_signals:
             return 0
+        # Self-heals scanners that opted in before source registration existed; an explicit disable
+        # in Signals settings wins, and then the facade would silently drop the signal anyway.
+        if not ensure_source_enabled(
+            team=observation.team, source_product=SIGNALS_SOURCE_PRODUCT, source_type=SIGNALS_SOURCE_TYPE
+        ):
+            return 0
+        # `scanner_name`/`scanner_type` come from the frozen snapshot (what actually ran);
+        # `scanner_id`/`session_id` are immutable on the row.
         async_to_sync(emit_signal)(
             team=observation.team,
             source_product=SIGNALS_SOURCE_PRODUCT,
