@@ -103,7 +103,7 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.REPLAY:
             return replayActivityDescriber
         case ActivityScope.HEATMAP:
-            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
+            return defaultDescriber
         case ActivityScope.EXPERIMENT:
             return experimentActivityDescriber
         case ActivityScope.TAG:
@@ -124,6 +124,6 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.SIGNAL_SCOUT_CONFIG:
             return signalScoutConfigActivityDescriber
         default:
-            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
+            return defaultDescriber
     }
 }

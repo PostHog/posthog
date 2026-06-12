@@ -70,6 +70,7 @@ export const activityLogTransforms = {
 }
 
 let loadedDescriberFor: ((logItem?: ActivityLogItem) => Describer | undefined) | null = null
+let describersImport: Promise<void> | null = null
 
 /**
  * The describer registry statically imports every product's describer — a large graph
@@ -77,11 +78,20 @@ let loadedDescriberFor: ((logItem?: ActivityLogItem) => Describer | undefined) |
  * so it is loaded on demand here. Loaders that fetch activity items await this before
  * returning, which guarantees `describerFor` resolves real describers by the time any
  * selector humanizes those items.
+ *
+ * Never rejects: if the chunk fails to load (e.g. a stale tab after a deploy), the loader
+ * still resolves and `describerFor` degrades to `defaultDescriber`; the next call retries.
  */
-export async function ensureActivityDescribersLoaded(): Promise<void> {
-    if (!loadedDescriberFor) {
-        loadedDescriberFor = (await import('./describers')).describerFor
-    }
+export function ensureActivityDescribersLoaded(): Promise<void> {
+    describersImport ??= import('./describers')
+        .then((registry) => {
+            loadedDescriberFor = registry.describerFor
+        })
+        .catch((error) => {
+            describersImport = null
+            console.error('Failed to load activity describers, falling back to default descriptions', error)
+        })
+    return describersImport
 }
 
 /**
@@ -90,10 +100,11 @@ export async function ensureActivityDescribersLoaded(): Promise<void> {
  * So, we inject the function instead
  * **/
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
-    if (loadedDescriberFor) {
-        return loadedDescriberFor(logItem)
+    if (!loadedDescriberFor) {
+        void ensureActivityDescribersLoaded()
+        return defaultDescriber
     }
-    return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
+    return loadedDescriberFor(logItem)
 }
 
 export type ActivityLogLogicProps = {
