@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { processAllSnapshots, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
+import { dayjs } from 'lib/dayjs'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingMetaLogic } from 'scenes/session-recordings/player/sessionRecordingMetaLogic'
@@ -22,6 +23,7 @@ import {
 import { sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
+    BLOB_SOURCE_V2,
     createDifferentiatedQueryHandler,
     overrideSessionRecordingMocks,
     recordingEventsJson,
@@ -264,6 +266,99 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
             }).toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
+        })
+    })
+
+    describe('missing full snapshot detection', () => {
+        // start is the earlier of meta start_time and the first snapshot timestamp,
+        // so the recent case needs recent snapshot timestamps too
+        const incrementalOnlySnapshotsAsJSONLines = (baseTimestamp: number): string =>
+            `${JSON.stringify({
+                window_id: '187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0',
+                data: [
+                    {
+                        type: 4,
+                        data: { href: 'http://localhost:3000/', width: 2560, height: 1304 },
+                        timestamp: baseTimestamp,
+                    },
+                    {
+                        type: 3,
+                        data: { source: 1, positions: [{ x: 2027, y: 120, id: 22, timeOffset: 0 }] },
+                        timestamp: baseTimestamp + 2000,
+                    },
+                    {
+                        type: 3,
+                        data: { source: 2, type: 2, id: 33, x: 852, y: 133, pointerType: 0 },
+                        timestamp: baseTimestamp + 9000,
+                    },
+                ],
+            })}\n`
+
+        const mountWithoutFullSnapshot = (baseTimestamp: number, metaOverride?: Record<string, unknown>): void => {
+            logic?.unmount()
+            snapshotLogic?.unmount()
+            setupSessionRecordingTest({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
+                        const sourceParam = req.url.searchParams.get('source')
+                        if (sourceParam === 'blob_v2' || sourceParam === 'blob') {
+                            return res(ctx.text(incrementalOnlySnapshotsAsJSONLines(baseTimestamp)))
+                        }
+                        return [200, { sources: [BLOB_SOURCE_V2] }]
+                    },
+                    ...(metaOverride
+                        ? { '/api/environments/:team_id/session_recordings/:id': () => [200, metaOverride] }
+                        : {}),
+                },
+            })
+            const props = {
+                sessionRecordingId: '2',
+                blobV2PollingDisabled: true,
+            }
+            logic = sessionRecordingDataCoordinatorLogic(props)
+            snapshotLogic = snapshotDataLogic(props)
+            logic.mount()
+        }
+
+        const loadFully = async (): Promise<void> => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta()
+                logic.actions.loadSnapshots()
+            })
+                .toDispatchActions(['loadRecordingMetaSuccess', 'reportUsageIfFullyLoaded'])
+                .toFinishAllListeners()
+            expect(logic.values.fullyLoaded).toBe(true)
+        }
+
+        it('flags an old recording with no full snapshot as old and invalid', async () => {
+            mountWithoutFullSnapshot(1682952380877)
+            await loadFully()
+
+            expect(logic.values.snapshotsInvalid).toBe(true)
+            expect(logic.values.isRecentAndInvalid).toBe(false)
+            expect(logic.values.isOldAndInvalid).toBe(true)
+        })
+
+        it('flags a recent recording with no full snapshot as recent and invalid', async () => {
+            const recentStart = dayjs().subtract(1, 'minute')
+            mountWithoutFullSnapshot(recentStart.valueOf(), {
+                ...recordingMetaJson,
+                start_time: recentStart.toISOString(),
+                end_time: dayjs().toISOString(),
+            })
+            await loadFully()
+
+            expect(logic.values.snapshotsInvalid).toBe(true)
+            expect(logic.values.isRecentAndInvalid).toBe(true)
+            expect(logic.values.isOldAndInvalid).toBe(false)
+        })
+
+        it('does not flag a recording that has a full snapshot', async () => {
+            await loadFully()
+
+            expect(logic.values.snapshotsInvalid).toBe(false)
+            expect(logic.values.isRecentAndInvalid).toBe(false)
+            expect(logic.values.isOldAndInvalid).toBe(false)
         })
     })
 

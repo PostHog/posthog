@@ -69,7 +69,7 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 }
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, endReached, logicProps, playerError } = useValues(sessionRecordingPlayerLogic)
     const { setPlay } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
@@ -85,24 +85,28 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const showActionsOnOverlay = playerMode === SessionRecordingPlayerMode.Standard && pausedState
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
+        const isMissingFullSnapshot = playerError === 'noPlayableFullSnapshot'
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
                 <IconWarning className="text-danger text-5xl" />
                 <div className="font-bold text-text-3000 text-lg">We're unable to play this recording</div>
                 <div className="text-secondary text-sm text-center">
-                    An error occurred that is preventing this recording from being played. You can refresh the page to
-                    reload the recording.
+                    {isMissingFullSnapshot
+                        ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
+                        : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
-                <LemonButton
-                    onClick={() => {
-                        window.location.reload()
-                    }}
-                    type="primary"
-                    fullWidth
-                    center
-                >
-                    Reload
-                </LemonButton>
+                {!isMissingFullSnapshot && (
+                    <LemonButton
+                        onClick={() => {
+                            window.location.reload()
+                        }}
+                        type="primary"
+                        fullWidth
+                        center
+                    >
+                        Reload
+                    </LemonButton>
+                )}
                 <LemonButton
                     targetBlank
                     to="https://posthog.com/support?utm_medium=in-product&utm_campaign=recording-not-found"
