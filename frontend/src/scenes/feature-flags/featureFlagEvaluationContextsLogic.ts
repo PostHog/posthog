@@ -1,5 +1,7 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
+import { FeatureFlagEvaluationContextMatchMode } from '~/types'
+
 import type { featureFlagEvaluationContextsLogicType } from './featureFlagEvaluationContextsLogicType'
 import { featureFlagLogic } from './featureFlagLogic'
 
@@ -9,6 +11,7 @@ export interface FeatureFlagEvaluationContextsLogicProps {
     context: 'sidebar' | 'form' | 'static'
     tags: string[]
     evaluationContexts: string[]
+    matchMode: FeatureFlagEvaluationContextMatchMode
 }
 
 export const featureFlagEvaluationContextsLogic = kea<featureFlagEvaluationContextsLogicType>([
@@ -21,6 +24,7 @@ export const featureFlagEvaluationContextsLogic = kea<featureFlagEvaluationConte
         setIsEditingContexts: (isEditing: boolean) => ({ isEditing }),
         setLocalTags: (tags: string[]) => ({ tags }),
         setLocalEvaluationContexts: (evaluationContexts: string[]) => ({ evaluationContexts }),
+        setLocalMatchMode: (matchMode: FeatureFlagEvaluationContextMatchMode) => ({ matchMode }),
         saveTags: true,
         saveContexts: true,
         cancelEditingTags: true,
@@ -58,6 +62,13 @@ export const featureFlagEvaluationContextsLogic = kea<featureFlagEvaluationConte
                 cancelEditingContexts: () => props.evaluationContexts ?? [],
             },
         ],
+        localMatchMode: [
+            props.matchMode ?? FeatureFlagEvaluationContextMatchMode.ANY,
+            {
+                setLocalMatchMode: (_, { matchMode }) => matchMode,
+                cancelEditingContexts: () => props.matchMode ?? FeatureFlagEvaluationContextMatchMode.ANY,
+            },
+        ],
     })),
 
     propsChanged(({ actions, props, values }, oldProps) => {
@@ -66,6 +77,9 @@ export const featureFlagEvaluationContextsLogic = kea<featureFlagEvaluationConte
         }
         if (!values.isEditingContexts && props.evaluationContexts !== oldProps.evaluationContexts) {
             actions.setLocalEvaluationContexts(props.evaluationContexts)
+        }
+        if (!values.isEditingContexts && props.matchMode !== oldProps.matchMode) {
+            actions.setLocalMatchMode(props.matchMode)
         }
     }),
 
@@ -83,6 +97,7 @@ export const featureFlagEvaluationContextsLogic = kea<featureFlagEvaluationConte
             if (typeof flagId === 'number') {
                 featureFlagLogic({ id: flagId }).actions.saveFeatureFlag({
                     evaluation_contexts: values.localEvaluationContexts,
+                    evaluation_contexts_match_mode: values.localMatchMode,
                 })
             }
         },

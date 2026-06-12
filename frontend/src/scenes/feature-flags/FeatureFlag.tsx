@@ -279,11 +279,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <FeatureFlagEvaluationContexts
                                 tags={featureFlag.tags}
                                 evaluationContexts={featureFlag.evaluation_contexts || []}
-                                onSave={(updatedTags, updatedEvaluationContexts) => {
+                                matchMode={featureFlag.evaluation_contexts_match_mode}
+                                onSave={(updatedTags, updatedEvaluationContexts, updatedMatchMode) => {
                                     const updatedFlag = {
                                         ...featureFlag,
                                         tags: updatedTags,
                                         evaluation_contexts: updatedEvaluationContexts,
+                                        evaluation_contexts_match_mode: updatedMatchMode,
                                     }
                                     updateFlag(updatedFlag)
                                     saveFeatureFlag(updatedFlag)

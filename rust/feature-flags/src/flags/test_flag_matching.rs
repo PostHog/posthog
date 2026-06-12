@@ -4420,6 +4420,7 @@ mod tests {
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
 
         // Test user "11" - should get first-variant
@@ -5751,6 +5752,7 @@ mod tests {
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
 
         let router = context.create_postgres_router();

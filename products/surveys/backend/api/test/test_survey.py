@@ -2727,6 +2727,7 @@ class TestSurvey(APIBaseTest):
                         "evaluation_runtime": "all",
                         "evaluation_contexts": [],
                         "bucketing_identifier": "distinct_id",
+                        "evaluation_contexts_match_mode": "any",
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,

@@ -548,24 +548,38 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                         value: formEvalContexts,
                                                                         onChange: onChangeEvalContexts,
                                                                     }) => (
-                                                                        <FeatureFlagEvaluationContexts
-                                                                            tags={formTags}
-                                                                            evaluationContexts={formEvalContexts || []}
-                                                                            context="form"
-                                                                            onChange={(
-                                                                                updatedTags,
-                                                                                updatedEvaluationContexts
-                                                                            ) => {
-                                                                                onChangeTags(updatedTags)
-                                                                                onChangeEvalContexts(
-                                                                                    updatedEvaluationContexts
-                                                                                )
-                                                                            }}
-                                                                            tagsAvailable={availableTags.filter(
-                                                                                (tag: string) =>
-                                                                                    !formTags?.includes(tag)
+                                                                        <LemonField name="evaluation_contexts_match_mode">
+                                                                            {({
+                                                                                value: formMatchMode,
+                                                                                onChange: onChangeMatchMode,
+                                                                            }) => (
+                                                                                <FeatureFlagEvaluationContexts
+                                                                                    tags={formTags}
+                                                                                    evaluationContexts={
+                                                                                        formEvalContexts || []
+                                                                                    }
+                                                                                    matchMode={formMatchMode}
+                                                                                    context="form"
+                                                                                    onChange={(
+                                                                                        updatedTags,
+                                                                                        updatedEvaluationContexts,
+                                                                                        updatedMatchMode
+                                                                                    ) => {
+                                                                                        onChangeTags(updatedTags)
+                                                                                        onChangeEvalContexts(
+                                                                                            updatedEvaluationContexts
+                                                                                        )
+                                                                                        onChangeMatchMode(
+                                                                                            updatedMatchMode
+                                                                                        )
+                                                                                    }}
+                                                                                    tagsAvailable={availableTags.filter(
+                                                                                        (tag: string) =>
+                                                                                            !formTags?.includes(tag)
+                                                                                    )}
+                                                                                />
                                                                             )}
-                                                                        />
+                                                                        </LemonField>
                                                                     )}
                                                                 </LemonField>
                                                             )}

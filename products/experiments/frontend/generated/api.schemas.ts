@@ -192,8 +192,24 @@ export const BucketingIdentifierEnumApi = {
     DeviceId: 'device_id',
 } as const
 
+/**
+ * * `any` - Match any
+ * * `all` - Match all
+ */
+export type EvaluationContextsMatchModeEnumApi =
+    (typeof EvaluationContextsMatchModeEnumApi)[keyof typeof EvaluationContextsMatchModeEnumApi]
+
+export const EvaluationContextsMatchModeEnumApi = {
+    Any: 'any',
+    All: 'all',
+} as const
+
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
+export const MinimalFeatureFlagApiEvaluationContextsMatchMode = {
+    ...EvaluationContextsMatchModeEnumApi,
+    ...BlankEnumApi,
+} as const
 export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
@@ -223,6 +239,11 @@ export interface MinimalFeatureFlagApi {
      * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
+    /** How the flag's evaluation contexts are matched against a request's declared contexts
+     *
+     * * `any` - Match any
+     * * `all` - Match all */
+    evaluation_contexts_match_mode?: (typeof MinimalFeatureFlagApiEvaluationContextsMatchMode)[keyof typeof MinimalFeatureFlagApiEvaluationContextsMatchMode]
 }
 
 export interface ExperimentVariantApi {

@@ -4,10 +4,13 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconInfo, IconPencil, IconPlus, IconX } from '@posthog/icons'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { colorForString } from 'lib/utils'
+
+import { FeatureFlagEvaluationContextMatchMode } from '~/types'
 
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 import { featureFlagEvaluationContextsLogic } from './featureFlagEvaluationContextsLogic'
@@ -16,20 +19,22 @@ import { featureFlagLogic } from './featureFlagLogic'
 interface FeatureFlagEvaluationContextsProps {
     tags: string[]
     evaluationContexts: string[]
+    matchMode?: FeatureFlagEvaluationContextMatchMode
     tagsAvailable?: string[]
     className?: string
     flagId?: number | string | null
     /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
     context: 'sidebar' | 'form' | 'static'
     /** Form mode: parent handles persistence. Mutually exclusive with onSave. */
-    onChange?: (tags: string[], evaluationContexts: string[]) => void
+    onChange?: (tags: string[], evaluationContexts: string[], matchMode: FeatureFlagEvaluationContextMatchMode) => void
     /** Sidebar mode: component handles persistence. Mutually exclusive with onChange. */
-    onSave?: (tags: string[], evaluationContexts: string[]) => void
+    onSave?: (tags: string[], evaluationContexts: string[], matchMode: FeatureFlagEvaluationContextMatchMode) => void
 }
 
 export function FeatureFlagEvaluationContexts({
     tags,
     evaluationContexts,
+    matchMode = FeatureFlagEvaluationContextMatchMode.ANY,
     tagsAvailable,
     className,
     flagId,
@@ -38,13 +43,14 @@ export function FeatureFlagEvaluationContexts({
     onSave,
 }: FeatureFlagEvaluationContextsProps): JSX.Element {
     const staticOnly = context === 'static'
-    const logic = featureFlagEvaluationContextsLogic({ flagId, context, tags, evaluationContexts })
-    const { isEditingTags, isEditingContexts, localTags, localEvaluationContexts } = useValues(logic)
+    const logic = featureFlagEvaluationContextsLogic({ flagId, context, tags, evaluationContexts, matchMode })
+    const { isEditingTags, isEditingContexts, localTags, localEvaluationContexts, localMatchMode } = useValues(logic)
     const {
         setIsEditingTags,
         setIsEditingContexts,
         setLocalTags,
         setLocalEvaluationContexts,
+        setLocalMatchMode,
         saveTags,
         saveContexts,
         cancelEditingTags,
@@ -56,7 +62,7 @@ export function FeatureFlagEvaluationContexts({
 
     const handleSaveTags = (): void => {
         if (onSave) {
-            onSave(localTags, evaluationContexts)
+            onSave(localTags, evaluationContexts, matchMode)
             setIsEditingTags(false)
         } else {
             saveTags()
@@ -65,7 +71,7 @@ export function FeatureFlagEvaluationContexts({
 
     const handleSaveContexts = (): void => {
         if (onSave) {
-            onSave(tags, localEvaluationContexts)
+            onSave(tags, localEvaluationContexts, localMatchMode)
             setIsEditingContexts(false)
         } else {
             saveContexts()
@@ -79,20 +85,28 @@ export function FeatureFlagEvaluationContexts({
 
     const handleCancelContexts = (): void => {
         setLocalEvaluationContexts(evaluationContexts)
+        setLocalMatchMode(matchMode)
         cancelEditingContexts()
     }
 
     const handleTagsChange = (newTags: string[]): void => {
         setLocalTags(newTags)
         if (onChange) {
-            onChange(newTags, localEvaluationContexts)
+            onChange(newTags, localEvaluationContexts, localMatchMode)
         }
     }
 
     const handleEvaluationContextsChange = (newContexts: string[]): void => {
         setLocalEvaluationContexts(newContexts)
         if (onChange) {
-            onChange(localTags, newContexts)
+            onChange(localTags, newContexts, localMatchMode)
+        }
+    }
+
+    const handleMatchModeChange = (newMatchMode: FeatureFlagEvaluationContextMatchMode): void => {
+        setLocalMatchMode(newMatchMode)
+        if (onChange) {
+            onChange(localTags, localEvaluationContexts, newMatchMode)
         }
     }
 
@@ -199,6 +213,24 @@ export function FeatureFlagEvaluationContexts({
                             placeholder='Add contexts like "main-app", "marketing-site"'
                             autoFocus
                         />
+                        {localEvaluationContexts.length >= 2 && (
+                            <div className="flex flex-col gap-1 mt-1">
+                                <LemonSegmentedButton
+                                    size="small"
+                                    value={localMatchMode}
+                                    onChange={handleMatchModeChange}
+                                    options={[
+                                        { value: FeatureFlagEvaluationContextMatchMode.ANY, label: 'Match any' },
+                                        { value: FeatureFlagEvaluationContextMatchMode.ALL, label: 'Match all' },
+                                    ]}
+                                    data-attr="feature-flag-evaluation-contexts-match-mode"
+                                />
+                                <div className="text-xs text-muted">
+                                    Match any: evaluate when the SDK declares at least one of these contexts. Match all:
+                                    evaluate only when the SDK declares every one of them.
+                                </div>
+                            </div>
+                        )}
                         {onSave && !onChange && (
                             <div className="flex gap-1 mt-1">
                                 <ButtonPrimitive
@@ -224,30 +256,39 @@ export function FeatureFlagEvaluationContexts({
                         )}
                     </>
                 ) : (
-                    <div className="inline-flex flex-wrap gap-1 items-center">
-                        {evaluationContexts.length > 0 ? (
-                            evaluationContexts.map((ctx) => (
-                                <div
-                                    key={`ctx-${ctx}`}
-                                    className="inline-flex items-center rounded px-2 py-1 bg-bg-light border border-border"
+                    <div className="flex flex-col gap-1">
+                        <div className="inline-flex flex-wrap gap-1 items-center">
+                            {evaluationContexts.length > 0 ? (
+                                evaluationContexts.map((ctx) => (
+                                    <div
+                                        key={`ctx-${ctx}`}
+                                        className="inline-flex items-center rounded px-2 py-1 bg-bg-light border border-border"
+                                    >
+                                        <span className="font-mono text-xs">{ctx}</span>
+                                    </div>
+                                ))
+                            ) : (
+                                <span className="text-muted text-xs">No contexts</span>
+                            )}
+                            {!staticOnly && (
+                                <LemonTag
+                                    type="none"
+                                    onClick={() => setIsEditingContexts(true)}
+                                    data-attr="button-edit-evaluation-contexts"
+                                    icon={evaluationContexts.length > 0 ? <IconPencil /> : <IconPlus />}
+                                    className="border border-dashed cursor-pointer"
+                                    size="medium"
                                 >
-                                    <span className="font-mono text-xs">{ctx}</span>
-                                </div>
-                            ))
-                        ) : (
-                            <span className="text-muted text-xs">No contexts</span>
-                        )}
-                        {!staticOnly && (
-                            <LemonTag
-                                type="none"
-                                onClick={() => setIsEditingContexts(true)}
-                                data-attr="button-edit-evaluation-contexts"
-                                icon={evaluationContexts.length > 0 ? <IconPencil /> : <IconPlus />}
-                                className="border border-dashed cursor-pointer"
-                                size="medium"
-                            >
-                                {evaluationContexts.length > 0 ? 'Edit' : 'Add'}
-                            </LemonTag>
+                                    {evaluationContexts.length > 0 ? 'Edit' : 'Add'}
+                                </LemonTag>
+                            )}
+                        </div>
+                        {evaluationContexts.length >= 2 && (
+                            <span className="text-muted text-xs">
+                                {matchMode === FeatureFlagEvaluationContextMatchMode.ALL
+                                    ? 'Matches all of these contexts'
+                                    : 'Matches any of these contexts'}
+                            </span>
                         )}
                     </div>
                 )}

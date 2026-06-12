@@ -6,7 +6,7 @@ use crate::{
     flags::{
         feature_flag_list::PreparedFlags,
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
-        flag_models::{FeatureFlag, FeatureFlagList},
+        flag_models::{EvaluationContextMatchMode, FeatureFlag, FeatureFlagList},
         flag_service::FlagService,
     },
     utils::user_agent::{RuntimeType, UserAgentInfo},
@@ -303,6 +303,10 @@ fn collect_excluded_by_survey_filter(
 
 /// Returns the set of flag IDs that don't match the provided evaluation tags.
 /// Flags with no tags or matching tags are never filtered out.
+///
+/// The match is per-flag: `Any` (default) keeps the flag when the request declares
+/// at least one of its contexts; `All` keeps it only when the request declares every
+/// one of them (i.e. the request's contexts are a superset of the flag's).
 fn collect_excluded_by_tags(
     flags: &[FeatureFlag],
     environment_tags: Option<&Vec<String>>,
@@ -319,9 +323,17 @@ fn collect_excluded_by_tags(
         .filter(|flag| match &flag.evaluation_tags {
             None => false,
             Some(flag_tags) if flag_tags.is_empty() => false,
-            Some(flag_tags) => !flag_tags
-                .iter()
-                .any(|tag| env_tag_set.contains(tag.as_str())),
+            Some(flag_tags) => {
+                let matches = match flag.evaluation_context_match_mode() {
+                    EvaluationContextMatchMode::All => {
+                        flag_tags.iter().all(|tag| env_tag_set.contains(tag.as_str()))
+                    }
+                    EvaluationContextMatchMode::Any => {
+                        flag_tags.iter().any(|tag| env_tag_set.contains(tag.as_str()))
+                    }
+                };
+                !matches
+            }
         })
         .map(|flag| flag.id)
         .collect()
@@ -805,6 +817,126 @@ mod tests {
         assert_filtered(&filtered, &flags, "docs-only", false);
         assert_filtered(&filtered, &flags, "marketing-only", true);
         assert_filtered(&filtered, &flags, "no-tags", false);
+    }
+
+    fn flag_with_mode(
+        id: i32,
+        key: &str,
+        tags: Option<Vec<String>>,
+        mode: Option<&str>,
+    ) -> FeatureFlag {
+        mock!(FeatureFlag,
+            id: id,
+            key: key.mock_into(),
+            evaluation_tags: tags,
+            evaluation_contexts_match_mode: mode.map(String::from)
+        )
+    }
+
+    #[test]
+    fn test_evaluation_context_match_mode_accessor_defaults_to_any() {
+        // None, "any", and any unrecognized value all degrade to OR (Any), so a bad
+        // value can never silently disable a team's flags.
+        assert_eq!(
+            flag_with_mode(1, "f", None, None).evaluation_context_match_mode(),
+            EvaluationContextMatchMode::Any
+        );
+        assert_eq!(
+            flag_with_mode(1, "f", None, Some("any")).evaluation_context_match_mode(),
+            EvaluationContextMatchMode::Any
+        );
+        assert_eq!(
+            flag_with_mode(1, "f", None, Some("garbage")).evaluation_context_match_mode(),
+            EvaluationContextMatchMode::Any
+        );
+        assert_eq!(
+            flag_with_mode(1, "f", None, Some("all")).evaluation_context_match_mode(),
+            EvaluationContextMatchMode::All
+        );
+    }
+
+    #[test]
+    fn test_collect_excluded_by_tags_all_mode_requires_superset() {
+        let flags = vec![flag_with_mode(
+            1,
+            "all-flag",
+            Some(vec!["app".to_string(), "docs".to_string()]),
+            Some("all"),
+        )];
+
+        // Request declares only one of the two required contexts → excluded.
+        let one_env = vec!["app".to_string()];
+        assert_filtered(
+            &collect_excluded_by_tags(&flags, Some(&one_env)),
+            &flags,
+            "all-flag",
+            true,
+        );
+
+        // Request declares both required contexts → included.
+        let exact_env = vec!["app".to_string(), "docs".to_string()];
+        assert_filtered(
+            &collect_excluded_by_tags(&flags, Some(&exact_env)),
+            &flags,
+            "all-flag",
+            false,
+        );
+
+        // Request is a superset of the flag's contexts → included.
+        let superset_env = vec!["app".to_string(), "docs".to_string(), "extra".to_string()];
+        assert_filtered(
+            &collect_excluded_by_tags(&flags, Some(&superset_env)),
+            &flags,
+            "all-flag",
+            false,
+        );
+    }
+
+    #[test]
+    fn test_collect_excluded_by_tags_all_mode_no_request_contexts_included() {
+        // A request that declares no contexts is never filtered, regardless of mode —
+        // the early-out fires before any per-flag matching.
+        let flags = vec![flag_with_mode(
+            1,
+            "all-flag",
+            Some(vec!["app".to_string(), "docs".to_string()]),
+            Some("all"),
+        )];
+
+        assert!(collect_excluded_by_tags(&flags, None).is_empty());
+        assert!(collect_excluded_by_tags(&flags, Some(&vec![])).is_empty());
+    }
+
+    #[test]
+    fn test_collect_excluded_by_tags_mode_defaults_to_any() {
+        // None / "any" / unknown values all use OR semantics: a single matching
+        // context is enough to keep the flag.
+        let flags = vec![
+            flag_with_mode(
+                1,
+                "no-mode",
+                Some(vec!["app".to_string(), "docs".to_string()]),
+                None,
+            ),
+            flag_with_mode(
+                2,
+                "any-mode",
+                Some(vec!["app".to_string(), "docs".to_string()]),
+                Some("any"),
+            ),
+            flag_with_mode(
+                3,
+                "garbage-mode",
+                Some(vec!["app".to_string(), "docs".to_string()]),
+                Some("not-a-real-mode"),
+            ),
+        ];
+
+        let one_env = vec!["app".to_string()];
+        let filtered = collect_excluded_by_tags(&flags, Some(&one_env));
+        assert_filtered(&filtered, &flags, "no-mode", false);
+        assert_filtered(&filtered, &flags, "any-mode", false);
+        assert_filtered(&filtered, &flags, "garbage-mode", false);
     }
 
     #[test]

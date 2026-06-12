@@ -1633,6 +1633,7 @@ mod tests {
                 evaluation_runtime: None,
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                evaluation_contexts_match_mode: None,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1749,6 +1750,7 @@ mod tests {
                 evaluation_runtime: None,
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                evaluation_contexts_match_mode: None,
             };
             context
                 .insert_flag(team.id, Some(flag_row))
@@ -1870,6 +1872,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
 
         let inactive_flag = FeatureFlagRow {
@@ -1885,6 +1888,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
 
         let deleted_flag = FeatureFlagRow {
@@ -1900,6 +1904,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
 
         let no_continuity_flag = FeatureFlagRow {
@@ -1915,6 +1920,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
 
         context
@@ -2007,6 +2013,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
         context
             .insert_flag(team.id, Some(flag_row))
@@ -2089,6 +2096,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
         context
             .insert_flag(team.id, Some(flag_row))

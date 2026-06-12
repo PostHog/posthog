@@ -4131,6 +4131,11 @@ export enum FeatureFlagEvaluationRuntime {
     ALL = 'all',
 }
 
+export enum FeatureFlagEvaluationContextMatchMode {
+    ANY = 'any',
+    ALL = 'all',
+}
+
 export enum FeatureFlagBucketingIdentifier {
     DISTINCT_ID = 'distinct_id',
     DEVICE_ID = 'device_id',
@@ -4172,6 +4177,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     evaluation_contexts: string[]
+    evaluation_contexts_match_mode?: FeatureFlagEvaluationContextMatchMode
     usage_dashboard?: number
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean

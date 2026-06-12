@@ -54,7 +54,8 @@
             "version": 3,
             "evaluation_runtime": "all",
             "bucketing_identifier": "device_id",
-            "evaluation_contexts": ["docs-page", "marketing-site"]
+            "evaluation_contexts": ["docs-page", "marketing-site"],
+            "evaluation_contexts_match_mode": "all"
         },
         {
             "id": 2,
@@ -78,7 +79,8 @@
             "version": 1,
             "evaluation_runtime": "all",
             "bucketing_identifier": null,
-            "evaluation_contexts": []
+            "evaluation_contexts": [],
+            "evaluation_contexts_match_mode": "any"
         },
         {
             "id": 3,
@@ -109,7 +111,8 @@
             "version": 1,
             "evaluation_runtime": "all",
             "bucketing_identifier": null,
-            "evaluation_contexts": []
+            "evaluation_contexts": [],
+            "evaluation_contexts_match_mode": "any"
         },
         {
             "id": 4,
@@ -141,7 +144,8 @@
             "version": 2,
             "evaluation_runtime": "all",
             "bucketing_identifier": null,
-            "evaluation_contexts": []
+            "evaluation_contexts": [],
+            "evaluation_contexts_match_mode": "any"
         },
         {
             "id": 5,
@@ -173,7 +177,8 @@
             "version": 1,
             "evaluation_runtime": "all",
             "bucketing_identifier": null,
-            "evaluation_contexts": []
+            "evaluation_contexts": [],
+            "evaluation_contexts_match_mode": "any"
         }
     ],
     "evaluation_metadata": {

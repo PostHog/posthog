@@ -11,7 +11,13 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
-import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    FeatureFlagEvaluationContextMatchMode,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagType,
+} from '~/types'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
@@ -29,16 +35,24 @@ interface FeatureFlagOverviewProps {
 interface TagsDisplayProps {
     tags: string[]
     evaluationContexts: string[]
+    matchMode?: FeatureFlagEvaluationContextMatchMode
     flagId: number | null
     hasEvaluationContexts: boolean
 }
 
-function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }: TagsDisplayProps): JSX.Element {
+function TagsDisplay({
+    tags,
+    evaluationContexts,
+    matchMode,
+    flagId,
+    hasEvaluationContexts,
+}: TagsDisplayProps): JSX.Element {
     if (hasEvaluationContexts) {
         return (
             <FeatureFlagEvaluationContexts
                 tags={tags}
                 evaluationContexts={evaluationContexts}
+                matchMode={matchMode}
                 flagId={flagId}
                 context="static"
             />
@@ -190,6 +204,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                                 <TagsDisplay
                                     tags={featureFlag.tags || []}
                                     evaluationContexts={featureFlag.evaluation_contexts || []}
+                                    matchMode={featureFlag.evaluation_contexts_match_mode}
                                     flagId={featureFlag.id}
                                     hasEvaluationContexts={hasEvaluationContexts}
                                 />
