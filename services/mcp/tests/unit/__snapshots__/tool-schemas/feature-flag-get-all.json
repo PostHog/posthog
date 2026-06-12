@@ -5,6 +5,11 @@
             "enum": ["STALE", "false", "true"],
             "type": "string"
         },
+        "archived": {
+            "description": "Filter by archived state. When omitted, archived flags are excluded.",
+            "enum": ["false", "true"],
+            "type": "string"
+        },
         "created_by_id": {
             "description": "The User ID which initially created the feature flag.",
             "type": "string"
@@ -16,6 +21,10 @@
         },
         "excluded_properties": {
             "description": "JSON-encoded list of feature flag keys to exclude from the results.",
+            "type": "string"
+        },
+        "excluded_tags": {
+            "description": "JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.",
             "type": "string"
         },
         "has_evaluation_contexts": {
