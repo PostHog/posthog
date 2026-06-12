@@ -7,7 +7,11 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from django.test import override_settings
+
 from parameterized import parameterized
+
+from posthog.schema import PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import HogQLQueryModifiers
@@ -19,17 +23,27 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_PASSWORD
 
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
 
 class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
     maxDiff = None
 
-    def _print_select(self, select: str, fallback: bool = True) -> tuple[str, HogQLContext]:
+    def _print_select(
+        self,
+        select: str,
+        teams: str = "*",
+        modifiers: HogQLQueryModifiers | None = None,
+        restricted_properties: list[tuple[str, int]] | None = None,
+    ) -> tuple[str, HogQLContext]:
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            modifiers=HogQLQueryModifiers(useGeoipDictFallback=fallback),
+            modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(),
+            restricted_properties=restricted_properties,
         )
-        query, _ = prepare_and_print_ast(parse_select(select), context, "clickhouse")
+        with override_settings(HOGQL_GEOIP_DICT_FALLBACK_TEAMS=teams):
+            query, _ = prepare_and_print_ast(parse_select(select), context, "clickhouse")
         return query, context
 
     @parameterized.expand(
@@ -49,15 +63,54 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("modifier off", "SELECT properties.$geoip_city_name FROM events", False),
-            ("unaffected property", "SELECT properties.$browser FROM events", True),
-            ("person property", "SELECT properties.$geoip_city_name FROM persons", True),
-            ("nested key", "SELECT properties.$geoip_city_name.x FROM events", True),
+            ("env empty", "SELECT properties.$geoip_city_name FROM events", ""),
+            ("other team only", "SELECT properties.$geoip_city_name FROM events", "99999999"),
+            ("unaffected property", "SELECT properties.$browser FROM events", "*"),
+            ("person property", "SELECT properties.$geoip_city_name FROM persons", "*"),
+            ("nested key", "SELECT properties.$geoip_city_name.x FROM events", "*"),
         ]
     )
-    def test_no_fallback(self, _name: str, select: str, fallback: bool) -> None:
-        sql, _ = self._print_select(select, fallback=fallback)
+    def test_no_fallback(self, _name: str, select: str, teams: str) -> None:
+        sql, _ = self._print_select(select, teams=teams)
         assert "dictGetStringOrDefault" not in sql
+
+    def test_fallback_enabled_for_listed_team(self) -> None:
+        sql, _ = self._print_select("SELECT properties.$geoip_city_name FROM events", teams=f"99999999, {self.team.pk}")
+        assert "dictGetStringOrDefault" in sql
+
+    def test_person_properties_on_events_not_wrapped_under_poe(self) -> None:
+        # Under persons-on-events, person properties live on the events table behind a virtual sub-table whose blob
+        # field is also named `properties` — it must not get the fallback (person geo is not what the incident blanked).
+        sql, _ = self._print_select(
+            "SELECT person.properties.$geoip_city_name FROM events",
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+        )
+        assert "dictGetStringOrDefault" not in sql
+
+    @parameterized.expand(
+        [
+            ("target restricted", "$geoip_city_name"),
+            ("ip restricted", "$ip"),
+            ("country restricted", "$geoip_country_code"),
+        ]
+    )
+    def test_no_fallback_for_restricted_properties(self, _name: str, restricted_key: str) -> None:
+        # Property-level access control resolves restricted reads to NULL; the fallback must not reconstruct them
+        # (or read restricted source properties), so it stands down entirely.
+        sql, _ = self._print_select(
+            "SELECT properties.$geoip_city_name FROM events",
+            restricted_properties=[(restricted_key, PropertyDefinition.Type.EVENT)],
+        )
+        assert "dictGetStringOrDefault" not in sql
+
+    def test_fallback_unaffected_by_unrelated_restriction(self) -> None:
+        sql, _ = self._print_select(
+            "SELECT properties.$geoip_city_name FROM events",
+            restricted_properties=[("$browser", PropertyDefinition.Type.EVENT)],
+        )
+        assert "dictGetStringOrDefault" in sql
 
     def test_fallback_applies_in_where_clause(self) -> None:
         sql, _ = self._print_select("SELECT count() FROM events WHERE properties.$geoip_city_name = 'London'")
@@ -78,7 +131,7 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         assert "JSONExtract" not in sql
 
     def test_lookup_functions_render_for_direct_use(self) -> None:
-        sql, _ = self._print_select("SELECT lookupGeoipCityName('89.160.20.129') FROM events", fallback=False)
+        sql, _ = self._print_select("SELECT lookupGeoipCityName('89.160.20.129') FROM events", teams="")
         assert f"dictGetStringOrDefault('{get_geoip_city_postal_dict()}', 'city_name'" in sql
 
     @parameterized.expand(
@@ -202,12 +255,12 @@ class TestGeoipDictFallbackExecution(ClickhouseTestMixin, BaseTest):
         sync_execute(f"DROP TABLE IF EXISTS {self.SOURCE_TABLE}")
         super().tearDown()
 
-    def _run(self, fallback: bool) -> list:
-        response = execute_hogql_query(
-            "SELECT event, properties.$geoip_city_name, properties.$geoip_postal_code FROM events ORDER BY event",
-            team=self.team,
-            modifiers=HogQLQueryModifiers(useGeoipDictFallback=fallback),
-        )
+    def _run(self, teams: str) -> list:
+        with override_settings(HOGQL_GEOIP_DICT_FALLBACK_TEAMS=teams):
+            response = execute_hogql_query(
+                "SELECT event, properties.$geoip_city_name, properties.$geoip_postal_code FROM events ORDER BY event",
+                team=self.team,
+            )
         return response.results
 
     # Blank representation differs by read path: the materialized city column scrubs '' to NULL, while the
@@ -216,7 +269,7 @@ class TestGeoipDictFallbackExecution(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_fallback_recovers_blanked_values(self) -> None:
-        assert self._run(fallback=True) == [
+        assert self._run(teams=str(self.team.pk)) == [
             ("1_stored", "Sydney", "2000"),
             ("2_recovered_v4", "Linkoping", "582 22"),
             ("3_recovered_v6", "Stockholm", "111 20"),
@@ -225,8 +278,8 @@ class TestGeoipDictFallbackExecution(ClickhouseTestMixin, BaseTest):
         ]
 
     @snapshot_clickhouse_queries
-    def test_modifier_off_leaves_values_blank(self) -> None:
-        assert self._run(fallback=False) == [
+    def test_env_disabled_leaves_values_blank(self) -> None:
+        assert self._run(teams="") == [
             ("1_stored", "Sydney", "2000"),
             ("2_recovered_v4", None, ""),
             ("3_recovered_v6", None, None),

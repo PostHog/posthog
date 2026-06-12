@@ -25,6 +25,7 @@ from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_p
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.geoip_dict_fallback import (
     apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved,
+    geoip_dict_fallback_enabled_for_team,
 )
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
@@ -214,8 +215,8 @@ def prepare_ast_for_printing(
 
         # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): recover blanked geoip city/postal reads from the IP via a ClickHouse
         # dictionary. Runs on the lowered AST so the reads it adds are plain PropertyAccess nodes, which the resolution
-        # pass below routes to materialized columns. Remove with the transform.
-        if context.modifiers.useGeoipDictFallback:
+        # pass below routes to materialized columns. Operator-controlled via env only, per team. Remove with the transform.
+        if geoip_dict_fallback_enabled_for_team(context.team_id):
             with context.timings.measure("geoip_dict_fallback"):
                 node = (
                     apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved(

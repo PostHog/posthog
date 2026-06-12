@@ -7,8 +7,10 @@ value is recovered from the event's `$ip` via the `city_postal_ip_trie` ClickHou
 healthy GeoLite2 build. The country-code guard keeps never-enriched rows (geoip disabled, pre-geoip events) blank, so
 only rows the incident could have affected change.
 
-Gated behind `HogQLQueryModifiers.useGeoipDictFallback`, default off (`HOGQL_GEOIP_DICT_FALLBACK` env sets the
-instance default). Delete this file with its callsite in `printer/utils.py`, the modifier, and the `lookupGeoip*`
+Gated on the `HOGQL_GEOIP_DICT_FALLBACK_TEAMS` env var: a comma-separated list of team ids, or "*" for all teams;
+empty (the default) disables it everywhere. Deliberately not a query modifier so it is operator-controlled only and
+leaves nothing persisted in `team.modifiers` or saved queries to scrub at removal time. Delete this file with its
+callsite in `printer/utils.py`, the cache-payload entry in `query_runner.py`, the env setting, and the `lookupGeoip*`
 functions once the backfill is done.
 
 Runs between logical property lowering and ClickHouse property resolution: each affected `PropertyAccess` becomes a
@@ -19,15 +21,32 @@ then routes each read through its materialized column where one exists — so on
 
 from typing import cast
 
+from django.conf import settings
+
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 FALLBACK_PROPERTY_TO_FUNCTION = {
     "$geoip_city_name": "lookupGeoipCityName",
     "$geoip_postal_code": "lookupGeoipPostalCode",
 }
+
+# The fallback expression reads these alongside the wrapped property, so a restriction on any of them disables it.
+FALLBACK_SOURCE_PROPERTIES = ("$ip", "$geoip_country_code")
+
+
+def geoip_dict_fallback_enabled_for_team(team_id: int | None) -> bool:
+    """Whether the env var enables the fallback for this team ("*" matches every team)."""
+    raw = settings.HOGQL_GEOIP_DICT_FALLBACK_TEAMS.strip()
+    if not raw or team_id is None:
+        return False
+    if raw == "*":
+        return True
+    return str(team_id) in {part.strip() for part in raw.split(",")}
 
 
 class GeoipDictFallback(CloningVisitor):
@@ -41,22 +60,42 @@ class GeoipDictFallback(CloningVisitor):
         node = super().visit_property_access(node)
         if len(node.keys) != 1:
             return node
-        function_name = FALLBACK_PROPERTY_TO_FUNCTION.get(str(node.keys[0]))
-        if function_name is None or not self._is_events_properties(node):
+        property_name = str(node.keys[0])
+        function_name = FALLBACK_PROPERTY_TO_FUNCTION.get(property_name)
+        if function_name is None:
+            return node
+        table_type = self._events_properties_table_type(node)
+        if table_type is None:
+            return node
+        # Property-level access control resolves restricted reads to NULL later in the pipeline; wrapping such a read
+        # would reconstruct the restricted value from `$ip` on every enriched row, so the fallback must stand down
+        # when the target or any of its source properties is restricted.
+        restricted = restricted_property_keys_for_table_type(table_type, self.context)
+        if restricted and not restricted.isdisjoint((property_name, *FALLBACK_SOURCE_PROPERTIES)):
             return node
         return self._with_fallback(node, function_name)
 
-    def _is_events_properties(self, node: ast.PropertyAccess) -> bool:
-        """Only the events `properties` blob is affected — person/group properties keep their stored values."""
+    def _events_properties_table_type(self, node: ast.PropertyAccess) -> ast.TableType | None:
+        """The events table type when the read targets the events `properties` blob, else None.
+
+        Person/group properties keep their stored values — including under persons-on-events, where they live on the
+        events table behind a virtual sub-table whose blob field is also named `properties` but resolves to the
+        `person_properties` / `group{N}_properties` column. Checking the resolved column name catches those.
+        """
         expr_type = node.expr.type
         if not isinstance(expr_type, ast.FieldType) or expr_type.name != "properties":
-            return False
+            return None
+        field = expr_type.resolve_database_field(self.context)
+        if not isinstance(field, DatabaseField) or field.name != "properties":
+            return None
         table_type: ast.Type | None = expr_type.table_type
         while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
             table_type = table_type.table_type
         if not isinstance(table_type, ast.TableType):
-            return False
-        return table_type.table.to_printed_clickhouse(self.context) == "events"
+            return None
+        if table_type.table.to_printed_clickhouse(self.context) != "events":
+            return None
+        return table_type
 
     def _with_fallback(self, node: ast.PropertyAccess, function_name: str) -> ast.Expr:
         # The stored value wins whenever it is set; both NULL and '' mean "not set" for these string properties.
