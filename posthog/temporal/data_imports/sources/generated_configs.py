@@ -157,7 +157,10 @@ class AirtableSourceConfig(config.Config):
 
 @config.config
 class AmazonAdsSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    refresh_token: str
+    region: Literal["na", "eu", "fe"] = config.value(default="na")
 
 
 @config.config
