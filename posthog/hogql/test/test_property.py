@@ -1750,6 +1750,28 @@ class TestProperty(BaseTest):
         result = property_to_expr([prop], self.team)
         self.assertEqual(result, ast.Constant(value=1))
 
+    # Flag dependency conditions also arrive as plain dicts (e.g. via the user blast radius API),
+    # taking the legacy Property path instead of FlagPropertyFilter
+    @parameterized.expand([("enabled", True), ("disabled", False), ("variant", "control")])
+    def test_flag_dependency_dict_produces_neutral_expr(self, _name: str, value: Any):
+        result = self._property_to_expr({"type": "flag", "key": "123", "value": value, "operator": "flag_evaluates_to"})
+        self.assertEqual(result, ast.Constant(value=1))
+
+    def test_flag_dependency_combined_with_person_property(self):
+        flag_prop: dict[str, Any] = {"type": "flag", "key": "123", "value": False, "operator": "flag_evaluates_to"}
+        result = self._property_to_expr(
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[
+                    Property(**flag_prop),
+                    Property(type="person", key="email", value="hog@posthog.com", operator="exact"),
+                ],
+            ),
+            scope="person",
+        )
+        self.assertIsInstance(result, ast.And)
+        self.assertEqual(cast(ast.And, result).exprs[0], ast.Constant(value=1))
+
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     # Sentinel to indicate a property should not be included in the event

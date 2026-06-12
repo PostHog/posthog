@@ -8052,6 +8052,84 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
+    def test_user_blast_radius_with_flag_dependency(self):
+        for i in range(10):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
+
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Flag dependencies can't be evaluated in HogQL, so they are neutral for the estimate
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": str(dependency_flag.pk),
+                            "type": "flag",
+                            "value": False,
+                            "operator": "flag_evaluates_to",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 10, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_with_flag_dependency_and_person_property(self):
+        for i in range(10):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
+
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # The flag dependency is ignored, but the person property filter still applies
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": str(dependency_flag.pk),
+                            "type": "flag",
+                            "value": True,
+                            "operator": "flag_evaluates_to",
+                        },
+                        {
+                            "key": "group",
+                            "type": "person",
+                            "value": [0, 1, 2, 3],
+                            "operator": "exact",
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 4, "total": 10}.items(), response.json().items())
+
     @freeze_time("2024-01-11")
     def test_user_blast_radius_with_relative_date_filters(self):
         for i in range(8):

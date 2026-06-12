@@ -807,7 +807,11 @@ def property_to_expr(
     else:
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
-    if property.type == "hogql":
+    if property.type == "flag":
+        # Flag dependencies are evaluated at flag-matching time and can't be expressed
+        # in HogQL — return a neutral filter, mirroring the FlagPropertyFilter handling above.
+        return ast.Constant(value=1)
+    elif property.type == "hogql":
         tag_contains_user_hogql()
         return parse_expr(property.key, cache_origin=CacheOrigin.USER)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
