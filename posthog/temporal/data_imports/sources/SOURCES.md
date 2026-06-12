@@ -258,8 +258,6 @@ doesn't conflict with concurrent PRs.
 - hibob
 - instagram
 - kafka
-- kustomer
-- lattice
 - lever
 - lightspeed_retail
 - marketo
