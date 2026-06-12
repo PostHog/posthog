@@ -946,6 +946,33 @@ describe('sandboxStreamLogic', () => {
                 expect.objectContaining({ requestId: 'req-1', optionId: 'allow_once', traceId: 'trace-1' })
             )
         })
+
+        it('suppresses run lifecycle telemetry while replaying history on bootstrap', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', {}) as any,
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't1',
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    rawInput: { command: 'call execute-sql {"query":"select 1"}' },
+                    status: 'in_progress',
+                }) as any,
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' }) as any,
+            ])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            // History is folded in (run marked started, status terminal) but none of the lifecycle
+            // events re-fire — the run lived and died in a prior session.
+            expect(logic.values.runStarted).toEqual(true)
+            expect(logic.values.currentRunStatus).toEqual('completed')
+            const lifecycleEvents = ['task_run_started', 'task_run_terminated', 'tool_call_completed']
+            expect(captureSpy.mock.calls.filter((c) => lifecycleEvents.includes(c[0] as string))).toEqual([])
+        })
     })
 
     describe('permission_request ingest', () => {
