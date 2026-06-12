@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.core.cache import cache
@@ -38,7 +38,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
-from posthog.security.url_validation import is_url_allowed
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
@@ -87,19 +86,21 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
 
 
-def _ai_create_gate_reason(organization) -> Optional[str]:
+def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
     if not settings.DEBUG and not is_cloud():
         return "AI subscriptions are only available in PostHog Cloud."
     if not organization.is_ai_data_processing_approved:
         return "Your organization must approve AI data processing before creating AI subscriptions."
+    # Per-user gate so people can self-enable via feature previews (early access) — the flag is
+    # person-based. AI credits and the subscription limit stay org-scoped, enforced separately.
+    # Non-user callers get a synthetic team_<id> distinct_id that never matches → fails closed.
     if not posthoganalytics.feature_enabled(
         SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
-        str(organization.id),
-        groups={"organization": str(organization.id)},
+        distinct_id,
         only_evaluate_locally=False,
         send_feature_flag_events=False,
     ):
-        return "AI subscriptions are not enabled for your organization."
+        return "AI subscriptions are not enabled for your account."
     return None
 
 
@@ -202,9 +203,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
-            "target_type": {"help_text": "Delivery channel: email, slack, or webhook."},
+            "target_type": {"help_text": "Delivery channel: email or slack."},
             "target_value": {
-                "help_text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook."
+                "help_text": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack."
             },
             "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
             "interval": {
@@ -228,6 +229,21 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
             "enabled": {
                 "help_text": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid."
+            },
+            "summary_enabled": {
+                "help_text": (
+                    "Whether to attach an AI-generated summary to each delivery (insight and dashboard "
+                    "subscriptions only). Requires the organization to have approved AI data processing, and "
+                    "is subject to the org's active-summary cap and AI credit budget; otherwise the write is "
+                    "rejected. Not applicable to prompt subscriptions, which are themselves AI-generated."
+                ),
+            },
+            "summary_prompt_guide": {
+                "help_text": (
+                    "Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics "
+                    "to emphasize. Only settable when AI summary context is enabled for the organization; "
+                    "clearing it (empty string) is always allowed."
+                ),
             },
         }
 
@@ -272,7 +288,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError({"target_type": ["AI subscriptions only support email or slack delivery."]})
         # Gates fire on create only; existing AI subs stay editable.
         if existing is None:
-            gate_reason = _ai_create_gate_reason(self.context["get_organization"]())
+            gate_reason = _ai_create_gate_reason(self.context["get_organization"](), self._caller_distinct_id())
             if gate_reason is not None:
                 raise ValidationError(gate_reason)
 
@@ -393,13 +409,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
 
-        # SSRF protection for webhook subscriptions
-        target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else None)
-        if target_type == Subscription.SubscriptionTarget.WEBHOOK and target_value:
-            allowed, error = is_url_allowed(target_value)
-            if not allowed:
-                raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
-
         # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
         # and field-absent PATCHes always pass through so users aren't stuck with a value
         # they can no longer edit if the flag flips off after they set one.
@@ -507,6 +516,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         Scoped by organization (not user) so gates are stable across a team's
         members. `only_evaluate_locally=False` so we respect server-side cohort
         / property conditions — these checks aren't on a hot path.
+        (`_ai_create_gate_reason` is intentionally person-scoped instead — it
+        backs a per-user early-access opt-in — so don't unify the two.)
         """
         request = self.context.get("request")
         if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
@@ -728,6 +739,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
+def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool:
+    """An AI subscription is one backed by a non-empty prompt (team-scoped)."""
+    return (
+        Subscription.objects.filter(pk=subscription_id, team_id=team_id)
+        .exclude(prompt__isnull=True)
+        .exclude(prompt="")
+        .exists()
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -752,7 +773,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 enum=[m.value for m in Subscription.SubscriptionTarget],
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by delivery channel (email, Slack, or webhook).",
+                description="Filter by delivery channel (email or Slack).",
             ),
             OpenApiParameter(
                 name="insight",
@@ -822,12 +843,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             return True
         # Existing subscription (update / test-delivery): resolve its kind by pk, team-scoped.
         pk = view.kwargs.get("pk")
-        return bool(pk) and (
-            Subscription.objects.filter(pk=pk, team_id=self.team_id)
-            .exclude(prompt__isnull=True)
-            .exclude(prompt="")
-            .exists()
-        )
+        return bool(pk) and _subscription_is_ai_prompt(pk, self.team_id)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
@@ -999,6 +1015,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
+    # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
+    # scrubbed for a caller without query access (content_snapshot is a non-null object, change_summary
+    # nullable text). Single source of truth — keep in sync when adding AI-derived delivery fields.
+    AI_REPORT_SCRUBBED: ClassVar[dict[str, dict | None]] = {"content_snapshot": {}, "change_summary": None}
+
     class Meta:
         model = SubscriptionDelivery
         fields = [
@@ -1028,7 +1049,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "idempotency_key": {"help_text": "Dedupes activity retries for the same logical run."},
             "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, target_change)."},
             "scheduled_at": {"help_text": "Planned send time when applicable."},
-            "target_type": {"help_text": "Channel snapshot at send time (email, slack, webhook)."},
+            "target_type": {"help_text": "Channel snapshot at send time (email or slack)."},
             "target_value": {"help_text": "Destination snapshot at send time (emails, channel id, URL)."},
             "exported_asset_ids": {"help_text": "ExportedAsset ids generated for this send."},
             "content_snapshot": {
@@ -1047,6 +1068,15 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "finished_at": {"help_text": "When the run finished, if applicable."},
             "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
         }
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # The viewset sets this flag when an AI prompt delivery is read by a caller without query
+        # access; scrub the query-derived report so subscription:read (or a self-granted query:read
+        # scope) can't read analytics the user isn't allowed to run themselves.
+        if self.context.get("hide_ai_report"):
+            data.update(self.AI_REPORT_SCRUBBED)
+        return data
 
 
 class SubscriptionDeliveryCursorPagination(CursorPagination):
@@ -1083,6 +1113,21 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
     serializer_class = SubscriptionDeliverySerializer
     pagination_class = SubscriptionDeliveryCursorPagination
     ordering = "-created_at"
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        context["hide_ai_report"] = self._should_hide_ai_report()
+        return context
+
+    def _should_hide_ai_report(self) -> bool:
+        # An AI prompt subscription's delivered report is query-derived, so reading it requires query
+        # access — mirroring the create/test-delivery gate. Non-AI deliveries are unaffected.
+        subscription_id = self.kwargs.get("parent_lookup_subscription_id")
+        if not subscription_id:
+            return True  # nested route always supplies this; fail closed (scrub) if it ever doesn't
+        if not _subscription_is_ai_prompt(subscription_id, self.team_id):
+            return False
+        return not self.user_access_control.check_access_level_for_resource("query", "viewer")
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         subscription_id = self.kwargs.get("parent_lookup_subscription_id")

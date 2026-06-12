@@ -34,7 +34,6 @@ from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
-from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
@@ -50,6 +49,8 @@ from posthog.temporal.session_replay.delete_recordings.types import (
 )
 from posthog.temporal.session_replay.export_recording.types import ExportRecordingInput
 from posthog.temporal.session_replay.import_recording.types import ImportRecordingInput
+
+from products.replay.backend.models.exported_recording import ExportedRecording
 
 logger = get_logger()
 
@@ -237,6 +238,7 @@ class TeamAdmin(admin.ModelAdmin):
         (
             "AI Gateway",
             {
+                "classes": ["collapse"],
                 "fields": [
                     "llm_gateway_enabled_at",
                     "llm_gateway_revoked_at",
@@ -367,6 +369,13 @@ class TeamAdmin(admin.ModelAdmin):
             raise PermissionDenied
         return team, None
 
+    def _refresh_ai_gateway_policy_cache(self, team: Team) -> None:
+        # Sync write: the post_save signal's Celery task races the redirect,
+        # and idempotent clicks skip team.save() so the signal never fires.
+        from posthog.storage.team_llm_gateway_policy_cache import update_team_llm_gateway_policy_cache
+
+        update_team_llm_gateway_policy_cache(team)
+
     def enable_ai_gateway_view(self, request, object_id):
         team, response = self._resolve_ai_gateway_team(request, object_id)
         if response is not None:
@@ -390,6 +399,7 @@ class TeamAdmin(admin.ModelAdmin):
                 f"Team '{team.name}' was already enabled (since {team.llm_gateway_enabled_at.isoformat()}).",
                 level=messages.INFO,
             )
+        self._refresh_ai_gateway_policy_cache(team)
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def revoke_ai_gateway_view(self, request, object_id):
@@ -415,6 +425,7 @@ class TeamAdmin(admin.ModelAdmin):
                 f"Team '{team.name}' was already revoked (since {team.llm_gateway_revoked_at.isoformat()}).",
                 level=messages.INFO,
             )
+        self._refresh_ai_gateway_policy_cache(team)
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def clear_ai_gateway_revoke_view(self, request, object_id):
@@ -440,6 +451,7 @@ class TeamAdmin(admin.ModelAdmin):
                 f"Team '{team.name}' was not revoked.",
                 level=messages.INFO,
             )
+        self._refresh_ai_gateway_policy_cache(team)
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     @admin.display(description="Actions")

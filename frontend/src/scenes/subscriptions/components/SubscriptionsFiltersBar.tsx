@@ -14,7 +14,6 @@ const CHANNEL_FILTER_OPTIONS: { label: string; value: SubscriptionsListTargetTyp
     { label: 'All channels', value: null },
     { label: 'Email', value: TargetTypeEnumApi.Email },
     { label: 'Slack', value: TargetTypeEnumApi.Slack },
-    { label: 'Webhook', value: TargetTypeEnumApi.Webhook },
 ]
 
 export function SubscriptionsFiltersBar(): JSX.Element {

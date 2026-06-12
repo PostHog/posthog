@@ -25,9 +25,9 @@ export interface AppMetricsTotalsResponseApi {
 
 /**
  * * `sum` - sum
- * `avg` - avg
- * `count` - count
- * `p95` - p95
+ * * `avg` - avg
+ * * `count` - count
+ * * `p95` - p95
  */
 export type AggregationEnumApi = (typeof AggregationEnumApi)[keyof typeof AggregationEnumApi]
 
@@ -45,11 +45,11 @@ export interface _MetricQueryBodyApi {
      */
     metricName: string
     /** Aggregation applied per time bucket.
-
-  * `sum` - sum
-  * `avg` - avg
-  * `count` - count
-  * `p95` - p95 */
+     *
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `p95` - p95 */
     aggregation?: AggregationEnumApi
     /** Lower bound (inclusive) for the query range. ISO 8601. */
     dateFrom: string

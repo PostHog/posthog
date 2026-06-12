@@ -518,6 +518,13 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         _mark_outbox_failed(outbox, "no customer email")
         return
 
+    # Defense-in-depth: never send out a comment that itself arrived via inbound
+    # email — mirrors the from_email signal guard at the last mile, so a future
+    # regression in outbox enqueueing can't echo inbound mail back to recipients.
+    if isinstance(comment.item_context, dict) and comment.item_context.get("from_email"):
+        _mark_outbox_failed(outbox, "comment originated from inbound email")
+        return
+
     author_name = ""
     if comment.created_by:
         author_name = (
@@ -826,7 +833,7 @@ def wake_snoozed_tickets() -> None:
                     ticket.status = Status.OPEN
                     ticket.save(update_fields=["status", "snoozed_until", "updated_at"])
                     try:
-                        capture_ticket_status_changed(ticket, old_status, Status.OPEN)
+                        capture_ticket_status_changed(ticket, old_status, Status.OPEN, actor_type="system")
                     except Exception:
                         logger.exception("wake_snoozed_ticket_event_failed", ticket_id=str(ticket.id))
                 else:
@@ -1024,7 +1031,7 @@ def _handle_github_issue_event(team: Team, repo: str, action: str, payload: dict
         existing.status = new_status
         existing.save(update_fields=["status", "updated_at"])
         try:
-            capture_ticket_status_changed(existing, old_status, new_status)
+            capture_ticket_status_changed(existing, old_status, new_status, actor_type="external")
         except Exception:
             logger.exception("github_event_status_change_event_failed", ticket_id=str(existing.id))
 

@@ -72,6 +72,7 @@ async def fetch_count_triggered_eval_reports_activity(
         from posthog.hogql.parser import parse_select
         from posthog.hogql.query import execute_hogql_query
 
+        from posthog.clickhouse.query_tagging import Feature, Product, tags_context
         from posthog.models import Team
 
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
@@ -131,7 +132,8 @@ async def fetch_count_triggered_eval_reports_activity(
                     "since": ast.Constant(value=since),
                 },
             )
-            result = execute_hogql_query(query=query, team=team)
+            with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
+                result = execute_hogql_query(query=query, team=team)
             rows = result.results or []
             count = rows[0][0] if rows else 0
 
@@ -178,6 +180,7 @@ def _find_nth_eval_timestamp(
     from posthog.hogql.parser import parse_select
     from posthog.hogql.query import execute_hogql_query
 
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.models import Team
 
     team = Team.objects.get(id=team_id)
@@ -201,7 +204,8 @@ def _find_nth_eval_timestamp(
             "limit": ast.Constant(value=int(n)),
         },
     )
-    result = execute_hogql_query(query=query, team=team)
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
+        result = execute_hogql_query(query=query, team=team)
     rows = result.results or []
     if rows and rows[0][0] is not None:
         ts = rows[0][0]

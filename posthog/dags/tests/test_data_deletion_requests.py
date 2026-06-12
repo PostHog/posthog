@@ -186,13 +186,17 @@ def test_load_deletion_request_rejects_property_removal():
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "execution_mode, expected_status",
+    "execution_mode, start_status, expected_status",
     [
-        (ExecutionMode.IMMEDIATE, RequestStatus.COMPLETED),
-        (ExecutionMode.DEFERRED, RequestStatus.QUEUED),
+        (ExecutionMode.IMMEDIATE, RequestStatus.IN_PROGRESS, RequestStatus.COMPLETED),
+        (ExecutionMode.DEFERRED, RequestStatus.IN_PROGRESS, RequestStatus.QUEUED),
+        # A Dagster re-run after a mid-job failure starts from FAILED (the failure hook flipped it);
+        # finalize must still be able to complete/queue it.
+        (ExecutionMode.IMMEDIATE, RequestStatus.FAILED, RequestStatus.COMPLETED),
+        (ExecutionMode.DEFERRED, RequestStatus.FAILED, RequestStatus.QUEUED),
     ],
 )
-def test_finalize_deletion_request_transitions_status(execution_mode, expected_status):
+def test_finalize_deletion_request_transitions_status(execution_mode, start_status, expected_status):
     start_time = datetime.now() - timedelta(days=7)
     end_time = datetime.now()
     request = DataDeletionRequest.objects.create(
@@ -201,7 +205,7 @@ def test_finalize_deletion_request_transitions_status(execution_mode, expected_s
         events=["$pageview"],
         start_time=start_time,
         end_time=end_time,
-        status=RequestStatus.IN_PROGRESS,
+        status=start_status,
         execution_mode=execution_mode,
     )
 
@@ -485,8 +489,8 @@ def test_full_job_event_deletion_deferred(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-def test_verify_queued_promotes_when_events_gone():
-    from posthog.dags.data_deletion_requests import _count_remaining_matching_events
+def test_verify_queued_request_promotes_when_events_gone():
+    from posthog.models.data_deletion_request import verify_queued_request
 
     now = datetime.now()
     request = DataDeletionRequest.objects.create(
@@ -499,16 +503,79 @@ def test_verify_queued_promotes_when_events_gone():
         execution_mode=ExecutionMode.DEFERRED,
     )
 
-    assert _count_remaining_matching_events(request) == 0
+    outcome = verify_queued_request(request)
 
-    from django.utils import timezone
-
-    DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.QUEUED).update(
-        status=RequestStatus.COMPLETED, updated_at=timezone.now()
-    )
-
+    assert outcome.remaining == 0
+    assert outcome.promoted is True
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_verify_queued_request_keeps_status_when_events_remain(cluster: ClickhouseCluster):
+    from posthog.models.data_deletion_request import verify_queued_request
+
+    now = datetime.now()
+    cluster.any_host(_truncate_writable_events).result()
+    remaining_events = [(DEFERRED_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i)) for i in range(3)]
+    cluster.any_host(partial(_insert_events, remaining_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=DEFERRED_TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.QUEUED,
+        execution_mode=ExecutionMode.DEFERRED,
+    )
+
+    outcome = verify_queued_request(request)
+
+    assert outcome.remaining == 3
+    assert outcome.promoted is False
+    request.refresh_from_db()
+    assert request.status == RequestStatus.QUEUED
+
+    cluster.any_host(_truncate_writable_events).result()
+
+
+@pytest.mark.django_db
+def test_verify_queued_job_promotes_in_window_and_skips_old(cluster: ClickhouseCluster):
+    from django.utils import timezone
+
+    from posthog.dags.data_deletion_requests import verify_queued_deletion_requests_job
+
+    now = datetime.now()
+    common = {
+        "team_id": DEFERRED_TEAM_ID,
+        "request_type": RequestType.EVENT_REMOVAL,
+        "events": ["$pageview"],
+        "start_time": now - timedelta(days=7),
+        "end_time": now + timedelta(minutes=1),
+        "status": RequestStatus.QUEUED,
+        "execution_mode": ExecutionMode.DEFERRED,
+    }
+    cluster.any_host(_truncate_writable_events).result()  # no matching events → remaining 0
+
+    recent = DataDeletionRequest.objects.create(**common)
+    old = DataDeletionRequest.objects.create(**common)
+    # created_at uses auto_now_add, so push `old` outside the default 28-day window via update().
+    DataDeletionRequest.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=60))
+
+    result = verify_queued_deletion_requests_job.execute_in_process()
+    assert result.success
+
+    recent.refresh_from_db()
+    old.refresh_from_db()
+    assert recent.status == RequestStatus.COMPLETED
+    assert old.status == RequestStatus.QUEUED
+
+
+def test_verify_queued_job_registered_in_clickhouse_location():
+    from posthog.dags.locations.clickhouse import defs
+
+    assert defs.get_job_def("verify_queued_deletion_requests_job") is not None
 
 
 # ---------------------------------------------------------------------------
