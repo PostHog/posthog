@@ -78,6 +78,7 @@
         "snooze_for": {
             "anyOf": [
                 {
+                    "maximum": 100000,
                     "minimum": 1,
                     "type": "number"
                 },
@@ -85,7 +86,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Only honored with `new_state=potential`: number of additional signals before re-promotion."
+            "description": "Only honored with `new_state=potential`: number of additional signals before re-promotion. Capped at 100000 so a report can never be snoozed forever."
         },
         "suggested_reviewers": {
             "anyOf": [
@@ -119,7 +120,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Optional reviewers to suggest, max 10. Replaces the effective list (latest wins)."
+            "description": "Optional reviewers to suggest, max 10. Replaces the effective list (latest wins); pass an explicit empty list to clear stale suggestions."
         },
         "summary": {
             "anyOf": [

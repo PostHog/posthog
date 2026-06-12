@@ -133,6 +133,13 @@ class SignalUserAutonomyConfig(UUIDModel):
         verbose_name_plural = "Signal user autonomy configs"
 
 
+# Upper bound on how far a snooze can push out re-promotion. Generous enough for any
+# realistic snooze, but bounded so a caller can't effectively block a report forever.
+# Enforced on every surface that accepts a caller-supplied `snooze_for` (user state
+# endpoint, scout update endpoint).
+SIGNAL_REPORT_MAX_SNOOZE_FOR = 100_000
+
+
 class InvalidStatusTransition(Exception):
     def __init__(self, from_status: str, to_status: str):
         self.from_status = from_status

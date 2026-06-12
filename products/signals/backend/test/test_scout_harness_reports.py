@@ -264,6 +264,68 @@ class TestScoutUpdateReportAPI(ScoutReportAPIBase):
             ("suppress_suppressed", SignalReport.Status.SUPPRESSED, "suppressed"),
         ]
     )
+    def test_update_with_empty_reviewers_clears_effective_list(self) -> None:
+        # Latest artefact wins on read, so an explicit empty list must write a new (empty)
+        # artefact — silently skipping it would leave stale suggestions effective.
+        run = _make_run(self.team)
+        report = self._make_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "stale-user", "github_name": None, "relevant_commits": []}]),
+        )
+        with _safety_filter():
+            response = self.client.post(
+                self._update_url(str(run.id)),
+                data={"report_id": str(report.id), "suggested_reviewers": []},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        latest = (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        assert latest is not None
+        assert latest.created_by_scout_run_id == run.id
+        assert json.loads(latest.content) == []
+
+    def test_update_state_transition_writes_audit_artefact(self) -> None:
+        # Scouts can transition any report on the team, so each transition must leave a
+        # user-visible, attributed trail on the report — not just an app log line.
+        run = _make_run(self.team)
+        report = self._make_report(report_status=SignalReport.Status.READY)
+        with _safety_filter():
+            response = self.client.post(
+                self._update_url(str(run.id)),
+                data={"report_id": str(report.id), "new_state": "suppressed"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK
+        artefact = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        assert artefact.created_by_scout_run_id == run.id
+        content = json.loads(artefact.content)
+        assert content["reason"] == "scout_state_change"
+        assert str(run.id) in content["note"]
+
+    def test_update_rejects_snooze_above_cap(self) -> None:
+        # An uncapped snooze would push `signals_at_run` out far enough to suppress the
+        # report from re-promotion forever — the bound must hold on this surface too.
+        run = _make_run(self.team)
+        report = self._make_report(report_status=SignalReport.Status.READY)
+        with _safety_filter():
+            response = self.client.post(
+                self._update_url(str(run.id)),
+                data={"report_id": str(report.id), "new_state": "potential", "snooze_for": 2_147_483_647},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
     def test_update_illegal_transition_returns_409(self, _name: str, from_status: str, target: str) -> None:
         run = _make_run(self.team)
         report = self._make_report(report_status=from_status)

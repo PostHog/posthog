@@ -38,6 +38,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.models import Team
 from posthog.permissions import APIScopePermission
 
 from products.ai_observability.backend.models.skills import LLMSkill
@@ -372,21 +373,25 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
-    def _get_in_progress_run_or_error(self, kwargs: dict, *, verb: str) -> SignalScoutRun:
-        """Resolve the run for a write action: team-scoped 404, then in-progress check.
+    def _get_in_progress_run_or_error(self, kwargs: dict, *, verb: str) -> tuple[Team, SignalScoutRun]:
+        """Resolve the canonical team + run for a write action: team-scoped 404, then
+        in-progress check.
 
         Writes are only honored mid-run — the run is the attribution and gating anchor,
-        so a completed/failed run must not keep producing inbox writes.
+        so a completed/failed run must not keep producing inbox writes. Returns the
+        canonical (parent) team alongside the run: scout rows persist under the parent
+        team, so a request routed through a child-environment URL must hand the parent
+        team to the tool layer — passing the raw child `self.team` would trip the tool's
+        team-ownership assertion and 500.
         """
         from products.tasks.backend.models import (
             TaskRun,  # noqa: PLC0415 — avoids tasks import at module load, matching emit_signal
         )
 
         run_id = _parse_run_id_or_404(kwargs)
+        team = self.team.parent_team or self.team
         run = (
-            SignalScoutRun.objects.select_related("scout_config", "task_run")
-            .filter(team_id=_canonical_team_id(self), id=run_id)
-            .first()
+            SignalScoutRun.objects.select_related("scout_config", "task_run").filter(team_id=team.id, id=run_id).first()
         )
         if run is None:
             raise exceptions.NotFound()
@@ -394,7 +399,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError(
                 {"status": f"Reports can only be {verb} on in-progress runs (current: {run.task_run.status})."}
             )
-        return run
+        return team, run
 
     @validated_request(
         request_serializer=CreateReportRequestSerializer,
@@ -427,17 +432,17 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def create_report(self, request: Request, **kwargs) -> Response:
-        run = self._get_in_progress_run_or_error(kwargs, verb="created")
+        team, run = self._get_in_progress_run_or_error(kwargs, verb="created")
         data = request.validated_data
         try:
             result = create_report_sync(
-                team=self.team,
+                team=team,
                 run=run,
                 title=data["title"],
                 summary=data["summary"],
                 priority=data.get("priority") or None,
                 actionability=data.get("actionability") or None,
-                suggested_reviewers=data.get("suggested_reviewers") or None,
+                suggested_reviewers=data.get("suggested_reviewers"),
             )
         except InvalidReportWriteError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -485,11 +490,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def update_report(self, request: Request, **kwargs) -> Response:
-        run = self._get_in_progress_run_or_error(kwargs, verb="updated")
+        team, run = self._get_in_progress_run_or_error(kwargs, verb="updated")
         data = request.validated_data
         try:
             result = update_report_sync(
-                team=self.team,
+                team=team,
                 run=run,
                 report_id=data["report_id"],
                 title=data.get("title") or None,
@@ -498,7 +503,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 snooze_for=data.get("snooze_for"),
                 priority=data.get("priority") or None,
                 actionability=data.get("actionability") or None,
-                suggested_reviewers=data.get("suggested_reviewers") or None,
+                # No `or None`: an explicit empty list is a meaningful payload — it clears
+                # the effective reviewer suggestions (latest artefact wins).
+                suggested_reviewers=data.get("suggested_reviewers"),
             )
         except InvalidReportWriteError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})

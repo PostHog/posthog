@@ -42172,8 +42172,9 @@ export namespace Schemas {
        * * `resolved` - resolved */
       new_state?: NewStateEnum | null;
       /**
-         * Only honored with `new_state=potential`: number of additional signals before re-promotion.
+         * Only honored with `new_state=potential`: number of additional signals before re-promotion. Capped at 100000 so a report can never be snoozed forever.
          * @minimum 1
+         * @maximum 100000
          * @nullable
          */
       snooze_for?: number | null;
@@ -42182,7 +42183,7 @@ export namespace Schemas {
       /** Optional actionability judgment to append. Becomes the report's effective actionability (latest wins). */
       actionability?: ScoutReportActionability | null;
       /**
-         * Optional reviewers to suggest, max 10. Replaces the effective list (latest wins).
+         * Optional reviewers to suggest, max 10. Replaces the effective list (latest wins); pass an explicit empty list to clear stale suggestions.
          * @maxItems 10
          * @nullable
          */

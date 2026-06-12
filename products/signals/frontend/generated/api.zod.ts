@@ -331,6 +331,8 @@ export const signalsScoutUpdateReportBodyTitleMax = 500
 
 export const signalsScoutUpdateReportBodySummaryMax = 50000
 
+export const signalsScoutUpdateReportBodySnoozeForMax = 100000
+
 export const signalsScoutUpdateReportBodyActionabilityOneAlreadyAddressedDefault = false
 export const signalsScoutUpdateReportBodySuggestedReviewersMax = 10
 
@@ -363,8 +365,11 @@ export const SignalsScoutUpdateReportBody = /* @__PURE__ */ zod
         snooze_for: zod
             .number()
             .min(1)
+            .max(signalsScoutUpdateReportBodySnoozeForMax)
             .nullish()
-            .describe('Only honored with `new_state=potential`: number of additional signals before re-promotion.'),
+            .describe(
+                'Only honored with `new_state=potential`: number of additional signals before re-promotion. Capped at 100000 so a report can never be snoozed forever.'
+            ),
         priority: zod
             .union([
                 zod
@@ -434,7 +439,9 @@ export const SignalsScoutUpdateReportBody = /* @__PURE__ */ zod
             )
             .max(signalsScoutUpdateReportBodySuggestedReviewersMax)
             .nullish()
-            .describe('Optional reviewers to suggest, max 10. Replaces the effective list (latest wins).'),
+            .describe(
+                'Optional reviewers to suggest, max 10. Replaces the effective list (latest wins); pass an explicit empty list to clear stale suggestions.'
+            ),
     })
     .describe(
         'Request body for `update-report`. The target report is identified by `report_id`;\nrun attribution is taken from the URL path. At least one mutating field is required.'

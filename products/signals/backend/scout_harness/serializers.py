@@ -14,7 +14,7 @@ from rest_framework import serializers
 
 from posthog.schema import Severity
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.models import SIGNAL_REPORT_MAX_SNOOZE_FOR, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
@@ -526,7 +526,11 @@ class UpdateReportRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         min_value=1,
-        help_text="Only honored with `new_state=potential`: number of additional signals before re-promotion.",
+        max_value=SIGNAL_REPORT_MAX_SNOOZE_FOR,
+        help_text=(
+            "Only honored with `new_state=potential`: number of additional signals before re-promotion. "
+            f"Capped at {SIGNAL_REPORT_MAX_SNOOZE_FOR} so a report can never be snoozed forever."
+        ),
     )
     priority = ScoutReportPrioritySerializer(
         required=False,
@@ -543,7 +547,10 @@ class UpdateReportRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         max_length=MAX_SUGGESTED_REVIEWERS,
-        help_text=f"Optional reviewers to suggest, max {MAX_SUGGESTED_REVIEWERS}. Replaces the effective list (latest wins).",
+        help_text=(
+            f"Optional reviewers to suggest, max {MAX_SUGGESTED_REVIEWERS}. Replaces the effective list "
+            "(latest wins); pass an explicit empty list to clear stale suggestions."
+        ),
     )
 
     def validate(self, attrs: dict) -> dict:

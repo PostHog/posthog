@@ -54,6 +54,7 @@ from products.data_warehouse.backend.data_load.service import trigger_external_d
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
+    SIGNAL_REPORT_MAX_SNOOZE_FOR,
     AutonomyPriority,
     InvalidStatusTransition,
     SignalReport,
@@ -319,9 +320,6 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = 4000
-# Upper bound on how far a snooze can push out re-promotion. Generous enough for any
-# realistic snooze, but bounded so a caller can't effectively block a report forever.
-SIGNAL_REPORT_MAX_SNOOZE_FOR = 100_000
 
 
 class SignalReportStateRequestSerializer(serializers.Serializer):

@@ -46,7 +46,12 @@ from pydantic import ValidationError
 
 from posthog.models import Team
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutRun
+from products.signals.backend.models import (
+    SIGNAL_REPORT_MAX_SNOOZE_FOR,
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutRun,
+)
 from products.signals.backend.report_generation.research import ActionabilityAssessment, PriorityAssessment
 from products.signals.backend.scout_harness.tools.emit import _assert_team_owns_run, _preflight_emit_gates
 
@@ -216,7 +221,9 @@ def _judgment_artefacts(
                 created_by_scout_run=run,
             )
         )
-    if reviewers:
+    # `is not None` (not truthiness): an explicit empty list is a real payload — the newest
+    # artefact wins on read, so `[]` is how a caller clears stale reviewer suggestions.
+    if reviewers is not None:
         artefacts.append(
             SignalReportArtefact(
                 team_id=team_id,
@@ -263,6 +270,8 @@ def create_report_sync(
         )
         return ReportWriteResult(report_id=None, persisted=False, skipped_reason=preflight)
 
+    # Cheap unlocked pre-check so a capped run skips before the (costly) LLM safety call.
+    # NOT the authoritative gate — the locked re-check inside the transaction below is.
     created_count = SignalReport.objects.filter(team_id=team.id, created_by_scout_run=run).count()
     if created_count >= MAX_REPORTS_PER_RUN:
         logger.warning(
@@ -276,6 +285,19 @@ def create_report_sync(
         return ReportWriteResult(report_id=None, persisted=False, skipped_reason=unsafe)
 
     with transaction.atomic():
+        # Serialize concurrent creates from the same run on the run row, then re-check the
+        # cap under the lock — without this, parallel calls could all pass the unlocked
+        # pre-check and overshoot the cap. Same locking anchor `_record_emit` uses.
+        locked_run = SignalScoutRun.all_teams.select_for_update().filter(pk=run.pk).first()
+        if locked_run is None:
+            raise InvalidReportWriteError("run no longer exists")
+        created_count = SignalReport.objects.filter(team_id=team.id, created_by_scout_run=run).count()
+        if created_count >= MAX_REPORTS_PER_RUN:
+            logger.warning(
+                "signals_scout.report: create skipped report_cap_reached",
+                extra={"team_id": team.id, "run_id": str(run.id), "created_count": created_count},
+            )
+            return ReportWriteResult(report_id=None, persisted=False, skipped_reason="report_cap_reached")
         report = SignalReport.objects.create(
             team_id=team.id,
             status=SignalReport.Status.READY,
@@ -333,6 +355,11 @@ def update_report_sync(
     if new_state is not None and new_state not in {state.value for state in SCOUT_ALLOWED_TARGET_STATES}:
         allowed = ", ".join(state.value for state in SCOUT_ALLOWED_TARGET_STATES)
         raise InvalidReportWriteError(f"new_state must be one of: {allowed}")
+    # The DRF serializer already caps this, but the tool layer must hold the bound on its
+    # own: an uncapped snooze pushes `signals_at_run` out far enough to suppress the report
+    # from re-promotion forever (and an int4-overflowing value would 500 on save).
+    if snooze_for is not None and not 1 <= snooze_for <= SIGNAL_REPORT_MAX_SNOOZE_FOR:
+        raise InvalidReportWriteError(f"snooze_for must be between 1 and {SIGNAL_REPORT_MAX_SNOOZE_FOR}")
     if all(value is None for value in (title, summary, new_state, priority, actionability, suggested_reviewers)):
         raise InvalidReportWriteError("at least one field to update must be provided")
     parsed_priority, parsed_actionability, parsed_reviewers = _validate_judgments(
@@ -368,6 +395,23 @@ def update_report_sync(
             # state endpoint. `transition_to` raises InvalidStatusTransition on illegal moves.
             effective_snooze = snooze_for if new_state == SignalReport.Status.POTENTIAL else None
             updated_fields.update(report.transition_to(SignalReport.Status(new_state), snooze_for=effective_snooze))
+            # Every scout-driven transition leaves a user-visible audit artefact (the user
+            # dismissal flow writes the same type). Scouts can move any report on the team —
+            # all transitions are reversible and deletion is excluded — so a transition steered
+            # by adversarial telemetry must be attributable and recoverable from the report
+            # itself, not just from app logs.
+            SignalReportArtefact.objects.create(
+                team_id=team.id,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.DISMISSAL,
+                content=json.dumps(
+                    {
+                        "reason": "scout_state_change",
+                        "note": f"Transitioned to {new_state} by scout run {run.id} ({run.skill_name})",
+                    }
+                ),
+                created_by_scout_run=run,
+            )
         if title is not None:
             report.title = title
             updated_fields.update(["title", "updated_at"])
