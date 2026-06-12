@@ -74,26 +74,45 @@ class ValidatedRowFilter:
 
 # The only operators that may reach SQL. Input aliases are normalized to these;
 # the emitted operator is always one of these literals, never user input.
-_CANONICAL_OPERATORS = frozenset({">", ">=", "<", "<=", "=", "!="})
+_SCALAR_OPERATORS = frozenset({">", ">=", "<", "<=", "=", "!="})
+# Multi-value operators take a list of values, emitted as `(%s, %s, ...)`. They are
+# case-insensitive on input ("in", "Not In") and internal whitespace is collapsed.
+_MULTI_VALUE_OPERATORS = frozenset({"IN", "NOT IN"})
+_CANONICAL_OPERATORS = _SCALAR_OPERATORS | _MULTI_VALUE_OPERATORS
 _OPERATOR_ALIASES = {"==": "=", "<>": "!="}
 
 MAX_ROW_FILTERS = 20
+# Cap the length of an IN / NOT IN list so a single filter can't emit an unbounded
+# number of bound parameters.
+MAX_IN_VALUES = 1000
+
+
+def is_multi_value_operator(operator: str) -> bool:
+    """True for `IN` / `NOT IN` — operators whose value is a list, not a scalar."""
+    return operator in _MULTI_VALUE_OPERATORS
 
 
 def normalize_operator(operator: Any) -> str:
     """Return the canonical operator for `operator`, or raise.
 
-    Accepts the six canonical operators plus the `==` and `<>` aliases. Anything
-    else (including non-strings) raises — the result is guaranteed to be a member
-    of `_CANONICAL_OPERATORS`, so callers can interpolate it directly.
+    Accepts the six scalar operators (plus the `==` and `<>` aliases) and the
+    multi-value operators `IN` / `NOT IN` (case-insensitive, internal whitespace
+    collapsed). Anything else (including non-strings) raises — the result is
+    guaranteed to be a member of `_CANONICAL_OPERATORS`, so callers can interpolate
+    it directly.
     """
     if not isinstance(operator, str):
         raise RowFilterValidationError(f"Operator must be a string, got {type(operator).__name__}")
-    candidate = _OPERATOR_ALIASES.get(operator.strip(), operator.strip())
-    if candidate not in _CANONICAL_OPERATORS:
-        allowed = ", ".join(sorted(_CANONICAL_OPERATORS))
-        raise RowFilterValidationError(f"Unsupported operator {operator!r}. Allowed operators: {allowed}")
-    return candidate
+    stripped = operator.strip()
+    # `IN` / `NOT IN`: case-insensitive, collapse runs of internal whitespace.
+    collapsed = " ".join(stripped.upper().split())
+    if collapsed in _MULTI_VALUE_OPERATORS:
+        return collapsed
+    candidate = _OPERATOR_ALIASES.get(stripped, stripped)
+    if candidate in _SCALAR_OPERATORS:
+        return candidate
+    allowed = ", ".join([*sorted(_SCALAR_OPERATORS), *sorted(_MULTI_VALUE_OPERATORS)])
+    raise RowFilterValidationError(f"Unsupported operator {operator!r}. Allowed operators: {allowed}")
 
 
 def _strip_nullable_wrappers(data_type: str) -> str:
@@ -315,6 +334,85 @@ _COERCERS = {
 }
 
 
+def _split_top_level_commas(raw: str) -> list[str]:
+    """Split on commas that are not inside single quotes; quote chars stay in each piece."""
+    pieces: list[str] = []
+    buf: list[str] = []
+    in_quote = False
+    i = 0
+    n = len(raw)
+    while i < n:
+        ch = raw[i]
+        if ch == "'":
+            buf.append(ch)
+            if in_quote and i + 1 < n and raw[i + 1] == "'":  # escaped '' -> keep both
+                buf.append("'")
+                i += 2
+                continue
+            in_quote = not in_quote
+        elif ch == "," and not in_quote:
+            pieces.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    if in_quote:
+        raise RowFilterValidationError("Unterminated quote in IN list")
+    pieces.append("".join(buf))
+    return pieces
+
+
+def _split_in_list(raw: str) -> list[str]:
+    """Split a comma-separated IN list into element strings.
+
+    Whitespace around each element is trimmed. A single-quoted element keeps its
+    contents verbatim (so it may hold commas or leading/trailing spaces), with a
+    doubled `''` read as an escaped quote. Blank input yields an empty list (which the
+    caller rejects). Raises on an unterminated quote.
+    """
+    if not raw.strip():
+        return []
+    elements: list[str] = []
+    for piece in _split_top_level_commas(raw):
+        token = piece.strip()
+        if len(token) >= 2 and token.startswith("'") and token.endswith("'"):
+            elements.append(token[1:-1].replace("''", "'"))
+        else:
+            elements.append(token)
+    return elements
+
+
+def _coerce_in_values(value: Any, category: ColumnTypeCategory) -> list[Any]:
+    """Parse and coerce the value for an `IN` / `NOT IN` filter into a typed list.
+
+    Accepts a comma-separated string (the UI sends what the user typed) or an already
+    structured list. Each element is coerced with the same per-type rules as a scalar
+    value, so the list is just as injection-proof. Raises on an empty list, a blank
+    element, too many values, or any element that fails type coercion.
+    """
+    coercer = _COERCERS[category]
+    if isinstance(value, list):
+        elements: list[Any] = value
+    elif isinstance(value, str):
+        elements = _split_in_list(value)
+    else:
+        raise RowFilterValidationError(
+            f"IN operator expects a comma-separated string or a list, got {type(value).__name__}"
+        )
+
+    if not elements:
+        raise RowFilterValidationError("IN operator requires at least one value")
+    if len(elements) > MAX_IN_VALUES:
+        raise RowFilterValidationError(f"Too many values for IN (max {MAX_IN_VALUES})")
+
+    coerced: list[Any] = []
+    for element in elements:
+        if isinstance(element, str) and element == "":
+            raise RowFilterValidationError("IN list has an empty value")
+        coerced.append(coercer(element))
+    return coerced
+
+
 def _column_types(schema_metadata: dict[str, Any] | None) -> dict[str, str]:
     """Map column name -> native `data_type` from a `schema_metadata` row."""
     if not isinstance(schema_metadata, dict):
@@ -375,7 +473,11 @@ def validate_and_coerce_row_filters(
 
         if "value" not in row_filter:
             raise RowFilterValidationError(f"Row filter on column {column!r} is missing a value")
-        coerced = _COERCERS[category](row_filter["value"])
+        if is_multi_value_operator(operator):
+            # `value` becomes a typed list; render helpers expand it to N placeholders.
+            coerced: Any = _coerce_in_values(row_filter["value"], category)
+        else:
+            coerced = _COERCERS[category](row_filter["value"])
 
         validated.append(ValidatedRowFilter(column=column, operator=operator, value=coerced, category=category))
 
@@ -396,10 +498,18 @@ def render_named_conditions(
     conditions: list[str] = []
     params: dict[str, Any] = {}
     for index, row_filter in enumerate(filters):
-        name = f"{prefix}_{index}"
         quoted = quoter.quote(row_filter.column)
-        conditions.append(f"{quoted} {row_filter.operator} %({name})s")
-        params[name] = row_filter.value
+        if is_multi_value_operator(row_filter.operator):
+            placeholders = []
+            for position, element in enumerate(row_filter.value):
+                name = f"{prefix}_{index}_{position}"
+                params[name] = element
+                placeholders.append(f"%({name})s")
+            conditions.append(f"{quoted} {row_filter.operator} ({', '.join(placeholders)})")
+        else:
+            name = f"{prefix}_{index}"
+            params[name] = row_filter.value
+            conditions.append(f"{quoted} {row_filter.operator} %({name})s")
     return conditions, params
 
 
@@ -416,6 +526,11 @@ def render_positional_conditions(
     values: list[Any] = []
     for row_filter in filters:
         quoted = quoter.quote(row_filter.column)
-        conditions.append(f"{quoted} {row_filter.operator} %s")
-        values.append(row_filter.value)
+        if is_multi_value_operator(row_filter.operator):
+            placeholders = ", ".join(["%s"] * len(row_filter.value))
+            conditions.append(f"{quoted} {row_filter.operator} ({placeholders})")
+            values.extend(row_filter.value)
+        else:
+            conditions.append(f"{quoted} {row_filter.operator} %s")
+            values.append(row_filter.value)
     return conditions, values

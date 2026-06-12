@@ -268,6 +268,29 @@ class TestSelectAllRowFilters:
         assert result.params == [5, 21]
         assert ":1" in result.sql and ":2" in result.sql
 
+    def test_in_filter_expands_to_one_placeholder_per_value(self) -> None:
+        result = self.builder.select_all(
+            schema="db",
+            table_name="t",
+            row_filters=[self._filter("age", "IN", [21, 30, 40])],
+        )
+        assert "WHERE `age` IN (%(row_filter_0_0)s, %(row_filter_0_1)s, %(row_filter_0_2)s)" in result.sql
+        assert result.params == {"row_filter_0_0": 21, "row_filter_0_1": 30, "row_filter_0_2": 40}
+
+    def test_in_filter_positional_order_after_incremental(self) -> None:
+        builder = SelectQueryBuilder(quoter=AnsiIdentifierQuoter(), param_style=ParamStyle.NUMERIC)
+        result = builder.select_all(
+            schema="public",
+            table_name="users",
+            incremental_field="id",
+            incremental_field_type=IncrementalFieldType.Integer,
+            incremental_last_value=5,
+            row_filters=[self._filter("age", "NOT IN", [21, 30])],
+        )
+        # Incremental value bound first, then each IN element in order.
+        assert result.params == [5, 21, 30]
+        assert '"age" NOT IN (:2, :3)' in result.sql
+
     def test_none_row_filters_no_where(self) -> None:
         result = self.builder.select_all(schema="db", table_name="t", row_filters=None)
         assert "WHERE" not in result.sql
