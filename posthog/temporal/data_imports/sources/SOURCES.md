@@ -67,6 +67,7 @@ the row lists both.
 | calendly          | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor  | HTTP                        | requests                                                        | ✅                          |
 | chargebee         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| checkout_com      | HTTP                        | requests                                                        | ✅                          |
 | coda              | HTTP                        | requests                                                        | ✅                          |
 | commercetools     | HTTP                        | requests                                                        | ✅                          |
 | confluence        | HTTP                        | requests                                                        | ✅                          |
@@ -245,7 +246,6 @@ doesn't conflict with concurrent PRs.
 - box
 - branch
 - campaign_manager_360
-- checkout_com
 - chorus
 - cloudflare
 - cockroachdb
