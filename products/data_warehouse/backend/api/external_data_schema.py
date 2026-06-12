@@ -848,7 +848,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.table.soft_delete()
         instance.soft_delete()
 
-        # Best-effort: a failed delete must not resurrect the request, but an orphaned
+        # Best-effort: a failed schedule delete must not fail the deletion, but an orphaned
         # schedule keeps syncing (and billing) a schema the user can no longer see.
         try:
             delete_external_data_schedule(str(instance.id))
@@ -958,7 +958,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             hide_direct_postgres_table(instance.table)
             instance.should_sync = False
             instance.save(update_fields=["should_sync", "updated_at"])
-            sync_schema_schedule_state(instance)
             return Response(status=status.HTTP_200_OK)
 
         instance.delete_table()

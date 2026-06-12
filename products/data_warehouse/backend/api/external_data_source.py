@@ -2667,18 +2667,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             logger.exception("Failed engine-side CDC cleanup during disable_cdc", exc_info=e)
             capture_exception(e, {"source_id": str(instance.id)})
 
-        disabled_schemas = list(
-            ExternalDataSchema.objects.select_related("source")
-            .filter(
-                source=instance,
-                sync_type=ExternalDataSchema.SyncType.CDC,
-            )
-            .exclude(deleted=True)
-        )
-
         with transaction.atomic():
             # Force CDC schemas to pick a new strategy by clearing sync_type and pausing.
             # Per-instance saves (not a queryset update) so activity logging fires.
+            disabled_schemas = list(
+                ExternalDataSchema.objects.select_related("source")
+                .filter(
+                    source=instance,
+                    sync_type=ExternalDataSchema.SyncType.CDC,
+                )
+                .exclude(deleted=True)
+            )
             for disabled_schema in disabled_schemas:
                 disabled_schema.sync_type = None
                 disabled_schema.should_sync = False

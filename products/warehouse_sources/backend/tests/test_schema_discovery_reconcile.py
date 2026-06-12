@@ -166,3 +166,30 @@ class TestSchemaDiscoveryScheduleCleanup(BaseTest):
         schema.refresh_from_db()
         assert schema.deleted is False
         assert deleted == []
+
+    def test_vanished_schema_with_table_still_disabled_when_schedule_converge_fails(self) -> None:
+        source = self._make_source()
+        table = DataWarehouseTable.objects.create(
+            name="postgres_orders",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern="https://bucket/team_1/*",
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="orders",
+            should_sync=True,
+            table=table,
+        )
+
+        with mock.patch(f"{SERVICE}.sync_schema_schedule_state", side_effect=Exception("temporal down")):
+            sync_old_schemas_with_new_schemas({}, source_id=str(source.pk), team_id=self.team.pk)
+
+        # The disable sticks and discovery survives — still-missing schemas are re-walked
+        # every run, so the failed pause is retried on the next cycle.
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert schema.deleted is False

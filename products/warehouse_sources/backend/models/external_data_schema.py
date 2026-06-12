@@ -519,7 +519,7 @@ def sync_old_schemas_with_new_schemas(
                 except Exception as e:
                     # Soft-deleting now would orphan the live schedule forever (deleted
                     # schemas are never re-walked) — keep the row so the next run retries.
-                    capture_exception(e)
+                    capture_exception(e, {"schema_id": str(s.id), "team_id": team_id})
                     continue
                 s.soft_delete()
                 deleted_schemas.append(schema)
@@ -530,7 +530,7 @@ def sync_old_schemas_with_new_schemas(
                 try:
                     sync_schema_schedule_state(s)
                 except Exception as e:
-                    capture_exception(e)
+                    capture_exception(e, {"schema_id": str(s.id), "team_id": team_id})
 
     return actually_created, deleted_schemas
 
