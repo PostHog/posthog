@@ -1,4 +1,6 @@
+import re
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -13,7 +15,7 @@ from posthog.schema import (
 
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import AlertExtractionError
-from products.alerts.backend.evaluation.hogql import HogQLExtractor, _resolve_value_column_index
+from products.alerts.backend.evaluation.hogql import ANY_ROW_MAX_ROWS, HogQLExtractor, _resolve_value_column_index
 
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
 
@@ -96,6 +98,17 @@ def test_empty_result_evaluates_as_zero_and_can_breach_lower_bound(condition_typ
     no_breach = evaluate_threshold(result, AlertCondition(type=condition_type), _threshold(lower=-5))
     assert no_breach.value == 0.0
     assert no_breach.breaches == []
+
+
+def test_any_row_cap_matches_the_frontend_mirror():
+    # The preview mirror (see the PREVIEW MIRROR CONTRACT on HogQLExtractor) duplicates the
+    # any-row cap as a TS constant; pin the two values together so a one-sided bump fails CI.
+    mirror = (
+        Path(__file__).parents[5] / "frontend" / "src" / "lib" / "components" / "Alerts" / "alertFormLogic.ts"
+    ).read_text()
+    match = re.search(r"HOGQL_ANY_ROW_MAX_ROWS = (\d+)", mirror)
+    assert match, "HOGQL_ANY_ROW_MAX_ROWS not found in the frontend mirror"
+    assert int(match.group(1)) == ANY_ROW_MAX_ROWS
 
 
 def test_evaluation_uses_saved_variable_values_not_session_overrides():

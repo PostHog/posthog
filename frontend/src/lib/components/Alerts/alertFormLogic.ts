@@ -76,7 +76,7 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
     )
 }
 
-/** Mirror of the backend's any-row cap: more rows than this fails loud instead of skipping rows. */
+/** Mirror of the backend's ANY_ROW_MAX_ROWS — equality is pinned by a backend test. */
 export const HOGQL_ANY_ROW_MAX_ROWS = 1000
 
 /** One result row as the alert would read it, for the configure-time preview table. */
@@ -88,7 +88,10 @@ export interface HogQLAlertPreviewRow {
 }
 
 /** What a SQL alert would evaluate right now, mirroring the backend extractor's column
- * resolution and shape checks so problems surface at configure time, not at the first check. */
+ * resolution and shape checks so problems surface at configure time, not at the first check.
+ * This is the advisory half of the PREVIEW MIRROR CONTRACT — the rule inventory lives on
+ * `HogQLExtractor` in products/alerts/backend/evaluation/hogql.py; any rule change there must
+ * land here and in both test suites. */
 export type HogQLAlertPreview =
     | { status: 'no-rows' }
     | { status: 'bad-shape' }

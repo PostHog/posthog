@@ -31,6 +31,20 @@ class HogQLExtractor:
     and how to read the rows: ``last_row`` trusts the query's ORDER BY and treats the last row
     as the current value; ``any_row`` checks every row and fires if any value breaches, labeling
     each row for the breach message. The shared comparator interprets the series either way.
+
+    PREVIEW MIRROR CONTRACT: the configure-time preview re-implements this extractor's decision
+    rules in TypeScript (``deriveHogQLAlertPreview`` in
+    frontend/src/lib/components/Alerts/alertFormLogic.ts) so the modal can preview instantly from
+    the already-loaded result. The mirror is advisory only — this extractor is the sole authority
+    at evaluation time — but if you change any of these rules, update the mirror and both test
+    suites (test_hogql_extractor.py / alertFormLogic.test.ts):
+      1. value-column resolution: explicit ``column`` -> single column -> single numeric column
+      2. numeric classification: most recent non-None cell decides; bools are not numeric
+      3. ``None`` cells evaluate as 0
+      4. label-column resolution: explicit -> first non-evaluated column -> row number
+      5. empty result evaluates as 0 (zero sentinel)
+      6. any-row cap: ``ANY_ROW_MAX_ROWS`` (mirrored as ``HOGQL_ANY_ROW_MAX_ROWS``; equality is
+         pinned by a test)
     """
 
     def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
