@@ -126,13 +126,24 @@ class DuckgresBatchQueue:
                                 )
                             )
                         )
-                        -- Note: no self-apply exclusion here. A batch that crashed
-                        -- between mark_applied and its 'succeeded' status write sits
-                        -- in waiting_retry; letting it back through means one no-op
-                        -- pass (should_process_batch sees the apply marker) that
-                        -- converges the status to 'succeeded' instead of stranding
-                        -- the row in waiting_retry forever. Already-succeeded batches
-                        -- are excluded by the status clause above.
+                        AND (
+                            -- Self-apply exclusion, scoped to statusless batches: an
+                            -- applied batch with no duckgres status row must not be
+                            -- re-claimed. A batch stranded in waiting_retry AFTER its
+                            -- apply marker landed (crash between mark_applied and the
+                            -- 'succeeded' write) stays claimable on purpose: its no-op
+                            -- pass converges the status to 'succeeded'.
+                            b.is_final_batch = true
+                            OR dgs.batch_id IS NOT NULL
+                            OR NOT EXISTS (
+                                SELECT 1
+                                FROM {DUCKGRES_APPLY_TABLE} current_apply
+                                WHERE current_apply.team_id = b.team_id
+                                    AND current_apply.schema_id = b.schema_id
+                                    AND current_apply.run_uuid = b.run_uuid
+                                    AND current_apply.batch_index = b.batch_index
+                            )
+                        )
                         AND b.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)
                         AND NOT EXISTS (
                             SELECT 1
