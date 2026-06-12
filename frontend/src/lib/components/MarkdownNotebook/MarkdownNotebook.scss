@@ -983,6 +983,32 @@ h3.MarkdownNotebook__text-block--heading {
     color: var(--color-text-secondary);
 }
 
+/* Task items: the checkbox is the bullet */
+.MarkdownNotebook__list-block li.MarkdownNotebook__list-item--task {
+    position: relative;
+    list-style: none;
+}
+
+.MarkdownNotebook__task-checkbox {
+    position: absolute;
+    top: calc(0.125rem + 0.275em);
+    left: -1.375rem;
+    display: inline-flex;
+    user-select: none;
+}
+
+.MarkdownNotebook__task-checkbox input {
+    width: 1em;
+    height: 1em;
+    margin: 0;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.MarkdownNotebook__task-checkbox input:disabled {
+    cursor: default;
+}
+
 .MarkdownNotebook__list-item-content {
     min-height: 1.55em;
     padding: 0.125rem 0.25rem;
