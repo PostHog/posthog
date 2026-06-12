@@ -13,6 +13,7 @@ from operator import or_
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import (
     connection as db_connection,
@@ -23,6 +24,7 @@ from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.helpers.full_text_search import process_query
@@ -48,6 +50,7 @@ from .constants import (
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
+    EMBEDDING_STABLE_TS_MAX_AGE,
     EMBEDDING_TTL_REFRESH_WINDOW,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
@@ -292,6 +295,43 @@ def _unsafe_documents_subquery() -> Exists:
     )
 
 
+def _pending_embedding_documents_subquery() -> Exists:
+    """
+    Live docs that are still on their way into the semantic index: either
+    awaiting safety classification (with retries left — docs past the attempt
+    cap stay excluded forever, so they're not "pending"), or already SAFE with
+    chunks but not yet produced to the embedding pipeline. Mirrors the
+    eligibility rules of `_embeddable_documents_qs` so the API never reports
+    "pending" for a doc the coordinator will never pick up.
+    """
+    has_chunks = Exists(KnowledgeChunk.objects.filter(document_id=OuterRef("pk")))
+    return Exists(
+        KnowledgeDocument.objects.filter(source_id=OuterRef("pk"), tombstoned_at__isnull=True).filter(
+            Q(safety_verdict=SafetyVerdict.UNKNOWN, classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS)
+            | (Q(safety_verdict=SafetyVerdict.SAFE, embeddings_emitted_at__isnull=True) & Q(has_chunks))
+        )
+    )
+
+
+def has_pending_embeddings(source_id: UUID) -> bool:
+    """Standalone DB check — same logic as the annotation subquery."""
+    return (
+        KnowledgeDocument.objects.filter(
+            source_id=source_id,
+            tombstoned_at__isnull=True,
+        )
+        .filter(
+            Q(safety_verdict=SafetyVerdict.UNKNOWN, classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS)
+            | Q(
+                safety_verdict=SafetyVerdict.SAFE,
+                embeddings_emitted_at__isnull=True,
+                chunks__isnull=False,
+            )
+        )
+        .exists()
+    )
+
+
 @with_team_scope(canonical=True)
 def list_for_team(team_id: int) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
@@ -301,6 +341,8 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
             _document_count=Count("documents", distinct=True),
             _chunk_count=Count("chunks", distinct=True),
             _has_unsafe_documents=_unsafe_documents_subquery(),
+            _has_pending_embeddings=_pending_embedding_documents_subquery(),
+            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
         )
         .order_by("-created_at")
     )
@@ -313,6 +355,8 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
             _document_count=Count("documents", distinct=True),
             _chunk_count=Count("chunks", distinct=True),
             _has_unsafe_documents=_unsafe_documents_subquery(),
+            _has_pending_embeddings=_pending_embedding_documents_subquery(),
+            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
         ).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
@@ -718,7 +762,7 @@ def _fetch_and_parse(url: str, *, etag: str | None) -> tuple[url_fetch.FetchResu
     if not url_fetch.is_html_content_type(result.content_type):
         raise UrlFetchFailedError("Unsupported content type.")
 
-    title, text = html_parse.parse_html(result.body, result.final_url)
+    title, text = html_parse.parse_html(result.body, result.final_url, content_type=result.content_type)
     if not text.strip():
         raise EmptyContentError("Could not extract any text from the URL.")
     if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
@@ -1262,10 +1306,11 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
         return _mark_error(str(exc))
 
     try:
-        candidate_urls = discover.discover(source.crawl_mode, normalized, config)
+        discovery = discover.discover(source.crawl_mode, normalized, config)
     except discover.DiscoverError as exc:
         return _mark_error(str(exc))
 
+    candidate_urls = discovery.urls
     if not candidate_urls:
         return _mark_error("Crawl discovered no URLs. Check the entry URL and globs.")
 
@@ -1280,7 +1325,7 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
     if not safe_urls:
         return _mark_error("Crawl discovered no safe URLs to fetch.")
 
-    outcomes = crawl.fetch_many(safe_urls)
+    outcomes = crawl.fetch_many(safe_urls, prefetched=discovery.prefetched)
     ok_outcomes = [o for o in outcomes if o.status == "ok"]
 
     if not ok_outcomes:
@@ -1347,7 +1392,8 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         config = _resolve_crawl_config(source.crawl_config)
         normalized = _validate_url(source.source_url)
         try:
-            discovered = discover.discover(source.crawl_mode, normalized, config)
+            discovery = discover.discover(source.crawl_mode, normalized, config)
+            discovered = discovery.urls
         except discover.DiscoverError as exc:
             raise UrlFetchFailedError(str(exc)) from exc
     except (InvalidUrlError, UrlFetchFailedError) as exc:
@@ -1390,7 +1436,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         existing = existing_by_url.get(u)
         return existing.etag if existing and existing.etag else None
 
-    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for)
+    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
     # `discovered_set` is built by normalizing the raw discovered URLs (lowercased
     # scheme+host, no fragment) so keys match `existing_by_url` (which uses the
     # normalized stable_id). We do NOT use `safe_urls` here — that would tombstone
@@ -1490,6 +1536,25 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 def has_ready_sources(team_id: int) -> bool:
     """True when the team has at least one READY source (READY implies chunks exist)."""
     return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
+
+
+def has_feature_flag(team: Team) -> bool:
+    """The `product-business-knowledge` flag check, org-keyed. Canonical home for the
+    check — `ee/hogai/utils/feature_flags.py` delegates here."""
+    if settings.DEBUG:
+        return True
+    return posthoganalytics.feature_enabled(
+        "product-business-knowledge",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+def is_available_for_team(team: Team) -> bool:
+    """Feature flag + ready sources — the full "should agents use BK?" predicate."""
+    return has_feature_flag(team) and has_ready_sources(team.id)
 
 
 _SEARCH_LIMIT_CAP = 20
@@ -2028,12 +2093,13 @@ class DocumentToEmbed:
 
     team_id: int
     document_id: UUID
-    # The embedding row `timestamp`. The first-emission path passes the
-    # document's stable `created_at` so a re-emit of the same chunk_id collapses
-    # onto one ClickHouse sort key / partition instead of duplicating under a
-    # later `toDate(timestamp)`. The TTL-refresh path instead passes `now()` so
-    # the re-emit resets the 3-month TTL clock (the table TTLs on `timestamp`);
-    # the extra row is correctness-safe via the read-path re-join.
+    # The embedding row `timestamp`. Young docs use the stable `created_at` so
+    # a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
+    # partition instead of duplicating under a later `toDate(timestamp)`.
+    # Old docs (created_at older than EMBEDDING_STABLE_TS_MAX_AGE) and the
+    # TTL-refresh path use `now()` so the row survives until the refresh cron
+    # fires, instead of expiring under `TTL timestamp + 3 MONTH` first. The
+    # extra row is correctness-safe via the read-path re-join.
     timestamp: datetime.datetime
     chunks: list[ChunkToEmbed]
 
@@ -2106,7 +2172,18 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
     backfills every existing SAFE doc across all teams, so the cap is what lets
     the hourly coordinator drain that over many passes. Cross-team — coordinator
     only.
+
+    Timestamp strategy: young docs use the stable ``created_at`` so a re-emit
+    collapses onto one ClickHouse sort key. Old docs (``created_at`` older than
+    ``EMBEDDING_STABLE_TS_MAX_AGE``) use ``now()``: a stable timestamp is only
+    safe if the row survives until the TTL-refresh cron re-emits the doc at
+    ``emitted_at + EMBEDDING_TTL_REFRESH_WINDOW`` — beyond the max age the row
+    would expire first (in the worst case it lands already expired,
+    reconciliation re-nulls it, and the next pass re-emits with ``created_at``
+    again: a token-burning loop while the doc silently serves FTS-only forever).
     """
+    now = timezone.now()
+    ttl_cutoff = now - EMBEDDING_STABLE_TS_MAX_AGE
     rows = list(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=True)
@@ -2117,7 +2194,7 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
-            timestamp=created_at,
+            timestamp=now if created_at < ttl_cutoff else created_at,
             chunks=chunks_by_doc.get(document_id, []),
         )
         for team_id, document_id, created_at in rows

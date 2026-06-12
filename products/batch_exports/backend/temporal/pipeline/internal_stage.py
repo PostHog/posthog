@@ -321,10 +321,14 @@ async def compute_num_partitions(
     interval (we fall back and let the next run, which has a same-frequency predecessor, re-adjust).
 
     We fall back to the static default when there is no usable estimate (first run, frequency
-    change, or a run with no recorded count) or if the fetch fails.
+    change, or a run with no recorded count), if the fetch fails, or if dynamic partitioning is
+    disabled entirely via BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED.
     """
     logger = LOGGER.bind()
     static_default = settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
+
+    if not settings.BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED:
+        return static_default
 
     # Without the current interval's bounds we can't match the previous run's frequency, so don't risk
     # sizing off a differently-sized interval (e.g. an unbounded backfill) -> fall back to the default.

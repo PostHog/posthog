@@ -116,6 +116,14 @@ export const RefreshIntervalEnumApi = {
     '7d': '7d',
 } as const
 
+export type EmbeddingStatusEnumApi = (typeof EmbeddingStatusEnumApi)[keyof typeof EmbeddingStatusEnumApi]
+
+export const EmbeddingStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Disabled: 'disabled',
+} as const
+
 /**
  * * `single` - Single page
  * * `sitemap` - Sitemap
@@ -158,6 +166,8 @@ export interface KnowledgeSourceApi {
     readonly next_refresh_at: string | null
     /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
     readonly has_unsafe_documents: boolean
+    /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
+    readonly embedding_status: EmbeddingStatusEnumApi
     readonly crawl_mode: CrawlModeEnumApi
     readonly crawl_config: unknown
     readonly original_filename: string

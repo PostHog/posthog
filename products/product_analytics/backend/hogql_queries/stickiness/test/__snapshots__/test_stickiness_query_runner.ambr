@@ -21,7 +21,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(greaterOrEquals(num_intervals, 1), 0)
+  WHERE greaterOrEquals(num_intervals, 1)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -58,7 +58,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(greaterOrEquals(num_intervals, 2), 0)
+  WHERE greaterOrEquals(num_intervals, 2)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -95,7 +95,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(greaterOrEquals(num_intervals, 3), 0)
+  WHERE greaterOrEquals(num_intervals, 3)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -132,7 +132,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(equals(num_intervals, 1), 0)
+  WHERE equals(num_intervals, 1)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -169,7 +169,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(equals(num_intervals, 2), 0)
+  WHERE equals(num_intervals, 2)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -206,7 +206,7 @@
                  start_of_interval
         HAVING greater(count(), 0))
      GROUP BY aggregation_target)
-  WHERE ifNull(equals(num_intervals, 3), 0)
+  WHERE equals(num_intervals, 3)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

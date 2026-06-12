@@ -6,24 +6,33 @@ export const QUOTA_WARN_THRESHOLD = 0.85
 
 export type QuotaStatus = 'safe' | 'warning' | 'danger'
 
+export const QUOTA_STATUS_STYLES: Record<QuotaStatus, { bar: string; text: string }> = {
+    safe: { bar: 'bg-success', text: 'text-success' },
+    warning: { bar: 'bg-warning', text: 'text-warning' },
+    danger: { bar: 'bg-danger', text: 'text-danger' },
+}
+
 export interface QuotaProjection {
     status: QuotaStatus
+    exhausted: boolean
     capReachDate: dayjs.Dayjs | null
-    capReachInPeriod: boolean
-    projectedPeriodEndRatio: number
+    /** Projected period-end usage as a rounded percentage of the cap; exceeds 100 on overshoot. */
+    percentLabel: number
     resetsOn: string | null
-    daysRemaining: number
-    combinedDailyRate: number
+    /** Actual usage as a percentage of the cap; `QuotaMeterBar` clamps for display. */
+    usedPct: number
+    /** Projected additional usage as a percentage of the cap, unclamped. */
+    projectedPct: number
 }
 
 const EMPTY: QuotaProjection = {
     status: 'safe',
+    exhausted: false,
     capReachDate: null,
-    capReachInPeriod: false,
-    projectedPeriodEndRatio: 0,
+    percentLabel: 0,
     resetsOn: null,
-    daysRemaining: 0,
-    combinedDailyRate: 0,
+    usedPct: 0,
+    projectedPct: 0,
 }
 
 /**
@@ -46,8 +55,9 @@ export function projectQuota(quota: VisionQuotaApi | null, scannerProjectedMonth
 
     const projectedMonthly = Math.max(quota.projected_monthly_observations + scannerProjectedMonthlyDelta, 0)
     const combinedDailyRate = projectedMonthly / periodLengthDays
+    const projectedAdditional = combinedDailyRate * daysRemaining
 
-    const projectedPeriodEndRatio = (used + combinedDailyRate * daysRemaining) / cap
+    const projectedPeriodEndRatio = (used + projectedAdditional) / cap
     const capReachDate = combinedDailyRate > 0 && used < cap ? now.add((cap - used) / combinedDailyRate, 'day') : null
     const capReachInPeriod = !!(capReachDate && periodEnd && capReachDate.isBefore(periodEnd))
 
@@ -60,13 +70,25 @@ export function projectQuota(quota: VisionQuotaApi | null, scannerProjectedMonth
 
     return {
         status,
+        exhausted: quota.exhausted,
         capReachDate,
-        capReachInPeriod,
-        projectedPeriodEndRatio,
+        percentLabel: Math.round(projectedPeriodEndRatio * 100),
         resetsOn,
-        daysRemaining,
-        combinedDailyRate,
+        usedPct: (used / cap) * 100,
+        projectedPct: (projectedAdditional / cap) * 100,
     }
+}
+
+/** Apportion a projected percentage between this scanner and the rest of the fleet by monthly volume. */
+export function splitProjectedPct(
+    projectedPct: number,
+    thisScannerMonthly: number,
+    othersMonthly: number
+): { thisScannerPct: number; othersPct: number } {
+    const combined = thisScannerMonthly + othersMonthly
+    const thisScannerPct = combined > 0 ? (projectedPct * thisScannerMonthly) / combined : 0
+    // Exact complement so the two segments always sum to the full projection.
+    return { thisScannerPct, othersPct: projectedPct - thisScannerPct }
 }
 
 /**

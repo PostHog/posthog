@@ -20,7 +20,6 @@ from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
-from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -337,6 +336,10 @@ def enqueue_process_query_task(
             manager.register_cache_key_mapping(cache_key)
         except Exception as e:
             capture_exception(e, {"cache_key": cache_key})
+
+    # posthog.tasks.__init__ eagerly imports every task module (celery autoimport), and this
+    # module loads at django.setup() via posthog.clickhouse.client — keep the task graph off it.
+    from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
     task_signature = process_query_task.si(
