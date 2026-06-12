@@ -14,8 +14,8 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
         content: (
             <>
                 <Markdown>
-                    Capture a structured log record with `Posthog().logger`. Records are batched and shipped to PostHog's
-                    logs product.
+                    Capture a structured log record with `Posthog().logger`. Requires `posthog_flutter` 5.27.0 or later.
+                    Records are batched and shipped to PostHog's logs product.
                 </Markdown>
                 <CodeBlock
                     blocks={[
