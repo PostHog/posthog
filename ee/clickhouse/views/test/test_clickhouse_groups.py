@@ -1,4 +1,5 @@
 import json
+import base64
 from typing import Any, cast
 from uuid import UUID
 
@@ -2561,6 +2562,17 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
 
         assert created_at_us == 1620000000000_000
         assert group_key == "org:42"
+
+    @freeze_time("2021-05-02")
+    def test_old_format_cursor_is_treated_as_no_cursor(self):
+        # Pre-deploy cursors encoded the tiebreaker as "i" (PG id) with no "k". The new keyset can't
+        # honor that boundary, so the decoder degrades it to no cursor (restart from the first page).
+        old_cursor = base64.urlsafe_b64encode(json.dumps({"c": 1620000000000_000, "i": 42}).encode()).decode()
+
+        created_at_us, group_key = _decode_groups_cursor(old_cursor)
+
+        assert created_at_us == 0
+        assert group_key == ""
 
     @freeze_time("2021-05-02")
     def test_invalid_cursor_is_ignored(self):

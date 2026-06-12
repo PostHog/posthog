@@ -67,6 +67,11 @@ def _encode_groups_cursor(created_at_us: int, group_key: str) -> str:
 def _decode_groups_cursor(cursor: str) -> tuple[int, str]:
     try:
         data = _json.loads(base64.urlsafe_b64decode(cursor))
+        # Pre-deploy cursors keyed the tiebreaker on the PG id ("i") instead of group_key ("k").
+        # The new keyset can't honor that boundary (different column, no id in ClickHouse), so treat
+        # an old-format cursor as no cursor — restart from the first page, like any invalid cursor.
+        if "k" not in data:
+            return 0, ""
         raw_ts = int(data.get("c", 0))
         group_key = str(data.get("k", ""))
         if 0 < raw_ts < 1e15:
