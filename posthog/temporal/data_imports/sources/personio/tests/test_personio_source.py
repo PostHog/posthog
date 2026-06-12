@@ -48,6 +48,7 @@ class TestPersonioSource:
             "401 Client Error: Unauthorized for url: https://api.personio.de/v2/auth/token",
             "400 Client Error: Bad Request for url: https://api.personio.de/v2/auth/token",
             "403 Client Error: Forbidden for url: https://api.personio.de/v2/persons?limit=50",
+            "Personio rejected a freshly minted access token (401). The API credential may have been revoked or had its scope removed.",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):

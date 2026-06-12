@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import PersonioSourceConfig
 from posthog.temporal.data_imports.sources.personio.personio import (
+    AUTH_REVOKED_ERROR,
     PersonioResumeConfig,
     personio_source,
     validate_credentials as validate_personio_credentials,
@@ -35,6 +36,7 @@ class PersonioSource(ResumableSource[PersonioSourceConfig, PersonioResumeConfig]
             "401 Client Error: Unauthorized for url: https://api.personio.de/v2/auth/token": "Personio authentication failed. Please check your client ID and client secret.",
             "400 Client Error: Bad Request for url: https://api.personio.de/v2/auth/token": "Personio authentication failed. Please check your client ID and client secret.",
             "403 Client Error: Forbidden for url: https://api.personio.de": "Personio denied access. Please check that your API credential has the required scope for this dataset.",
+            AUTH_REVOKED_ERROR: "Personio authentication failed mid-sync. Please check that your API credential is still valid and has the required scope.",
         }
 
     @property

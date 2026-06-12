@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -14,15 +14,31 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.personio.settings import PERSONIO_ENDPOINTS, PersonioEndpointConfig
 
 PERSONIO_BASE_URL = "https://api.personio.de"
+PERSONIO_API_HOST = "api.personio.de"
 TOKEN_URL = f"{PERSONIO_BASE_URL}/v2/auth/token"
 REQUEST_TIMEOUT_SECONDS = 60
 # ~200 req/min per credential (persons 300/min); 429s carry X-RateLimit headers
 # but exponential backoff is sufficient.
 MAX_RETRY_ATTEMPTS = 5
+# Raised (and matched by get_non_retryable_errors) when a freshly minted token is
+# still rejected — the credential was revoked or lost its scope mid-sync.
+AUTH_REVOKED_ERROR = "Personio rejected a freshly minted access token (401)"
 
 
 class PersonioRetryableError(Exception):
     pass
+
+
+class PersonioAuthError(Exception):
+    pass
+
+
+def _is_personio_url(url: str) -> bool:
+    """True only for https URLs whose host is api.personio.de. Guards against a
+    tampered pagination/resume URL redirecting our authenticated request (along
+    with the bearer token) to an internal host (SSRF)."""
+    parsed = urlparse(url)
+    return parsed.scheme == "https" and (parsed.hostname or "").lower() == PERSONIO_API_HOST
 
 
 @dataclasses.dataclass
@@ -33,7 +49,8 @@ class PersonioResumeConfig:
 
 
 def _get_session(client_secret: str) -> requests.Session:
-    return make_tracked_session(redact_values=(client_secret,))
+    # allow_redirects=False so a redirect chain can't bypass the host check below.
+    return make_tracked_session(redact_values=(client_secret,), allow_redirects=False)
 
 
 def _mint_token(session: requests.Session, client_id: str, client_secret: str) -> str:
@@ -104,6 +121,10 @@ def get_rows(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
         url: str = resume_config.next_url
+        # Only ever saved from a host-pinned next_url, but re-check so a tampered
+        # Redis state can't redirect our authenticated request (SSRF).
+        if not _is_personio_url(url):
+            raise ValueError(f"Personio resume state contains an unexpected URL: {url!r}")
         logger.debug(f"Personio: resuming {endpoint} from URL: {url}")
     else:
         url = _build_initial_url(config, should_use_incremental_field, db_incremental_field_last_value)
@@ -124,6 +145,13 @@ def get_rows(
             response = session.get(
                 page_url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS
             )
+            # A freshly minted token still rejected means the credential was revoked
+            # or lost its scope mid-sync — retrying never succeeds, so fail fast with
+            # a friendly message instead of a raw HTTPError carrying the data URL.
+            if response.status_code == 401:
+                raise PersonioAuthError(
+                    f"{AUTH_REVOKED_ERROR}. The API credential may have been revoked or had its scope removed."
+                )
 
         if response.status_code == 429 or response.status_code >= 500:
             raise PersonioRetryableError(
@@ -145,6 +173,12 @@ def get_rows(
 
         next_url = (((data.get("_meta") or {}).get("links") or {}).get("next") or {}).get("href")
         if not next_url or not items:
+            break
+
+        # Only follow pagination URLs that stay on api.personio.de so a tampered
+        # response can't point our authenticated request at an internal host (SSRF).
+        if not _is_personio_url(next_url):
+            logger.warning(f"Personio: stopping pagination, next URL is not on {PERSONIO_API_HOST}: {next_url!r}")
             break
 
         # Save state AFTER yielding the page so a crash re-yields the last page

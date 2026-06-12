@@ -8,6 +8,8 @@ from unittest import mock
 import requests
 
 from posthog.temporal.data_imports.sources.personio.personio import (
+    AUTH_REVOKED_ERROR,
+    PersonioAuthError,
     PersonioResumeConfig,
     _build_initial_url,
     _format_updated_at,
@@ -99,7 +101,7 @@ class TestValidateCredentials:
     @mock.patch("posthog.temporal.data_imports.sources.personio.personio.make_tracked_session")
     def test_invalid_when_token_mint_fails(self, mock_session):
         resp = mock.MagicMock()
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=resp)
         mock_session.return_value.post.return_value = resp
         assert validate_credentials("id", "secret") is False
 
@@ -152,6 +154,47 @@ class TestGetRows:
         assert batches == [[{"id": "1"}]]
         # One mint at start + one re-mint after the 401.
         assert mock_session.return_value.post.call_count == 2
+
+    @mock.patch("posthog.temporal.data_imports.sources.personio.personio.make_tracked_session")
+    def test_second_401_after_remint_raises_auth_error(self, mock_session):
+        expired = mock.MagicMock()
+        expired.status_code = 401
+        expired.ok = False
+        mock_session.return_value.post.return_value = _token_response()
+        # Both the original and the post-remint GET return 401 (credential revoked mid-sync).
+        mock_session.return_value.get.side_effect = [expired, expired]
+
+        manager = _make_manager()
+        with pytest.raises(PersonioAuthError) as exc:
+            list(get_rows("id", "secret", "persons", mock.MagicMock(), manager))
+
+        # The message must be matchable by get_non_retryable_errors so the job fails fast.
+        assert AUTH_REVOKED_ERROR in str(exc.value)
+
+    @mock.patch("posthog.temporal.data_imports.sources.personio.personio.make_tracked_session")
+    def test_stops_pagination_when_next_url_is_foreign_host(self, mock_session):
+        mock_session.return_value.post.return_value = _token_response()
+        mock_session.return_value.get.return_value = _page_response(
+            [{"id": "1"}], next_url="https://evil.example.com/v2/persons?cursor=x"
+        )
+
+        manager = _make_manager()
+        batches = list(get_rows("id", "secret", "persons", mock.MagicMock(), manager))
+
+        # The first page is yielded, but the off-host next URL is never followed or saved.
+        assert batches == [[{"id": "1"}]]
+        assert mock_session.return_value.get.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch("posthog.temporal.data_imports.sources.personio.personio.make_tracked_session")
+    def test_resume_state_with_foreign_host_raises(self, mock_session):
+        mock_session.return_value.post.return_value = _token_response()
+        manager = _make_manager(PersonioResumeConfig(next_url="https://evil.example.com/v2/persons"))
+
+        with pytest.raises(ValueError):
+            list(get_rows("id", "secret", "persons", mock.MagicMock(), manager))
+
+        mock_session.return_value.get.assert_not_called()
 
     @mock.patch("posthog.temporal.data_imports.sources.personio.personio.make_tracked_session")
     def test_resumes_from_saved_state(self, mock_session):
