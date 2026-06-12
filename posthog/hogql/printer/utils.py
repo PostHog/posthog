@@ -210,7 +210,7 @@ def prepare_ast_for_printing(
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
 
-        # Temporary (June 2026 MaxMind incident): recover blanked geoip city/postal reads from the IP via a ClickHouse
+        # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): recover blanked geoip city/postal reads from the IP via a ClickHouse
         # dictionary. Runs on the lowered AST so the reads it adds are plain PropertyAccess nodes, which the resolution
         # pass below routes to materialized columns. Remove with the transform.
         if context.modifiers.useGeoipDictFallback:

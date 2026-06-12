@@ -1,6 +1,6 @@
 """Temporary ClickHouse pass: recover blanked `$geoip_city_name` / `$geoip_postal_code` event properties at query time.
 
-A bad MaxMind GeoLite2-City release (June 2026 incident) blanked city and postal data on enriched events, and the
+A bad MaxMind GeoLite2-City release (June 2026 incident: https://posthog.slack.com/archives/C0B9DDSCTF1) blanked city and postal data on enriched events, and the
 ALTER UPDATE backfill over the affected partitions is slow. Until it catches up, this pass patches reads of the two
 affected properties: when the stored value is blank but geoip enrichment did run (`$geoip_country_code` is set) the
 value is recovered from the event's `$ip` via the `city_postal_ip_trie` ClickHouse dictionary, which was built from a

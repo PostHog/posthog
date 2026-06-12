@@ -129,7 +129,7 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
 
     def test_person_properties_on_events_not_wrapped(self) -> None:
         # person.properties reads off events resolve to the person_properties blob (or a joined subquery), neither of
-        # which is the events properties blob the incident affected.
+        # which is the events properties blob the incident (https://posthog.slack.com/archives/C0B9DDSCTF1) affected.
         sql, _ = self._print_select("SELECT person.properties.$geoip_city_name FROM events")
         assert "dictGetStringOrDefault" not in sql
 
@@ -180,7 +180,8 @@ class TestGeoipDictFallbackExecution(ClickhouseTestMixin, BaseTest):
                     "$ip": "89.160.20.129",
                 },
             ),
-            # Blanked by the incident (enrichment ran: country is set) — recovered from the IP.
+            # Blanked by the incident (https://posthog.slack.com/archives/C0B9DDSCTF1; enrichment ran: country is set),
+            # recovered from the IP.
             (
                 "2_recovered_v4",
                 {"$geoip_city_name": "", "$geoip_postal_code": "", "$geoip_country_code": "SE", "$ip": "89.160.20.129"},

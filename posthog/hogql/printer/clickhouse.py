@@ -242,7 +242,8 @@ class ClickHousePrinter(BasePrinter):
         if node.name == "embedText":
             return self.visit_constant(resolve_embed_text(self.context.team, node))
         elif node.name in ("lookupGeoipCityName", "lookupGeoipPostalCode"):
-            # Temporary (June 2026 MaxMind incident), remove with the geoip_dict_fallback transform. toIPv6OrDefault
+            # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1), remove with the
+            # geoip_dict_fallback transform. toIPv6OrDefault
             # covers both families (v4 input becomes a ::ffff: mapped address, which the ip_trie dict resolves against
             # its IPv4 prefixes); empty or invalid input becomes '::', which misses and returns the '' default.
             attribute = "city_name" if node.name == "lookupGeoipCityName" else "postal_code"

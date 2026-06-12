@@ -26,7 +26,7 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=[((StringType(),), ArrayType(item_type=IntegerType()))],
     ),
     "embedText": HogQLFunctionMeta("embedText", 1, 2),
-    # Temporary (June 2026 MaxMind incident): geoip lookups against the city_postal_ip_trie ClickHouse dictionary,
+    # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): geoip lookups against the city_postal_ip_trie ClickHouse dictionary,
     # used by posthog/hogql/transforms/geoip_dict_fallback.py and rendered in the ClickHouse printer. Remove with it.
     "lookupGeoipCityName": HogQLFunctionMeta("lookupGeoipCityName", 1, 1),
     "lookupGeoipPostalCode": HogQLFunctionMeta("lookupGeoipPostalCode", 1, 1),

@@ -121,7 +121,7 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.sessionPropertyPreAggregation is None:
         modifiers.sessionPropertyPreAggregation = False
 
-    # Temporary (June 2026 MaxMind incident): instance-wide default so the geoip dict fallback can be switched on per
+    # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): instance-wide default so the geoip dict fallback can be switched on per
     # region via env, while still allowing per-team (team.modifiers) and per-query overrides. Remove with the fallback.
     if modifiers.useGeoipDictFallback is None:
         modifiers.useGeoipDictFallback = settings.HOGQL_GEOIP_DICT_FALLBACK

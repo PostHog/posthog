@@ -7803,10 +7803,11 @@ class HogQLQueryModifiers(BaseModel):
     useGeoipDictFallback: bool | None = Field(
         default=None,
         description=(
-            "Temporary (June 2026 MaxMind incident): recover blank `$geoip_city_name` /"
-            " `$geoip_postal_code` event property reads from `$ip` at query time, via"
-            " the `city_postal_ip_trie` ClickHouse dictionary. Remove once the affected"
-            " events are backfilled."
+            "Temporary (June 2026 MaxMind incident:"
+            " https://posthog.slack.com/archives/C0B9DDSCTF1): recover blank"
+            " `$geoip_city_name` / `$geoip_postal_code` event property reads from `$ip`"
+            " at query time, via the `city_postal_ip_trie` ClickHouse dictionary."
+            " Remove once the affected events are backfilled."
         ),
     )
     useMaterializedViews: bool | None = None
