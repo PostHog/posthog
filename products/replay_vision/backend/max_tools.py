@@ -13,7 +13,7 @@ from posthog.schema import EmbeddingModelName
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.embedding_worker import generate_embedding
+from posthog.api.embedding_worker import async_generate_embedding
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
@@ -143,8 +143,6 @@ DEFAULT_SEARCH_LIMIT = 20
 MAX_SEARCH_LIMIT = 50
 # Keep each reasoning snippet bounded so a wide result set doesn't blow up the context.
 _SEARCH_SNIPPET_LIMIT = 600
-# Bound the blocking ad-hoc embedding call so a stuck worker can't hang the tool.
-_EMBEDDING_TIMEOUT_S = 30.0
 # The cosine-distance scan is exact (brute-force), so cap how many of a team's most-recent embedding rows it
 # ranks over. Set well above realistic per-team volume so it only bites a runaway team — keeping latency
 # predictable without an HNSW index (which our mandatory tenant/scanner metadata filters wouldn't engage anyway).
@@ -417,31 +415,21 @@ class SearchReplayVisionObservationsTool(MaxTool):
             # (the full exception is captured to Sentry above).
             return "Something went wrong searching the observations. Please try again.", {"error": "search_failed"}
 
-    @database_sync_to_async
-    def _search(
+    async def _search(
         self, scanner_id: str | None, query: str, filters: "_ObservationFilters", limit: int | None
     ) -> tuple[str, dict[str, Any]]:
-        # Gate on the product flag, matching the Vision API viewsets — the tool must not return
-        # data when Replay Vision is disabled for the org.
-        if not is_replay_vision_enabled(self._user, self._team):
-            return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
-
-        scope = self._resolve_scanner_scope(scanner_id)
-        if scope is None:
-            # `not found` doubles as `no access` so we never leak a scanner's existence.
-            return f"Scanner {scanner_id} not found.", {"error": "not_found"}
-        scanner_ids, scope_label, cross_scanner = scope
-        if not scanner_ids:
-            return ("No Replay Vision scanners are available to search.", {"error": "no_scanners", "result_count": 0})
-
-        # Clamp into [1, MAX] so a negative/zero/oversized limit can't reach the ClickHouse LIMIT clause.
-        capped_limit = max(1, min(limit or DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT))
-        empty = (f"No recordings from {scope_label} matched that search yet.", {"result_count": 0})
+        # The embedding call is a 30s-bounded HTTP request; awaiting `async_generate_embedding` lets the event
+        # loop schedule other work instead of pinning a Django DB-pool thread for the full network RTT. The DB
+        # / ClickHouse pieces stay in `database_sync_to_async` blocks on either side so each thread held is
+        # genuinely DB-bound.
+        resolved_scope, short_circuit = await self._resolve_search_scope(scanner_id, limit)
+        if short_circuit is not None:
+            return short_circuit
+        assert resolved_scope is not None  # narrows the union; either resolved_scope or short_circuit is non-None
+        scanner_ids, scope_label, cross_scanner, capped_limit = resolved_scope
 
         try:
-            embedding_response = generate_embedding(
-                self._team, query, model=SEARCH_EMBEDDING_MODEL.value, timeout=_EMBEDDING_TIMEOUT_S
-            )
+            embedding_response = await async_generate_embedding(self._team, query, model=SEARCH_EMBEDDING_MODEL.value)
         except Exception:
             logger.warning("replay_vision.observation_search.embedding_failed", team_id=self._team.id, exc_info=True)
             # Could be a timeout, a transport error, or (commonly) the org not having opted into AI data processing.
@@ -451,9 +439,54 @@ class SearchReplayVisionObservationsTool(MaxTool):
                 {"error": "embedding_unavailable"},
             )
 
+        return await self._rank_and_format(
+            scanner_ids, scope_label, cross_scanner, capped_limit, query, embedding_response.embedding, filters
+        )
+
+    @database_sync_to_async
+    def _resolve_search_scope(
+        self, scanner_id: str | None, limit: int | None
+    ) -> tuple[tuple[list[str], str, bool, int] | None, tuple[str, dict[str, Any]] | None]:
+        """Sync gate + scope resolution — runs before the embedding HTTP call. Returns
+        `(scope, None)` when search should proceed, or `(None, short_circuit)` when the caller should return
+        the short-circuit (content, artifact) tuple as-is. Exactly one half is non-None."""
+        # Gate on the product flag, matching the Vision API viewsets — the tool must not return
+        # data when Replay Vision is disabled for the org.
+        if not is_replay_vision_enabled(self._user, self._team):
+            return None, ("Replay Vision is not enabled for this project.", {"error": "not_enabled"})
+
+        scope = self._resolve_scanner_scope(scanner_id)
+        if scope is None:
+            # `not found` doubles as `no access` so we never leak a scanner's existence.
+            return None, (f"Scanner {scanner_id} not found.", {"error": "not_found"})
+        scanner_ids, scope_label, cross_scanner = scope
+        if not scanner_ids:
+            return None, (
+                "No Replay Vision scanners are available to search.",
+                {"error": "no_scanners", "result_count": 0},
+            )
+
+        # Clamp into [1, MAX] so a negative/zero/oversized limit can't reach the ClickHouse LIMIT clause.
+        capped_limit = max(1, min(limit or DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT))
+        return (scanner_ids, scope_label, cross_scanner, capped_limit), None
+
+    @database_sync_to_async
+    def _rank_and_format(
+        self,
+        scanner_ids: list[str],
+        scope_label: str,
+        cross_scanner: bool,
+        capped_limit: int,
+        query: str,
+        query_vector: list[float],
+        filters: "_ObservationFilters",
+    ) -> tuple[str, dict[str, Any]]:
+        """Sync ClickHouse rank + ORM fetch + format — runs after the embedding HTTP call has resolved."""
+        empty = (f"No recordings from {scope_label} matched that search yet.", {"result_count": 0})
+
         # Filter + rank in one ClickHouse query: the structured outcome filters run against the embedding
         # metadata, so the semantic ranking only ever sees recordings that already match the exact outcome.
-        ordered_ids = self._rank_observation_ids(scanner_ids, embedding_response.embedding, capped_limit, filters)
+        ordered_ids = self._rank_observation_ids(scanner_ids, query_vector, capped_limit, filters)
         if not ordered_ids:
             return empty
 

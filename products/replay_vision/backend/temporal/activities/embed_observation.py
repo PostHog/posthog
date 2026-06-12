@@ -132,6 +132,7 @@ async def embed_observation_activity(inputs: EmbedObservationInputs) -> None:
     )
 
 
+# TODO: remove this back-compat alias after the deploy window (see REMOVAL CRITERION below).
 @activity.defn
 @track_activity()
 async def embed_summarizer_observation_activity(inputs: EmbedSummarizerObservationInputs) -> None:
