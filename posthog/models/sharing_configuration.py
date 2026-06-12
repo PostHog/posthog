@@ -136,27 +136,24 @@ class SharingConfiguration(models.Model):
             return keep
 
     def _lock_resource_for_rotation(self) -> None:
-        # Resource models are imported locally: this module is loaded mid-``Team`` initialization
-        # (via product_analytics' insight_caching_state), so importing them at module level would
-        # cycle through ``posthog.models.team``.
-        if self.dashboard_id:
-            from products.dashboards.backend.models.dashboard import Dashboard
+        # Resolve each parent model from its own FK instead of importing it. This keeps the module
+        # free of product imports (``user_interviews`` only exposes its webhooks via tach's
+        # ``[[interfaces]]``) and avoids cycling through ``posthog.models.team`` during ``Team``
+        # initialization, since this module is loaded mid-init via product_analytics'
+        # insight_caching_state.
+        for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
+            fk_value = getattr(self, f"{field_name}_id")
+            if not fk_value:
+                continue
 
-            Dashboard.objects.select_for_update().get(pk=self.dashboard_id, team_id=self.team_id)
-        elif self.insight_id:
-            Insight.objects.select_for_update().get(pk=self.insight_id, team_id=self.team_id)
-        elif self.notebook_id:
-            from products.notebooks.backend.models import Notebook
-
-            Notebook.objects.select_for_update().get(pk=self.notebook_id, team_id=self.team_id)
-        elif self.recording_id:
-            from posthog.session_recordings.models.session_recording import SessionRecording
-
-            SessionRecording.objects.select_for_update().get(session_id=self.recording_id, team_id=self.team_id)
-        elif self.interviewee_context_id:
-            from products.user_interviews.backend.models import IntervieweeContext
-
-            IntervieweeContext.objects.select_for_update().get(pk=self.interviewee_context_id, team_id=self.team_id)
+            field = self._meta.get_field(field_name)
+            related_model = field.related_model
+            assert related_model is not None
+            target_field_name = cast("models.ForeignKey", field).target_field.name
+            related_model._default_manager.select_for_update().get(
+                **{target_field_name: fk_value, "team_id": self.team_id}
+            )
+            return
 
     def _resource_lookup_for_instance(self) -> dict[str, Any]:
         return self._resource_lookup(
