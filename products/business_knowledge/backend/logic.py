@@ -2028,12 +2028,13 @@ class DocumentToEmbed:
 
     team_id: int
     document_id: UUID
-    # The embedding row `timestamp`. The first-emission path passes the
-    # document's stable `created_at` so a re-emit of the same chunk_id collapses
-    # onto one ClickHouse sort key / partition instead of duplicating under a
-    # later `toDate(timestamp)`. The TTL-refresh path instead passes `now()` so
-    # the re-emit resets the 3-month TTL clock (the table TTLs on `timestamp`);
-    # the extra row is correctness-safe via the read-path re-join.
+    # The embedding row `timestamp`. Young docs use the stable `created_at` so
+    # a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
+    # partition instead of duplicating under a later `toDate(timestamp)`.
+    # Old docs (created_at older than EMBEDDING_TTL_REFRESH_WINDOW) and the
+    # TTL-refresh path use `now()` so the row doesn't land already-expired
+    # under the table's `TTL timestamp + 3 MONTH`. The extra row is
+    # correctness-safe via the read-path re-join.
     timestamp: datetime.datetime
     chunks: list[ChunkToEmbed]
 
@@ -2106,7 +2107,16 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
     backfills every existing SAFE doc across all teams, so the cap is what lets
     the hourly coordinator drain that over many passes. Cross-team — coordinator
     only.
+
+    Timestamp strategy: young docs use the stable ``created_at`` so a re-emit
+    collapses onto one ClickHouse sort key. Old docs (``created_at`` older than
+    ``EMBEDDING_TTL_REFRESH_WINDOW``) use ``now()`` — otherwise the embedding
+    row lands at-or-past the table's ``TTL timestamp + 3 MONTH``, reconciliation
+    re-nulls it, and the next pass re-emits with ``created_at`` again: a live
+    token-burning loop while the doc silently serves FTS-only forever.
     """
+    now = timezone.now()
+    ttl_cutoff = now - EMBEDDING_TTL_REFRESH_WINDOW
     rows = list(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=True)
@@ -2117,7 +2127,7 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
-            timestamp=created_at,
+            timestamp=now if created_at < ttl_cutoff else created_at,
             chunks=chunks_by_doc.get(document_id, []),
         )
         for team_id, document_id, created_at in rows

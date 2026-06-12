@@ -53,9 +53,21 @@ class TestPendingEmbeddingSelection(BaseTest):
         ids = {d.document_id for d in pending}
         assert doc.id in ids
         entry = next(d for d in pending if d.document_id == doc.id)
+        # Young doc: uses the stable created_at timestamp for sort-key dedup.
         assert entry.timestamp == doc.created_at
         assert len(entry.chunks) >= 1
         assert all(c.content for c in entry.chunks)
+
+    def test_old_doc_uses_fresh_timestamp(self) -> None:
+        _source, doc = self._safe_source("Refunds", "Our refund policy covers widgets and gadgets.")
+        old_created = timezone.now() - EMBEDDING_TTL_REFRESH_WINDOW - datetime.timedelta(days=10)
+        self._set(doc, created_at=old_created)
+
+        pending = logic.list_documents_pending_embedding()
+        entry = next(d for d in pending if d.document_id == doc.id)
+        # Old doc: uses now() so the CH row doesn't land already-expired.
+        assert entry.timestamp != old_created
+        assert entry.timestamp > old_created
 
     @parameterized.expand(
         [
@@ -200,6 +212,20 @@ class TestEmitOneDocument(BaseTest):
         with team_scope(self.team.id, canonical=True):
             doc.refresh_from_db()
         assert doc.embeddings_emitted_at is not None
+
+    def test_emits_old_doc_with_fresh_timestamp(self) -> None:
+        doc, entry = self._pending("Refunds", "Our refund policy covers widgets and gadgets.")
+        old_created = timezone.now() - EMBEDDING_TTL_REFRESH_WINDOW - datetime.timedelta(days=10)
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(id=doc.id).update(created_at=old_created, embeddings_emitted_at=None)
+        entry = next(d for d in logic.list_documents_pending_embedding() if d.document_id == doc.id)
+
+        with patch.object(coordinator, "emit_embedding_request") as emit:
+            coordinator._emit_one_document(entry)
+
+        kwargs = emit.call_args_list[0].kwargs
+        assert kwargs["timestamp"] != old_created
+        assert kwargs["timestamp"] > old_created
 
     def test_emit_failure_propagates_and_leaves_doc_unstamped(self) -> None:
         doc, entry = self._pending("Refunds", "Our refund policy covers widgets and gadgets.")
