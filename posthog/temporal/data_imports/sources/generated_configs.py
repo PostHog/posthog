@@ -747,7 +747,8 @@ class KustomerSourceConfig(config.Config):
 
 @config.config
 class LatticeSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "emea"] = config.value(default="us")
 
 
 @config.config
