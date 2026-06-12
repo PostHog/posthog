@@ -44,6 +44,7 @@ the row lists both.
 
 | Source           | Comm method                 | Primary library                                                 | Tracked transport           |
 | ---------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
+| adroll           | HTTP                        | requests                                                        | ✅                          |
 | aircall          | HTTP                        | requests                                                        | ✅                          |
 | airtable         | HTTP                        | requests                                                        | ✅                          |
 | amplitude        | HTTP                        | requests                                                        | ✅                          |
@@ -209,7 +210,6 @@ doesn't conflict with concurrent PRs.
 - adobe_analytics
 - adobe_commerce
 - adp_workforce_now
-- adroll
 - adyen
 - amazon_ads
 - amazon_s3
