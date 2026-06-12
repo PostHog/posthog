@@ -7,11 +7,14 @@ from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
 
 
-def get_team_multiplier(team_id: int | None) -> int:
-    if team_id is None:
+def get_staff_multiplier(user: AuthenticatedUser) -> int:
+    """Elevated rate/cost cap for PostHog staff, applied regardless of which
+    team they're acting on — so impersonating a customer doesn't drop the cap.
+    Non-staff users get the unmodified base limit (1×)."""
+    if not user.is_staff:
         return 1
 
-    return get_settings().team_rate_limit_multipliers.get(team_id, 1)
+    return get_settings().staff_rate_limit_multiplier
 
 
 @dataclass
