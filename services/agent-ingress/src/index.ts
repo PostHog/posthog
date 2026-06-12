@@ -113,6 +113,19 @@ async function main(): Promise<void> {
         encryptionSaltKeys: config.encryptionSaltKeys,
     })
 
+    // Session-scoped inference proxy for tier-2 coding sandboxes — mounted
+    // only when the gateway pair is configured. The gateway is cluster-
+    // internal, so the hop uses the direct client (never smokescreen).
+    const inferenceProxy =
+        config.aiGatewayUrl && config.posthogAiGatewayKey && config.internalSigningKey
+            ? {
+                  signingKey: config.internalSigningKey,
+                  gatewayUrl: config.aiGatewayUrl.replace(/\/v1\/?$/, ''),
+                  gatewayKey: config.posthogAiGatewayKey,
+                  http: new DirectHttpClient(),
+              }
+            : undefined
+
     const app = buildApp({
         revisions: new PgRevisionStore(agentDb),
         queue: new PgSessionQueue(agentDb),
@@ -130,6 +143,7 @@ async function main(): Promise<void> {
         authProvider,
         credentialBroker,
         http,
+        inferenceProxy,
     })
     app.listen(config.port, () => {
         log.info(

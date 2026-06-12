@@ -7,8 +7,12 @@
  * versa).
  *
  * Audiences today:
- *   - INGRESS_PREVIEW — Django → ingress, draft-revision preview invokes
- *   - JANITOR_RPC     — Django → janitor, bundle CRUD + authoring API
+ *   - INGRESS_PREVIEW   — Django → ingress, draft-revision preview invokes
+ *   - JANITOR_RPC       — Django → janitor, bundle CRUD + authoring API
+ *   - INGRESS_INFERENCE — runner → tier-2 sandbox → ingress, the
+ *     session-bound inference-proxy capability token (the one deliberate
+ *     case where a token built on this key leaves the trusted tier; the
+ *     audience scopes it to the inference proxy and nothing else)
  *
  * Production minting happens on the Django side (posthog/jwt.py:
  * `encode_agent_internal_jwt`). This module is the verify side for the
@@ -21,6 +25,7 @@ import { jwtVerify, SignJWT } from 'jose'
 export const INTERNAL_JWT_AUDIENCE = {
     INGRESS_PREVIEW: 'agent-ingress.preview',
     JANITOR_RPC: 'agent-janitor.rpc',
+    INGRESS_INFERENCE: 'agent-ingress.inference',
 } as const
 
 export type InternalJwtAudience = (typeof INTERNAL_JWT_AUDIENCE)[keyof typeof INTERNAL_JWT_AUDIENCE]

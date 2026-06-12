@@ -40,6 +40,18 @@ export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
         .describe(
             "HMAC signing key shared with Django and the janitor (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Verifies x-agent-preview-token on non-live invokes (aud = agent-ingress.preview). Unset → preview gate bypassed (dev / harness only). See docs/agent-platform/plans/draft-preview-auth.md."
         ),
+    aiGatewayUrl: z
+        .string()
+        .optional()
+        .describe(
+            'ai-gateway base URL the inference proxy forwards to (trailing /v1 stripped). Set together with POSTHOG_AI_GATEWAY_KEY to mount /inference/v1/* — the session-scoped model proxy for tier-2 coding sandboxes. Unset → proxy route absent.'
+        ),
+    posthogAiGatewayKey: z
+        .string()
+        .optional()
+        .describe(
+            'Real gateway credential the inference proxy attaches upstream. Lives ONLY here — tier-2 sandboxes hold a session-bound capability token instead (see agent-sandbox-tiers.md §8).'
+        ),
     publicUrl: z
         .string()
         .optional()
@@ -58,6 +70,8 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentIngressConfig>(PLATFORM_ENV_KEY_MAP, {
     PATH_PREFIX: 'pathPrefix',
     AGENT_INTERNAL_SIGNING_KEY: 'internalSigningKey',
     AGENT_INGRESS_PUBLIC_URL: 'publicUrl',
+    POSTHOG_AI_GATEWAY_URL: 'aiGatewayUrl',
+    POSTHOG_AI_GATEWAY_KEY: 'posthogAiGatewayKey',
 })
 
 export function loadAgentIngressConfig(env: NodeJS.ProcessEnv = process.env): AgentIngressConfig {

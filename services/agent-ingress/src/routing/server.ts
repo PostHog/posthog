@@ -23,6 +23,7 @@ import { slackTrigger } from '../triggers/slack'
 import type { RouteAuthKind, TriggerModule } from '../triggers/types'
 import { webhookTrigger } from '../triggers/webhook'
 import { asyncHandler, errorHandler, requestLogger } from './http-utils'
+import { inferenceProxyRouter, InferenceProxyConfig } from './inference-proxy'
 import { RevisionResolver, RoutingMode } from './resolver'
 
 /**
@@ -123,6 +124,13 @@ export interface BuildAppOpts {
      * prod. Optional — falls back to a direct HttpClient in tests.
      */
     http?: import('@posthog/agent-shared').HttpFetcher
+    /**
+     * Session-scoped inference proxy for tier-2 coding sandboxes (§8 of
+     * agent-sandbox-tiers.md). When set, `/inference/v1/*` is mounted:
+     * sandbox holds a session capability token, this route holds the real
+     * gateway key. Unset → route absent (deployments without coding agents).
+     */
+    inferenceProxy?: InferenceProxyConfig
 }
 
 export function buildApp(opts: BuildAppOpts): Express {
@@ -139,6 +147,12 @@ export function buildApp(opts: BuildAppOpts): Express {
         teamId: opts.teamId,
         internalSigningKey: opts.internalSigningKey,
     })
+    // Mounted ahead of the body parsers: the proxy forwards request bodies
+    // byte-for-byte (and streams responses), so the JSON parser must not
+    // touch its requests.
+    if (opts.inferenceProxy) {
+        app.use('/inference', inferenceProxyRouter({ ...opts.inferenceProxy, queue: opts.queue, log }))
+    }
     app.use(
         express.json({
             verify: (req: Request, _res, buf) => {
