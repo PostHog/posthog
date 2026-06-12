@@ -738,7 +738,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
                             actions.patchHeatmapFilters(e.data.payload.filters)
                             actions.setHeatmapColorPalette(e.data.payload.colorPalette)
                             actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
-                            actions.setCommonFilters(e.data.payload.commonFilters)
+                            if (e.data.payload.commonFilters) {
+                                actions.setCommonFilters(e.data.payload.commonFilters)
+                            }
                             actions.toggleClickmapsEnabled(false)
                             // it's ok to use we use a wildcard for the origin bc data isn't sensitive
                             // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration

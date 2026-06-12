@@ -100,7 +100,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             { date_from: '-7d' } as CommonFilters,
             { persist: true },
             {
-                setCommonFilters: (_, { filters }) => filters,
+                setCommonFilters: (_, { filters }) => filters ?? { date_from: '-7d' },
             },
         ],
         heatmapFilters: [
