@@ -2499,6 +2499,41 @@ class TestPrinter(BaseTest):
         self.assertNotIn("ifNull(", sql_with)
         self.assertTrue(sql_with.startswith("notEquals("))
 
+    def test_call_column_names_come_from_the_user_expression(self):
+        # An unaliased call column is named once, at resolve time, from the expression as the user wrote it. The
+        # transforms may rewrite the printed expression (materialized columns, null-safe casts), but the name must
+        # not leak the rewritten internals.
+        PropertyDefinition.objects.create(
+            team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT
+        )
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "is_boolean")
+
+        printed = self._select("SELECT toBool(properties.is_boolean) FROM events")
+        # The expression lowers to the materialized column read, but the name stays the user-level expression.
+        self.assertIn("AS `toBool(properties.is_boolean)`", printed)
+        self.assertNotIn("AS `toBool(toBool(", printed)
+
+        # The name survives a render-time function rename (toBool prints as accurateCastOrNull).
+        printed = self._select("SELECT toBool(uuid) FROM events")
+        self.assertIn("accurateCastOrNull(events.uuid", printed)
+        self.assertIn("AS `toBool(uuid)`", printed)
+
+    def test_call_column_name_referenced_through_subquery(self):
+        # The resolve-time name is the same one the resolver registers in the column map, so an outer query
+        # (including `SELECT *` expansion) can reference the inner call column by name.
+        printed = self._select(
+            "SELECT `toDate(timestamp)` FROM (SELECT toDate(timestamp) FROM events) ORDER BY `toDate(timestamp)`"
+        )
+        self.assertIn("AS `toDate(timestamp)`", printed)
+
+        printed = self._select("SELECT * FROM (SELECT toDate(timestamp) FROM events)")
+        self.assertIn("AS `toDate(timestamp)`", printed)
+
     def test_field_nullable_boolean(self):
         PropertyDefinition.objects.create(
             team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT
@@ -2519,16 +2554,13 @@ class TestPrinter(BaseTest):
             "FROM events",
             context=context,
         )
-        # The comparisons lower to ifNull(...) calls before printing, so the select columns get the printer's
-        # derived call aliases, like any other call in select position.
+        # Comparisons are unnamed columns: they get no resolve-time name, and the printer never derives one — even
+        # though null-semantics lowering turns them into ifNull(...) calls before printing.
         assert generated_sql_statements1 == (
             f"SELECT "
-            "ifNull(equals(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL), %(hogql_val_2)s), 1), 0) "
-            "AS `ifNull(equals(toBool(transform(toString(nullIf(nullIf(mat_is_boolean, ''), 'null')), ['true', 'false'], [1, 0], NULL)), true), 0)`, "
-            "ifNull(equals(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_3)s, %(hogql_val_4)s, NULL), %(hogql_val_5)s), 0), 0) "
-            "AS `ifNull(equals(toBool(transform(toString(nullIf(nullIf(mat_is_boolean, ''), 'null')), ['true', 'false'], [1, 0], NULL)), false), 0)`, "
+            "ifNull(equals(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL), %(hogql_val_2)s), 1), 0), "
+            "ifNull(equals(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_3)s, %(hogql_val_4)s, NULL), %(hogql_val_5)s), 0), 0), "
             "isNull(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_6)s, %(hogql_val_7)s, NULL), %(hogql_val_8)s)) "
-            "AS `isNull(toBool(transform(toString(nullIf(nullIf(mat_is_boolean, ''), 'null')), ['true', 'false'], [1, 0], NULL)))` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         assert context.values == {

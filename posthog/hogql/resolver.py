@@ -797,6 +797,17 @@ class Resolver(CloningVisitor):
                 from posthog.hogql.printer import print_prepared_ast
 
                 alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
+                # Attach the name to the column as a hidden alias (the same mechanism plain fields use). This is the
+                # column's one canonical name: assigned here, from the expression as the user wrote it, and carried
+                # through every later transform. The printer surfaces it; it must never derive a name itself, because
+                # by print time transforms have rewritten the tree and a re-derived name would leak the rewritten
+                # internals (and disagree with the name registered in `columns` below).
+                new_expr = ast.Alias(
+                    alias=alias,
+                    expr=new_expr,
+                    hidden=True,
+                    type=ast.FieldAliasType(alias=alias, type=new_expr.type),
+                )
             else:
                 alias = None
 

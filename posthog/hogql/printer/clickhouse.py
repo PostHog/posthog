@@ -12,12 +12,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, SavedQuery, StructDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, get_geoip_city_postal_dict
-from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import clone_expr
@@ -553,11 +552,13 @@ class ClickHousePrinter(BasePrinter):
                 if not found_aliases.get(alias.alias, None) or not alias.hidden:
                     found_aliases[alias.alias] = alias
 
+        # The printer only surfaces names here — it never derives one. Every selectable column was named during type
+        # resolution (a user-written alias, or the hidden alias the resolver attaches to fields and call columns), so
+        # the name reflects the expression as the user wrote it, not whatever the transforms rewrote it into.
         columns_sql = []
         used_aliases: set[str] = set()
         for column in columns:
             printed_alias: str | None = None
-            dropped_hidden_alias = False
             if isinstance(column, ast.Alias):
                 # It's either a visible alias, or the last hidden alias with this name.
                 if found_aliases.get(column.alias) == column:
@@ -571,23 +572,11 @@ class ClickHousePrinter(BasePrinter):
                     printed_alias = column.alias
                 else:
                     # Non-unique hidden alias. Skip.
-                    dropped_hidden_alias = True
                     column = column.expr
 
             if printed_alias is None:
                 printed_alias = _alias_from_column_type(column)
 
-            if isinstance(column, ast.Call) and not dropped_hidden_alias:
-                with self.context.timings.measure("printer"):
-                    column_alias = safe_identifier(HogQLPrinter(context=self.context).visit(column))
-                # ClickHouse rejects duplicate aliases for different expressions in the
-                # same SELECT. This can happen after "*" expansion if a subquery already
-                # exposes a generated expression name like `toDate(period_end)`.
-                if column_alias not in used_aliases:
-                    column = ast.Alias(alias=column_alias, expr=column)
-                    printed_alias = column_alias
-                else:
-                    printed_alias = None
             columns_sql.append(self.visit(column))
             if printed_alias is not None:
                 used_aliases.add(printed_alias)
