@@ -172,7 +172,7 @@ export function DashboardItems(): JSX.Element {
         () => ({
             enabled: layoutEditMode && !isMobileView,
             handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body,.WidgetCard__header,.drag-handle',
-            cancel: 'a,table,button,input,.Popover',
+            cancel: 'a,table,button,input,textarea,.Popover,.EditableField',
             bounded: true,
         }),
         [layoutEditMode, isMobileView]
@@ -215,7 +215,7 @@ export function DashboardItems(): JSX.Element {
                       // Don't trigger when clicking obvious interactive controls or readonly rich text (TipTap/LemonMarkdown).
                       if (
                           target.closest(
-                              'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown'
+                              'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown,.EditableField'
                           )
                       ) {
                           return

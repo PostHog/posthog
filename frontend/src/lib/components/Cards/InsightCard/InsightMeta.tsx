@@ -313,7 +313,7 @@ export function InsightMeta({
     const onMetaSave = canEditInsight
         ? (updates: { name?: string; description?: string }) => {
               updateInsightDirect(insight, updates)
-              if (updates.description && !tile?.show_description && toggleShowDescription) {
+              if (updates.description && tile?.show_description === false && toggleShowDescription) {
                   toggleShowDescription()
               }
               const attribute = updates.name !== undefined ? 'name' : 'description'
@@ -351,6 +351,11 @@ export function InsightMeta({
                         tags={insight.tags}
                         compact={showCompactTile}
                         showDescription={tile?.show_description !== false}
+                        onDescriptionSave={
+                            showEditingControls && onMetaSave
+                                ? (description: string) => onMetaSave({ description })
+                                : undefined
+                        }
                         infoPopover={
                             showCompactTile ? (
                                 <CompactInfoPopover
@@ -652,6 +657,7 @@ export function InsightMetaContent({
     compact,
     showDescription,
     infoPopover,
+    onDescriptionSave,
 }: {
     title: string
     fallbackTitle?: string
@@ -663,6 +669,8 @@ export function InsightMetaContent({
     compact?: boolean
     showDescription?: boolean
     infoPopover?: JSX.Element | null
+    /** When provided, the description becomes editable in place (click to edit, saved on blur). */
+    onDescriptionSave?: (description: string) => void
 }): JSX.Element {
     const titleContent = (
         <>
@@ -698,11 +706,29 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
-            {(!compact || showDescription) && !!description && (
-                <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
-                    {description}
-                </LemonMarkdown>
-            )}
+            {(!compact || showDescription) &&
+                !!description &&
+                (onDescriptionSave ? (
+                    <EditableField
+                        name="description"
+                        value={description}
+                        onSave={onDescriptionSave}
+                        placeholder="Enter description (optional)"
+                        saveOnBlur
+                        clickToEdit
+                        multiline
+                        markdown
+                        compactButtons
+                        compactIcon
+                        showEditIconOnHover
+                        className="CardMeta__description"
+                        data-attr="insight-card-description-inline"
+                    />
+                ) : (
+                    <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
+                        {description}
+                    </LemonMarkdown>
+                ))}
             {!compact && tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
             <LemonTableLoader loading={loading} />
         </>

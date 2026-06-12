@@ -1,6 +1,9 @@
 import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+
+import { initKeaTests } from '~/test/init'
 
 import { InsightMetaContent } from './InsightMeta'
 
@@ -37,6 +40,52 @@ describe('InsightMetaContent', () => {
             <InsightMetaContent title="Test" description={description} compact={false} showDescription={false} />
         )
         expect(container.querySelector('.CardMeta__description')).toBeInTheDocument()
+    })
+
+    describe('inline description editing', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('renders a static description when onDescriptionSave is not provided', () => {
+            const { container } = render(<InsightMetaContent title="Test" description={description} />)
+            expect(container.querySelector('[data-attr="insight-card-description-inline"]')).toBeNull()
+            expect(container.querySelector('.CardMeta__description')).toBeInTheDocument()
+        })
+
+        it('saves an edited description on blur when onDescriptionSave is provided', async () => {
+            const onDescriptionSave = jest.fn()
+            const { container } = render(
+                <InsightMetaContent title="Test" description={description} onDescriptionSave={onDescriptionSave} />
+            )
+            const field = container.querySelector('[data-attr="insight-card-description-inline"]')
+            expect(field).toBeInTheDocument()
+
+            // Click the rendered description text to enter edit mode
+            await userEvent.click(field!.querySelector('.LemonMarkdown')!)
+            const textarea = field!.querySelector('textarea')
+            expect(textarea).toBeInTheDocument()
+
+            await userEvent.clear(textarea!)
+            await userEvent.type(textarea!, 'Updated description')
+            await userEvent.tab() // Blur the textarea
+
+            expect(onDescriptionSave).toHaveBeenCalledTimes(1)
+            expect(onDescriptionSave).toHaveBeenCalledWith('Updated description')
+        })
+
+        it('does not save on blur when the description is unchanged', async () => {
+            const onDescriptionSave = jest.fn()
+            const { container } = render(
+                <InsightMetaContent title="Test" description={description} onDescriptionSave={onDescriptionSave} />
+            )
+            const field = container.querySelector('[data-attr="insight-card-description-inline"]')
+
+            await userEvent.click(field!.querySelector('.LemonMarkdown')!)
+            await userEvent.tab()
+
+            expect(onDescriptionSave).not.toHaveBeenCalled()
+        })
     })
 
     describe('tile.show_description default-to-show mapping', () => {
