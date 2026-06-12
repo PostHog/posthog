@@ -1,4 +1,6 @@
 import datetime
+from collections.abc import Generator
+from typing import cast
 
 import pytest
 from unittest.mock import MagicMock
@@ -606,7 +608,8 @@ class TestStreamingCursorTeardown:
         ss_cursor.close.side_effect = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
 
         source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs())
-        rows = source.items()  # type: ignore[operator]  # MySQL source is always sync
+        # MySQL source is always sync, so items() yields a plain generator.
+        rows = cast(Generator, source.items())
         next(rows)  # pull the first batch, suspend at the yield
 
         # A cancelled activity closes the generator early — this must not raise.

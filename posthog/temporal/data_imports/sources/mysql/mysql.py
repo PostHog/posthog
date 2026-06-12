@@ -223,7 +223,7 @@ def _release_streaming_cursor(cursor: SSCursor) -> None:
     """
     # PyMySQL clears this same attribute once a query is fully consumed; the
     # stub types it non-optional, so we mirror that runtime behaviour here.
-    cursor.connection = None  # ty: ignore[invalid-assignment]
+    cursor.connection = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 
 class MySQLColumn(Column):
