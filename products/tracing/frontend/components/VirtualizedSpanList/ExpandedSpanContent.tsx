@@ -35,6 +35,12 @@ export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanCo
     return (
         <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
             <SpanAttributes title="Attributes" attributes={attributes} emptyLabel="No attributes set on this span" />
+            {/* Sibling section after the span attributes — same split the logs detail view uses. */}
+            <SpanAttributes
+                title="Resource attributes"
+                attributes={span.resource_attributes ?? {}}
+                emptyLabel="No resource attributes on this span"
+            />
             {showDetails && <SpanAttributes title="Span details" attributes={details} />}
         </div>
     )

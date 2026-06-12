@@ -17,6 +17,7 @@ function makeSpan(overrides: Partial<Span>): Span {
         is_root_span: false,
         matched_filter: true,
         attributes: {},
+        resource_attributes: {},
         ...overrides,
     }
 }
@@ -63,6 +64,16 @@ describe('deriveSpanSummary', () => {
         expect(s.type).toBe('HTTP')
         expect(s.cluster).toBe('k8s-demo')
         expect(s.pod).toBe('load-generator-59f4b49995-w585b')
+    })
+
+    it('reads k8s chips from resource attributes (their OTel home)', () => {
+        const s = deriveSpanSummary(
+            makeSpan({
+                resource_attributes: { 'k8s.cluster.name': 'prod-eu', 'k8s.pod.name': 'web-abc12' },
+            })
+        )
+        expect(s.cluster).toBe('prod-eu')
+        expect(s.pod).toBe('web-abc12')
     })
 
     it.each([
