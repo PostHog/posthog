@@ -1015,7 +1015,10 @@ class PipedriveSourceConfig(config.Config):
 
 @config.config
 class PlaidSourceConfig(config.Config):
-    pass
+    client_id: str
+    secret: str
+    access_token: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
