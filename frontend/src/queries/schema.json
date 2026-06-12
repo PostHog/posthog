@@ -21651,7 +21651,7 @@
                     "type": "boolean"
                 },
                 "showLegend": {
-                    "default": true,
+                    "default": false,
                     "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
                     "type": "boolean"
                 },

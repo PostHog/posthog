@@ -23895,7 +23895,7 @@ class FunnelsFilter(BaseModel):
         description=("Whether to render annotations on the chart. Only applies to historical-trends funnels."),
     )
     showLegend: bool | None = Field(
-        default=True,
+        default=False,
         description=(
             "Whether to show a legend describing the series. The legend only renders"
             " when the funnel has multiple series. Only applies to historical-trends"

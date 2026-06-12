@@ -156,10 +156,11 @@ describe('FunnelLineChart', () => {
     })
 
     describe('legend', () => {
-        it('shows a legend item per breakdown series by default', async () => {
+        it('shows a legend item per breakdown series when showLegend is enabled', async () => {
             renderInsight({
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: true },
                 }),
                 featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
@@ -171,6 +172,12 @@ describe('FunnelLineChart', () => {
         })
 
         it.each([
+            {
+                desc: 'showLegend is unset (off by default)',
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            },
             {
                 desc: 'showLegend is false',
                 query: buildFunnelsQuery({
@@ -193,6 +200,7 @@ describe('FunnelLineChart', () => {
             renderInsight({
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: true },
                 }),
                 featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })

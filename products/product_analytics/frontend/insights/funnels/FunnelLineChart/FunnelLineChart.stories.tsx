@@ -116,7 +116,7 @@ const funnelHistoricalTrendsBreakdownFixture = {
 }
 
 export const WithLegend: Story = {
-    render: () => renderFunnelLineChart(funnelHistoricalTrendsBreakdownFixture),
+    render: () => renderFunnelLineChart(funnelHistoricalTrendsBreakdownFixture, { showLegend: true }),
 }
 
 export const GoalLine: Story = {

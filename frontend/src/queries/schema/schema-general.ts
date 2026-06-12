@@ -1683,7 +1683,7 @@ export type FunnelsFilter = {
     /**
      * Whether to show a legend describing the series. The legend only renders when the funnel has
      * multiple series. Only applies to historical-trends funnels.
-     * @default true
+     * @default false
      */
     showLegend?: boolean
     /** @default false */

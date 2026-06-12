@@ -563,7 +563,7 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
     } else if (isFunnelsQuery(query)) {
-        return query.funnelsFilter?.showLegend ?? true
+        return query.funnelsFilter?.showLegend
     }
     return undefined
 }
