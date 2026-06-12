@@ -154,7 +154,8 @@ class ExplainResponseSerializer(serializers.Serializer):
 
 def load_prompt_template(template_name: str, context: dict) -> str:
     """Load and render a Django template file for prompts."""
-    templates_dir = Path(__file__).parent / "prompts"
+    # backend/templates/ — two levels up from presentation/views/
+    templates_dir = Path(__file__).parents[2] / "templates"
     engine = Engine(dirs=[str(templates_dir)])
     template = engine.get_template(template_name)
     return template.render(Context(context, autoescape=False))
