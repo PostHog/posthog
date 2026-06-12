@@ -29,7 +29,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
@@ -55,7 +54,6 @@ export function DashboardScenePanel(): JSX.Element | null {
     const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
-    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
