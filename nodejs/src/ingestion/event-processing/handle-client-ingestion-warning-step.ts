@@ -20,30 +20,34 @@ interface SanitizedOverride {
     debounceKey: string
 }
 
-// Allowed $$client_ingestion_warning_type overrides. Each sanitizer rebuilds
-// the details its UI renderer needs from scratch, or returns null to fall
-// back to the generic warning type (clients can send anything here).
-const WARNING_TYPE_OVERRIDES: Record<string, (details: Record<string, unknown>) => SanitizedOverride | null> = {
+// Allowlisted $$client_ingestion_warning_type overrides. Each sanitizer rebuilds the
+// details its renderer needs from scratch (clients can send anything), or returns null
+// to fall back to the generic type. A Map, not an object literal, so a forged type like
+// `constructor` or `__proto__` can't reach Object.prototype.
+const WARNING_TYPE_OVERRIDES = new Map<string, (details: Record<string, unknown>) => SanitizedOverride | null>([
     // emitted by capture when a replay snapshot batch is too large to ingest
-    replay_message_too_large: (details) => {
-        const replayRecord = isPlainObject(details.replayRecord) ? details.replayRecord : undefined
-        const sessionId = boundedString(replayRecord?.session_id)
-        const timestamp = boundedString(details.timestamp)
-        if (sessionId === null || timestamp === null) {
-            return null
-        }
-        return {
-            details: {
-                timestamp,
-                replayRecord: { session_id: sessionId },
-                snapshotBytes: finiteNumber(details.snapshotBytes),
-                snapshotItemsCount: finiteNumber(details.snapshotItemsCount),
-                lib: boundedString(details.lib) ?? undefined,
-            },
-            debounceKey: sessionId,
-        }
-    },
-}
+    [
+        'replay_message_too_large',
+        (details) => {
+            const replayRecord = isPlainObject(details.replayRecord) ? details.replayRecord : undefined
+            const sessionId = boundedString(replayRecord?.session_id)
+            const timestamp = boundedString(details.timestamp)
+            if (sessionId === null || timestamp === null) {
+                return null
+            }
+            return {
+                details: {
+                    timestamp,
+                    replayRecord: { session_id: sessionId },
+                    snapshotBytes: finiteNumber(details.snapshotBytes),
+                    snapshotItemsCount: finiteNumber(details.snapshotItemsCount),
+                    lib: boundedString(details.lib) ?? undefined,
+                },
+                debounceKey: sessionId,
+            }
+        },
+    ],
+])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -69,7 +73,8 @@ export function createHandleClientIngestionWarningStep<
             )
         }
 
-        const message = event.properties?.$$client_ingestion_warning_message
+        // bound the client-controlled message everywhere - never persist raw client JSON
+        const message = boundedString(event.properties?.$$client_ingestion_warning_message, MAX_MESSAGE_LENGTH)
         const baseDetails = {
             eventUuid: event.uuid,
             event: event.event,
@@ -78,21 +83,22 @@ export function createHandleClientIngestionWarningStep<
 
         let warning: PipelineWarning = {
             type: 'client_ingestion_warning',
-            details: { ...baseDetails, message },
+            details: { ...baseDetails, message: message ?? undefined },
             alwaysSend: true,
         }
 
         const requestedType = event.properties?.$$client_ingestion_warning_type
         const extraDetails = event.properties?.$$client_ingestion_warning_details
-        if (typeof requestedType === 'string' && isPlainObject(extraDetails)) {
-            const override = WARNING_TYPE_OVERRIDES[requestedType]?.(extraDetails)
+        const sanitize = typeof requestedType === 'string' ? WARNING_TYPE_OVERRIDES.get(requestedType) : undefined
+        if (sanitize && isPlainObject(extraDetails)) {
+            const override = sanitize(extraDetails)
             if (override) {
                 warning = {
-                    type: requestedType,
+                    type: requestedType as string,
                     details: {
                         ...override.details,
                         ...baseDetails,
-                        message: boundedString(message, MAX_MESSAGE_LENGTH) ?? undefined,
+                        message: message ?? undefined,
                     },
                     key: override.debounceKey,
                 }

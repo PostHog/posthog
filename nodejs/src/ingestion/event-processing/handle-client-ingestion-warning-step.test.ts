@@ -93,6 +93,58 @@ describe('handleClientIngestionWarningStep', () => {
             }
             expect(result.warnings[0].details.message).toBeUndefined()
         })
+
+        it('caps an oversized client message and drops non-string messages', async () => {
+            const oversized = await handleStep({
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: { $$client_ingestion_warning_message: 'x'.repeat(100000) },
+                },
+            })
+            expect(oversized.warnings[0].details.message).toBeUndefined()
+
+            const nonString = await handleStep({
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: { $$client_ingestion_warning_message: { nested: 'x'.repeat(100000) } },
+                },
+            })
+            expect(nonString.warnings[0].details.message).toBeUndefined()
+        })
+
+        it.each(['constructor', '__proto__', 'hasOwnProperty', 'toString', 'valueOf'])(
+            'does not let the forged prototype-key type %s bypass the allowlist',
+            async (forgedType) => {
+                const input: HandleClientIngestionWarningStepInput = {
+                    ...baseInput,
+                    event: {
+                        ...baseEvent,
+                        event: '$$client_ingestion_warning',
+                        properties: {
+                            $$client_ingestion_warning_type: forgedType,
+                            $$client_ingestion_warning_details: {
+                                replayRecord: { session_id: 'session-abc' },
+                                timestamp: '2026-06-12T10:00:00.000Z',
+                                injected: 'x'.repeat(100000),
+                            },
+                        },
+                    },
+                }
+
+                // a prototype-chain lookup would either throw or persist the raw payload
+                const result = await handleStep(input)
+
+                expect(result.type).toBe(PipelineResultType.OK)
+                expect(result.warnings[0].type).toBe('client_ingestion_warning')
+                expect(result.warnings[0].details.injected).toBeUndefined()
+                expect(result.warnings[0].key).toBeUndefined()
+                expect(result.warnings[0].alwaysSend).toBe(true)
+            }
+        )
     })
 
     describe('warning type overrides', () => {
