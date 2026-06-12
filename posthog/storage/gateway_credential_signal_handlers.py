@@ -418,12 +418,12 @@ def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: A
 
 
 def _reproject_on_role_membership_change(sender: type, instance: Any, **kwargs: Any) -> None:
-    # Role membership feeds role-scoped ACs, so a change can flip project access with
-    # no AccessControl row changing. Reproject the affected user's credentials.
+    # Role membership feeds role-scoped ACs, so a change can flip project access with no
+    # AccessControl row changing. Per-user, so clear synchronously like the other
+    # user-scoped revocations (unlike the team-wide access-control handler).
     if not settings.AI_GATEWAY_REDIS_URL or instance.user_id is None:
         return
-    user_id = instance.user_id
-    transaction.on_commit(lambda: reproject_user_gateway_credentials_task.delay(user_id))
+    _reproject_user_sync_then_async(instance.user_id)
 
 
 def connect_signal_handlers() -> None:

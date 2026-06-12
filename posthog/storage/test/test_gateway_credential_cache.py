@@ -567,6 +567,24 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
         mock_delay.assert_called_with(self.user.pk)
 
+    @pytest.mark.ee
+    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
+    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
+    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_user_gateway_credentials_task")
+    def test_role_membership_change_reprojects_synchronously(self, mock_task, mock_settings, mock_transaction):
+        # Role membership is per-user, so it reprojects synchronously (then queues the
+        # retry/warm task), unlike the team-wide access-control handler.
+        from ee.models.rbac.role import Role, RoleMembership
+
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        role = Role.objects.create(name="engineers", organization=self.organization)
+        RoleMembership.objects.create(user=self.user, role=role)
+
+        mock_task.assert_called_with(self.user.pk)  # synchronous reprojection
+        mock_task.delay.assert_called_with(self.user.pk)  # retry/warm path
+
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch(
