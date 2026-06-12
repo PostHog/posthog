@@ -96,7 +96,7 @@ Examples:
 
 ## Security
 
-See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep security guidelines.
+See [.agents/security.md](.agents/security.md) for security guidelines, including SQL, HogQL, and semgrep patterns.
 
 ## Architecture guidelines
 
