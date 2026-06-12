@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -90,7 +91,7 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
         return SourceConfig(
             name=SchemaExternalDataSourceType.BUILD_BETTER,
             label="BuildBetter",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             caption="Connect your BuildBetter workspace to sync interviews, extractions, persons, and companies.",
             iconPath="/static/services/buildbetter.png",
             fields=cast(
