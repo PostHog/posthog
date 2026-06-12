@@ -41,22 +41,20 @@ export function MultipleChoiceBarChart({
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
-    // Bars encode the share of respondents who picked each choice, so the 0–100% axis and the
-    // hatched track remainder both mean something; counts surface in the labels and tooltip.
-    // The series color only tints the bar track here (every bar has its own override), so use a
-    // stable theme neutral: the track stays a subtle texture instead of pulling a palette color,
-    // and it doesn't follow the per-bar dim applied while a choice filter is active.
+    // Bars encode the share of respondents who picked each choice against a fixed 0–100% domain;
+    // counts surface in the labels and tooltip. Per-bar overrides carry the colors — the series
+    // color is just the fallback.
     const series = useMemo<Series[]>(
         () => [
             {
                 key: 'multiple-choice',
                 label: 'Share of respondents',
                 data: chartData.map((d) => (totalResponses > 0 ? (d.value / totalResponses) * 100 : 0)),
-                color: theme.crosshairColor ?? 'gray',
+                color: barColors[0],
                 bars: chartData.map((_, i) => ({ color: barColors[i] })),
             },
         ],
-        [chartData, totalResponses, theme, barColors]
+        [chartData, totalResponses, barColors]
     )
 
     // Synthetic band keys keep bars distinct even if two choices share a label; the choice text is
@@ -67,16 +65,15 @@ export function MultipleChoiceBarChart({
         () => ({
             axisOrientation: 'horizontal',
             barLayout: 'grouped',
+            hideXAxis: true,
             showGrid: false,
             showAxisLines: false,
             maxCategoryLabelWidth: CATEGORY_LABEL_WIDTH,
             xTickFormatter: (_label, index) => chartData[index]?.label ?? '',
-            yTickFormatter: (value) => (Number.isInteger(value) ? `${value}%` : ''),
-            margins: { top: 4, right: 20, bottom: 22 },
+            margins: { top: 4, right: 20, bottom: 4 },
             bars: {
                 cornerRadius: 3,
                 minBandSize: 32,
-                track: { hover: false },
                 valueDomain: [0, 100],
             },
             tooltip: { placement: 'cursor' },
