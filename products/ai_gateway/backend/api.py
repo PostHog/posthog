@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, QuerySet
 from django.db.models.deletion import ProtectedError
@@ -23,6 +24,8 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.storage.gateway_credential_cache import clear_gateway_credential
+from posthog.tasks.gateway_credential import reproject_oauth_application_gateway_credentials_task
 
 _CREDENTIAL_TYPE_PROJECT_SECRET_API_KEY = "project_secret_api_key"
 _CREDENTIAL_TYPE_OAUTH_APPLICATION = "oauth_application"
@@ -253,6 +256,17 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
         credential.gateway = None
         credential.save(update_fields=["gateway"])
+
+        # Explicit revocation: clear the now-unbound credential's blob synchronously so it
+        # can't keep authenticating during the post_save signal's async window. A secret key
+        # has one blob; an OAuth app's tokens each have one, so reproject the app (now unbound
+        # → cleared). The signal-fired task stays as the idempotent backstop.
+        if settings.AI_GATEWAY_REDIS_URL:
+            if credential_type == _CREDENTIAL_TYPE_PROJECT_SECRET_API_KEY:
+                clear_gateway_credential(credential)
+            else:
+                reproject_oauth_application_gateway_credentials_task(str(credential.id))
+
         report_user_action(
             self.request.user,
             "gateway credential unassigned",

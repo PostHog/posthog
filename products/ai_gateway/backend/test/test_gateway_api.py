@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock
 
+from django.test import override_settings
+
 from rest_framework import status
 
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -9,6 +11,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_secret, hash_key_value
+from posthog.storage.gateway_credential_cache import (
+    credential_hash,
+    gateway_credential_hypercache as hypercache,
+    project_gateway_credential,
+)
 
 from products.ai_gateway.backend.api import GatewayManagementPermission
 
@@ -258,6 +265,24 @@ class TestGatewayAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         key.refresh_from_db()
         self.assertIsNone(key.gateway_id)
+
+    @override_settings(AI_GATEWAY_REDIS_URL="redis://localhost")
+    def test_unassign_clears_credential_blob_synchronously(self):
+        # The unassign action clears the now-unbound key's blob in-band, so it can't keep
+        # authenticating during the post_save signal's async window.
+        hypercache.cache_client.clear()
+        gateway = self._gateway()
+        key = self._bind_key(gateway, "to-remove")
+        project_gateway_credential(key)
+        cache_key = hypercache.get_cache_key(credential_hash(key))
+        assert hypercache.cache_client.get(cache_key) is not None
+
+        response = self.client.post(
+            self._url(f"{gateway.id}/unassign_credential/"),
+            {"credential_type": "project_secret_api_key", "credential_id": str(key.id)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIsNone(hypercache.cache_client.get(cache_key))
 
     def test_unassign_credential_rejects_key_bound_to_another_gateway(self):
         gateway = self._gateway()
