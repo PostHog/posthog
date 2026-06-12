@@ -14,6 +14,7 @@ from products.business_knowledge.backend.constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
+    EMBEDDING_STABLE_TS_MAX_AGE,
     EMBEDDING_TTL_REFRESH_WINDOW,
 )
 from products.business_knowledge.backend.models import (
@@ -60,14 +61,25 @@ class TestPendingEmbeddingSelection(BaseTest):
 
     def test_old_doc_uses_fresh_timestamp(self) -> None:
         _source, doc = self._safe_source("Refunds", "Our refund policy covers widgets and gadgets.")
-        old_created = timezone.now() - EMBEDDING_TTL_REFRESH_WINDOW - datetime.timedelta(days=10)
+        # Past the stable-timestamp max age (TTL - refresh window): the row
+        # would expire before the refresh cron re-emits, so now() must be used.
+        old_created = timezone.now() - EMBEDDING_STABLE_TS_MAX_AGE - datetime.timedelta(days=10)
         self._set(doc, created_at=old_created)
 
+        before = timezone.now()
         pending = logic.list_documents_pending_embedding()
         entry = next(d for d in pending if d.document_id == doc.id)
-        # Old doc: uses now() so the CH row doesn't land already-expired.
-        assert entry.timestamp != old_created
-        assert entry.timestamp > old_created
+        assert entry.timestamp >= before
+
+    def test_doc_within_max_age_keeps_created_at(self) -> None:
+        _source, doc = self._safe_source("Refunds", "Our refund policy covers widgets and gadgets.")
+        # Just inside the max age: stable created_at is still safe (the row
+        # outlives the refresh cron's next pass) and keeps sort-key dedup.
+        recent_created = timezone.now() - EMBEDDING_STABLE_TS_MAX_AGE + datetime.timedelta(days=1)
+        self._set(doc, created_at=recent_created)
+
+        entry = next(d for d in logic.list_documents_pending_embedding() if d.document_id == doc.id)
+        assert entry.timestamp == recent_created
 
     @parameterized.expand(
         [
@@ -215,17 +227,17 @@ class TestEmitOneDocument(BaseTest):
 
     def test_emits_old_doc_with_fresh_timestamp(self) -> None:
         doc, entry = self._pending("Refunds", "Our refund policy covers widgets and gadgets.")
-        old_created = timezone.now() - EMBEDDING_TTL_REFRESH_WINDOW - datetime.timedelta(days=10)
+        old_created = timezone.now() - EMBEDDING_STABLE_TS_MAX_AGE - datetime.timedelta(days=10)
         with team_scope(self.team.id, canonical=True):
             KnowledgeDocument.objects.filter(id=doc.id).update(created_at=old_created, embeddings_emitted_at=None)
+        before = timezone.now()
         entry = next(d for d in logic.list_documents_pending_embedding() if d.document_id == doc.id)
 
         with patch.object(coordinator, "emit_embedding_request") as emit:
             coordinator._emit_one_document(entry)
 
         kwargs = emit.call_args_list[0].kwargs
-        assert kwargs["timestamp"] != old_created
-        assert kwargs["timestamp"] > old_created
+        assert kwargs["timestamp"] >= before
 
     def test_emit_failure_propagates_and_leaves_doc_unstamped(self) -> None:
         doc, entry = self._pending("Refunds", "Our refund policy covers widgets and gadgets.")

@@ -48,6 +48,7 @@ from .constants import (
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
+    EMBEDDING_STABLE_TS_MAX_AGE,
     EMBEDDING_TTL_REFRESH_WINDOW,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
@@ -2031,10 +2032,10 @@ class DocumentToEmbed:
     # The embedding row `timestamp`. Young docs use the stable `created_at` so
     # a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
     # partition instead of duplicating under a later `toDate(timestamp)`.
-    # Old docs (created_at older than EMBEDDING_TTL_REFRESH_WINDOW) and the
-    # TTL-refresh path use `now()` so the row doesn't land already-expired
-    # under the table's `TTL timestamp + 3 MONTH`. The extra row is
-    # correctness-safe via the read-path re-join.
+    # Old docs (created_at older than EMBEDDING_STABLE_TS_MAX_AGE) and the
+    # TTL-refresh path use `now()` so the row survives until the refresh cron
+    # fires, instead of expiring under `TTL timestamp + 3 MONTH` first. The
+    # extra row is correctness-safe via the read-path re-join.
     timestamp: datetime.datetime
     chunks: list[ChunkToEmbed]
 
@@ -2110,13 +2111,15 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
 
     Timestamp strategy: young docs use the stable ``created_at`` so a re-emit
     collapses onto one ClickHouse sort key. Old docs (``created_at`` older than
-    ``EMBEDDING_TTL_REFRESH_WINDOW``) use ``now()`` — otherwise the embedding
-    row lands at-or-past the table's ``TTL timestamp + 3 MONTH``, reconciliation
-    re-nulls it, and the next pass re-emits with ``created_at`` again: a live
-    token-burning loop while the doc silently serves FTS-only forever.
+    ``EMBEDDING_STABLE_TS_MAX_AGE``) use ``now()``: a stable timestamp is only
+    safe if the row survives until the TTL-refresh cron re-emits the doc at
+    ``emitted_at + EMBEDDING_TTL_REFRESH_WINDOW`` — beyond the max age the row
+    would expire first (in the worst case it lands already expired,
+    reconciliation re-nulls it, and the next pass re-emits with ``created_at``
+    again: a token-burning loop while the doc silently serves FTS-only forever).
     """
     now = timezone.now()
-    ttl_cutoff = now - EMBEDDING_TTL_REFRESH_WINDOW
+    ttl_cutoff = now - EMBEDDING_STABLE_TS_MAX_AGE
     rows = list(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=True)
