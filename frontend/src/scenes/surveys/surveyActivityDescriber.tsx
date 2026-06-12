@@ -187,6 +187,8 @@ const surveyActionsMapping: Record<
             tabPosition: 'survey button position',
             shuffleQuestions: 'question shuffling',
             surveyPopupDelaySeconds: 'survey popup delay',
+            allowGoBack: 'back button',
+            backButtonText: 'back button text',
             widgetType: 'widget type',
             widgetSelector: 'widget selector',
             widgetLabel: 'widget label',

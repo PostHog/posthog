@@ -314,6 +314,8 @@ export const notebookLogic = kea<notebookLogicType>([
         /** Broadcast the local caret; null means the selection left the notebook. */
         publishMarkdownCaret: (position: MarkdownNotebookCaretPosition | null) => ({ position }),
         reportMarkdownMergeConflicts: (conflicts: NotebookCollaborationConflict[]) => ({ conflicts }),
+        showMarkdownMergeConflictDetails: (conflicts: NotebookCollaborationConflict[]) => ({ conflicts }),
+        dismissMarkdownMergeConflictDetails: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
@@ -438,6 +440,13 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 showCollabConflict: (_, params) => params,
                 dismissCollabConflict: () => null,
+            },
+        ],
+        markdownMergeConflictDetails: [
+            null as NotebookCollaborationConflict[] | null,
+            {
+                showMarkdownMergeConflictDetails: (_, { conflicts }) => conflicts,
+                dismissMarkdownMergeConflictDetails: () => null,
             },
         ],
         markdownRemotePresence: [
@@ -1395,9 +1404,15 @@ export const notebookLogic = kea<notebookLogicType>([
             })
             lemonToast.warning(
                 conflicts.length === 1
-                    ? 'Someone else edited the same block as you — your version was kept.'
-                    : `Someone else edited ${conflicts.length} of the same blocks as you — your versions were kept.`,
-                { toastId: `notebook-merge-conflict-${values.shortId}` }
+                    ? "Your edit and a collaborator's edit to the same block couldn't be merged — your version is showing."
+                    : `Your edits and a collaborator's edits to ${conflicts.length} blocks couldn't be merged — your versions are showing.`,
+                {
+                    toastId: `notebook-merge-conflict-${values.shortId}`,
+                    button: {
+                        label: 'Review',
+                        action: () => actions.showMarkdownMergeConflictDetails(conflicts),
+                    },
+                }
             )
         },
         insertAfterLastNode: async ({ content }) => {

@@ -163,10 +163,20 @@ jobs:
                         - rust/feature-flags/src/properties/property_models.rs
                         - frontend/src/products.json # Loaded at runtime by posthog/products.py
                         - 'products/*/manifest.tsx' # Generates products.json
-                        # hogli db commands used for test database setup
-                        - 'tools/hogli-commands/hogli_commands/**'
+                        # hogli setup commands this workflow runs: db:restore-test-db
+                        # and product:bootstrap/lint. Scoped to the modules those
+                        # commands actually import — framework, manifest, boot
+                        # modules, db_schema, product — so unrelated hogli commands
+                        # (doctor, devbox, ...) don't trigger this suite.
                         - 'tools/hogli/**'
                         - hogli.yaml
+                        - 'tools/hogli-commands/hogli_commands/db_schema.py'
+                        - 'tools/hogli-commands/hogli_commands/prechecks.py'
+                        - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
+                        - 'tools/hogli-commands/hogli_commands/hint_hook.py'
+                        - 'tools/hogli-commands/hogli_commands/hints.py'
+                        - 'tools/hogli-commands/hogli_commands/product/**'
+                        - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -640,6 +650,9 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
+        permissions:
+            contents: read
+            actions: write # to cancel this run when a deterministic check fails
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
         steps:
@@ -669,6 +682,13 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            # Boundary between network-dependent setup (can flake) and the pure
+            # static checks below — the cancel step at the end uses it to avoid
+            # canceling the whole run on a transient setup failure.
+            - name: Mark setup complete
+              id: setup-complete
+              run: echo "Setup complete — any failure below is a deterministic check failure"
+
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
 
@@ -689,6 +709,23 @@ jobs:
 
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
+
+            # A failure in the static checks above is deterministic — a retry can
+            # never fix it, so the rest of the run (50+ test shards) is wasted spend.
+            # PR-only: master and merge queue runs must complete (deploy gate,
+            # snapshots). Same-repo only: fork PR tokens are read-only.
+            - name: Cancel run on deterministic check failure
+              if: >
+                  failure() &&
+                  steps.setup-complete.outcome == 'success' &&
+                  github.event_name == 'pull_request' &&
+                  github.event.pull_request.head.repo.full_name == github.repository
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+              run: |
+                  echo "::notice::Repo checks failed deterministically — canceling the remaining jobs in this run. A retry cannot fix this failure; push a fix to start a new run."
+                  gh run cancel ${{ github.run_id }}
 
     # Validates product.yaml owners against PostHog/posthog collaborator teams.
     # Gated on the product_yamls paths filter so we only spend a GitHub API call
@@ -1390,6 +1427,7 @@ jobs:
         timeout-minutes: 20
         permissions:
             contents: read
+            actions: write # to cancel this run when the OpenAPI check fails
 
         name: Validate OpenAPI types
         runs-on: depot-ubuntu-latest
@@ -1584,6 +1622,23 @@ jobs:
                   file_pattern: 'frontend/src/generated/** products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+
+            # Schema generation and type drift failures are deterministic — a retry
+            # can never fix them, so the rest of the run is wasted spend. Keyed on the
+            # check step so transient setup or commit failures don't cancel anything.
+            # PR-only and same-repo only: fork PR tokens are read-only.
+            - name: Cancel run on deterministic check failure
+              if: >
+                  failure() &&
+                  steps.openapi-check.outcome == 'failure' &&
+                  github.event_name == 'pull_request' &&
+                  github.event.pull_request.head.repo.full_name == github.repository
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+              run: |
+                  echo "::notice::OpenAPI check failed deterministically — canceling the remaining jobs in this run. A retry cannot fix this failure; push a fix to start a new run."
+                  gh run cancel ${{ github.run_id }}
 
     build_django_matrix:
         name: Build Django matrix

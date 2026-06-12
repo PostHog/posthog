@@ -128,7 +128,10 @@ export class StateManager {
         // with no `current_organization` / `current_team` (newly provisioned
         // accounts, users who left their last org) — fall through to the
         // scoped-org fallback below when either is missing.
-        if (activeOrganization && (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id))) {
+        if (
+            activeOrganization &&
+            (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id))
+        ) {
             return activeTeam
                 ? { organizationId: activeOrganization.id, projectId: activeTeam.id }
                 : { organizationId: activeOrganization.id }
@@ -386,11 +389,25 @@ export class StateManager {
     async getAiConsentGiven(): Promise<boolean | undefined> {
         try {
             const org = await this.getCachedOrFetchOrg()
-            if (!org) {
-                return undefined
+            if (org) {
+                const consent = (org as { is_ai_data_processing_approved?: boolean | null })
+                    .is_ai_data_processing_approved
+                return !!consent
             }
-            const consent = (org as { is_ai_data_processing_approved?: boolean | null }).is_ai_data_processing_approved
-            return !!consent
+
+            // Team-scoped tokens (e.g. sandbox OAuth tokens) can never fetch
+            // `/api/organizations/{id}/` — see the guard in getCachedOrFetchOrg.
+            // But `/api/users/@me/` is exempt from team scoping and embeds the
+            // full org serializer (including the consent flag) for the user's
+            // *current* org. That org isn't necessarily the one owning the
+            // scoped project, so only trust the flag when it matches the active
+            // project's owning org; otherwise stay undefined so callers keep
+            // failing closed.
+            const [user, project] = await Promise.all([this.getCachedOrFetchUser(), this.getCachedOrFetchProject()])
+            if (user?.organization && project?.organization === user.organization.id) {
+                return !!user.organization.is_ai_data_processing_approved
+            }
+            return undefined
         } catch {
             return undefined
         }

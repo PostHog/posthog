@@ -77,15 +77,14 @@ tools:
         title: Get a secure connect link for a source
         description: >
             Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the
-            chat. For OAuth sources (Hubspot, Salesforce, Google Ads, …) it returns an authorization URL; for credential
-            sources (Postgres, MySQL, Stripe API key, …) it links to a minimal page where the user enters only their
-            credentials — the page stores them encrypted and temporarily, and does NOT create the source. This is the
-            preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to
-            confirm they're done, then find the stored reference (OAuth: 'integrations-list' filtered by the source's
-            kind; credentials: 'data-warehouse-stored-credentials-list' filtered by source_type) and call
-            'data-warehouse-source-setup' with the returned integration_field key (e.g. {'hubspot_integration_id': 123}
-            or {'credential_id': '<uuid>'}). Stored credentials are single-use and expire after 24 hours. Never ask the
-            user to paste raw database passwords or API keys into the chat.
+            chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via
+            OAuth or enters credentials there, whichever the source offers — and the page stores the connection details
+            encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect
+            credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find
+            the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and
+            call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are
+            single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth
+            tokens into the chat.
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
@@ -110,11 +109,12 @@ tools:
             and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM
             (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres,
             MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with
-            'external-data-sources-wizard'. Prefer references over raw secrets in the payload: for OAuth sources pass
-            the integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id':
-            '<uuid>'} referencing credentials the user stored via the 'data-warehouse-source-connect-link' page
-            (discover ids with 'data-warehouse-stored-credentials-list'). Stored credentials are deleted once the source
-            is created. For fine-grained per-table control, use 'external-data-sources-create' instead.
+            'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id':
+            '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link'
+            page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the
+            source is created. For an already-connected OAuth integration you can instead pass its integration id key
+            (e.g. {'hubspot_integration_id': 123}). For fine-grained per-table control, use
+            'external-data-sources-create' instead.
         exclude_params:
             - client_secret
             - account_id
