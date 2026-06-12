@@ -29,16 +29,18 @@ struct Pin {
 struct PinTable {
     /// `"{token}:{distinct_id}"` → sticky assignment.
     pins: HashMap<String, Pin>,
-    /// Number of in-flight sub-batches per worker. Used for bin-packing: new
-    /// key-groups are assigned to whichever healthy worker has the lowest load.
-    in_flight: Vec<usize>,
+    /// Outstanding (in-flight) message count per worker. Used for bin-packing:
+    /// new key-groups are assigned to whichever healthy worker carries the
+    /// fewest outstanding messages, so load is balanced by volume rather than
+    /// by sub-batch count.
+    in_flight_messages: Vec<usize>,
 }
 
 impl PinTable {
     fn new(worker_count: usize) -> Self {
         Self {
             pins: HashMap::new(),
-            in_flight: vec![0; worker_count],
+            in_flight_messages: vec![0; worker_count],
         }
     }
 
@@ -49,21 +51,23 @@ impl PinTable {
         before - self.pins.len()
     }
 
-    /// Pick the healthy/degraded worker with the lowest in-flight load.
-    /// Returns None when no healthy workers exist.
+    /// Pick the healthy/degraded worker carrying the fewest outstanding
+    /// messages — existing in-flight load plus what has been provisionally
+    /// assigned earlier in this round. Returns None when no healthy workers
+    /// exist.
     fn least_loaded_healthy(
         &self,
         registry: &WorkerRegistry,
         provisional: &[usize],
     ) -> Option<usize> {
-        (0..self.in_flight.len())
+        (0..self.in_flight_messages.len())
             .filter(|&idx| {
                 matches!(
                     registry.state(idx),
                     WorkerState::Healthy | WorkerState::Degraded
                 )
             })
-            .min_by_key(|&idx| self.in_flight[idx] + provisional[idx])
+            .min_by_key(|&idx| self.in_flight_messages[idx] + provisional[idx])
     }
 }
 
@@ -90,19 +94,21 @@ impl WorkerSubBatchBuilder {
 #[derive(Default)]
 struct WorkerAssignments {
     by_worker: HashMap<usize, WorkerSubBatchBuilder>,
-    provisional_in_flight: Vec<usize>,
+    /// Messages provisionally assigned to each worker so far this round. Drives
+    /// least-loaded bin-packing so the largest groups steer load by volume.
+    provisional_messages: Vec<usize>,
 }
 
 impl WorkerAssignments {
     fn new(worker_count: usize) -> Self {
         Self {
             by_worker: HashMap::new(),
-            provisional_in_flight: vec![0; worker_count],
+            provisional_messages: vec![0; worker_count],
         }
     }
 
-    fn provisional_in_flight(&self) -> &[usize] {
-        &self.provisional_in_flight
+    fn provisional_messages(&self) -> &[usize] {
+        &self.provisional_messages
     }
 
     fn add_group(&mut self, worker_idx: usize, group: MessageGroup) {
@@ -114,10 +120,10 @@ impl WorkerAssignments {
                 routing_keys: Vec::new(),
             });
 
-        if builder.is_empty() {
-            self.provisional_in_flight[worker_idx] =
-                self.provisional_in_flight[worker_idx].saturating_add(1);
-        }
+        // Accumulate by message volume, not group count, so a worker holding one
+        // heavy key counts as more loaded than one holding several tiny keys.
+        self.provisional_messages[worker_idx] =
+            self.provisional_messages[worker_idx].saturating_add(group.messages.len());
 
         builder.messages.extend(group.messages);
         builder.routing_keys.push(group.routing_key);
@@ -153,9 +159,9 @@ impl WorkerAssignments {
 /// (ref-counted pin). Pins are dropped when a worker is declared dead or
 /// when the last referencing batch resolves.
 ///
-/// **Recovery**: `on_sub_batch_resolved` decrements ref-counts and the
-/// per-worker in-flight counter. Zero-count pins are evicted so the key
-/// is re-pinned on its next arrival.
+/// **Recovery**: `on_sub_batch_resolved` decrements ref-counts and subtracts
+/// the sub-batch's messages from the worker's outstanding load. Zero-count
+/// pins are evicted so the key is re-pinned on its next arrival.
 pub struct Dispatcher {
     pin_table: Mutex<PinTable>,
     registry: Arc<WorkerRegistry>,
@@ -177,8 +183,8 @@ impl Dispatcher {
     /// 2. Group messages by routing key.
     /// 3. Honor existing pins for live workers; collect unassigned groups.
     /// 4. Largest-first bin-pack unassigned groups onto healthy/degraded
-    ///    workers by current in-flight load.
-    /// 5. Increment in-flight counters and pin ref-counts.
+    ///    workers by current outstanding message load.
+    /// 5. Add routed messages to in-flight load and bump pin ref-counts.
     /// 6. Return one `SubBatch` per worker.
     ///
     /// Returns an empty vec if all workers are dead/unhealthy.
@@ -204,7 +210,7 @@ impl Dispatcher {
 
         histogram!("ingestion_consumer_distinct_ids_per_batch").record(key_groups.len() as f64);
 
-        let worker_count = table.in_flight.len();
+        let worker_count = table.in_flight_messages.len();
         let mut assignments = WorkerAssignments::new(worker_count);
 
         let mut unpinned_groups: Vec<MessageGroup> = Vec::new();
@@ -232,7 +238,7 @@ impl Dispatcher {
 
         for group in unpinned_groups {
             let Some(worker_idx) =
-                table.least_loaded_healthy(&self.registry, assignments.provisional_in_flight())
+                table.least_loaded_healthy(&self.registry, assignments.provisional_messages())
             else {
                 // All workers unhealthy — this key cannot be assigned.
                 counter!("ingestion_consumer_dispatcher_unroutable_messages_total")
@@ -251,9 +257,10 @@ impl Dispatcher {
             assignments.add_group(worker_idx, group);
         }
 
-        // Increment in-flight counters for workers that got messages.
+        // Add each worker's message volume to its outstanding load.
         for (worker_idx, message_count) in assignments.routed_counts() {
-            table.in_flight[worker_idx] = table.in_flight[worker_idx].saturating_add(1);
+            table.in_flight_messages[worker_idx] =
+                table.in_flight_messages[worker_idx].saturating_add(message_count);
             counter!(
                 "ingestion_consumer_dispatcher_sub_batches_assigned_total",
                 "worker" => worker_idx.to_string(),
@@ -271,13 +278,20 @@ impl Dispatcher {
         assignments.into_sub_batches()
     }
 
-    /// Call after a sub-batch resolves (ACK or DLQ). Decrements the worker's
-    /// in-flight counter and the ref-count for each key. Evicts zero-count
-    /// pins so the key is re-assigned on its next arrival.
-    pub fn on_sub_batch_resolved(&self, worker_idx: usize, routing_keys: &[String]) {
+    /// Call after a sub-batch resolves (ACK or DLQ). Subtracts the sub-batch's
+    /// message count from the worker's outstanding load and decrements the
+    /// ref-count for each key. Evicts zero-count pins so the key is re-assigned
+    /// on its next arrival. `message_count` must match the sub-batch's length.
+    pub fn on_sub_batch_resolved(
+        &self,
+        worker_idx: usize,
+        message_count: usize,
+        routing_keys: &[String],
+    ) {
         let mut table = self.pin_table.lock().unwrap();
 
-        table.in_flight[worker_idx] = table.in_flight[worker_idx].saturating_sub(1);
+        table.in_flight_messages[worker_idx] =
+            table.in_flight_messages[worker_idx].saturating_sub(message_count);
 
         let mut evictions = 0usize;
         for key in routing_keys {
@@ -480,7 +494,7 @@ mod tests {
             },
         );
 
-        assert_eq!(assignments.provisional_in_flight(), &[0, 1]);
+        assert_eq!(assignments.provisional_messages(), &[0, 2]);
         assert_eq!(
             assignments.routed_counts().collect::<Vec<_>>(),
             vec![(1, 2)]
@@ -525,7 +539,7 @@ mod tests {
         let batch1 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
         assert_eq!(batch1.len(), 1);
         let worker = batch1[0].worker_idx;
-        dispatcher.on_sub_batch_resolved(worker, &batch1[0].routing_keys);
+        dispatcher.on_sub_batch_resolved(worker, batch1[0].messages.len(), &batch1[0].routing_keys);
 
         // Second batch: same key must go to same worker (pin still alive until resolved).
         // We resolved already, so the pin was evicted — it will re-pin to the same or
@@ -581,7 +595,7 @@ mod tests {
             assert!(table.pins.contains_key("t:user-1"));
         }
 
-        dispatcher.on_sub_batch_resolved(worker, &b1[0].routing_keys);
+        dispatcher.on_sub_batch_resolved(worker, b1[0].messages.len(), &b1[0].routing_keys);
 
         // Pin evicted (ref_count hit 0).
         {
@@ -608,7 +622,7 @@ mod tests {
         }
 
         // Resolve first sub-batch: ref_count drops to 1, pin stays.
-        dispatcher.on_sub_batch_resolved(worker, &b1[0].routing_keys);
+        dispatcher.on_sub_batch_resolved(worker, b1[0].messages.len(), &b1[0].routing_keys);
         {
             let table = dispatcher.pin_table.lock().unwrap();
             assert!(table.pins.contains_key("t:user-1"));
@@ -616,46 +630,47 @@ mod tests {
         }
     }
 
-    // ---- in-flight counter ----
+    // ---- in-flight load ----
 
     #[test]
-    fn test_in_flight_incremented_on_assign() {
+    fn test_in_flight_messages_incremented_by_message_count_on_assign() {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(registry);
 
-        let b1 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
+        // Two messages for one key → one sub-batch carrying two messages.
+        let b1 = dispatcher.assign(make_msgs(&[("t", "user-1"), ("t", "user-1")]));
         let worker = b1[0].worker_idx;
 
         let table = dispatcher.pin_table.lock().unwrap();
-        assert_eq!(table.in_flight[worker], 1);
+        assert_eq!(table.in_flight_messages[worker], 2);
     }
 
     #[test]
-    fn test_in_flight_decremented_on_resolve() {
+    fn test_in_flight_messages_decremented_on_resolve() {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(registry);
 
-        let b1 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
+        let b1 = dispatcher.assign(make_msgs(&[("t", "user-1"), ("t", "user-1")]));
         let worker = b1[0].worker_idx;
 
-        dispatcher.on_sub_batch_resolved(worker, &b1[0].routing_keys);
+        dispatcher.on_sub_batch_resolved(worker, b1[0].messages.len(), &b1[0].routing_keys);
 
         let table = dispatcher.pin_table.lock().unwrap();
-        assert_eq!(table.in_flight[worker], 0);
+        assert_eq!(table.in_flight_messages[worker], 0);
     }
 
     #[test]
-    fn test_multiple_keys_same_worker_one_in_flight_increment() {
-        // All messages in a batch that go to the same worker produce a single
-        // sub-batch, so in_flight should only increment by 1 — not by the
-        // number of distinct keys.
+    fn test_in_flight_messages_counts_every_message_to_worker() {
+        // Three distinct keys routed to the single worker merge into one
+        // sub-batch, but in-flight load tracks the total message volume (3),
+        // not the sub-batch count.
         let registry = healthy_registry(1);
         let dispatcher = Dispatcher::new(registry);
 
         dispatcher.assign(make_msgs(&[("t", "a"), ("t", "b"), ("t", "c")]));
 
         let table = dispatcher.pin_table.lock().unwrap();
-        assert_eq!(table.in_flight[0], 1);
+        assert_eq!(table.in_flight_messages[0], 3);
     }
 
     // ---- bin-packing ----
@@ -665,16 +680,50 @@ mod tests {
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(registry);
 
-        // Artificially load worker 0 with 3 in-flight sub-batches.
+        // Artificially load worker 0 with 3 outstanding messages.
         {
             let mut table = dispatcher.pin_table.lock().unwrap();
-            table.in_flight[0] = 3;
+            table.in_flight_messages[0] = 3;
         }
 
         // A fresh key should go to worker 1 (load = 0).
         let b = dispatcher.assign(make_msgs(&[("t", "fresh")]));
         assert_eq!(b.len(), 1);
         assert_eq!(b[0].worker_idx, 1);
+    }
+
+    #[test]
+    fn test_bin_packing_balances_by_message_volume_not_group_count() {
+        // Regression: load is tracked by message count, not sub-batch presence.
+        // One heavy key (10 msgs) plus five small keys (1 msg each) must not all
+        // pile onto worker 0 — the small keys bin-pack onto the other worker
+        // until load is balanced.
+        let registry = healthy_registry(2);
+        let dispatcher = Dispatcher::new(registry);
+
+        let mut specs: Vec<(&str, &str)> = vec![("t", "heavy"); 10];
+        for d in ["a", "b", "c", "d", "e"] {
+            specs.push(("t", d));
+        }
+
+        let sub_batches = dispatcher.assign(make_msgs(&specs));
+        assert_eq!(sub_batches.len(), 2, "both workers must carry messages");
+
+        let table = dispatcher.pin_table.lock().unwrap();
+        let load0 = table.in_flight_messages[0];
+        let load1 = table.in_flight_messages[1];
+        assert_eq!(load0 + load1, 15);
+
+        // The heavy key lands alone on one worker; the five singles fill the
+        // other. With the old 0/1 accounting the singles would all dump onto
+        // worker 0, giving 15 vs 1.
+        let (heavy, light) = if load0 >= load1 {
+            (load0, load1)
+        } else {
+            (load1, load0)
+        };
+        assert_eq!(heavy, 10);
+        assert_eq!(light, 5);
     }
 
     // ---- dead worker handling ----

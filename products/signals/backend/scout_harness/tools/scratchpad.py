@@ -52,11 +52,22 @@ def search_scratchpad(
     team_id: int,
     text: str | None = None,
     limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
+    keys_only: bool = False,
+    content_max_chars: int | None = None,
 ) -> list[ScratchpadEntry]:
     """Return memories the agent should consider when planning a run.
 
     `text` matches ILIKE against `content` and `key`. The previous `tags` filter
     + GIN index were dropped in PR 2 review.
+
+    Result-scoping projections keep an orientation/dedupe scan from pulling every
+    entry's full body — `content` is an unbounded TextField, so a wide scan can
+    return up to `MAX_SCRATCHPAD_CONTENT_LENGTH × limit` characters of prose the
+    caller doesn't need yet:
+    - `keys_only=True` blanks `content` entirely — return just keys + metadata to
+      pick the entries worth a full read, then re-query the chosen ones.
+    - `content_max_chars=N` truncates each `content` to the first `N` characters
+      (a preview). Ignored when `keys_only=True`, which already drops the body.
     """
     clamped_limit = _clamp_search_limit(limit)
     qs = SignalScratchpad.objects.filter(team_id=team_id)
@@ -65,7 +76,7 @@ def search_scratchpad(
 
         qs = qs.filter(Q(content__icontains=text) | Q(key__icontains=text))
     qs = qs.order_by("-updated_at", "-id")[:clamped_limit]
-    return [_to_entry(row) for row in qs]
+    return [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in qs]
 
 
 def remember(
@@ -140,14 +151,26 @@ def _clamp_search_limit(limit: int) -> int:
     return limit
 
 
-def _to_entry(row: SignalScratchpad) -> ScratchpadEntry:
+def _to_entry(
+    row: SignalScratchpad, *, keys_only: bool = False, content_max_chars: int | None = None
+) -> ScratchpadEntry:
     # Django's FK descriptor exposes both `created_by_run` (object) and `created_by_run_id`
     # (the raw FK column). `getattr` keeps Pyright happy without a join.
     run_pk = getattr(row, "created_by_run_id", None)
     return ScratchpadEntry(
         key=row.key,
-        content=row.content,
+        content=_project_content(row.content, keys_only=keys_only, content_max_chars=content_max_chars),
         created_at=row.created_at.isoformat() if row.created_at else None,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
         created_by_run_id=str(run_pk) if run_pk else None,
     )
+
+
+def _project_content(content: str, *, keys_only: bool, content_max_chars: int | None) -> str:
+    """Apply the search projection to a row's `content`: blank it for `keys_only`,
+    or truncate to a preview for `content_max_chars`. A negative max clamps to 0."""
+    if keys_only:
+        return ""
+    if content_max_chars is None:
+        return content
+    return content[: max(content_max_chars, 0)]

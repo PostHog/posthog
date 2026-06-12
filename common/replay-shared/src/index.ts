@@ -44,7 +44,7 @@ export { createSegments, mergeInactiveSegments, mapSnapshotsToWindowId } from '.
 
 // snapshot store
 export { SnapshotStore } from './snapshot-store/SnapshotStore'
-export type { SourceEntry, LoadBatch, SourceLoadingState, Mode } from './snapshot-store/types'
+export type { SourceEntry, LoadBatch, SourceLoadingState, Mode, FullSnapshotRef } from './snapshot-store/types'
 
 // canvas replay
 export type { CanvasPluginErrorHandler } from './canvas/canvas-plugin'

@@ -530,7 +530,7 @@ class TestRepoPickerOptions(TestCase):
         mock_slack_client.chat_postMessage.assert_not_called()
 
 
-@override_settings(DEBUG=False)
+@override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
 class TestInteractivityRegionRouting(TestCase):
     """Region-aware proxying for /slack/interactivity-callback.
 

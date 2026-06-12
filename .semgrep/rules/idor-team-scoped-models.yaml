@@ -136,6 +136,7 @@ rules:
                               |TeamFeatureFlagDefaultsConfig
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
+                              |FieldNote
                               |FileSystem
                               |FileSystemFolderInstructions
                               |GithubCommentMapping
@@ -379,6 +380,7 @@ rules:
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
+                        |FieldNote
                         |FileSystem
                         |FileSystemFolderInstructions
                         |GithubCommentMapping

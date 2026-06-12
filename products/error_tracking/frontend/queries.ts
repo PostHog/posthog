@@ -12,7 +12,7 @@ import {
     NodeKind,
     ProductKey,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import { HogQLQueryString, escapeHogQLString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -158,14 +158,14 @@ export const errorTrackingIssueEventsQuery = ({
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
-    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => `'${f}'`).join(', ')}] AND isNotNull(properties.$exception_issue_id)`
+    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => escapeHogQLString(f)).join(', ')}] AND isNotNull(properties.$exception_issue_id)`
     if (searchQuery) {
         // This is an ugly hack for the fact I don't think we support nested property filters in
         // the eventsquery
         where_string += ' AND ('
         const chunks: string[] = []
         SEARCHABLE_EXCEPTION_PROPERTIES.forEach((prop) => {
-            chunks.push(`ilike(toString(properties.${prop}), '%${searchQuery}%')`)
+            chunks.push(`ilike(toString(properties.${prop}), ${escapeHogQLString(`%${searchQuery}%`)})`)
         })
         where_string += chunks.join(' OR ')
         where_string += ')'

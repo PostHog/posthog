@@ -12,7 +12,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.id, '00000000-0000-0000-0000-000000000000')))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -51,7 +51,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                             HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT DISTINCT events__person.id AS person_id
               FROM events
@@ -61,13 +61,13 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
            ORDER BY persons.created_at DESC) AS revenue_analytics_customer
         LEFT JOIN
@@ -108,7 +108,7 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
            GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
@@ -161,7 +161,7 @@
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                     ORDER BY timestamp DESC) AS revenue_item
                  WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
@@ -195,7 +195,7 @@
                        subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
      GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
-  WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
+  WHERE equals(persons.id, '00000000-0000-0000-0000-000000000000')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -220,7 +220,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -239,7 +239,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -280,7 +280,9 @@
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
                     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                     WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer
+                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+           ORDER BY timestamp DESC
+           LIMIT 1 BY id) AS revenue_analytics_customer
         LEFT JOIN
           (SELECT persons.id AS id,
                   persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
@@ -290,14 +292,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -468,7 +470,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -487,7 +489,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -528,7 +530,9 @@
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
                     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                     WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer
+                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+           ORDER BY timestamp DESC
+           LIMIT 1 BY id) AS revenue_analytics_customer
         LEFT JOIN
           (SELECT persons.id AS id,
                   persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
@@ -538,14 +542,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -718,7 +722,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -737,7 +741,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -778,7 +782,9 @@
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
                     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                     WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer
+                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+           ORDER BY timestamp DESC
+           LIMIT 1 BY id) AS revenue_analytics_customer
         LEFT JOIN
           (SELECT persons.id AS id,
                   persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
@@ -788,14 +794,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -967,7 +973,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -986,7 +992,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -1027,7 +1033,9 @@
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
                     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                     WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer
+                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+           ORDER BY timestamp DESC
+           LIMIT 1 BY id) AS revenue_analytics_customer
         LEFT JOIN
           (SELECT persons.id AS id,
                   persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
@@ -1037,14 +1045,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -1216,7 +1224,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -1235,7 +1243,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -1276,7 +1284,9 @@
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
                     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                     WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer
+                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+           ORDER BY timestamp DESC
+           LIMIT 1 BY id) AS revenue_analytics_customer
         LEFT JOIN
           (SELECT persons.id AS id,
                   persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
@@ -1286,14 +1296,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -1466,7 +1476,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -1485,7 +1495,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -1526,7 +1536,9 @@
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
                     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                     WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer
+                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+           ORDER BY timestamp DESC
+           LIMIT 1 BY id) AS revenue_analytics_customer
         LEFT JOIN
           (SELECT persons.id AS id,
                   persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
@@ -1536,14 +1548,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(JSONExtractString(revenue_analytics_customer.metadata, 'id'), revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(JSONExtractString(revenue_analytics_customer.metadata, 'id'), revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -1748,7 +1760,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
-                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                             HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT DISTINCT events__person.id AS person_id
               FROM events
@@ -1758,13 +1770,13 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id
                  FROM person
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
-                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                 HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
               WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
            ORDER BY persons.created_at DESC) AS revenue_analytics_customer
         LEFT JOIN
@@ -1805,7 +1817,7 @@
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
            GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
@@ -1858,7 +1870,7 @@
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                     ORDER BY timestamp DESC) AS revenue_item
                  WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
@@ -1879,7 +1891,7 @@
                            toString(person_id) AS customer_id,
                            NULL AS status,
                            min_timestamp AS started_at,
-                           if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
+                           if(greater(max_timestamp_plus_dropoff_days, today()), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
                            NULL AS metadata
                     FROM
                       (SELECT events__person.id AS person_id,
@@ -1895,13 +1907,13 @@
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                          HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id
                           FROM person
                           WHERE equals(person.team_id, 99999)
                           GROUP BY person.id
-                          HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                          HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                        WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                        GROUP BY subscription_id,
                                 person_id)
@@ -1955,7 +1967,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -1996,7 +2008,9 @@
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
                     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                     WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer
+                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+           ORDER BY timestamp DESC
+           LIMIT 1 BY id) AS revenue_analytics_customer
         LEFT JOIN
           (SELECT persons.id AS id,
                   persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
@@ -2006,14 +2020,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -2199,7 +2213,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -2240,7 +2254,9 @@
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
                     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                     WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer
+                 GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+           ORDER BY timestamp DESC
+           LIMIT 1 BY id) AS revenue_analytics_customer
         LEFT JOIN
           (SELECT persons.id AS id,
                   persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
@@ -2250,14 +2266,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -2403,7 +2419,7 @@
                        subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
      GROUP BY person_id) AS persons_revenue_analytics
-  WHERE ifNull(equals(persons_revenue_analytics.person_id, toUUIDOrNull('00000000-0000-4000-8000-000000000000')), 0)
+  WHERE equals(persons_revenue_analytics.person_id, toUUIDOrNull('00000000-0000-4000-8000-000000000000'))
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
@@ -2435,9 +2451,9 @@
                                                        99999), equals(where_optimization.id,
                                                                       toUUIDOrNull('00000000-0000-4000-8000-000000000000'))))))
   GROUP BY person.id
-  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at,
-                                                                                                                                                       'UTC')), person.version), 1), plus(now64(6,
-                                                                                                                                                                                                'UTC'), toIntervalDay(1))), 0))) AS persons
+  HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at,
+                                                                                                                                     'UTC')), person.version), 1), plus(now64(6,
+                                                                                                                                                                              'UTC'), toIntervalDay(1))))) AS persons
   LEFT JOIN (
   SELECT 99999 AS team_id,
          person_id AS person_id,
@@ -2465,18 +2481,18 @@
                                                                                                                                         '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata,
                                                                                                                                                                                        '{}'), k), JSONExtractKeys(ifNull(inner.metadata,
                                                                                                                                                                                                                          '{}')))), map('posthog_person_distinct_id_source',
-                                                                                                                                                                                                                                       'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id,
-                                                                                                                                                                                                                                                                          ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata,
-                                                                                                                                                                                                                                                                                                                                               '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata,
-                                                                                                                                                                                                                                                                                                                                                                                              '{}'), k), JSONExtractKeys(ifNull(inner.metadata,
-                                                                                                                                                                                                                                                                                                                                                                                                                                '{}')))), map('posthog_person_distinct_id',
-                                                                                                                                                                                                                                                                                                                                                                                                                                              inner.resolved_distinct_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                              'posthog_person_distinct_id_source',
-                                                                                                                                                                                                                                                                                                                                                                                                                                              inner.resolved_source))), inner.metadata)) AS metadata,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       inner.country AS country,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       inner.cohort AS cohort,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       inner.initial_coupon AS initial_coupon,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       inner.initial_coupon_id AS initial_coupon_id
+                                                                                                                                                                                                                                       'customer'))), if(notEquals(inner.resolved_distinct_id,
+                                                                                                                                                                                                                                                                   ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata,
+                                                                                                                                                                                                                                                                                                                                    '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata,
+                                                                                                                                                                                                                                                                                                                                                                                   '{}'), k), JSONExtractKeys(ifNull(inner.metadata,
+                                                                                                                                                                                                                                                                                                                                                                                                                     '{}')))), map('posthog_person_distinct_id',
+                                                                                                                                                                                                                                                                                                                                                                                                                                   inner.resolved_distinct_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                   'posthog_person_distinct_id_source',
+                                                                                                                                                                                                                                                                                                                                                                                                                                   inner.resolved_source))), inner.metadata)) AS metadata,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                            inner.country AS country,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                            inner.cohort AS cohort,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                            inner.initial_coupon AS initial_coupon,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                            inner.initial_coupon_id AS initial_coupon_id
   FROM (
   SELECT outer.id AS id,
          'stripe.posthog_test' AS source_label,
@@ -2545,7 +2561,9 @@
   WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata,
                                     'posthog_person_distinct_id'), '')) AS child_meta
   GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id,
-                                                         outer.id)) AS inner) AS revenue_analytics_customer
+                                                         outer.id)) AS inner
+  ORDER BY timestamp DESC
+  LIMIT 1 BY id) AS revenue_analytics_customer
   LEFT JOIN (
   SELECT persons.id AS id,
          persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
@@ -2556,9 +2574,9 @@
   WHERE equals(person.team_id,
                99999)
   GROUP BY person.id
-  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at,
-                                                                                                                                                       'UTC')), person.version), 1), plus(now64(6,
-                                                                                                                                                                                                'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at,
+                                                                                                                                     'UTC')), person.version), 1), plus(now64(6,
+                                                                                                                                                                              'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN (
   SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                                                                                                  person_distinct_id2.distinct_id AS distinct_id
@@ -2566,9 +2584,9 @@
   WHERE equals(person_distinct_id2.team_id,
                99999)
   GROUP BY person_distinct_id2.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id,
-                                                                                                                                                                                               persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id,
-                                                                                                                                                                                                                                                                         revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id,
+                                                                                                                                                                                    persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id,
+                                                                                                                                                                                                                                                              revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
   LEFT JOIN (
   SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
          sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -2866,8 +2884,8 @@
   GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id,
                                              mrr_agg.customer_id))
   GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
-  WHERE ifNull(equals(persons.id,
-                      toUUIDOrNull('00000000-0000-4000-8000-000000000000')), 0)
+  WHERE equals(persons.id,
+               toUUIDOrNull('00000000-0000-4000-8000-000000000000'))
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
@@ -2905,7 +2923,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_0_disabled.1
   '''
-  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM (
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total, breakdown_value AS breakdown_value, rowNumberInAllBlocks() AS row_number
@@ -2919,13 +2937,13 @@
   FROM person_distinct_id2
   WHERE equals(person_distinct_id2.team_id, 99999)
   GROUP BY person_distinct_id2.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
   LEFT JOIN (
   SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS e__pdi__person___id, person.id AS id
   FROM person
   WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
+  HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
   LEFT JOIN (
   SELECT 99999 AS team_id, person_id AS person_id, sum(revenue) AS revenue, sum(mrr) AS mrr
   FROM (
@@ -2939,7 +2957,7 @@
     SELECT person.id AS id, max(person.version) AS version
     FROM person WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
   INNER JOIN (
   SELECT DISTINCT events__pdi__person.id AS person_id
   FROM events
@@ -2948,13 +2966,13 @@
   FROM person_distinct_id2
   WHERE equals(person_distinct_id2.team_id, 99999)
   GROUP BY person_distinct_id2.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   LEFT JOIN (
   SELECT person.id AS id
   FROM person
   WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+  HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
   WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
   ORDER BY persons.created_at DESC) AS revenue_analytics_customer
   LEFT JOIN (
@@ -2967,7 +2985,7 @@
   FROM person_distinct_id2
   WHERE equals(person_distinct_id2.team_id, 99999)
   GROUP BY person_distinct_id2.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
   ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
@@ -2985,7 +3003,7 @@
   FROM person_distinct_id2
   WHERE equals(person_distinct_id2.team_id, 99999)
   GROUP BY person_distinct_id2.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
   ORDER BY timestamp DESC) AS revenue_item
   WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('2025-05-30 00:00:00.000000', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('2025-05-30 00:00:00.000000', 6, 'UTC')))
@@ -3038,7 +3056,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+                      arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3092,7 +3110,7 @@
                                                                       FROM person
                                                                       WHERE equals(person.team_id, 99999)
                                                                       GROUP BY person.id
-                                                                      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                                      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
                     INNER JOIN
                       (SELECT DISTINCT events.person_id AS person_id
                        FROM events
@@ -3257,7 +3275,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events.1
   '''
-  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM (
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total, breakdown_value AS breakdown_value, rowNumberInAllBlocks() AS row_number
@@ -3271,7 +3289,7 @@
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id, 99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
   LEFT JOIN (
   SELECT 99999 AS team_id, person_id AS person_id, sum(revenue) AS revenue, sum(mrr) AS mrr
   FROM (
@@ -3285,7 +3303,7 @@
     SELECT person.id AS id, max(person.version) AS version
     FROM person WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
   INNER JOIN (
   SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
   FROM events
@@ -3294,7 +3312,7 @@
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id, 99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
   ORDER BY persons.created_at DESC) AS revenue_analytics_customer
   LEFT JOIN (
@@ -3307,7 +3325,7 @@
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id, 99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
   ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
@@ -3325,7 +3343,7 @@
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id, 99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
   ORDER BY timestamp DESC) AS revenue_item
   WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
@@ -3376,7 +3394,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined.1
   '''
-  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM (
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total, breakdown_value AS breakdown_value, rowNumberInAllBlocks() AS row_number
@@ -3390,13 +3408,13 @@
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id, 99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
   LEFT JOIN (
   SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS e__person___id, person.id AS id
   FROM person
   WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
+  HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
   LEFT JOIN (
   SELECT 99999 AS team_id, person_id AS person_id, sum(revenue) AS revenue, sum(mrr) AS mrr
   FROM (
@@ -3410,7 +3428,7 @@
     SELECT person.id AS id, max(person.version) AS version
     FROM person WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
   INNER JOIN (
   SELECT DISTINCT events__person.id AS person_id
   FROM events
@@ -3419,13 +3437,13 @@
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id, 99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN (
   SELECT person.id AS id
   FROM person
   WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+  HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
   ORDER BY persons.created_at DESC) AS revenue_analytics_customer
   LEFT JOIN (
@@ -3438,7 +3456,7 @@
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id, 99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
   ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
   GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
@@ -3456,7 +3474,7 @@
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id, 99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
   ORDER BY timestamp DESC) AS revenue_item
   WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
@@ -3498,7 +3516,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.id, '00000000-0000-0000-0000-000000000000')))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -3523,7 +3541,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
      GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
-  WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
+  WHERE equals(persons.id, '00000000-0000-0000-0000-000000000000')
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
@@ -3549,7 +3567,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -3572,14 +3590,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -3617,7 +3635,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -3640,14 +3658,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -3747,14 +3765,14 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
         LEFT JOIN
           (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                   sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -3825,14 +3843,14 @@
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
            INNER JOIN
              (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS e__pdi__person___id,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      person_id AS person_id,
@@ -3890,13 +3908,13 @@
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)),
+     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
        other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
        top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
@@ -4031,13 +4049,13 @@
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)),
+     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
        other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
        top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
@@ -4121,7 +4139,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      person_id AS person_id,
@@ -4179,13 +4197,13 @@
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)),
+     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
        other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
        top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
@@ -4269,14 +4287,14 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            INNER JOIN
              (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS e__person___id,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      person_id AS person_id,
@@ -4334,13 +4352,13 @@
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)),
+     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
        other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
        top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,

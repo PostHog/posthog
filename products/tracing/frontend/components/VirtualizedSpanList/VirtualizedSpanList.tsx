@@ -6,9 +6,11 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
+import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { cn } from 'lib/utils/css-classes'
 
-import { formatDuration } from '../../TraceFlameChart'
+import { formatDuration } from '../../TraceWaterfallView'
+import type { TracingOrderBy, TracingOrderDirection } from '../../tracingFiltersLogic'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
 import { ExpandedSpanContent } from './ExpandedSpanContent'
@@ -41,7 +43,13 @@ function isRootSpan(span: Span): boolean {
     return !span.parent_span_id
 }
 
-interface VirtualizedSpanListProps {
+interface SortProps {
+    orderBy: TracingOrderBy
+    orderDirection: TracingOrderDirection
+    onSort: (column: TracingOrderBy) => void
+}
+
+interface VirtualizedSpanListProps extends SortProps {
     dataSource: Span[]
     loading: boolean
     onRowClick: (span: Span) => void
@@ -73,7 +81,33 @@ function Cell({ width, children }: { width?: number; children: React.ReactNode }
     )
 }
 
-function SpanRowHeader(): JSX.Element {
+function SortableHeaderCell({
+    column,
+    label,
+    width,
+    orderBy,
+    orderDirection,
+    onSort,
+}: { column: TracingOrderBy; label: string; width: number } & SortProps): JSX.Element {
+    const active = orderBy === column
+    return (
+        <Cell width={width}>
+            <button
+                type="button"
+                className={cn('flex items-center cursor-pointer hover:text-default', active && 'text-default')}
+                onClick={() => onSort(column)}
+                data-attr={`tracing-sort-${column}`}
+            >
+                <span>{label}</span>
+                {/* Neutral icon when inactive (so the column reads as sortable), directional arrow
+                    once active — order 1 = ASC, -1 = DESC, matching LemonTable's convention. */}
+                <SortingIndicator order={active ? (orderDirection === 'ASC' ? 1 : -1) : null} />
+            </button>
+        </Cell>
+    )
+}
+
+function SpanRowHeader({ orderBy, orderDirection, onSort }: SortProps): JSX.Element {
     return (
         <div
             className="flex items-center border-b border-border bg-surface-secondary font-medium text-muted"
@@ -81,11 +115,25 @@ function SpanRowHeader(): JSX.Element {
             style={{ height: HEADER_HEIGHT }}
         >
             <Cell width={COL_WIDTH.expand}> </Cell>
-            <Cell width={COL_WIDTH.timestamp}>Timestamp</Cell>
+            <SortableHeaderCell
+                column="timestamp"
+                label="Timestamp"
+                width={COL_WIDTH.timestamp}
+                orderBy={orderBy}
+                orderDirection={orderDirection}
+                onSort={onSort}
+            />
             <Cell>Name</Cell>
             <Cell width={COL_WIDTH.service}>Service</Cell>
             <Cell width={COL_WIDTH.kind}>Kind</Cell>
-            <Cell width={COL_WIDTH.duration}>Duration</Cell>
+            <SortableHeaderCell
+                column="duration"
+                label="Duration"
+                width={COL_WIDTH.duration}
+                orderBy={orderBy}
+                orderDirection={orderDirection}
+                onSort={onSort}
+            />
             <Cell width={COL_WIDTH.status}>Status</Cell>
             <Cell width={COL_WIDTH.traceId}>Trace ID</Cell>
             <Cell width={COL_WIDTH.actions}> </Cell>
@@ -210,6 +258,9 @@ export function VirtualizedSpanList({
     hasMoreToLoad = false,
     onLoadMore,
     emptyState = 'No spans found',
+    orderBy,
+    orderDirection,
+    onSort,
 }: VirtualizedSpanListProps): JSX.Element {
     // Tracks the last range we dispatched so we don't fire on every overscan tick.
     const lastVisibleRangeRef = useRef<{ startIndex: number; stopIndex: number } | null>(null)
@@ -271,7 +322,7 @@ export function VirtualizedSpanList({
                         <div className="overflow-x-auto" style={{ width, height }}>
                             {/* eslint-disable-next-line react/forbid-dom-props */}
                             <div style={{ width: rowWidth }}>
-                                <SpanRowHeader />
+                                <SpanRowHeader orderBy={orderBy} orderDirection={orderDirection} onSort={onSort} />
                                 <List<SpanRowProps>
                                     style={{ height: height - HEADER_HEIGHT, width: rowWidth }}
                                     overscanCount={10}

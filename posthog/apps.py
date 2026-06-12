@@ -9,7 +9,6 @@ from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.utils import (
     get_available_timezones_with_offsets,
     get_dogfood_flags_team_id,
@@ -30,6 +29,14 @@ class PostHogConfig(AppConfig):
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
 
         connect_signal_handlers()
+
+        # Connect core signal receivers at app-population. They used to wire in as an import
+        # side effect of viewset modules; with the lazy API router those no longer load at
+        # django.setup(), so a process that never builds the router (celery, temporal, migrate,
+        # shell) would lose them. They live in dedicated import-light modules — never wire
+        # ready() through an API module, even one that looks light today.
+        import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
+        import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 
         self._setup_lazy_admin()
         self._prewarm_timezone_offsets_cache()
@@ -72,6 +79,11 @@ class PostHogConfig(AppConfig):
 
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
+                # posthog.tasks.__init__ is a celery autoimport aggregator: importing any
+                # submodule loads every task module. Keep that off django.setup() for all
+                # processes; celery workers get it via autodiscover_tasks().
+                from posthog.tasks.tasks import sync_all_organization_available_product_features  # noqa: PLC0415
+
                 # Sync all organization.available_product_features once on launch, in case plans changed
                 sync_all_organization_available_product_features()
 
