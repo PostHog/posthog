@@ -534,14 +534,12 @@ class ClickHousePropertyResolver(CloningVisitor):
         # through the alias wrapper to the original `PropertyType`, and a boolean/numeric property gets wrapped by the
         # swapper in a cast (`toBool(transform(toString(...)))`) with the `PropertyType` underneath. Read the property
         # identity off the type — that is the resolver's own binding, so a shadowing alias of the same name can never
-        # be confused with it (its type points at whatever it actually aliases). Skip joined-subquery properties
-        # (lowering skips them too: they print as `alias.field`) and properties whose table is not in the current
-        # FROM (a transform moved the read behind a subquery; the bare column would be out of scope).
+        # be confused with it (its type points at whatever it actually aliases). Skip properties whose table is not in
+        # the current FROM (a transform moved the read behind a subquery; the bare column would be out of scope).
         prop_type = resolve_field_type(expr)
         if (
             isinstance(prop_type, ast.PropertyType)
             and len(prop_type.chain) == 1
-            and prop_type.joined_subquery is None
             and self._property_table_in_scope(prop_type.field_type)
         ):
             return prop_type.field_type, str(prop_type.chain[0])

@@ -135,7 +135,7 @@ class WhereClauseExtractor(CloningVisitor):
 
             if isinstance(node.right, ast.SelectQuery):
                 right = clone_expr(
-                    node.right, clear_types=False, clear_locations=False, inline_subquery_field_names=True
+                    node.right, clear_types=False, clear_locations=False
                 )
             else:
                 right = self.visit(node.right)
@@ -508,7 +508,7 @@ class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
 
         left = self.visit(node.left)
         if isinstance(node.right, ast.SelectQuery):
-            right = clone_expr(node.right, clear_types=False, clear_locations=False, inline_subquery_field_names=True)
+            right = clone_expr(node.right, clear_types=False, clear_locations=False)
         else:
             right = self.visit(node.right)
 

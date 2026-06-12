@@ -1252,15 +1252,9 @@ class BasePrinter(Visitor[str]):
         return field_sql
 
     def visit_property_type(self, type: ast.PropertyType):
-        # After lowering, a blob property read is a `PropertyAccess`. A `PropertyType` still reaching the printer is the
-        # leftover OUTER reference to a person/group property that `resolve_lazy_tables` pulled into a join subquery: the
-        # JSON extract now lives inside that subquery (and was lowered there), so this outer node is just an
-        # `alias.column` read of the subquery's result — nothing to lower. (Plus, in the ClickHouse override, a
-        # data-warehouse struct column.) The printer makes no physical-column decision — that moved to
-        # `logical_property_lowering` + the ClickHouse physical passes.
-        if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
-            return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
-
+        # After lowering, a blob property read is a `PropertyAccess`. A `PropertyType` still reaching the printer is a
+        # read the lowering pass declined (in the ClickHouse override, a data-warehouse struct column). The printer
+        # makes no physical-column decision — that moved to `logical_property_lowering` + the ClickHouse physical passes.
         return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
 
     def visit_property_access(self, node: ast.PropertyAccess) -> str:

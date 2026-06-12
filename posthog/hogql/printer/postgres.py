@@ -422,9 +422,6 @@ class PostgresPrinter(BasePrinter):
         return table.to_printed_clickhouse(self.context)
 
     def visit_property_type(self, type: ast.PropertyType):
-        if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
-            return super().visit_property_type(type)
-
         database_field = type.field_type.resolve_database_field(self.context)
         if isinstance(database_field, StructDatabaseField):
             struct_expr = self.visit(type.field_type)
