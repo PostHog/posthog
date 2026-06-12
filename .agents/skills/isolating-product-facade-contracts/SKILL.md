@@ -8,7 +8,8 @@ description: Plan and execute product isolation migrations to a facade plus cont
 Use this skill to migrate an existing product to the isolated architecture used by Visual review.
 Optimize for short calendar exposure, not small diffs: authoring is cheap and the verification
 chain catches mechanical breakage, while human review latency and a fast-moving master are the
-real bottlenecks. Default to two PRs — design, then mechanical sweep — per the PR strategy below.
+real bottlenecks. Default to one PR structured in reviewable commits; a separate facade-first PR
+exists only as the merge base for team-sliced sweeps — per the PR strategy below.
 
 **Prerequisite:** the product must already live under `products/<name>/`. This skill does not cover moving code out of `posthog/`, `ee/`, or other shared directories — do that first.
 
@@ -44,8 +45,16 @@ rg -o --pcre2 "(from|import) products\.<name>\.backend\.(?!facade)" posthog ee |
 ```
 
 The `rg` output is your import map: every line is a caller that needs to migrate to the facade.
+Also search for the bare module paths, not just import statements — string references
+(`@patch("products.<name>.backend...")` mock paths, dotted names in config) move with the code too.
 The core-coupling count picks the PR strategy below: near zero means the whole migration fits
-the two-PR default; triple digits means the caller sweep needs slicing by owning team.
+the single-PR default; triple digits means the caller sweep needs slicing by owning team.
+
+`product:lint` switches from lenient to strict the moment `facade/contracts.py` exists, so check
+the strict structural requirements up front instead of discovering them mid-migration: root
+`tsconfig.json`, `tasks.py` at `tasks/tasks.py` (pin the celery task `name=` to its pre-move path
+so queued messages stay routable), and only canonical `backend/` subdirectories (`_KNOWN_DIRS` in
+`tools/hogli-commands/.../product/checks.py` — e.g. `templates/` is recognized, `prompts/` is not).
 
 ## Guardrails
 
@@ -68,23 +77,47 @@ the two-PR default; triple digits means the caller sweep needs slicing by owning
 1. Build an import map for the target product.
    - Find cross-product imports into target internals (`models`, `logic`, `presentation`, non-facade modules).
    - Classify each usage by capability (read/list, detail/read, create/update/delete, async/task, webhook/event).
-2. Define the minimal contract surface.
-   - Start from currently consumed fields only.
+2. Define the contract surface from both demand sources.
+   - External consumers (core, other products): start from currently consumed fields only.
+   - The product's own presentation (step 5): the facade functions its views will call. For
+     thick views this share may be deferred — but name the deferral; it decides whether the
+     isolation you turn on is sound or optimistic (see step 5).
    - Create frozen dataclasses in `backend/facade/contracts.py` using `pydantic.dataclasses.dataclass` — same shape as the stdlib variant but with runtime type validation on construction.
 3. Introduce a thin facade in `backend/facade/api.py`.
    - Map ORM instances to contracts with explicit mapper functions.
    - Keep method names capability-oriented and stable.
+   - Wiring that core registers (celery beat tasks, temporal workflows/activities/metrics/
+     schedule constants, query-runner registry hooks) crosses the boundary as objects, not
+     data — give each its own facade submodule (`facade/tasks.py`, `facade/temporal.py`,
+     `facade/queries.py`) re-exporting exactly what core touches. Registry-style consumers
+     dispatch on class identity (`isinstance`), so re-export the class itself. Keep
+     `facade/api.py` free of heavy imports (HogQL, temporalio) so config-only consumers
+     don't drag them onto the `django.setup()` path.
 4. Migrate callers in one pass by default.
    - The rewrite is mechanical (import swap + call mapping) and fully checked by the
      verification chain; batching it only stretches the window in which master drifts
      under the branch.
+   - Core test fixtures that need product models: use `apps.get_model("<app_label>",
+"Model")` at runtime plus a `TYPE_CHECKING` import for annotations — tach ignores
+     type-only imports.
    - Compatibility shims exist to bridge between serial PRs — the one-pass shape rarely
      needs them. If one is unavoidable, it dies in the final cleanup PR, not "later".
    - Exception: callers with subtle behavior (transaction boundaries, write-path
      semantics) may move in their own small PR — see the PR strategy below.
 5. Move presentation to consume the facade.
-   - Serializers convert JSON <-> contracts.
-   - Views call facade methods only.
+   - Serializers convert JSON <-> contracts; views call facade methods only.
+   - Thin views (CRUD over models): swap them onto the facade in the same PR — no
+     `ignore_imports` allowlist entry should ever exist for them.
+   - Thick views (query orchestration, execution modes, export hooks): moving them under
+     `presentation/` without the refactor requires exact-pair `ignore_imports` entries in
+     `pyproject.toml`'s TODO section. That defers the refactor to a follow-up
+     presentation-wave PR — and until the product's entries are gone, the narrowed
+     contract inputs are **optimistic, not sound**: an internal change can alter the HTTP
+     surface without re-running the full suite. Compensating controls exist (the OpenAPI
+     validation job runs on every backend PR, the product's own tests cover its views,
+     master pushes run everything), but make the deferral a named decision in the PR.
+   - When moving modules, rewrite string references too (`@patch(...)` paths) — and use a
+     rewrite tool with real word boundaries (perl; BSD sed's `\b` silently no-ops).
 6. Enforce boundaries and verify. This is a four-step chain — each step depends
    on the previous one, and `hogli product:lint` (via `IsolationChainCheck`)
    fails if any step is skipped:
@@ -113,7 +146,7 @@ This is the exception path for high-coupling products whose caller sweep is slic
 across teams (see PR strategy below) — the tach boundary turns on before every core
 import has moved, while the `backend:contract-check` CI switch must wait until the
 block is gone (`hogli product:lint` rejects the script while leaks remain). With the
-two-PR default, all core callers land in the sweep PR and this block never needs to
+single-PR default, all core callers land in the same PR and this block never needs to
 exist.
 
 If `posthog/` or `ee/` still imports product internals (`backend.models`,
@@ -128,52 +161,61 @@ with a `⚠ has legacy interface leaks` warning.
 ## PR strategy
 
 The scarce resources are reviewer attention and calendar time — not authoring effort.
-Every day a migration branch stays open, parallel work lands in the same files; serial
-PR chains multiply that exposure because each PR waits in review while the next can't
-be authored stably until it merges. Slice to minimize how long branches stay open, and
-let the verification chain carry the mechanical review burden.
+Every open migration branch rots as parallel work lands, and every extra PR adds a
+serialized review window plus a full-suite CI run (the product isn't isolated yet, so
+each migration PR pays the full suite). Use the fewest PRs the merge topology requires,
+and let commit structure — not PR boundaries — organize review.
 
-Default to exactly two PRs:
+**Default: one PR, structured in reviewable commits.**
 
-- **PR 1 — design (where human review matters).** Contracts + facade methods +
-  behavioral-parity tests for the facade, with no caller changes. The base shape adds
-  only new files, keeping conflict exposure near zero. The contract surface is the
-  long-lived API — spend review attention on naming, capability shape, and field
-  selection, not mechanics. For a small product this PR can also flip
-  `api.py`/`webhooks.py` into `presentation/` and enable the 4-step chain (see
-  `user_interviews` PR #59132 for that combined shape — that variant does touch
-  existing files and gives up some of the conflict immunity).
-- **PR 2 — mechanical sweep (where verification carries it).** All caller migrations,
-  the presentation flip, and the 4-step chain. Reviewers sample rather than read
-  line-by-line; the parity tests from PR 1 plus tach, import-linter, contract-check,
-  and the product tests are the safety net.
+1. **Commit — facade.** Contracts + facade (including wiring submodules) +
+   behavioral-parity tests. Pure additions; reviewers read this commit as the design.
+2. **Commit — sweep.** All caller migrations. Mechanical; reviewers sample, the
+   verification chain carries it.
+3. **Commit — structure + chain.** Presentation move, strict-lint fixes, tach
+   interface, `backend:contract-check`, narrowed `turbo.json`.
 
-Treat PR 2 as regenerable, not rebasable: the import map plus the merged facade fully
+Don't split the facade into its own PR for reviewability: new files cannot conflict
+regardless of which PR they sit in, so a standalone design PR buys no conflict
+protection — it only serializes two review windows and doubles the migration's CI cost.
+Worse, a facade with no callers can only be reviewed in the abstract; in one PR the
+caller diffs sit next to the design and justify (or indict) it. See `user_interviews`
+PR #59132 and the logs migration (#63180 + #63184, done as two before this was learned)
+for the shapes.
+
+In the PR description, enumerate the behavior-bearing edits — write paths, transaction
+boundaries, serializer changes, anything renamed or with pinned compatibility (celery
+task names). That list is where review attention goes; everything else is sampled. If a
+write path is genuinely subtle, pull those few callers into their own small PR as the
+exception.
+
+Treat the PR as regenerable, not rebasable: the import map plus the facade design fully
 determine the rewrite, so on conflict, regenerate the branch against fresh master
 instead of hand-resolving. Keep it open only for the review window.
 
-Gate by the core-coupling count from the baseline, not by product size:
+**A separate facade-first PR exists for exactly one reason: it is the shared merge base
+when the sweep must be sliced.** Gate on the core-coupling count from the baseline:
 
-- **Low (zero to low double digits):** the two-PR default applies; skip the
-  legacy-leaks machinery entirely.
-- **High (triple digits):** PR 2 won't review as one unit. Slice the sweep by who owns
-  the calling code (the consuming team/area, not the product's own owner) so each team
-  reviews its own call sites in parallel — never serially by capability, which trades
-  calendar time for an authoring risk that no longer exists. Add the legacy-leaks tach
-  block (above) so boundaries are enforced while the sweeps land, but do NOT add
-  `backend:contract-check` yet — `hogli product:lint` rejects that script while leaks
-  remain. The final cleanup PR drops the block, `ignore_imports` TODOs, dead adapters,
-  and shims, and only then enables contract-check + narrowed `turbo.json` inputs — the
-  CI payoff for this path lands at the end.
+- **Low (zero to low double digits):** single PR, as above; skip the legacy-leaks
+  machinery entirely.
+- **High (triple digits):** the sweep won't review as one unit. Land contracts + facade
+  - parity tests first — that standalone review is meaningful here, because every slice
+    is about to code against it — then slice the sweep by who owns the calling code (the
+    consuming team/area, not the product's own owner), reviewed in parallel, never
+    serially by capability. Add the legacy-leaks tach block (above) while slices land,
+    but do NOT add `backend:contract-check` yet — `hogli product:lint` rejects that
+    script while leaks remain. The final cleanup PR drops the block, `ignore_imports`
+    TODOs, dead adapters, and shims, and only then enables contract-check + narrowed
+    `turbo.json` inputs — the CI payoff for this path lands at the end.
 
-Within the sweep, use risk to direct review attention, not PR boundaries: write paths
-and transaction boundaries get the close read; read-only list/detail swaps, internal
-call sites, and task entrypoints get the sample. If a write path is genuinely subtle,
-pull those few callers into their own small PR as the exception.
+**Thick-views deferral (step 5) adds one optional follow-up on either path:** a
+presentation-wave PR that designs the facade functions the views need, swaps the views
+onto them, and deletes the product's `ignore_imports` entries — the step that turns the
+narrowed contract inputs from optimistic into sound.
 
-Trade-off to accept: one sweep PR reverts coarser than many small ones. That is fine
-precisely because PR 1 isolated the design risk and the mappers are behavior-preserving —
-per-file reverts stay possible, and weeks of serial PRs on a hot product cost more in
+Trade-off to accept: one PR reverts coarser than several. That is fine because the
+mappers are behavior-preserving, the behavior-bearing edits are enumerated up front,
+and the whole PR is regenerable — weeks of serial PRs on a hot product cost more in
 conflicts and forfeited isolated-CI time than an occasional coarse revert.
 
 ## Done criteria
@@ -188,7 +230,9 @@ Treat migration as complete only when:
   exposing `backend.facade.*` and `backend.presentation.views.*` — no legacy
   leak block remains.
 - `tach check --dependencies --interfaces` passes with no violations for this product.
-- `lint-imports` passes (import-linter verifies presentation doesn't bypass the facade internally).
+- `lint-imports` passes **with no `ignore_imports` entries left for this product** in the
+  `pyproject.toml` TODO section — the contract passes by allowlist until then, and narrowed
+  contract inputs stay optimistic rather than sound while entries remain.
 - `hogli product:lint <name>` shows no legacy leak warning and the isolation chain is intact.
 - `backend:contract-check` is present in `package.json` with `turbo.json` inputs
   narrowed to `backend/facade/**` and `backend/presentation/**` (enables isolated testing in CI).
