@@ -360,7 +360,7 @@ class PreviewUserInterviewInviteTool(MaxTool):
 
         try:
             topic = await UserInterviewTopic.objects.aget(team=self._team, id=topic_id)
-        except (UserInterviewTopic.DoesNotExist, ValueError):
+        except (UserInterviewTopic.DoesNotExist, DjangoValidationError, ValueError):
             return "No user interview topic found with that ID.", {
                 "error": "not_found",
                 "error_message": f"No user interview topic {topic_id} exists for this team.",

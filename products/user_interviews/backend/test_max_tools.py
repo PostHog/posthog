@@ -245,6 +245,7 @@ class TestPreviewUserInterviewInviteTool(BaseTest):
         [
             ("missing_topic_id", {"topic_id": "  "}, "validation_failed"),
             ("unknown_topic_id", {"topic_id": "01890000-0000-0000-0000-000000000000"}, "not_found"),
+            ("malformed_topic_id", {"topic_id": "not-a-uuid"}, "not_found"),
         ]
     )
     async def test_arun_impl_rejects_bad_topic(self, _name, kwargs, expected_error):
