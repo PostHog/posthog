@@ -30,13 +30,6 @@
             "@common/*": ["../../common/*"]
         }
     },
-    "include": [
-        "src/**/*.ts",
-        "src/**/*.tsx",
-        "scripts/**/*.ts",
-        "tests/**/*.ts",
-        "tests/**/*.tsx",
-        "worker-configuration.d.ts"
-    ],
+    "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],
     "exclude": ["node_modules", "dist", "src/ui-apps/lib/storybook/**"]
 }
