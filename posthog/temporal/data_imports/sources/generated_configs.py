@@ -143,7 +143,7 @@ class AircallSourceConfig(config.Config):
 
 @config.config
 class AirtableSourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config

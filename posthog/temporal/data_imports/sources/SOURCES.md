@@ -45,6 +45,7 @@ the row lists both.
 | Source           | Comm method                 | Primary library                                                 | Tracked transport           |
 | ---------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | aircall          | HTTP                        | requests                                                        | ✅                          |
+| airtable         | HTTP                        | requests                                                        | ✅                          |
 | amplitude        | HTTP                        | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
@@ -204,7 +205,6 @@ doesn't conflict with concurrent PRs.
 - adp_workforce_now
 - adroll
 - adyen
-- airtable
 - amazon_ads
 - amazon_s3
 - amazon_selling_partner
