@@ -19,6 +19,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
     QueryTimeoutException,
+    TemporaryFileSizeExceedsLimitException,
 )
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_QUERY_CANCELED_RETRIES,
@@ -48,6 +49,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
     _get_primary_keys,
+    _get_rows_to_sync,
     _get_sslmode,
     _get_table,
     _get_table_chunk_size,
@@ -1157,6 +1159,41 @@ class TestGetTableChunkSize:
 
             dj_cursor.execute("SELECT 1")
             assert dj_cursor.fetchone()[0] == 1
+
+
+class TestGetRowsToSync:
+    @pytest.mark.django_db
+    def test_failing_count_query_falls_back_to_zero_without_capturing(self):
+        logger = structlog.get_logger()
+
+        # Count query references a column that doesn't exist — mirrors a misconfigured
+        # incremental field (e.g. djstripe_updated on a table that lacks it).
+        count_query = sql.SQL("SELECT COUNT(*) FROM {table} WHERE {col} > 0").format(
+            table=sql.Identifier("information_schema", "tables"),
+            col=sql.Identifier("does_not_exist_count_col"),
+        )
+
+        with django_connection.cursor() as dj_cursor:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+                rows = _get_rows_to_sync(cast(Any, dj_cursor), count_query, logger)
+
+        # Best-effort estimate falls back to 0 and never reports the handled failure.
+        assert rows == 0
+        mock_capture.assert_not_called()
+
+    def test_temp_file_limit_error_still_raises(self):
+        logger = structlog.get_logger()
+
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = Exception("temporary file size exceeds temp_file_limit (1048576kB)")
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            with pytest.raises(TemporaryFileSizeExceedsLimitException):
+                _get_rows_to_sync(cast(Any, cursor), count_query, logger)
+
+        # The temp-file signal is actionable, so it propagates rather than being swallowed.
+        mock_capture.assert_not_called()
 
 
 class TestPartitionedTableChunkSizing:

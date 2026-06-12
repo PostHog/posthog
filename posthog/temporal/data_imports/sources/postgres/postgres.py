@@ -1273,8 +1273,13 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger:
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
+        # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
+        # It shares its FROM/WHERE with the real extraction query, so any genuine problem
+        # (missing column, unpopulated materialized view, permissions, bad incremental field)
+        # resurfaces there and is classified through the normal retryable/non-retryable path.
+        # Capturing it here too would only flood error tracking with handled duplicates of
+        # user/upstream conditions we already tolerate, so we log at debug and fall back to 0.
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-        capture_exception(e)
 
         if "temporary file size exceeds temp_file_limit" in str(e):
             raise TemporaryFileSizeExceedsLimitException(
