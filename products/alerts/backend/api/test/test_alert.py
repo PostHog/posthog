@@ -1272,6 +1272,52 @@ class TestAlertEventProperties(APIBaseTest):
         for key, value in expected_detector_fields.items():
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
 
+    @parameterized.expand(
+        [
+            (
+                "trends_config",
+                {"type": "TrendsAlertConfig", "series_index": 1},
+                {
+                    "config_type": "TrendsAlertConfig",
+                    "trends_series_index": 1,
+                    "hogql_evaluation": None,
+                    "hogql_has_explicit_column": None,
+                    "hogql_has_label_column": None,
+                },
+            ),
+            (
+                "hogql_default",
+                {"type": "HogQLAlertConfig"},
+                {
+                    "config_type": "HogQLAlertConfig",
+                    "hogql_evaluation": "last_row",
+                    "hogql_has_explicit_column": False,
+                    "hogql_has_label_column": False,
+                },
+            ),
+            (
+                "hogql_any_row_with_columns",
+                {"type": "HogQLAlertConfig", "evaluation": "any_row", "column": "errors", "label_column": "country"},
+                {
+                    "config_type": "HogQLAlertConfig",
+                    "hogql_evaluation": "any_row",
+                    "hogql_has_explicit_column": True,
+                    "hogql_has_label_column": True,
+                },
+            ),
+        ]
+    )
+    def test_event_properties_capture_alert_config_adoption(self, _name: str, config: dict, expected: dict) -> None:
+        alert = AlertConfiguration(
+            name="test alert",
+            condition={"type": "absolute_value"},
+            config=config,
+            calculation_interval="daily",
+        )
+        props = alert._get_event_properties()
+        for key, value in expected.items():
+            assert props[key] == value, f"{key} expected {value}, got {props[key]}"
+
 
 class TestTriggerAlertHogFunctions(APIBaseTest):
     @parameterized.expand(

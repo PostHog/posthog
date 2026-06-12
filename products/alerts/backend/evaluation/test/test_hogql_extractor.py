@@ -98,6 +98,17 @@ def test_empty_result_evaluates_as_zero_and_can_breach_lower_bound(condition_typ
     assert no_breach.breaches == []
 
 
+def test_evaluation_uses_saved_variable_values_not_session_overrides():
+    # The alert path passes no variables_override, so a variable-using SQL query evaluates with
+    # the values saved on the query (or each variable's default) — session-level UI overrides
+    # never reach evaluation. This is why the configure-time preview (which reads the user's
+    # possibly-overridden cached result) can disagree with what the alert actually evaluates.
+    with patch(CALC_PATH) as calc:
+        calc.return_value = MagicMock(result=[[5]], columns=["count"])
+        HogQLExtractor().extract(_alert(), MagicMock(), MagicMock())
+    assert "variables_override" not in calc.call_args.kwargs
+
+
 # ---- column selection ----
 
 
