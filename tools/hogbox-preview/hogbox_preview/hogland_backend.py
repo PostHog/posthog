@@ -60,10 +60,14 @@ class HoglandBackend(PreviewBackend):
         ttl_seconds: int | None = None,
         box_id: str | None = None,
         token: str | None = None,
+        timeout: float = 300.0,
     ):
         super().__init__(web_port=web_port)
         # Hogland() reads HOG_TOKEN / HOG_HOST from env; --host/--token override.
-        self._client = Hogland(token=token, base_url=host)
+        # A generous timeout is required: create() blocks server-side until the
+        # restore completes (tens of seconds), which trips the SDK's short
+        # default and raises httpx.ReadTimeout mid-restore.
+        self._client = Hogland(token=token, base_url=host, timeout=timeout)
         self.snapshot = snapshot
         # The golden is pinned to this sizing; restore must MATCH it exactly
         # ("omit to inherit" is unreliable server-side).
@@ -102,7 +106,9 @@ class HoglandBackend(PreviewBackend):
         self._wait_exec_ready()
 
     def exec(self, command: str, *, timeout: int = 120) -> ExecResult:
-        r = self._require_box().exec(["bash", "-lc", command], timeout_seconds=timeout)
+        # The box exec API runs as root but doesn't set HOME; tools like git
+        # (--global config) and docker expect it. Provide root's home.
+        r = self._require_box().exec(["bash", "-lc", command], timeout_seconds=timeout, env={"HOME": "/root"})
         return ExecResult(r.exit_code, r.stdout, r.stderr)
 
     def write_file(self, remote_path: str, content: str) -> None:

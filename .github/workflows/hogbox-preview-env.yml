@@ -1,23 +1,26 @@
 # Hogbox Preview Environment (per-PR PostHog on a hogland hogbox)
 #
 # Restores the pre-baked "preview golden" snapshot (PostHog already migrated +
-# seeded on a stable image), points it at the PR's own image, runs only the
-# delta migrations, and posts the reachable URL on the PR. Tear-down on close.
+# seeded on the :master image), mounts the PR's backend source over the image's
+# /code, runs only the delta migrations, and posts the reachable URL on the PR.
+# Tear-down on close.
 #
 # This is the productionised successor to ci-hogbox-preview.yml (the connectivity
 # probe). It drives tools/hogbox-preview — the layer (hogland) is swappable; the
 # stack recipe is not. See tools/hogbox-preview/README.md.
 #
-# --- WHY THE DELTA MIGRATE (not --reset-db) -------------------------------------
-# The golden is baked ONCE (tools/hogbox-preview up --reset-db --image <stable>),
-# so its pg+CH are already migrated AND demo-data seeded. A per-PR run restores
-# that, pulls the PR image (ghcr.io/posthog/posthog:pr-<n>, built by the image
-# pipeline like hobby-ci uses), and runs `migrate` — which applies only the PR's
-# *unapplied* migrations on top of the seeded DB. That keeps each preview off the
-# heavy full-migrate path (which is both slow and the load that destabilised
-# boxes — see hogland docs/agent-memory/observation_box_corruption_under_heavy_io).
-# If a PR's migrations are incompatible with the baseline, fall back to --reset-db
-# (full migrate + reseed) for that PR.
+# --- WHY MOUNT (not build / not a per-PR image) ---------------------------------
+# The golden is baked ONCE (a hogland-side setup script: docker pull
+# ghcr.io/posthog/posthog:master, migrate pg+CH, seed demo data), so its DB is
+# already migrated AND seeded on the master image. A per-PR run restores that,
+# bind-mounts the PR's checkout (posthog/ee/products) over the image's /code so
+# the BACKEND runs the PR code with NO per-PR build or pull, and runs `migrate` —
+# applying only the PR's *unapplied* migrations on top of the seeded DB. That
+# keeps each preview off both the cold 20-min build and the heavy full-migrate
+# path (the load that destabilised boxes — see hogland
+# docs/agent-memory/observation_box_corruption_under_heavy_io). The frontend stays
+# at the image's version (frontend hot-mount is a later iteration). If a PR's
+# migrations are incompatible with the baseline, fall back to --reset-db.
 #
 # --- PREREQS (tracked out of band) ----------------------------------------------
 #   - vars.TS_HOGLAND_CI_CLIENT_ID / TS_HOGLAND_CI_AUDIENCE  (tailnet join)
@@ -92,19 +95,19 @@ jobs:
             - name: Install hogland SDK
               run: pip install --disable-pip-version-check posthog-hogland==0.1.0
 
-            - name: Build preview
+            - name: Bring up preview
               id: build
               run: |
-                  # Build the PR from its own checkout inside the box — no published
-                  # per-PR image. The golden carries a warm Docker + turbo cache from
-                  # master, so this is an incremental build, not a cold one. (The tool's
-                  # --image flag stays as an escape hatch for running a published tag.)
+                  # Restore the golden, check out the PR, mount its backend source
+                  # (posthog/ee/products) over the :master image's /code, delta-migrate.
+                  # No per-PR build or pull — the tool defaults to the :master image and
+                  # the mount swaps the code. (--image "" is the build escape hatch.)
                   out=$(python -m hogbox_preview \
                     --host "$HOG_HOST" \
                     --name "preview-pr-${PR}" \
                     --snapshot "${{ vars.HOGBOX_GOLDEN_SNAPSHOT }}" \
                     --cpus 8 --memory-mib 16384 --disk-gib 100 \
-                    up --branch "pull/${PR}/head" --no-seed)   # checkout PR -> rebuild -> delta-migrate
+                    up --branch "pull/${PR}/head" --no-seed)   # restore -> mount PR -> delta-migrate
                   echo "$out"
                   echo "url=$(echo "$out" | sed -n 's/^url=//p')" >> "$GITHUB_OUTPUT"
               working-directory: tools/hogbox-preview

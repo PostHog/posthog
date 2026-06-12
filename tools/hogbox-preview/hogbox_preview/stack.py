@@ -6,33 +6,29 @@ health. It talks to the box only through ``backend.exec`` / ``write_file`` /
 ``run_long`` / ``wait_http_ok`` — it never knows or cares whether the box is a
 hogbox or a droplet. Swapping the layer changes the backend, not this file.
 
-Recipe (build-from-checkout — the dev-full native path):
-  - dev-full's ``web`` is ``build: .`` from the repo, so the running code is
-    whatever is checked out. To preview a PR: ``git checkout`` the PR branch and
-    rebuild the image (``docker compose build``). No per-PR PUBLISHED image —
-    the build is local and incremental (warm Docker + turbo cache from the
-    golden's master build), so it's not the cold 20-min build every time.
-    Earlier this path was blocked by a stale apt pin in the Dockerfile; that's
-    fixed on master.
-  - The Dockerfile's frontend-build stage compiles the SPA as part of the
-    image build, so one rebuild covers front AND back — no separate pnpm step.
-  - ``web`` runs from the image's ``WORKDIR /code`` (the dev-full
-    ``.:/app/posthog`` bind-mount is NOT the working dir), so the rebuild — not
-    the mount — is what swaps the code in. DEBUG=0: the built image is the prod
-    Dockerfile, and DEBUG=1 expects dev-only INSTALLED_APPS it doesn't ship.
-  - FUTURE (hot-mount): the goal is live-mounted code, no per-PR rebuild. That
-    means running web from the bind-mount instead of /code — override
-    ``working_dir: /app/posthog`` + the base ``./bin/start-backend &
-    ./bin/start-frontend`` command (vite watcher), and bake node_modules + the
-    venv into the host repo so the mount carries them. Rebuild-from-checkout is
-    the baseline we validate first; hot-mount is the iteration on top.
-  - The DB must be COHERENT with the built code: migrate Postgres AND ClickHouse
-    on a fresh DB (``reset_db`` when baking a golden). A restored golden's
-    pre-migrated DB only needs the PR's *delta* migrations on top.
-  - seed demo data with ``manage.py generate_demo_data`` (the step hobby-ci
-    uses) so the preview opens populated with a login. Best-effort.
-  - ``image`` is an ESCAPE HATCH: pass a published tag to skip the build and run
-    that image instead (e.g. when a box can't build, or to pin a known-good).
+Recipe (mount-over-image — the default, ~minutes per PR):
+  - Run the ready-made published image (``ghcr.io/posthog/posthog:master``) and
+    bind-mount the PR's backend source (``posthog``/``ee``/``products``) over the
+    image's ``/code``. The image is the prod Dockerfile: it runs from
+    ``WORKDIR /code`` via ``./bin/docker-server-unit`` with the frontend baked at
+    ``/code/frontend/dist``. Mounting the source swaps the BACKEND code live — no
+    per-PR build. (Frontend stays at the image's version; frontend hot-mount is a
+    later iteration.) DEBUG=0 is required: the prod image lacks DEBUG-only apps.
+  - NEVER ``restart`` the web container. Nginx Unit applies its ``*:8000``
+    listener only on a fresh container's first boot (``/var/lib/unit`` empty); a
+    ``restart`` finds it non-empty, skips the listener, and the app comes up with
+    ``listeners: {}`` — nothing serves on 8000. ``wait_for_health`` just waits on
+    the clean ``up`` (use ``--force-recreate`` if web ever needs replacing).
+  - DB coherence: the restored golden's DB was migrated + seeded against the same
+    image tag, so a restore only needs the PR's *delta* migrations on top
+    (``migrate`` + ``migrate_clickhouse``). Reseeding is skipped — the golden is
+    already seeded (CI passes ``--no-seed``).
+  - ``build`` ESCAPE HATCH: pass ``image=None`` to build ``web`` from the
+    checkout instead (``build: .`` — cold ~20 min; used when baking a golden, or
+    to pin nothing). ``reset_db`` wipes pg+clickhouse so they migrate fresh
+    against the built code. ``compose run`` has no ``--no-build`` flag (that's
+    ``up``-only); what prevents a build is the image being present, so always
+    pull/pin the image before any ``run``.
 """
 
 from __future__ import annotations
@@ -44,16 +40,20 @@ from .backend import PreviewBackend
 
 
 class PostHogPreviewStack:
-    # No default image: build from the checkout. Pass `image` to pin/skip-build.
-    IMAGE = None
+    # Default: run the ready-made published image and mount PR source over it.
+    # Pass image=None to fall back to the build-from-checkout escape hatch.
+    IMAGE = "ghcr.io/posthog/posthog:master"
     REPO_DIR = "/home/hog/posthog"
     COMPOSE = "docker-compose.dev-full.yml"
     OVERRIDE = "docker-compose.preview.yml"
     # Dependency services (published images, pulled by `up`).
     DEPS = ["db", "redis7", "clickhouse", "zookeeper", "kafka", "objectstorage"]
-    # App services built from the checkout. web shares its image with the other
-    # build: . services, so building web warms the layer cache for all of them.
+    # App services built from the checkout (build escape hatch only). web shares
+    # its image with the other build: . services, so building web warms them all.
     BUILD_SERVICES = ["web"]
+    # PR backend source bind-mounted over the image's /code (backend hot-mount).
+    # The frontend stays baked in the image; mounting these swaps backend live.
+    MOUNTS = [("posthog", "/code/posthog"), ("ee", "/code/ee"), ("products", "/code/products")]
 
     def __init__(
         self,
@@ -64,11 +64,16 @@ class PostHogPreviewStack:
         repo_dir: str | None = None,
         seed_demo_data: bool = True,
         reset_db: bool = False,
+        mount: bool = True,
     ):
         self.backend = backend
         self.branch = branch
-        # None -> build from the checkout; a tag -> run that published image.
-        self.image = image or self.IMAGE
+        # Default (None) -> the ready-made image; "" -> build-from-checkout escape
+        # hatch; any tag -> run that published image.
+        self.image = self.IMAGE if image is None else image
+        # Bind-mount PR source over the image's /code (only meaningful with a
+        # pinned image — the build path bakes the code in, so no mount needed).
+        self.mount = mount
         self.repo_dir = repo_dir or self.REPO_DIR
         self.seed_demo_data = seed_demo_data
         # reset_db wipes pg + clickhouse before migrating, so the DB is migrated
@@ -80,6 +85,7 @@ class PostHogPreviewStack:
     def bring_up(self) -> str:
         """Provision the box and bring PostHog up; return the public URL."""
         self.backend.provision()
+        self.start_runtime()
         url = self.backend.web_url
         if self.branch:
             self.checkout_branch(self.branch)
@@ -90,7 +96,10 @@ class PostHogPreviewStack:
             self.build_app()  # native path: build the checkout (PR code)
         if self.reset_db:
             self.reset_database()
-        self.up_services()
+        # Migrate (and seed) BEFORE web serves: web can't be restarted to pick up
+        # a PR's delta migrations (the Unit-listener gotcha), so the schema must
+        # be ready before the serving container boots.
+        self.up_deps()
         self.migrate()
         if self.seed_demo_data:
             # Best-effort: a transient build/model issue shouldn't sink an
@@ -99,13 +108,32 @@ class PostHogPreviewStack:
                 self.generate_demo_data()
             except Exception as e:  # noqa: BLE001
                 sys.stderr.write(f"[hogbox-preview] demo-data seeding skipped (preview still usable): {e}\n")
+        self.up_web()
         self.wait_for_health()
         return url
 
     # --- steps (each usable standalone, mirroring bin/hobby-ci.py) -----------
-    def checkout_branch(self, branch: str) -> None:
+    def start_runtime(self) -> None:
+        # The golden is baked with docker STOPPED (so the restore comes up with
+        # a clean container runtime — a snapshot taken with docker running
+        # resumes a corrupted one). Start it and wait for the daemon before any
+        # docker/compose command. No-op if docker is already up.
         self.backend.run_long(
-            f"cd {self.repo_dir} && git fetch --depth 1 origin {branch} && git checkout --force FETCH_HEAD",
+            "systemctl start docker; "
+            "for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done; "
+            "docker info >/dev/null 2>&1",
+            name="start-docker",
+            timeout=180,
+        )
+
+    def checkout_branch(self, branch: str) -> None:
+        # The box's exec API runs as root while the repo is hog-owned, so git
+        # flags "dubious ownership" — scope a safe.directory exception per
+        # command. (The rest of the stack runs as root too, matching how the
+        # golden's setup script built it.)
+        safe = f"git -c safe.directory={self.repo_dir}"
+        self.backend.run_long(
+            f"cd {self.repo_dir} && {safe} fetch --depth 1 origin {branch} && {safe} checkout --force FETCH_HEAD",
             name="checkout",
             timeout=600,
         )
@@ -117,6 +145,12 @@ class PostHogPreviewStack:
         lines = ["# Generated by tools/hogbox-preview.", "services:", "  web:"]
         if self.image:
             lines.append(f"    image: {self.image}")
+        if self.image and self.mount:
+            # Bind-mount PR backend source over the image's /code — no rebuild.
+            # Compose concatenates volume lists across files, so dev-full's
+            # .:/app/posthog stays and these are appended.
+            lines.append("    volumes:")
+            lines += [f"      - ./{src}:{dst}" for src, dst in self.MOUNTS]
         lines += [
             "    environment:",
             f"      - SITE_URL={url}",
@@ -136,7 +170,8 @@ class PostHogPreviewStack:
         self.backend.run_long(self._compose(f"build {services}"), name="build", timeout=2700)
 
     def pull_image(self, *, attempts: int = 3) -> None:
-        # Only used with the `image` escape hatch. ghcr pulls flake (TLS
+        # The default path: fetch the ready-made image. Fast/no-op if a golden
+        # already baked it in; otherwise pulls. ghcr pulls flake (TLS
         # handshake timeouts mid-layer); retry — docker resumes from pulled
         # layers, so a retry is cheap.
         last: Exception | None = None
@@ -161,9 +196,23 @@ class PostHogPreviewStack:
         )
         self.backend.run_long(cmd, name="reset-db", timeout=300)
 
-    def up_services(self) -> None:
-        services = " ".join([*self.DEPS, "web"])
-        self.backend.run_long(self._compose(f"up -d --no-build {services}"), name="up", timeout=900)
+    def up_deps(self) -> None:
+        # Start the dependency services and wait for postgres to report healthy
+        # before migrating. Idempotent: on a restored golden whose stack is
+        # already running, `up` is a no-op for already-current containers.
+        services = " ".join(self.DEPS)
+        script = (
+            f"cd {self.repo_dir} && docker compose -f {self.COMPOSE} -f {self.OVERRIDE} up -d --no-build {services} && "
+            "for _ in $(seq 1 60); do "
+            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} ps --format '{{{{.Service}}}} {{{{.Status}}}}' "
+            "| grep '^db ' | grep -q healthy && break; sleep 4; done"
+        )
+        self.backend.run_long(script, name="up-deps", timeout=900)
+
+    def up_web(self) -> None:
+        # Clean `up` (never `restart` — Unit-listener gotcha). --no-build reuses
+        # the pulled image; the override mounts PR source over its /code.
+        self.backend.run_long(self._compose("up -d --no-build web"), name="up-web", timeout=900)
 
     def migrate(self) -> None:
         # PostHog needs both: Postgres (schema) and ClickHouse (events DB +
@@ -191,9 +240,12 @@ class PostHogPreviewStack:
         )
 
     def wait_for_health(self) -> None:
-        # web must be (re)started after migrate/seed so unit re-checks health.
-        self.backend.run_long(self._compose("restart web"), name="restart", timeout=300)
-        self.backend.wait_http_ok("/_health", expect=200, timeout=600)
+        # Do NOT `restart web` with the pinned image: Nginx Unit binds its :8000
+        # listener only on a fresh container's first boot (/var/lib/unit empty);
+        # a restart skips it and leaves `listeners: {}`, so nothing serves.
+        # up_services already brought web up cleanly — just wait for it to serve.
+        # Django is a heavy import; first health can take ~7 min.
+        self.backend.wait_http_ok("/_health", expect=200, timeout=900)
 
     # --- internal ------------------------------------------------------------
     def _compose(self, args: str) -> str:
