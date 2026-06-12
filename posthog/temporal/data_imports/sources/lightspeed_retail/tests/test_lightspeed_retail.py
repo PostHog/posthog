@@ -196,6 +196,23 @@ class TestGetRows:
         assert len(batches) == 1
         assert mock_session.return_value.get.call_count == 1
 
+    @mock.patch("posthog.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail.make_tracked_session")
+    def test_first_page_advances_when_fallback_version_is_zero(self, mock_session):
+        # First page (no saved cursor) with no version block and page max of 0
+        # must still advance: the `after or 0` floor used to break prematurely.
+        mock_session.return_value.get.side_effect = [
+            _response([{"id": "1", "version": 0}]),
+            _response([]),
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("mystore", "token", "sales", mock.MagicMock(), manager))
+
+        assert len(batches) == 1
+        assert mock_session.return_value.get.call_count == 2
+        second_url = mock_session.return_value.get.call_args_list[1].args[0]
+        assert parse_qs(urlparse(second_url).query)["after"] == ["0"]
+
 
 class TestLightspeedRetailSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))

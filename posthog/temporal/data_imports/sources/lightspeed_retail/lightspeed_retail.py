@@ -136,7 +136,7 @@ def get_rows(
             # Defensive: without the keyset cursor we can't advance; recompute
             # from the page to avoid refetching the same window forever.
             next_after = max((item.get("version") or 0) for item in items)
-            if next_after <= (after or 0):
+            if after is not None and next_after <= after:
                 break
 
         after = int(next_after)
