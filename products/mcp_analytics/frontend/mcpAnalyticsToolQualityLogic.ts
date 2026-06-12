@@ -339,12 +339,6 @@ ORDER BY day
                 return { inScope, total, pct: total > 0 ? (inScope / total) * 100 : null }
             },
         ],
-        toolOptions: [(s) => [s.toolRows], (toolRows: ToolQualityRow[]): string[] => toolRows.map((row) => row.tool)],
-        selectedRow: [
-            (s) => [s.toolRows, s.selectedTool],
-            (toolRows: ToolQualityRow[], selectedTool: string | null): ToolQualityRow | null =>
-                selectedTool ? (toolRows.find((row) => row.tool === selectedTool) ?? null) : null,
-        ],
         filteredRows: [
             (s) => [s.toolRows, s.toolQualitySort, s.searchTerm],
             (toolRows: ToolQualityRow[], sort: SortState, searchTerm: string): ToolQualityRow[] => {
@@ -359,7 +353,7 @@ ORDER BY day
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setDateFilter: () => {
             actions.loadToolRows()
             actions.loadDailyStats()
@@ -370,6 +364,13 @@ ORDER BY day
         },
         setSelectedTool: () => {
             actions.loadDailyStats()
+        },
+        // A category or date change can reload rows that no longer include the
+        // selected tool — drop the selection instead of charting an empty scope
+        loadToolRowsSuccess: ({ toolRows }) => {
+            if (values.selectedTool && !toolRows.some((row) => row.tool === values.selectedTool)) {
+                actions.setSelectedTool(null)
+            }
         },
     })),
 
