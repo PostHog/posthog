@@ -48,6 +48,7 @@ function parseWith(schema: z.ZodTypeAny, input: unknown): Record<string, unknown
  */
 const LIFECYCLE_TOOLS_WITH_ID_CAST = [
     ['experiment-archive', {}],
+    ['experiment-copy-to-project', { target_team_id: 5 }],
     ['experiment-delete', {}],
     ['experiment-duplicate', { name: 'A duplicate', feature_flag_key: 'duplicated-flag' }],
     ['experiment-end', {}],
