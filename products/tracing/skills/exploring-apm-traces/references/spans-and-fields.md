@@ -50,10 +50,12 @@ UI filter chips for `status_code = OK` match `{0, 1}`, but the underlying intege
 
 ## Filter property types in `query-apm-spans`
 
-| `type` value              | Filters on                                                                             |
-| ------------------------- | -------------------------------------------------------------------------------------- |
-| `span`                    | Built-in span fields: `trace_id`, `span_id`, `duration`, `name`, `kind`, `status_code` |
-| `span_attribute`          | Span-level attributes (e.g. `http.method`, `db.statement`)                             |
-| `span_resource_attribute` | Resource-level attributes (e.g. `k8s.pod.name`, `service.version`)                     |
+| `type` value              | Filters on                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `span`                    | Built-in span fields: `trace_id`, `span_id`, `duration`, `name`, `kind`, `status_code`, `is_root_span` |
+| `span_attribute`          | Span-level attributes (e.g. `http.method`, `db.statement`)                                             |
+| `span_resource_attribute` | Resource-level attributes (e.g. `k8s.pod.name`, `service.version`)                                     |
 
 `duration` filters take values in **nanoseconds** (the column is `duration_nano`). The frontend translates `1000ms` → `1_000_000_000` before sending.
+
+`is_root_span` filters take `true`/`false` — filter `true` to isolate entry/request spans (e.g. request counts for RED metrics).

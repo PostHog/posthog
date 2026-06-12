@@ -92,7 +92,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
@@ -1401,7 +1401,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         concurrency_limit = self.get_api_queries_concurrency_limit()
         is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
-        is_api_key_access = get_query_tag_value("access_method") == "personal_api_key"
+        is_api_key_access = is_api_key_access_method(get_query_tag_value("access_method"))
 
         if self.is_query_service:
             tag_queries(chargeable=1)
