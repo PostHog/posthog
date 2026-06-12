@@ -233,7 +233,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.300.0',
             'posthog-react-native': '4.15.0',
             'posthog-ios': '3.38.0',
-            'posthog-android': '3.48.0', // via posthog-android-surveys-compose UI module
+            'posthog-android': '3.49.0', // via posthog-android-surveys-compose UI module
             posthog_flutter: '5.13.0',
         },
         unsupportedSdks: [],
@@ -245,7 +245,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.310.1',
             'posthog-react-native': '4.17.0',
             'posthog-ios': '3.38.0',
-            'posthog-android': '3.48.0', // via posthog-android-surveys-compose UI module
+            'posthog-android': '3.49.0', // via posthog-android-surveys-compose UI module
             posthog_flutter: '5.13.0',
         },
         unsupportedSdks: [],
@@ -257,7 +257,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.326.0',
             'posthog-react-native': '4.19.0',
             'posthog-ios': '3.38.0',
-            'posthog-android': '3.48.0', // via posthog-android-surveys-compose UI module
+            'posthog-android': '3.49.0', // via posthog-android-surveys-compose UI module
             posthog_flutter: '5.13.0',
         },
         unsupportedSdks: [],
@@ -309,7 +309,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         sdkVersions: {
             'posthog-js': '1.141.0',
             'posthog-ios': '3.54.0',
-            'posthog-android': '3.48.0',
+            'posthog-android': '3.49.0',
         },
         unsupportedSdks: [
             { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3193' },
