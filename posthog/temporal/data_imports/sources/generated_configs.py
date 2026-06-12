@@ -518,7 +518,7 @@ class Db2SourceConfig(config.Config):
 
 @config.config
 class DeelSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -533,7 +533,7 @@ class DisplayVideo360SourceConfig(config.Config):
 
 @config.config
 class DixaSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -738,7 +738,8 @@ class HelpScoutSourceConfig(config.Config):
 
 @config.config
 class HiBobSourceConfig(config.Config):
-    pass
+    service_user_id: str
+    service_user_token: str
 
 
 @config.config

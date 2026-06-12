@@ -279,6 +279,10 @@ type NotebookHistoryState = {
 /** Consecutive single-block edits within this window fold into one undo step. */
 const UNDO_TYPING_GROUP_MS = 1000
 
+/** How many recent local serializations to remember for save-echo detection. Must comfortably
+ * cover the keystrokes that can land between a save being sent and its response echoing back. */
+const MAX_TRACKED_LOCAL_SNAPSHOTS = 100
+
 function createDefaultAIChatId(): string {
     if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
         return window.crypto.randomUUID()
@@ -417,6 +421,10 @@ export function MarkdownNotebook({
     const notebookClipboardMarkdownRef = useRef<string | null>(null)
     const historyRef = useRef<NotebookHistoryState>({ undo: [], redo: [] })
     const lastSerializedValueRef = useRef(value)
+    // Recent local serializations, oldest first. A remote update matching one of these is the
+    // echo of our own save — already contained in the local state, so merging it back in would
+    // duplicate the overlapping insertions.
+    const localSnapshotsRef = useRef<string[]>([value])
     // The three-way merge base: the last server state local edits were derived from.
     const lastBaseValueRef = useRef(remoteValue ?? value)
     const lastRemoteValueRef = useRef(remoteValue)
@@ -735,6 +743,7 @@ export function MarkdownNotebook({
         // The base is intentionally left untouched: an external `value` change is a local-side
         // update (artifact apply, restore), so the last synced server state remains the merge base.
         lastSerializedValueRef.current = value
+        trackLocalSnapshot(value)
         // oxlint-disable-next-line exhaustive-deps
     }, [value])
 
@@ -848,6 +857,17 @@ export function MarkdownNotebook({
         [captureHistorySelection]
     )
 
+    const trackLocalSnapshot = useCallback((serialized: string): void => {
+        const snapshots = localSnapshotsRef.current
+        if (snapshots[snapshots.length - 1] === serialized) {
+            return
+        }
+        snapshots.push(serialized)
+        if (snapshots.length > MAX_TRACKED_LOCAL_SNAPSHOTS) {
+            snapshots.splice(0, snapshots.length - MAX_TRACKED_LOCAL_SNAPSHOTS)
+        }
+    }, [])
+
     const commitDocument = useCallback(
         (nextDocument: NotebookDocument, options: CommitDocumentOptions = {}): void => {
             const editableDocument = ensureEditableNotebookDocument(nextDocument)
@@ -866,21 +886,30 @@ export function MarkdownNotebook({
             })
             documentRef.current = editableDocument
             lastSerializedValueRef.current = serialized
+            trackLocalSnapshot(serialized)
             setDebugMarkdown(serialized)
             setDocument(editableDocument)
             onChange?.(serialized)
         },
-        [onChange, pushHistoryEntry, mapRemoteCaretAnchors, logDebugEntry]
+        [onChange, pushHistoryEntry, mapRemoteCaretAnchors, logDebugEntry, trackLocalSnapshot]
     )
 
     const applyRemoteValue = useCallback(
         (nextRemoteValue: string): void => {
-            if (nextRemoteValue === lastSerializedValueRef.current) {
-                // The remote state caught up with local edits (autosave echo): fully synced,
-                // nothing changes locally — undo history must survive autosaves.
-                logDebugEntry('remote-echo', {})
+            const snapshotIndex =
+                nextRemoteValue === lastSerializedValueRef.current
+                    ? localSnapshotsRef.current.length - 1
+                    : localSnapshotsRef.current.indexOf(nextRemoteValue)
+            if (snapshotIndex !== -1) {
+                // The remote state matches a recent local serialization: it's the echo of our own
+                // save, so everything in it is already contained in the local state. Merging it
+                // would re-apply insertions the local text has since built on, duplicating them —
+                // only the merge base advances. Undo history must survive autosaves too.
+                logDebugEntry('remote-echo', { behind: nextRemoteValue !== lastSerializedValueRef.current })
                 lastRemoteValueRef.current = nextRemoteValue
                 lastBaseValueRef.current = nextRemoteValue
+                // Older snapshots can't echo after a newer one: saves are acknowledged in order.
+                localSnapshotsRef.current.splice(0, snapshotIndex)
                 return
             }
 
@@ -2891,6 +2920,7 @@ export function MarkdownNotebook({
 
         documentRef.current = reconciledDocument
         lastSerializedValueRef.current = serialized
+        trackLocalSnapshot(serialized)
         lastBaseValueRef.current = serialized
         setDebugMarkdown(nextMarkdown)
         setDocument(reconciledDocument)

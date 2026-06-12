@@ -84,7 +84,9 @@ the row lists both.
 | culture_amp      | HTTP                        | requests                                                        | ✅                          |
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog          | HTTP                        | requests                                                        | ✅                          |
+| deel             | HTTP                        | requests                                                        | ✅                          |
 | delighted        | HTTP                        | requests                                                        | ✅                          |
+| dixa             | HTTP                        | requests                                                        | ✅                          |
 | doit             | HTTP                        | requests                                                        | ✅                          |
 | drip             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk        | HTTP                        | requests                                                        | ✅                          |
@@ -103,6 +105,7 @@ the row lists both.
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse       | HTTP                        | requests                                                        | ✅                          |
 | guru             | HTTP                        | requests                                                        | ✅                          |
+| hibob            | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | incident_io      | HTTP                        | requests                                                        | ✅                          |
 | intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -249,9 +252,7 @@ doesn't conflict with concurrent PRs.
 - criteo
 - databricks
 - db2
-- deel
 - display_video_360
-- dixa
 - docusign
 - dropbox
 - dynamics365
@@ -271,6 +272,7 @@ doesn't conflict with concurrent PRs.
 - heap
 - helpscout
 - hibob
+- incident_io
 - instagram
 - kafka
 - lever

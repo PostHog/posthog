@@ -243,6 +243,27 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(notebook.content[1]["type"], "text")
 
     @freeze_time("2021-05-02")
+    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    def test_find_with_skip_create_notebook_does_not_create_notebook(self, _):
+        index: GroupTypeIndex = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}&skip_create_notebook=true"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
+        self.assertEqual(response.json()["notebook"], None)
+        self.assertFalse(ResourceNotebook.objects.filter(group=group.id).exists())
+        self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
+
+    @freeze_time("2021-05-02")
     def test_retrieve_group_with_notebook(self):
         index: GroupTypeIndex = 0
         key = "key"
