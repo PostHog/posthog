@@ -74,11 +74,9 @@ function HogQLAlertPreviewRowsTable({
     preview: Extract<HogQLAlertPreview, { status: 'ok' }>
 }): JSX.Element | null {
     const isAnyRow = preview.mode === 'any_row'
-    // Last-row mode displays newest first, so the evaluated (last) query row sits at the top
-    // where its breach/ok tag is immediately visible.
     const rows = isAnyRow
         ? [...preview.rows].sort((a, b) => Number(b.breaching) - Number(a.breaching)).slice(0, PREVIEW_TABLE_MAX_ROWS)
-        : preview.rows.slice(-PREVIEW_TABLE_MAX_ROWS).reverse()
+        : preview.rows.slice(-PREVIEW_TABLE_MAX_ROWS) // chronological: the most recent rows
     const hiddenCount = preview.rows.length - rows.length
     const showStatus = preview.breachingRows !== null
 
@@ -101,11 +99,11 @@ function HogQLAlertPreviewRowsTable({
                         ? [
                               {
                                   title: '',
-                                  // In last-row mode only the evaluated row (newest, displayed first)
-                                  // gets a tag — historical rows stay untagged (the banner carries the
+                                  // In last-row mode only the final row is evaluated, so only it gets a
+                                  // tag — historical rows stay untagged (the banner carries the
                                   // would-have-breached count) instead of reading as live breaches.
                                   render: (_: unknown, row: HogQLAlertPreviewRow, index: number) =>
-                                      isAnyRow || index === 0 ? (
+                                      isAnyRow || index === rows.length - 1 ? (
                                           row.breaching ? (
                                               <LemonTag type="warning">breach</LemonTag>
                                           ) : (
