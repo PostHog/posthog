@@ -66,8 +66,7 @@ const CURSOR_TYPE_LABELS: Record<CursorType, string> = {
 }
 const CURSOR_TYPE_OPTIONS = CURSOR_TYPES.map((value) => ({ value, label: CURSOR_TYPE_LABELS[value] }))
 
-// Cursor types whose watermark is stored as a date/datetime, i.e. the ones
-// `datetime_format` actually applies to — the backend ignores it for any other type.
+// The only cursor types `datetime_format` applies to — the backend ignores it for any other type.
 const DATE_LIKE_CURSOR_TYPES: readonly CursorType[] = ['datetime', 'date', 'timestamp']
 
 const SORT_MODE_LABELS: Record<SortMode, string> = {

@@ -1393,15 +1393,10 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # A datetime watermark reaches the engine as the resource's declared wire
-            # format — never Python's `str(datetime)` (space-separated, rejected by
-            # strict APIs like Typeform).
             ("typeform_z", "%Y-%m-%dT%H:%M:%SZ", _DT, "2026-06-08T12:53:34Z"),
             ("date_only", "%Y-%m-%d", _DT, "2026-06-08"),
             ("space_separated", "%Y-%m-%d %H:%M:%S", _DT, "2026-06-08 12:53:34"),
-            # With no declared format, default to ISO-8601 (valid `T` separator).
             ("iso8601_default", None, _DT, "2026-06-08T12:53:34+00:00"),
-            # Non-datetime cursors (already-formatted string, integer) pass through untouched.
             ("string_passthrough", "%Y-%m-%dT%H:%M:%SZ", "2026-06-08T00:00:00Z", "2026-06-08T00:00:00Z"),
         ]
     )
@@ -1411,22 +1406,15 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
         self._run(self._manifest(fmt), watermark)
 
         assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] == expected
-        # datetime_format is a Custom-source hint; it must not reach Incremental(**config).
         incremental = mock_resources.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
         assert "datetime_format" not in incremental
 
-    # The structural schema doesn't model endpoint.incremental, so a hand-authored
-    # non-string datetime_format reaches sync time. It must fail fast as a config
-    # error — strftime's TypeError isn't a ValueError, so it would otherwise burn
-    # the Temporal retry budget on a deterministic failure.
     @parameterized.expand([("integer", 123), ("object", {"format": "%Y"}), ("list", ["%Y"])])
     def test_non_string_format_raises_non_retryable(self, _name, fmt):
         with self.assertRaises(NonRetryableException) as ctx:
             self._run(self._manifest(fmt), self._DT)
         assert "datetime_format" in str(ctx.exception)
 
-    # Only truthy non-strings crash strftime; a non-string is invalid config even
-    # when the current watermark wouldn't hit the formatting path.
     @parameterized.expand([("integer", 123), ("object", {"format": "%Y"})])
     def test_non_string_format_rejected_at_validation(self, _name, fmt):
         source = CustomSource()
@@ -1437,8 +1425,6 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
 
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_datetime_format_reaches_request_through_real_engine(self, mock_make_session):
-        # End-to-end: the formatted watermark must land in the child's `since` query
-        # param (the exact failure mode that 400'd against Typeform).
         def _response(body: dict) -> Response:
             resp = Response()
             resp.status_code = 200

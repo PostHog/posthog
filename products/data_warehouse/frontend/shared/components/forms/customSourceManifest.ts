@@ -86,8 +86,7 @@ export interface StreamForm {
     cursor_path: string
     cursor_type: CursorType
     start_param: string
-    // strftime pattern for rendering a datetime/date watermark into the request
-    // (e.g. `%Y-%m-%dT%H:%M:%SZ`). Empty → ISO-8601 default. Ignored for non-datetime cursors.
+    // strftime pattern for the outgoing watermark; empty → ISO-8601 default
     datetime_format: string
     // Fan-out (parent/child): when `parent_stream` is set, PostHog fetches that
     // stream first and calls this one once per parent row, injecting
@@ -285,8 +284,6 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
             if (stream.cursor_type !== 'datetime') {
                 incremental.cursor_type = stream.cursor_type
             }
-            // strftime pattern for the outgoing datetime watermark (e.g. Typeform's
-            // `%Y-%m-%dT%H:%M:%SZ`). Omitted → backend defaults to ISO-8601.
             if (stream.datetime_format.trim()) {
                 incremental.datetime_format = stream.datetime_format.trim()
             }

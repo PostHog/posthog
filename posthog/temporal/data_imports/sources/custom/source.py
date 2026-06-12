@@ -256,12 +256,9 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
 def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
     """Reject incremental config values that would deterministically crash at sync time.
 
-    ``datetime_format`` is consumed as a strftime pattern by
-    :func:`_format_incremental_cursor`. The structural schema deliberately doesn't
-    model ``endpoint.incremental`` (stored-manifest reads must stay permissive), so
-    a hand-authored non-string value would otherwise surface only mid-sync — and
-    only from the second sync onward, since formatting needs a stored watermark.
-    Runs on the API validation paths alongside the graph rules.
+    The structural schema doesn't model ``endpoint.incremental``, so a hand-authored
+    non-string ``datetime_format`` would otherwise only surface mid-sync, and only
+    from the second sync onward (formatting needs a stored watermark).
     """
     for resource in manifest.get("resources") or []:
         if not isinstance(resource, dict):
@@ -709,12 +706,8 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             ]
             engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
 
-            # Format the high-watermark to a string before the engine binds it into
-            # the request. The engine otherwise serializes a datetime via ``str()``
-            # (``2026-06-08 12:53:34+00:00`` — space-separated), which strict APIs
-            # reject; the chosen resource's ``endpoint.incremental.datetime_format``
-            # (or ISO-8601 by default) controls the wire format. No-op for
-            # non-datetime cursors.
+            # The engine serializes a datetime watermark via str() (space-separated),
+            # which strict APIs reject — format it to the declared wire format first.
             last_value = inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
             last_value = _format_incremental_cursor(last_value, chosen)
 
@@ -854,30 +847,23 @@ def _incremental_field_type(raw: Any) -> IncrementalFieldType:
 
 
 # Keys the Custom source understands on ``endpoint.incremental`` that the generic
-# REST engine's ``Incremental(**config)`` constructor does NOT accept. They inform
-# how the cursor is typed (``cursor_type`` — see ``_incremental_field_type``) and
-# how a datetime watermark is rendered on the wire (``datetime_format`` — see
-# ``_format_incremental_cursor``), but must be removed before the engine builds its
-# incremental tracker, or it raises an unexpected keyword-argument error at sync setup.
+# REST engine's ``Incremental(**config)`` constructor does NOT accept. They must be
+# removed before the engine builds its incremental tracker, or it raises an
+# unexpected keyword-argument error at sync setup.
 _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type", "datetime_format"})
 
 
 def _format_incremental_cursor(value: Any, chosen: dict[str, Any]) -> Any:
     """Render a datetime/date high-watermark as a string for the REST engine.
 
-    The engine binds the watermark into the request via ``str()``, so a
-    ``datetime`` reaches the API as ``2026-06-08 12:53:34+00:00`` (space-separated),
-    a format strict APIs (e.g. Typeform) reject. The chosen resource may declare
-    ``endpoint.incremental.datetime_format`` — a strftime pattern, mirroring
-    Airbyte's ``datetime_format`` (e.g. ``"%Y-%m-%dT%H:%M:%SZ"``) — to control the
-    wire format; absent that we default to ISO-8601 via ``isoformat()``. Non-datetime
-    cursors (integer, string) and an already-formatted string pass through untouched.
+    The engine binds the watermark via ``str()``, whose space-separated datetime
+    rendering strict APIs (e.g. Typeform) reject. The resource's
+    ``endpoint.incremental.datetime_format`` strftime pattern controls the wire
+    format, defaulting to ISO-8601; non-datetime cursors pass through untouched.
 
-    A non-string ``datetime_format`` raises :class:`ManifestValidationError` (a
-    ``ValueError``, so ``source_for_pipeline`` fails fast as non-retryable) rather
-    than letting ``strftime`` raise ``TypeError``, which Temporal would retry. The
-    API validation paths reject it earlier (``_validate_incremental_configs``);
-    this backstop covers manifests stored before that check existed.
+    A non-string ``datetime_format`` raises ``ManifestValidationError`` (non-retryable)
+    instead of strftime's ``TypeError``, which Temporal would retry — a backstop for
+    manifests stored before ``_validate_incremental_configs`` existed.
     """
     # `datetime` is a subclass of `date`, so this matches both.
     if not isinstance(value, date):
