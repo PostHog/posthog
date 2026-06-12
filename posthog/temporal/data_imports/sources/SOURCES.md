@@ -54,6 +54,7 @@ the row lists both.
 | bing_ads         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | braze            | HTTP                        | requests                                                        | ✅                          |
 | brevo            | HTTP                        | requests                                                        | ✅                          |
+| brex             | HTTP                        | requests                                                        | ✅                          |
 | buildbetter      | HTTP                        | requests                                                        | ✅                          |
 | calendly         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor | HTTP                        | requests                                                        | ✅                          |
@@ -204,7 +205,6 @@ doesn't conflict with concurrent PRs.
 - box
 - braintree
 - branch
-- brex
 - campaign_manager_360
 - checkout_com
 - chorus
