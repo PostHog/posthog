@@ -24,7 +24,9 @@
 #
 # --- PREREQS (tracked out of band) ----------------------------------------------
 #   - vars.TS_HOGLAND_CI_CLIENT_ID / TS_HOGLAND_CI_AUDIENCE  (tailnet join)
-#   - vars.HOGBOX_GOLDEN_SNAPSHOT = snap-...                 (from the bake)
+#   - the golden is referenced by its global alias `posthog-preview-golden`
+#     (hogplane resolves alias:<name> server-side), so the bake re-points the
+#     alias and CI follows automatically — no per-snapshot CI var to keep current
 #   - target hogland deploy has HOG_GITHUB_OIDC_AUDIENCE + a github_oidc
 #     TrustMapping for PostHog/posthog on prod-us
 #   - PRs opt in with the `hogbox-preview` label (mirrors hobby's label gate)
@@ -105,7 +107,7 @@ jobs:
                   out=$(python -m hogbox_preview \
                     --host "$HOG_HOST" \
                     --name "preview-pr-${PR}" \
-                    --snapshot "${{ vars.HOGBOX_GOLDEN_SNAPSHOT }}" \
+                    --snapshot "alias:posthog-preview-golden" \
                     --cpus 8 --memory-mib 16384 --disk-gib 100 \
                     up --branch "pull/${PR}/head" --no-seed)   # restore -> mount PR -> delta-migrate
                   echo "$out"
