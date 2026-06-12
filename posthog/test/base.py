@@ -30,7 +30,10 @@ from django.test.utils import CaptureQueriesContext
 import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool.pool import TooManyConnections
-from rest_framework.test import APITestCase as DRFTestCase
+from rest_framework.test import (
+    APIClient,
+    APITestCase as DRFTestCase,
+)
 from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import (
@@ -935,10 +938,34 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
 
 
+class EnvironmentsRedirectFollowingAPIClient(APIClient):
+    """Follows the /api/environments → /api/projects 307 like a real HTTP client would.
+
+    EnvironmentsRedirectMiddleware 307-redirects /api/environments/* requests when the
+    `api-environments-redirect` flag evaluates true — which in tests happens whenever a
+    test mocks posthoganalytics.feature_enabled for its own flag. Real clients re-send
+    the same method and body to the projects path, so the default test client does too:
+    tests receive the end response, not the redirect hop. Instantiate a bare APIClient
+    to observe the raw 307 (see posthog/api/test/test_environments_redirect.py).
+    """
+
+    def generic(self, method, path, data="", content_type="application/octet-stream", secure=False, **extra):
+        response = super().generic(method, path, data, content_type, secure, **extra)
+        if (
+            response.status_code in (307, 308)
+            and path.startswith("/api/environments")
+            and response.headers.get("Location", "").startswith("/api/projects")
+        ):
+            response = super().generic(method, response.headers["Location"], data, content_type, secure, **extra)
+        return response
+
+
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
     """
+
+    client_class: type[APIClient] = EnvironmentsRedirectFollowingAPIClient
 
     def setUp(self):
         super().setUp()

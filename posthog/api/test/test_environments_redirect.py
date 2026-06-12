@@ -13,6 +13,7 @@ from django.urls.resolvers import URLPattern, URLResolver
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 
 from posthog.middleware import EnvironmentsRedirectMiddleware
 
@@ -21,6 +22,10 @@ from posthog.middleware import EnvironmentsRedirectMiddleware
 # preserving method, body, and query string. 307 (not 301/302) is load-bearing: a plain
 # redirect lets clients downgrade writes to GET and drop the body. The redirect is gated
 # by the `api-environments-redirect` feature flag, so tests patch the flag evaluation.
+#
+# The classes asserting raw 307 semantics override client_class with a bare APIClient —
+# APIBaseTest's default client (EnvironmentsRedirectFollowingAPIClient) follows the
+# redirect like a real HTTP client and returns the end response instead.
 
 ENVIRONMENTS_PREFIX = "api/environments"
 PROJECTS_PREFIX = "api/projects"
@@ -98,10 +103,10 @@ class TestEveryEnvironmentsRouteHasAProjectsCounterpart(APIBaseTest):
 
 
 class TestEnvironmentsRedirect(APIBaseTest):
+    client_class = APIClient  # raw 307 assertions — must not auto-follow
+
     def setUp(self):
         super().setUp()
-        # Under TEST the middleware never consults posthoganalytics.feature_enabled (other
-        # tests blanket-mock it for their own flags), so redirect tests patch its own hook.
         flag_patcher = patch.object(EnvironmentsRedirectMiddleware, "_redirect_enabled", return_value=True)
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
@@ -190,21 +195,42 @@ class TestEnvironmentsRedirect(APIBaseTest):
         self.assertNotIn("Deprecation", response.headers)
 
 
+class TestDefaultTestClientFollowsRedirect(APIBaseTest):
+    # Uses APIBaseTest's default client (EnvironmentsRedirectFollowingAPIClient): when the
+    # redirect is on, tests across the repo must receive the end response, not the 307.
+
+    def test_read_through_redirect_returns_end_response(self):
+        with patch.object(EnvironmentsRedirectMiddleware, "_redirect_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], self.team.id)
+
+    def test_write_through_redirect_preserves_method_and_body(self):
+        with patch.object(EnvironmentsRedirectMiddleware, "_redirect_enabled", return_value=True):
+            response = self.client.patch(f"/api/environments/{self.team.id}/", {"name": "Followed end to end"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["name"], "Followed end to end")
+
+    def test_unrelated_feature_flag_mocks_still_get_end_responses(self):
+        # Many tests blanket-mock feature_enabled for their own flags, which turns the
+        # redirect on as a side effect — they must keep getting end codes, not 307s
+        # (this broke product test suites in CI).
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
 class TestEnvironmentsRedirectKillSwitch(APIBaseTest):
+    client_class = APIClient  # raw 307 assertions — must not auto-follow
+
     def test_redirect_is_off_by_default_but_deprecation_headers_are_present(self):
-        # No patch: the redirect must fail closed while deprecation headers still ship.
+        # No patch: the analytics SDK is disabled under TEST, so the flag evaluates to
+        # None — the redirect must fail closed while deprecation headers still ship.
         response = self.client.get(f"/api/environments/{self.team.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response["Deprecation"], "true")
         self.assertIn(f"</api/projects/{self.team.id}/>", response["Link"])
         self.assertIn("Sunset", response.headers)
-
-    def test_unrelated_feature_flag_mocks_do_not_enable_the_redirect(self):
-        # Many tests blanket-mock feature_enabled for their own flags — that must never
-        # flip the redirect on as a side effect (it broke product test suites in CI).
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            response = self.client.get(f"/api/environments/{self.team.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_flag_toggles_redirect_without_restart(self):
         with patch.object(EnvironmentsRedirectMiddleware, "_redirect_enabled", return_value=True):
