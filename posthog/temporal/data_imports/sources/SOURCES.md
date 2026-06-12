@@ -52,6 +52,7 @@ the row lists both.
 | appsflyer        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
+| attentive        | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | azure_devops     | HTTP                        | requests                                                        | ✅                          |
 | bamboohr         | HTTP                        | requests                                                        | ✅                          |
@@ -226,7 +227,6 @@ doesn't conflict with concurrent PRs.
 - amazon_sqs
 - apollo
 - apple_search_ads
-- attentive
 - auth0
 - azure_blob
 - bigcommerce
