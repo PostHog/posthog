@@ -2,9 +2,10 @@ FROM python:3.11-slim@sha256:f9fa7f851e38bfb19c9de3afbc4b86ae7176ea7aaf94535c31d
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Glob-pinned: exact deb revisions vanish from mirrors on security point
+# releases, which would 404 the build; the upstream version stays fixed.
 RUN apt-get update && apt-get install -y \
-    # TODO: This needs to be pinned to a version
-    curl \
+    "curl=8.14.1*" \
     && rm -rf /var/lib/apt/lists/*
 
 # Dedicated non-root user for the Streamlit runtime. The auth proxy still
@@ -27,11 +28,11 @@ RUN pip install --no-cache-dir \
     seaborn==0.13.2 \
     scipy==1.13.1 \
     scikit-learn==1.5.0 \
-    pyarrow==16.1.0 \
-    duckdb==0.10.3 \
+    pyarrow==24.0.0 \
+    duckdb==1.5.3 \
     requests==2.32.3 \
     beautifulsoup4==4.12.3 \
-    lxml==5.2.2 \
+    lxml==6.1.1 \
     sqlalchemy==2.0.30 \
     opentelemetry-sdk==1.27.0 \
     opentelemetry-exporter-otlp-proto-http==1.27.0
