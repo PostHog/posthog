@@ -43,6 +43,7 @@ from posthog.models.group_type_mapping import (
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.utils import str_to_bool
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -468,16 +469,25 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 description="Specify the key of the group to find",
                 required=True,
             ),
+            OpenApiParameter(
+                "skip_create_notebook",
+                OpenApiTypes.BOOL,
+                description="When true, do not lazily create the group's CRM notebook. "
+                "Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.",
+                required=False,
+            ),
         ]
     )
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
         group_type_index, group_key = self._safely_get_query_params(require_group_key=True)
+        skip_create_notebook = str_to_bool(request.GET.get("skip_create_notebook"))
         group = get_group_by_key(self.team.pk, int(group_type_index), group_key)
         if group is None:
             raise NotFound()
         if (
-            self._is_crm_enabled(cast(User, request.user))
+            not skip_create_notebook
+            and self._is_crm_enabled(cast(User, request.user))
             and not ResourceNotebook.objects.filter(group=group.id).exists()
         ):
             try:

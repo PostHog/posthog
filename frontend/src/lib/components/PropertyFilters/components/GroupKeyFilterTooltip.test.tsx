@@ -71,7 +71,7 @@ describe('GroupKeyFilterTooltip', () => {
             <Provider>
                 <GroupKeyFilterTooltip
                     groupTypeIndex={0 as GroupTypeIndex}
-                    groupKeys={[groupKey]}
+                    groupKey={groupKey}
                     fallbackLabel={`$group_key = ${groupKey}`}
                 />
             </Provider>
@@ -100,7 +100,7 @@ describe('GroupKeyFilterTooltip', () => {
                 <Provider>
                     <GroupKeyFilterTooltip
                         groupTypeIndex={0 as GroupTypeIndex}
-                        groupKeys={['uuid-cache']}
+                        groupKey="uuid-cache"
                         fallbackLabel="$group_key = uuid-cache"
                     />
                 </Provider>

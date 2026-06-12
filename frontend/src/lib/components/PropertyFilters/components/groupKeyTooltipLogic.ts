@@ -10,7 +10,7 @@ import type { groupKeyTooltipLogicType } from './groupKeyTooltipLogicType'
 
 export interface GroupKeyTooltipLogicProps {
     groupTypeIndex: GroupTypeIndex
-    groupKeys: string[]
+    groupKey: string
 }
 
 // Resolved lookups survive tooltip close/reopen so a given key is only ever
@@ -27,61 +27,46 @@ export function clearGroupLookupCache(): void {
     groupLookupCache.clear()
 }
 
-async function cachedFindGroups(
+async function cachedFindGroup(
     teamId: number | null,
     groupTypeIndex: GroupTypeIndex,
-    groupKeys: string[]
-): Promise<Record<string, Group>> {
+    groupKey: string
+): Promise<Group | null> {
     if (!teamId) {
-        return {}
+        return null
     }
-    const resolved: Record<string, Group> = {}
-    const uncachedKeys: string[] = []
-    for (const groupKey of groupKeys) {
-        const k = cacheKey(teamId, groupTypeIndex, groupKey)
-        if (groupLookupCache.has(k)) {
-            const cached = groupLookupCache.get(k)
-            if (cached) {
-                resolved[groupKey] = cached
-            }
-        } else {
-            uncachedKeys.push(groupKey)
-        }
+    const k = cacheKey(teamId, groupTypeIndex, groupKey)
+    if (groupLookupCache.has(k)) {
+        return groupLookupCache.get(k) ?? null
     }
-    if (uncachedKeys.length > 0) {
-        const found = await findGroups(teamId, groupTypeIndex, uncachedKeys)
-        for (const groupKey of uncachedKeys) {
-            // Only cache a definitive result (a group, or null for a 404 miss).
-            // Transient failures are absent from `found`, so we leave them
-            // uncached and the next hover retries them.
-            if (groupKey in found) {
-                const group = found[groupKey]
-                groupLookupCache.set(cacheKey(teamId, groupTypeIndex, groupKey), group)
-                if (group) {
-                    resolved[groupKey] = group
-                }
-            }
-        }
+    const found = await findGroups(teamId, groupTypeIndex, [groupKey])
+    // Only cache a definitive result (a group, or null for a 404 miss).
+    // Transient failures are absent from `found`, so we leave them uncached
+    // and the next hover retries them.
+    if (groupKey in found) {
+        const group = found[groupKey]
+        groupLookupCache.set(k, group)
+        return group
     }
-    return resolved
+    return null
 }
 
 export const groupKeyTooltipLogic = kea<groupKeyTooltipLogicType>([
     props({} as GroupKeyTooltipLogicProps),
-    key((props) => `${props.groupTypeIndex}-${JSON.stringify([...props.groupKeys].sort())}`),
+    key((props) => `${props.groupTypeIndex}-${props.groupKey}`),
     path((key) => ['lib', 'components', 'PropertyFilters', 'components', 'groupKeyTooltipLogic', key]),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
     })),
     loaders(({ values, props }) => ({
-        groups: [
-            {} as Record<string, Group>,
+        group: [
+            null as Group | null,
             {
-                loadGroups: async () => cachedFindGroups(values.currentTeamId, props.groupTypeIndex, props.groupKeys),
+                loadGroup: async () => cachedFindGroup(values.currentTeamId, props.groupTypeIndex, props.groupKey),
             },
         ],
     })),
     afterMount(({ actions }) => {
-        actions.loadGroups()
+        actions.loadGroup()
     }),
 ])

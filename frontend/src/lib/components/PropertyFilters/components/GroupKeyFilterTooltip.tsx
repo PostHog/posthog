@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -10,38 +11,43 @@ import { groupKeyTooltipLogic } from './groupKeyTooltipLogic'
 
 export interface GroupKeyFilterTooltipProps {
     groupTypeIndex: GroupTypeIndex
-    groupKeys: string[]
+    groupKey: string
     fallbackLabel: string
 }
 
 export function GroupKeyFilterTooltip({
     groupTypeIndex,
-    groupKeys,
+    groupKey,
     fallbackLabel,
 }: GroupKeyFilterTooltipProps): JSX.Element {
-    const { groups, groupsLoading } = useValues(groupKeyTooltipLogic({ groupTypeIndex, groupKeys }))
+    const { group, groupLoading } = useValues(groupKeyTooltipLogic({ groupTypeIndex, groupKey }))
 
-    if (groupsLoading) {
-        return <Spinner />
+    if (groupLoading) {
+        return (
+            <div className="flex items-center justify-center min-w-32">
+                <Spinner />
+            </div>
+        )
     }
 
-    const resolved = groupKeys.map((groupKey) => groups[groupKey]).filter(Boolean)
-
-    if (resolved.length === 0) {
+    if (!group) {
         return <>{fallbackLabel}</>
     }
 
     return (
-        <div className="flex flex-col gap-2">
-            {resolved.map((group) => (
-                <div key={group.group_key} className="flex flex-col">
-                    <span className="font-semibold">{groupDisplayId(group.group_key, group.group_properties)}</span>
-                    <span className="font-mono text-xs text-secondary">{group.group_key}</span>
-                    <span className="text-xs">
-                        First seen: {group.created_at ? <TZLabel time={group.created_at} /> : 'unknown'}
-                    </span>
-                </div>
-            ))}
+        <div className="flex flex-col">
+            <span className="font-semibold">{groupDisplayId(group.group_key, group.group_properties)}</span>
+            <CopyToClipboardInline
+                selectable
+                description="group key"
+                tooltipMessage={null}
+                className="font-mono text-xs text-secondary"
+            >
+                {group.group_key}
+            </CopyToClipboardInline>
+            <span className="text-xs">
+                First seen: {group.created_at ? <TZLabel time={group.created_at} /> : 'unknown'}
+            </span>
         </div>
     )
 }

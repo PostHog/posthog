@@ -34,6 +34,9 @@ export async function findGroups(
                     `api/environments/${teamId}/groups/find/?${new URLSearchParams({
                         group_type_index: String(groupTypeIndex),
                         group_key: groupKey,
+                        // Resolving a display name is read-only; don't lazily
+                        // create the group's CRM notebook as a side effect.
+                        skip_create_notebook: 'true',
                     }).toString()}`
                 )
                 return [groupKey, response] as const
