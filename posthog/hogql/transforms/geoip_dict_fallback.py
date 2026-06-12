@@ -9,9 +9,11 @@ only rows the incident could have affected change.
 
 Gated on the `HOGQL_GEOIP_DICT_FALLBACK_TEAMS` env var: a comma-separated list of team ids, or "*" for all teams;
 empty (the default) disables it everywhere. Deliberately not a query modifier so it is operator-controlled only and
-leaves nothing persisted in `team.modifiers` or saved queries to scrub at removal time. Delete this file with its
-callsite in `printer/utils.py`, the cache-payload entry in `query_runner.py`, the env setting, and the `lookupGeoip*`
-functions once the backfill is done.
+leaves nothing persisted in `team.modifiers` or saved queries to scrub at removal time. The gate also verifies at
+runtime that the dictionary exists (cached in-process like materialized-column discovery), so the transform stands
+down instead of printing failing SQL wherever the manually provisioned dictionary is absent. Delete this file with
+its callsite in `printer/utils.py`, the cache-payload entry in `query_runner.py`, the env setting, and the
+`lookupGeoip*` functions once the backfill is done.
 
 Runs between logical property lowering and ClickHouse property resolution: each affected `PropertyAccess` becomes a
 conditional over three property reads (the property itself, `$geoip_country_code`, `$ip`), and the resolution pass
@@ -19,6 +21,7 @@ then routes each read through its materialized column where one exists — so on
 `mat_*` columns plus an in-RAM dictionary lookup, without touching the `properties` blob.
 """
 
+from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
@@ -27,8 +30,12 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.printer.base import get_geoip_city_postal_dict
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.visitor import CloningVisitor, clone_expr
+
+from posthog.cache_utils import cache_for
+from posthog.clickhouse.client import sync_execute
 
 FALLBACK_PROPERTY_TO_FUNCTION = {
     "$geoip_city_name": "lookupGeoipCityName",
@@ -39,14 +46,35 @@ FALLBACK_PROPERTY_TO_FUNCTION = {
 FALLBACK_SOURCE_PROPERTIES = ("$ip", "$geoip_country_code")
 
 
+@cache_for(timedelta(minutes=15), background_refresh=True)
+def _geoip_dict_exists() -> bool:
+    """Whether the `city_postal_ip_trie` dictionary exists on the connected ClickHouse.
+
+    The dictionary is manually provisioned (no migration), so this mirrors the runtime materialized-column discovery:
+    checked against `system.dictionaries` and cached in-process, so installs without the dictionary (self-hosted, dev,
+    a region missing the manual step) get the unmodified query instead of SQL that errors. A failed check counts as
+    absent: a ClickHouse blip degrades the fallback, never the query.
+    """
+    database, _, name = get_geoip_city_postal_dict().partition(".")
+    try:
+        return bool(
+            sync_execute(
+                "SELECT 1 FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s LIMIT 1",
+                {"database": database, "name": name},
+            )
+        )
+    except Exception:
+        return False
+
+
 def geoip_dict_fallback_enabled_for_team(team_id: int | None) -> bool:
-    """Whether the env var enables the fallback for this team ("*" matches every team)."""
+    """Whether the env var enables the fallback for this team ("*" matches every team) and the dictionary exists."""
     raw = settings.HOGQL_GEOIP_DICT_FALLBACK_TEAMS.strip()
     if not raw or team_id is None:
         return False
-    if raw == "*":
-        return True
-    return str(team_id) in {part.strip() for part in raw.split(",")}
+    if raw != "*" and str(team_id) not in {part.strip() for part in raw.split(",")}:
+        return False
+    return _geoip_dict_exists()
 
 
 class GeoipDictFallback(CloningVisitor):

@@ -6,6 +6,7 @@ from posthog.test.base import (
     materialized,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -19,6 +20,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.base import get_geoip_city_postal_dict
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_enabled_for_team
 
 from posthog.clickhouse.client import sync_execute
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_PASSWORD
@@ -35,6 +37,7 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         teams: str = "*",
         modifiers: HogQLQueryModifiers | None = None,
         restricted_properties: set[tuple[str, int]] | None = None,
+        dict_exists: bool = True,
     ) -> tuple[str, HogQLContext]:
         context = HogQLContext(
             team_id=self.team.pk,
@@ -42,7 +45,14 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
             modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(),
             restricted_properties=restricted_properties,
         )
-        with override_settings(HOGQL_GEOIP_DICT_FALLBACK_TEAMS=teams):
+        # The dictionary only exists on the test ClickHouse in the execution tests below, so stub its discovery here.
+        with (
+            override_settings(HOGQL_GEOIP_DICT_FALLBACK_TEAMS=teams),
+            patch(
+                "posthog.hogql.transforms.geoip_dict_fallback._geoip_dict_exists",
+                return_value=dict_exists,
+            ),
+        ):
             query, _ = prepare_and_print_ast(parse_select(select), context, "clickhouse")
         return query, context
 
@@ -77,6 +87,16 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
     def test_fallback_enabled_for_listed_team(self) -> None:
         sql, _ = self._print_select("SELECT properties.$geoip_city_name FROM events", teams=f"99999999, {self.team.pk}")
         assert "dictGetStringOrDefault" in sql
+
+    def test_no_fallback_when_dictionary_missing(self) -> None:
+        sql, _ = self._print_select("SELECT properties.$geoip_city_name FROM events", dict_exists=False)
+        assert "dictGetStringOrDefault" not in sql
+
+    def test_enabled_helper_requires_real_dictionary(self) -> None:
+        # No stub here: the dictionary does not exist on the test ClickHouse, so the runtime discovery says no even
+        # though the env var enables the team.
+        with override_settings(HOGQL_GEOIP_DICT_FALLBACK_TEAMS="*"):
+            assert geoip_dict_fallback_enabled_for_team(self.team.pk) is False
 
     def test_person_properties_on_events_not_wrapped_under_poe(self) -> None:
         # Under persons-on-events, person properties live on the events table behind a virtual sub-table whose blob
@@ -262,6 +282,10 @@ class TestGeoipDictFallbackExecution(ClickhouseTestMixin, BaseTest):
                 team=self.team,
             )
         return response.results
+
+    def test_enabled_helper_detects_real_dictionary(self) -> None:
+        with override_settings(HOGQL_GEOIP_DICT_FALLBACK_TEAMS="*"):
+            assert geoip_dict_fallback_enabled_for_team(self.team.pk) is True
 
     # Blank representation differs by read path: the materialized city column scrubs '' to NULL, while the
     # non-materialized postal code is a raw JSON extract that returns '' for a present-but-empty key and NULL for a
