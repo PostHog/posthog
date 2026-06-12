@@ -1060,7 +1060,10 @@ class TestAssistantEvents(TestCase):
             return route_posthog_code_event_to_relevant_region(request, event, "T12345")
 
     def _patch_resolution(self, *, user, enabled=True):
-        from products.slack_app.backend.services.integration_resolver import ResolutionResult
+        from products.slack_app.backend.services.integration_resolver import (
+            ResolutionResult,
+            UserAndIntegrationsResolution,
+        )
 
         load = patch(
             "products.slack_app.backend.api.load_integrations",
@@ -1068,7 +1071,14 @@ class TestAssistantEvents(TestCase):
                 integration=self.integration, source="sole_candidate", candidates=[self.integration]
             ),
         )
-        resolve = patch("products.slack_app.backend.api._resolve_posthog_user_from_event", return_value=user)
+        resolution = (
+            UserAndIntegrationsResolution(
+                user=user, integration=self.integration, candidates=[self.integration], source="sole_candidate"
+            )
+            if user is not None
+            else UserAndIntegrationsResolution(failure_reason="user_not_found")
+        )
+        resolve = patch("products.slack_app.backend.api.resolve_user_for_workspace", return_value=resolution)
         enabled_p = patch("products.slack_app.backend.api._assistant_enabled", return_value=enabled)
         usp = patch("products.slack_app.backend.api._us_should_handle_instead", return_value=False)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
