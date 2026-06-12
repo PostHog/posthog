@@ -1,4 +1,8 @@
-import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { asNonEmptyString, joinWithUiHost, makeNavigateWrapper, slashDotDataAttrUnescape } from './utils'
+
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
 
 describe('utils', () => {
     describe('asNonEmptyString', () => {
@@ -94,6 +98,56 @@ describe('utils', () => {
                 const result = slashDotDataAttrUnescape(input)
                 expect(result).toBe(expected)
             })
+        })
+    })
+
+    describe('makeNavigateWrapper', () => {
+        let originalPushState: History['pushState']
+        let originalReplaceState: History['replaceState']
+
+        beforeEach(() => {
+            originalPushState = window.history.pushState
+            originalReplaceState = window.history.replaceState
+        })
+
+        afterEach(() => {
+            window.history.pushState = originalPushState
+            window.history.replaceState = originalReplaceState
+        })
+
+        it('calls onNavigate after pushState/replaceState and unwraps cleanly', () => {
+            const onNavigate = jest.fn()
+            const unwrap = makeNavigateWrapper(onNavigate, '__test_navigate_wrapper__')()
+
+            window.history.pushState({}, '', '/pushed')
+            window.history.replaceState({}, '', '/replaced')
+            expect(onNavigate).toHaveBeenCalledTimes(2)
+
+            unwrap()
+            expect(window.history.pushState).toBe(originalPushState)
+            expect(window.history.replaceState).toBe(originalReplaceState)
+        })
+
+        it('does not let a throwing original break the host page navigation', () => {
+            // Simulate a host site that also patched history and throws "Illegal invocation".
+            window.history.pushState = (() => {
+                throw new TypeError('Illegal invocation')
+            }) as History['pushState']
+            const onNavigate = jest.fn()
+            makeNavigateWrapper(onNavigate, '__test_navigate_wrapper_throws__')()
+
+            expect(() => window.history.pushState({}, '', '/pushed')).not.toThrow()
+            expect(onNavigate).not.toHaveBeenCalled()
+        })
+
+        it('does not let a throwing onNavigate propagate into the host page', () => {
+            const onNavigate = jest.fn(() => {
+                throw new Error('boom')
+            })
+            makeNavigateWrapper(onNavigate, '__test_navigate_wrapper_cb_throws__')()
+
+            expect(() => window.history.pushState({}, '', '/pushed')).not.toThrow()
+            expect(onNavigate).toHaveBeenCalledTimes(1)
         })
     })
 })

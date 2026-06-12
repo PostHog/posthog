@@ -660,8 +660,18 @@ export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): (
                         title: string,
                         url?: string | URL | null
                     ): void {
-                        ;(originalPushState as History['pushState']).call(this, state, title, url)
-                        onNavigate()
+                        // Never let our wrapper break the host page's navigation: a host site
+                        // that also patches history can resolve the original against an
+                        // unexpected receiver and throw "Illegal invocation".
+                        try {
+                            ;(originalPushState as History['pushState']).call(this, state, title, url)
+                            onNavigate()
+                        } catch (e) {
+                            toolbarLogger.warn('makeNavigateWrapper', 'patchedPushState failed', {
+                                patchKey,
+                                error: String(e),
+                            })
+                        }
                     }
                 },
                 patchKey
@@ -679,8 +689,18 @@ export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): (
                         title: string,
                         url?: string | URL | null
                     ): void {
-                        ;(originalReplaceState as History['replaceState']).call(this, state, title, url)
-                        onNavigate()
+                        // Never let our wrapper break the host page's navigation: a host site
+                        // that also patches history can resolve the original against an
+                        // unexpected receiver and throw "Illegal invocation".
+                        try {
+                            ;(originalReplaceState as History['replaceState']).call(this, state, title, url)
+                            onNavigate()
+                        } catch (e) {
+                            toolbarLogger.warn('makeNavigateWrapper', 'patchedReplaceState failed', {
+                                patchKey,
+                                error: String(e),
+                            })
+                        }
                     }
                 },
                 patchKey
