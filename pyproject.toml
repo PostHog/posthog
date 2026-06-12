@@ -498,7 +498,9 @@ ignore_imports = [
     # Allowed: presentation can import facade and itself
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
-    # TODO: existing violations — fix by routing through facade
+    # TODO: deferred presentation waves — views still bypassing their own facade.
+    # Each pair names work owed; the presentation-wave section of the
+    # isolating-product-facade-contracts skill defines how to clear it.
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.has_logs_query_runner",
