@@ -135,16 +135,22 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.ChoiceField(choices=EmbeddingStatus.choices))
     def get_embedding_status(self, obj: KnowledgeSource) -> str:
         # Both inputs are annotated by the logic layer (list_for_team /
-        # get_for_team) to avoid N+1s; fall back to the relation for plain
-        # instances. The org flag is nullable — NULL means not approved,
-        # matching the coordinator's `=True` filter.
+        # get_for_team) to avoid N+1s. When a source is serialized without
+        # annotations (future code path), fall back to a live DB query for
+        # both rather than silently returning the wrong value.
         if hasattr(obj, "_ai_processing_approved"):
             approved = bool(obj._ai_processing_approved)
         else:
             approved = bool(obj.team.organization.is_ai_data_processing_approved)
         if not approved:
             return EmbeddingStatus.DISABLED
-        if getattr(obj, "_has_pending_embeddings", False):
+        if hasattr(obj, "_has_pending_embeddings"):
+            pending = bool(obj._has_pending_embeddings)
+        else:
+            from .. import logic
+
+            pending = logic.has_pending_embeddings(obj.id)
+        if pending:
             return EmbeddingStatus.PENDING
         return EmbeddingStatus.COMPLETED
 

@@ -313,6 +313,25 @@ def _pending_embedding_documents_subquery() -> Exists:
     )
 
 
+def has_pending_embeddings(source_id: UUID) -> bool:
+    """Standalone DB check — same logic as the annotation subquery."""
+    return (
+        KnowledgeDocument.objects.filter(
+            source_id=source_id,
+            tombstoned_at__isnull=True,
+        )
+        .filter(
+            Q(safety_verdict=SafetyVerdict.UNKNOWN, classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS)
+            | Q(
+                safety_verdict=SafetyVerdict.SAFE,
+                embeddings_emitted_at__isnull=True,
+                chunks__isnull=False,
+            )
+        )
+        .exists()
+    )
+
+
 @with_team_scope(canonical=True)
 def list_for_team(team_id: int) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
