@@ -412,10 +412,9 @@ class PostgresDestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["Postgres"])
     integration_id = serializers.IntegerField(
-        required=False,
         help_text=(
-            "ID of a postgresql-kind Integration providing connection credentials. Optional: omit to "
-            "configure credentials inline (legacy). Use the integrations-list MCP tool to find one."
+            "ID of a postgresql-kind Integration providing connection credentials. Required when creating "
+            "a batch export. Use the integrations-list MCP tool to find one."
         ),
     )
     config = PostgresDestinationConfigSerializer()
@@ -438,9 +437,9 @@ class BatchExportDestinationRequestField(serializers.JSONField):
     """JSONField annotated with a polymorphic OpenAPI request schema.
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are
-    exposed in the schema. integration_id is required for Databricks, AzureBlob, and BigQuery;
-    for Postgres it is optional (an integration may provide credentials, or they may be set
-    inline). Runtime validation remains `BatchExportDestinationSerializer.validate_destination`.
+    exposed in the schema. integration_id is required when creating any of these. Existing
+    Postgres exports created before integrations keep their inline credentials. Runtime
+    validation remains `BatchExportDestinationSerializer.validate_destination`.
     """
 
     pass
@@ -523,8 +522,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "ID of a team-scoped Integration providing credentials. Required for Databricks, "
-            "AzureBlob, and BigQuery destinations; optional for Postgres; unused for other types."
+            "ID of a team-scoped Integration providing credentials. Required when creating Databricks, "
+            "AzureBlob, BigQuery, and Postgres destinations; unused for other types."
         ),
     )
 
@@ -1060,6 +1059,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if destination_type == BatchExportDestination.Destination.POSTGRES:
             team_id = self.context["team_id"]
             integration = destination_attrs.get("integration")
+            # New Postgres exports must use an Integration for credentials. Exports created before
+            # integrations existed keep their inline credentials, so only require it on create
+            # (`instance is None`); existing inline-credential exports stay valid when edited.
+            if integration is None and instance is None:
+                raise serializers.ValidationError("Integration is required for Postgres batch exports")
             if integration is not None:
                 if integration.team_id != team_id:
                     raise serializers.ValidationError("Integration does not belong to this team.")

@@ -150,9 +150,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Postgres']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a postgresql-kind Integration providing connection credentials. Optional: omit to configure credentials inline (legacy). Use the integrations-list MCP tool to find one.'
+                                'ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -605,9 +604,8 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Postgres']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a postgresql-kind Integration providing connection credentials. Optional: omit to configure credentials inline (legacy). Use the integrations-list MCP tool to find one.'
+                                'ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -813,9 +811,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Postgres']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a postgresql-kind Integration providing connection credentials. Optional: omit to configure credentials inline (legacy). Use the integrations-list MCP tool to find one.'
+                                'ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1055,7 +1052,7 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; optional for Postgres; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.'
                     ),
             })
             .describe(
@@ -1291,7 +1288,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; optional for Postgres; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.'
                     ),
             })
             .describe(
@@ -1524,7 +1521,7 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; optional for Postgres; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.'
                     ),
             })
             .describe(
@@ -1764,7 +1761,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; optional for Postgres; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.'
                     ),
             })
             .describe(

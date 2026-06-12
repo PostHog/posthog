@@ -1,32 +1,28 @@
-import { useValues } from 'kea'
-
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { DestinationDefinition } from './types'
 
 export const postgresDefinition: DestinationDefinition = {
     type: 'Postgres',
-    // Postgres can store credentials in a linked Integration (when the feature flag is on) or
-    // inline in config (legacy). usesIntegration is harmless when no integration_id is set.
+    // New Postgres exports must store credentials in a linked Integration. Exports created before
+    // integrations existed keep their inline credentials (grandfathered), detected by integration_id.
     usesIntegration: true,
     defaults: () => ({}),
-    requiredFields: ({ isNew, featureFlags }) => {
-        if (featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTGRESQL_INTEGRATION]) {
-            // Only new exports must pick an integration; existing legacy exports keep their inline config.
+    requiredFields: ({ isNew, formValues }) => {
+        if (isNew || formValues.integration_id) {
+            // New exports must pick an integration; existing integration-backed exports keep theirs.
             return [...(isNew ? ['integration_id'] : []), 'database', 'schema', 'table_name']
         }
-        return [...(isNew ? ['user', 'password'] : []), 'host', 'port', 'database', 'schema', 'table_name']
+        // Legacy inline-credential exports keep their original fields when edited.
+        return ['host', 'port', 'database', 'schema', 'table_name']
     },
     eventTableOverrides: { teamIdHogql: 'toInt32(team_id)' },
-    Fields: function PostgresFields({ isNew }) {
-        const { featureFlags } = useValues(featureFlagLogic)
-        const useIntegration = !!featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTGRESQL_INTEGRATION]
+    Fields: function PostgresFields({ isNew, formValues }) {
+        const useIntegration = isNew || !!formValues.integration_id
 
         return (
             <>

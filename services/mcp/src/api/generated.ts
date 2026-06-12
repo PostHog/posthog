@@ -9901,7 +9901,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; optional for Postgres; unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -10847,8 +10847,8 @@ export namespace Schemas {
      */
     export interface PostgresDestinationRequest {
       type: PostgresDestinationRequestType;
-      /** ID of a postgresql-kind Integration providing connection credentials. Optional: omit to configure credentials inline (legacy). Use the integrations-list MCP tool to find one. */
-      integration_id?: number;
+      /** ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
       config: PostgresDestinationConfig;
     }
 
