@@ -1,7 +1,7 @@
 import uuid
 import itertools
 from dataclasses import dataclass
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import pytest
 from posthog.test.base import BaseTest
@@ -72,7 +72,12 @@ def member_level_inputs(draw):
 
 
 def _max_level(levels: list[AccessControlLevel], order: list[AccessControlLevel]) -> Optional[AccessControlLevel]:
-    return max(levels, key=order.index) if levels else None
+    if not levels:
+        return None
+    # Separate statement so mypy infers max()'s type var from the arguments
+    # rather than widening it to the Optional return type
+    best = max(levels, key=order.index)
+    return best
 
 
 class TestAccessLevelHelpersProperties(TestCase):
@@ -174,18 +179,19 @@ ACCESS_CONTROLLED_RESOURCES = set(ACCESS_CONTROL_RESOURCES) | set(RESOURCE_INHER
 EXCLUSIONS: dict[str, str] = {}
 
 
-def discover_object_models() -> list[tuple[str, type[models.Model]]]:
-    candidates: dict[str, list[type[models.Model]]] = {}
+def discover_object_models() -> list[tuple[APIScopeObject, type[models.Model]]]:
+    candidates: dict[APIScopeObject, list[type[models.Model]]] = {}
     for model in apps.get_models():
-        resource = model_to_resource(model)  # type: ignore
+        # model_to_resource only touches _meta, which exists on the class too
+        resource = model_to_resource(cast(models.Model, model))
         if resource and resource in ACCESS_CONTROLLED_RESOURCES and resource not in EXCLUSIONS:
             candidates.setdefault(resource, []).append(model)
 
-    chosen = {}
-    for resource, model_classes in candidates.items():
+    chosen: dict[APIScopeObject, type[models.Model]] = {}
+    for candidate_resource, model_classes in candidates.items():
         # Prefer the model named after the resource itself (e.g. Endpoint over EndpointVersion)
-        exact = [m for m in model_classes if m._meta.model_name == resource.replace("_", "")]
-        chosen[resource] = exact[0] if exact else sorted(model_classes, key=lambda m: m._meta.label)[0]
+        exact = [m for m in model_classes if m._meta.model_name == candidate_resource.replace("_", "")]
+        chosen[candidate_resource] = exact[0] if exact else sorted(model_classes, key=lambda m: m._meta.label)[0]
     return sorted(chosen.items())
 
 
@@ -229,10 +235,10 @@ def build_instance(model_cls: type[models.Model], team: Team, user: User, _depth
     if "created_by" not in kwargs and any(f.name == "created_by" for f in model_cls._meta.concrete_fields):
         kwargs["created_by"] = user
 
-    manager = model_cls.objects
+    manager: Any = model_cls._default_manager
     if hasattr(manager, "for_team"):
         # Fail-closed team-scoped managers require an explicit team scope
-        manager = manager.for_team(team.id)  # type: ignore
+        manager = manager.for_team(team.id)
     return manager.create(**kwargs)
 
 
@@ -350,6 +356,10 @@ def oracle_can_modify(
 
 
 class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
+    other_user: User
+    role_a: "Role"
+    role_b: "Role"
+
     # Fixtures live in setUpTestData (class-level atomics): hypothesis runs each
     # example inside Django's per-test transaction via _pre_setup/_post_teardown,
     # so anything created in setUp would not be rolled back between test methods.
@@ -363,10 +373,10 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         cls.organization.save()
 
         cls.other_user = User.objects.create_and_join(cls.organization, "other-pbt@posthog.com", "testtest")
-        cls.role_a = Role.objects.create(name="PBT Role A", organization=cls.organization)  # type: ignore
-        cls.role_b = Role.objects.create(name="PBT Role B", organization=cls.organization)  # type: ignore
-        RoleMembership.objects.create(user=cls.user, role=cls.role_a)  # type: ignore
-        RoleMembership.objects.create(user=cls.other_user, role=cls.role_b)  # type: ignore
+        cls.role_a = Role.objects.create(name="PBT Role A", organization=cls.organization)
+        cls.role_b = Role.objects.create(name="PBT Role B", organization=cls.organization)
+        RoleMembership.objects.create(user=cls.user, role=cls.role_a)
+        RoleMembership.objects.create(user=cls.other_user, role=cls.role_b)
 
     def _membership(self, user: User) -> OrganizationMembership:
         return OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -396,7 +406,7 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
             else:
                 # Resource-level rows only take effect on the inheritance parent
                 row_resource, resource_id = parent, None
-            AccessControl.objects.create(  # type: ignore
+            AccessControl.objects.create(
                 team=self.team,
                 resource=row_resource,
                 resource_id=resource_id,
@@ -406,7 +416,7 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
 
     def _materialize_project_rows(self, project_rows: list[RowSpec]) -> None:
         for spec in project_rows:
-            AccessControl.objects.create(  # type: ignore
+            AccessControl.objects.create(
                 team=self.team,
                 resource="project",
                 resource_id=str(self.team.pk),
