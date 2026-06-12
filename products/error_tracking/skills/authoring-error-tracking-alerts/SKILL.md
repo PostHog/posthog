@@ -80,9 +80,8 @@ Call `posthog:error-tracking-alerts-list`. Filter the response client-side by `f
 - Multiple alerts on the same event for **different** channels (e.g. one for `#oncall`, one for the
   oncall webhook) is fine and sometimes intentional. Confirm.
 
-The recommendations probe in `products/error_tracking/backend/recommendations/alerts.py` only inspects
-`filters.events` — adding per-issue `filters.properties` does not affect the "alerts configured" status
-the recommendations card reports.
+PostHog's "alerts configured" recommendation only inspects `filters.events` — adding per-issue
+`filters.properties` does not affect the status the recommendations card reports.
 
 ### 3. Pick the integration
 

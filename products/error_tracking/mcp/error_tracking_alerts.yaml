@@ -70,16 +70,14 @@ tools:
                on `$exception_issue_id` — for example
                `[{"key": "$exception_issue_id", "value": "<issue_uuid>", "operator": "exact", "type": "event"}]`
                to alert only on a specific known-flaky issue. `$error_tracking_issue_spiking` events carry
-               no exception properties, so spiking alerts cannot be scoped per issue. The recommendations
-               probe in `products/error_tracking/backend/recommendations/alerts.py` only inspects
-               `filters.events`, so adding property filters does not break the "alerts configured"
-               recommendation.
+               no exception properties, so spiking alerts cannot be scoped per issue. PostHog's "alerts
+               configured" recommendation only checks `filters.events`, so adding property filters does
+               not affect it.
 
 
             5. Slack message body. Mirror the shape the in-product alert wizard produces so agent-created
-               and UI-created alerts look identical. Source of truth:
-               `HOG_FUNCTION_SUB_TEMPLATES['error-tracking-issue-created' | '_reopened' | '_spiking']` for
-               `template-slack` in `frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts`.
+               and UI-created alerts look identical. The canonical payloads for every integration are in
+               the `authoring-error-tracking-alerts` skill references.
 
                For `$error_tracking_issue_created` (Slack):
 
@@ -113,9 +111,8 @@ tools:
                For `$error_tracking_issue_spiking` (Slack), use the same shape but swap the header to
                `📈 Issue spiking`, drop the `fingerprint`/`timestamp` params from the button URL (spiking
                events do not carry them), and add a context line referencing
-               `{event.properties.current_bucket_value}` and `{event.properties.computed_baseline}`. See
-               the sub-templates file for the exact block layout, which is reproduced verbatim in the
-               `authoring-error-tracking-alerts` skill references.
+               `{event.properties.current_bucket_value}` and `{event.properties.computed_baseline}`. The
+               exact block layout is in the `authoring-error-tracking-alerts` skill references.
 
 
             6. Webhook body. The webhook template only requires `url`:

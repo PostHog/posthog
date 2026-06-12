@@ -1,8 +1,7 @@
 # Block-kit and message body templates
 
 Canonical message body shapes for each event × integration. Copy verbatim — these match the in-product
-alert wizard, so agent-created and UI-created alerts produce identical notifications. Source of truth:
-`HOG_FUNCTION_SUB_TEMPLATES` in `frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts`.
+alert wizard, so agent-created and UI-created alerts produce identical notifications.
 
 The three placeholders inside `inputs` that you must fill at create time are:
 
