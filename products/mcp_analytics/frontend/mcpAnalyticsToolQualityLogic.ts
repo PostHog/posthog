@@ -20,8 +20,8 @@ import type { mcpAnalyticsToolQualityLogicType } from './mcpAnalyticsToolQuality
 import {
     EFFECTIVE_IS_ERROR_HOGQL,
     EFFECTIVE_TOOL_HOGQL,
-    EXCLUDE_EXEC_WRAPPER_FILTER,
-    EXCLUDE_EXEC_WRAPPER_HOGQL,
+    REAL_TOOL_CALL_FILTER,
+    REAL_TOOL_CALL_HOGQL,
 } from './mcpEventShape'
 
 // `$mcp_tool_category` is stamped onto every mcp_tool_call event by the producer
@@ -41,15 +41,16 @@ ORDER BY category
 // Per-category call counts over a fixed 7-day window powering the "share of MCP
 // usage" headline. Rows with an empty category count toward the total but not the
 // in-scope numerator, so uncategorized traffic dilutes the share as expected. The
-// exec dispatcher wrapper is excluded — it always lacks a category and each exec
-// invocation also emits an inner event for the real tool, so counting the wrapper
-// would dilute the share with a duplicate, uncategorizable event per call.
+// denominator keeps only real tool calls (shapeless events and the exec dispatcher
+// wrapper are excluded — the wrapper always lacks a category and each exec
+// invocation also emits an inner event for the real tool, so counting it would
+// dilute the share with a duplicate, uncategorizable event per call).
 const CATEGORY_COUNTS_QUERY = hogql`
 SELECT toString(properties.$mcp_tool_category) AS category, count() AS calls
 FROM events
 WHERE event = 'mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${hogql.raw(EXCLUDE_EXEC_WRAPPER_HOGQL)}
+    AND ${hogql.raw(REAL_TOOL_CALL_HOGQL)}
 GROUP BY category
 `
 
@@ -219,7 +220,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                             math: BaseMathType.TotalCount,
                         },
                     ],
-                    properties: [...categoryProperties, EXCLUDE_EXEC_WRAPPER_FILTER],
+                    properties: [...categoryProperties, REAL_TOOL_CALL_FILTER],
                     breakdownFilter: {
                         breakdown_type: 'hogql',
                         breakdown: EFFECTIVE_TOOL_HOGQL,
@@ -253,7 +254,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                             math: BaseMathType.TotalCount,
                         },
                     ],
-                    properties: [...categoryProperties, EXCLUDE_EXEC_WRAPPER_FILTER],
+                    properties: [...categoryProperties, REAL_TOOL_CALL_FILTER],
                     breakdownFilter: {
                         breakdown_type: 'hogql',
                         breakdown: EFFECTIVE_IS_ERROR_HOGQL,
@@ -293,7 +294,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                     // math_property can't take a HogQL expression, so this chart reads
                     // $mcp_duration_ms only — legacy exec inner-call events (duration_ms
                     // key) drop out of the percentile rather than skew it.
-                    properties: [...categoryProperties, EXCLUDE_EXEC_WRAPPER_FILTER],
+                    properties: [...categoryProperties, REAL_TOOL_CALL_FILTER],
                     trendsFilter: {
                         display: ChartDisplayType.ActionsLineGraph,
                     },

@@ -95,6 +95,8 @@ class TestToolQualitySQLExecution(ClickhouseTestMixin, APIBaseTest):
         self._seed({"tool_name": "apm-trace-get", "success": False, "duration_ms": 50})
         # Hono outer exec wrapper: must not produce a row.
         self._seed({"$mcp_tool_name": "exec", "$mcp_is_error": False, "$mcp_duration_ms": 999})
+        # Shapeless event (no tool identity under any key): must not produce a row.
+        self._seed({"$mcp_is_error": False})
 
         sql = (
             TOOL_QUALITY_SQL_PATH.read_text()
@@ -104,12 +106,17 @@ class TestToolQualitySQLExecution(ClickhouseTestMixin, APIBaseTest):
         query = parse_select(sql, placeholders={"filters": ast.Constant(value=True)})
         response = execute_hogql_query(query=query, team=self.team)
 
+        columns = response.columns or []
+        total_calls = columns.index("total_calls")
+        errors = columns.index("errors")
+        p50 = columns.index("p50_duration_ms")
+
         rows = {row[0]: row for row in response.results or []}
         assert set(rows) == {"query-logs", "apm-trace-get"}
         # query-logs: the native call + the SDK single-exec call, one of which errored.
-        assert rows["query-logs"][1] == 2
-        assert rows["query-logs"][2] == 1
+        assert rows["query-logs"][total_calls] == 2
+        assert rows["query-logs"][errors] == 1
         # apm-trace-get: the legacy inner-call shape, counted with its error and duration.
-        assert rows["apm-trace-get"][1] == 1
-        assert rows["apm-trace-get"][2] == 1
-        assert rows["apm-trace-get"][4] == 50
+        assert rows["apm-trace-get"][total_calls] == 1
+        assert rows["apm-trace-get"][errors] == 1
+        assert rows["apm-trace-get"][p50] == 50

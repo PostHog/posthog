@@ -19,12 +19,14 @@ export const EFFECTIVE_IS_ERROR_HOGQL =
 export const EFFECTIVE_DURATION_HOGQL =
     'coalesce(toFloat(properties.$mcp_duration_ms), toFloat(properties.duration_ms))'
 
-// In single-exec mode each invocation emits two events: the outer `exec`
-// dispatcher wrapper and an inner event for the real tool. Excluding the wrapper
-// counts each real call exactly once.
-export const EXCLUDE_EXEC_WRAPPER_HOGQL = `${EFFECTIVE_TOOL_HOGQL} != 'exec'`
+// Keeps exactly the events that represent one real tool call. Two conditions:
+// the IS NOT NULL drops shapeless events (HogQL's != is null-tolerant, so a
+// NULL effective tool would otherwise pass the comparison and surface as a
+// "None" bucket), and != 'exec' drops the single-exec dispatcher wrapper, which
+// always pairs with an inner event for the real tool.
+export const REAL_TOOL_CALL_HOGQL = `${EFFECTIVE_TOOL_HOGQL} IS NOT NULL AND ${EFFECTIVE_TOOL_HOGQL} != 'exec'`
 
-export const EXCLUDE_EXEC_WRAPPER_FILTER: HogQLPropertyFilter = {
+export const REAL_TOOL_CALL_FILTER: HogQLPropertyFilter = {
     type: PropertyFilterType.HogQL,
-    key: EXCLUDE_EXEC_WRAPPER_HOGQL,
+    key: REAL_TOOL_CALL_HOGQL,
 }

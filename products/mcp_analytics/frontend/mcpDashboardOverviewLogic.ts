@@ -7,18 +7,17 @@ import { hogql } from '~/queries/utils'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
-import { EFFECTIVE_DURATION_HOGQL, EFFECTIVE_IS_ERROR_HOGQL, EFFECTIVE_TOOL_HOGQL } from './mcpEventShape'
+import {
+    EFFECTIVE_DURATION_HOGQL,
+    EFFECTIVE_IS_ERROR_HOGQL,
+    EFFECTIVE_TOOL_HOGQL,
+    REAL_TOOL_CALL_HOGQL,
+} from './mcpEventShape'
 
 // KPI tiles compare this week against the prior week.
 const LOOKBACK_DAYS = 7
 // Breakdowns and trends (activity, tools, harnesses, notable sessions) use a longer 30-day window.
 const BREAKDOWN_DAYS = 30
-
-// Counts each real tool call exactly once across event shapes: resolves to a tool
-// name for every shape (so shapeless noise drops out — NULL fails the comparison)
-// and excludes the exec dispatcher wrapper, which always pairs with an inner event
-// for the real tool.
-const REAL_TOOL_CALL_HOGQL = `${EFFECTIVE_TOOL_HOGQL} != 'exec'`
 
 const KPI_QUERY = hogql`
 SELECT

@@ -30,7 +30,9 @@ SELECT
 FROM events
 WHERE event = 'mcp_tool_call'
     -- Repeats the `tool` coalesce: HogQL resolves SELECT aliases in GROUP BY /
-    -- HAVING but not reliably in WHERE.
+    -- HAVING but not reliably in WHERE. The IS NOT NULL is load-bearing:
+    -- HogQL's != is null-tolerant (NULL != 'exec' keeps the row), so without
+    -- it shapeless events surface as a NULL tool row.
     AND coalesce(
         nullIf(toString(properties.$mcp_exec_tool_call_name), ''),
         nullIf(toString(properties.$mcp_tool_name), ''),
