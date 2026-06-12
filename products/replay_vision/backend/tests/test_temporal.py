@@ -11,6 +11,7 @@ from django.utils import timezone
 
 import psycopg.errors
 from asgiref.sync import sync_to_async
+from google.genai.errors import APIError
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -19,6 +20,10 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
+    REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
+    REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -71,6 +76,7 @@ from products.replay_vision.backend.temporal.state import (
 )
 from products.replay_vision.backend.temporal.types import (
     ApplyScannerInputs,
+    CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
     EmbedSummarizerObservationInputs,
@@ -1196,6 +1202,56 @@ class TestEnsureSessionAssetActivity:
         ctx = asset.export_context or {}
         assert ctx["render_fingerprint"] == "abcdef"
         assert ctx["content_location"] == "s3://prior/video.mp4"
+
+
+class TestCleanupGeminiFileActivity:
+    async def _track(self, file_name: str) -> None:
+        redis = get_async_client()
+        await redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}{file_name}", "{}")
+        await redis.zadd(_GEMINI_REDIS_INDEX_KEY, {file_name: 0.0})
+
+    async def _is_tracked(self, file_name: str) -> bool:
+        redis = get_async_client()
+        return bool(await redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}{file_name}"))
+
+    @pytest.mark.asyncio
+    async def test_deletes_file_and_clears_tracking(self) -> None:
+        await self._track("files/rv-ok")
+        fake_client = MagicMock()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-ok"))
+        fake_client.files.delete.assert_called_once_with(name="files/rv-ok")
+        assert not await self._is_tracked("files/rv-ok")
+
+    @pytest.mark.asyncio
+    async def test_keeps_tracking_on_transient_failure(self) -> None:
+        await self._track("files/rv-transient")
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = RuntimeError("gemini down")
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-transient"))
+        assert await self._is_tracked("files/rv-transient")
+
+    @pytest.mark.parametrize("code", [403, 404])
+    @pytest.mark.asyncio
+    async def test_clears_tracking_when_file_already_gone(self, code: int) -> None:
+        # Gemini reports missing files as 403 PERMISSION_DENIED ("...or it may not exist") or 404;
+        # either way the file can't be deleted, so the tracking key must be dropped.
+        await self._track("files/rv-gone")
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = APIError(code=code, response_json={})
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-gone"))
+        assert not await self._is_tracked("files/rv-gone")
 
 
 def _build_inputs(**overrides: Any) -> ApplyScannerInputs:

@@ -114,9 +114,10 @@ async def sweep_gemini_files_activity(inputs: CleanupSweepInputs) -> CleanupSwee
             try:
                 await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=tracked.gemini_file_name)
             except APIError as e:
-                if e.code == 404:
-                    # File already gone (e.g., a previous untrack failed). Drop the key so we
-                    # don't keep retrying a doomed delete.
+                if e.code in (403, 404):
+                    # File already gone (e.g., a previous untrack failed). Gemini reports missing
+                    # files as 403 PERMISSION_DENIED ("...or it may not exist"), not just 404.
+                    # Drop the key so we don't keep retrying a doomed delete.
                     logger.info(
                         "cleanup_sweep.delete_already_gone",
                         gemini_file_name=tracked.gemini_file_name,
