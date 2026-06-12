@@ -134,22 +134,31 @@ describe('Error Tracking', { concurrent: false }, () => {
     }
 
     // The issues list reads the denormalized ClickHouse table, which lags Postgres deletes
-    // (issue merges) by a few seconds — skip listed ids whose detail lookup 404s.
-    async function getFirstLiveIssueDetails(
-        issueIds: string[]
+    // (issue merges) by a few seconds — re-list until the first listed issue resolves.
+    async function waitForFirstLiveIssueDetails(
+        listParams: Parameters<typeof issuesListTool.handler>[1] = {}
     ): Promise<{ issueId: string; details: { id?: string | null } } | undefined> {
-        for (const issueId of issueIds) {
+        const deadline = Date.now() + 10_000
+        while (true) {
+            const listResult = await issuesListTool.handler(context, listParams)
+            const errorList = parseToolResponse(listResult) as ErrorTrackingIssueListResult
+            const issueId = (errorList.results ?? [])
+                .map((issue) => issue.id)
+                .find((id): id is string => typeof id === 'string')
+            if (!issueId) {
+                return undefined
+            }
+
             try {
                 const detailsResult = await issueTool.handler(context, { issueId, volumeResolution: 0 })
                 return { issueId, details: parseToolResponse(detailsResult) }
             } catch (error) {
-                if (error instanceof PostHogApiError && error.status === 404) {
-                    continue
+                if (!(error instanceof PostHogApiError) || error.status !== 404 || Date.now() >= deadline) {
+                    throw error
                 }
-                throw error
             }
+            await new Promise((resolve) => setTimeout(resolve, 1000))
         }
-        return undefined
     }
 
     describe('query-error-tracking-issues-list tool', () => {
@@ -525,15 +534,7 @@ describe('Error Tracking', { concurrent: false }, () => {
 
     describe('Error tracking workflow', () => {
         it('should support listing errors and getting details workflow', async () => {
-            const listResult = await issuesListTool.handler(context, {})
-            const errorList = parseToolResponse(listResult) as ErrorTrackingIssueListResult
-
-            expect(Array.isArray(errorList.results)).toBe(true)
-
-            const issueIds = (errorList.results ?? [])
-                .map((issue) => issue.id)
-                .filter((id): id is string => typeof id === 'string')
-            const live = await getFirstLiveIssueDetails(issueIds)
+            const live = await waitForFirstLiveIssueDetails()
 
             if (live) {
                 expect(live.details.id).toBe(live.issueId)
@@ -543,15 +544,7 @@ describe('Error Tracking', { concurrent: false }, () => {
         it('should support full error tracking workflow: list, get details, and update status', async () => {
             const updateTool = GENERATED_TOOLS['error-tracking-issues-partial-update']!()
 
-            const listResult = await issuesListTool.handler(context, { status: 'all' })
-            const errorList = parseToolResponse(listResult) as ErrorTrackingIssueListResult
-
-            expect(Array.isArray(errorList.results)).toBe(true)
-
-            const issueIds = (errorList.results ?? [])
-                .map((issue) => issue.id)
-                .filter((id): id is string => typeof id === 'string')
-            const live = await getFirstLiveIssueDetails(issueIds)
+            const live = await waitForFirstLiveIssueDetails({ status: 'all' })
 
             if (!live) {
                 return
