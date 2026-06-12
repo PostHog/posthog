@@ -64,7 +64,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                         {dedent`
                             \`nativeCrashes\` captures native iOS and Android crashes that the JavaScript layer can't see. Beyond the config above, it needs:
 
-                            1. The optional native plugin installed — \`npx expo install @posthog/react-native-plugin\` (Expo) or \`npm i @posthog/react-native-plugin\` (bare React Native). This is the same plugin that powers session replay (renamed from \`posthog-react-native-session-replay\` in 4.47.0+), so you may already have it. If it's missing, native capture is a no-op and your JS-level autocapture is unaffected.
+                            1. The optional native plugin installed — \`npx expo install @posthog/react-native-plugin\` (Expo) or \`npm i @posthog/react-native-plugin\` (bare React Native). If it's missing, native capture is a no-op and your JS-level autocapture is unaffected.
                             2. Your project's **Enable exception autocapture** setting enabled in [error tracking settings](https://app.posthog.com/settings/project-error-tracking#exception-autocapture) — the same server-side setting that gates JavaScript autocapture.
                             3. Native debug symbols uploaded at build time, so crash stack traces are readable. See [native crash symbolication](https://posthog.com/docs/error-tracking/upload-source-maps/react-native#native-crash-symbolication).
                         `}
