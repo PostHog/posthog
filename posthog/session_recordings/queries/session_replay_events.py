@@ -64,8 +64,34 @@ def uuidv7_session_lower_bound(session_id: str, now: datetime | None = None) -> 
 CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK = timedelta(days=370)
 
 
+# The capture diagnostics panel only interprets recording-diagnostic properties
+# (see frontend replayCaptureDiagnostics.ts); the response is filtered to these
+# so replay viewers don't receive arbitrary event properties through this endpoint.
+_DIAGNOSTIC_PROPERTY_PREFIX = "$sdk_debug_"
+_DIAGNOSTIC_PROPERTIES = frozenset(
+    {
+        "$has_recording",
+        "$recording_status",
+        "$replay_minimum_duration",
+        "$replay_sample_rate",
+        "$session_recording_remote_config",
+        "$session_recording_start_reason",
+        "$session_recording_url_trigger_activated_session",
+        "$session_recording_url_trigger_status",
+    }
+)
+
+
+def _filter_to_diagnostic_properties(properties: dict) -> dict:
+    return {
+        key: value
+        for key, value in properties.items()
+        if key in _DIAGNOSTIC_PROPERTIES or key.startswith(_DIAGNOSTIC_PROPERTY_PREFIX)
+    }
+
+
 def get_latest_session_event_properties(session_id: str, team: Team) -> Optional[dict]:
-    """The most recent event's properties for a session, for the replay capture diagnostics panel.
+    """The most recent event's recording-diagnostic properties for a session, for the capture diagnostics panel.
 
     Bounded by a window derived from the UUIDv7 session id so the events sort key
     can prune the scan; misses (or ids that don't parse) fall back to a
@@ -114,7 +140,7 @@ def _latest_session_event_properties_between(
     row = result.results[0][0]
     if not row:
         return None
-    return json.loads(row) if isinstance(row, str) else row
+    return _filter_to_diagnostic_properties(json.loads(row) if isinstance(row, str) else row)
 
 
 def seconds_until_midnight():

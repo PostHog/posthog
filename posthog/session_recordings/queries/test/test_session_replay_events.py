@@ -435,6 +435,30 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
         assert properties is not None
         assert properties["$recording_status"] == marker
 
+    def test_filters_response_to_diagnostic_properties(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=session_start,
+            properties={
+                "$session_id": session_id,
+                "$recording_status": "disabled",
+                "$sdk_debug_replay_internal_buffer_length": 0,
+                "$current_url": "https://example.com/private-path",
+                "email": "person@example.com",
+            },
+        )
+
+        properties = get_latest_session_event_properties(session_id, self.team)
+
+        assert properties == {
+            "$recording_status": "disabled",
+            "$sdk_debug_replay_internal_buffer_length": 0,
+        }
+
     def test_returns_none_when_session_has_no_events(self) -> None:
         session_id = _uuidv7_session_id_for(now() - relativedelta(minutes=10))
 
