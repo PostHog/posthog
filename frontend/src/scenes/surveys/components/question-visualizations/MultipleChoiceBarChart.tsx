@@ -10,7 +10,6 @@ import {
     ChoiceTooltipContextData,
 } from 'scenes/surveys/components/question-visualizations/questionVizTooltips'
 import { formatCountWithPercentage } from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
-import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChoiceQuestionResponseData } from '~/types'
@@ -41,14 +40,15 @@ export function MultipleChoiceBarChart({
 
     // Bars encode the share of respondents who picked each choice, so the 0–100% axis and the
     // hatched track remainder both mean something; counts surface in the labels and tooltip.
-    // Stable series color: the bar track tint derives from it, so it must not follow the
-    // per-bar dim applied while a choice filter is active.
+    // The series color only tints the bar track here (every bar has its own override), so use a
+    // stable theme neutral: the track stays a subtle texture instead of pulling a palette color,
+    // and it doesn't follow the per-bar dim applied while a choice filter is active.
     const series: Series[] = [
         {
             key: 'multiple-choice',
             label: 'Share of respondents',
             data: chartData.map((d) => (totalResponses > 0 ? (d.value / totalResponses) * 100 : 0)),
-            color: CHART_INSIGHTS_COLORS[0],
+            color: theme.crosshairColor ?? 'gray',
             bars: chartData.map((_, i) => ({ color: barColors[i] })),
         },
     ]
