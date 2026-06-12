@@ -35,6 +35,15 @@ export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanCo
     return (
         <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
             <SpanAttributes title="Attributes" attributes={attributes} emptyLabel="No attributes set on this span" />
+            {/* Sibling section after the span attributes — same split the logs detail view uses.
+                Often absent (non-k8s / no resource attrs), so hidden when empty to avoid noise. */}
+            {Object.keys(span.resource_attributes ?? {}).length > 0 && (
+                <SpanAttributes
+                    title="Resource attributes"
+                    attributes={span.resource_attributes}
+                    emptyLabel="No resource attributes on this span"
+                />
+            )}
             {showDetails && <SpanAttributes title="Span details" attributes={details} />}
         </div>
     )

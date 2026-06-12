@@ -3882,6 +3882,10 @@ snapshots:
         hash: v1.k794b7964.7e6363d616aabde2fa6db252c233d4b7e651dd3ed0be35e55d51264b4e994438.7k8-ggET0l7Q1xUgeTCbh-Gy0s8rDpdVjFHER1HvBcA
     mcp-apps-cohorts--static--light:
         hash: v1.k794b7964.7a0889e7d21c79da2f04c4a187ab6d2b63158edd0e8737cda5a6254197eb3822.Qz8oGpJlwUIi5k43JRBxSAAJo-2fB-qceXOSk8SqTWI
+    mcp-apps-email-template--plain-text-fallback--light:
+        hash: v1.k794b7964.0b1f7127b75364574793fa13d6df88361bc4656a62f6192f100c6d7ca6d9a242.9YDZrP8mjrQTwp7fZ6eFGbSa6iYT7PjJEszdl06k28I
+    mcp-apps-email-template--rendered--light:
+        hash: v1.k794b7964.5e512ddfaa318512c1495ded61c5e023474938aa61f295fecffff933a404bda6.JgWQLaxJqSve1qcp7ugrRNg-9AAvSw9HGwXuKZlFjKw
     mcp-apps-error-tracking--active--light:
         hash: v1.k794b7964.3c4efa7c47d8f2863f3cec2c180dbf617b7a9b4253892f83900241929ab831b4.PQds2YnDLqkVbifI_HkTi1Uh7fkqL_P_ptcsfpXAwdA
     mcp-apps-error-tracking--chained-exceptions--light:

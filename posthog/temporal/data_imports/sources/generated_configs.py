@@ -37,6 +37,14 @@ class BigQueryUseCustomRegionConfig(config.Config):
 
 
 @config.config
+class ElasticsearchAuthMethodConfig(config.Config):
+    selection: Literal["basic", "api_key"] = "basic"
+    username: str | None = None
+    password: str | None = None
+    api_key: str | None = None
+
+
+@config.config
 class GithubAuthMethodConfig(config.Config):
     github_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
     selection: Literal["oauth", "pat"] = "oauth"
@@ -143,7 +151,7 @@ class AircallSourceConfig(config.Config):
 
 @config.config
 class AirtableSourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config
@@ -215,7 +223,8 @@ class AzureBlobSourceConfig(config.Config):
 
 @config.config
 class AzureDevOpsSourceConfig(config.Config):
-    pass
+    organization: str
+    personal_access_token: str
 
 
 @config.config
@@ -430,7 +439,7 @@ class CriteoSourceConfig(config.Config):
 
 @config.config
 class CrunchbaseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -529,7 +538,8 @@ class EbaySourceConfig(config.Config):
 
 @config.config
 class ElasticsearchSourceConfig(config.Config):
-    pass
+    host: str
+    auth_method: ElasticsearchAuthMethodConfig
 
 
 @config.config
@@ -604,7 +614,8 @@ class GladlySourceConfig(config.Config):
 
 @config.config
 class GoCardlessSourceConfig(config.Config):
-    pass
+    access_token: str
+    environment: Literal["live", "sandbox"] = config.value(default="live")
 
 
 @config.config
@@ -740,12 +751,14 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class KustomerSourceConfig(config.Config):
-    pass
+    org_name: str
+    api_key: str
 
 
 @config.config
 class LatticeSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "emea"] = config.value(default="us")
 
 
 @config.config
@@ -899,7 +912,7 @@ class OpsgenieSourceConfig(config.Config):
 
 @config.config
 class OptimizelySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1107,7 +1120,7 @@ class RipplingSourceConfig(config.Config):
 
 @config.config
 class RollbarSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
