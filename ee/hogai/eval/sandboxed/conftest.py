@@ -477,6 +477,7 @@ def _llm_gateway(_django_live_server, sandboxed_demo_data):
         "UV_PROJECT_ENVIRONMENT": str(venv_dir),
         "LLM_GATEWAY_DATABASE_URL": test_db_url,
         "LLM_GATEWAY_DEBUG": "true",
+        "LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS": '{"1": 10}',
         "LLM_GATEWAY_POSTHOG_HOST": str(_django_live_server),
     }
 

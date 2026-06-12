@@ -156,8 +156,11 @@ class Settings(BaseSettings):
     auth_cache_ttl: int = 900  # 15 minutes — used for personal API keys
     auth_cache_ttl_oauth: int = 300  # 5 minutes — OAuth tokens can be revoked on refresh, keep short
 
-    # Elevated rate/cost cap for PostHog staff, keyed on the authenticated
+    team_rate_limit_multipliers: dict[int, int] = {}
+
+    # Additional elevated cap for PostHog staff, keyed on the authenticated
     # user's is_staff flag rather than team id, so it survives impersonation.
+    # Combined with the team multiplier by taking the larger of the two.
     staff_rate_limit_multiplier: int = 10
 
     product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
@@ -202,6 +205,34 @@ class Settings(BaseSettings):
         if v < 1:
             raise ValueError(f"staff_rate_limit_multiplier must be >= 1, got {v}")
         return v
+
+    @field_validator("team_rate_limit_multipliers", mode="before")
+    @classmethod
+    def parse_team_multipliers(cls, v: str | dict[int, int] | None) -> dict[int, int]:
+        if v is None or v == "":
+            return {}
+        if isinstance(v, dict):
+            return v
+        try:
+            parsed = json.loads(v)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in team_rate_limit_multipliers: {e}") from e
+
+        if not isinstance(parsed, dict):
+            raise ValueError("team_rate_limit_multipliers must be a JSON object")
+
+        try:
+            result = {int(k): int(val) for k, val in parsed.items()}
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"team_rate_limit_multipliers keys and values must be integers: {e}") from e
+
+        for team_id, multiplier in result.items():
+            if multiplier < 1:
+                raise ValueError(
+                    f"team_rate_limit_multipliers values must be >= 1, got {multiplier} for team {team_id}"
+                )
+
+        return result
 
     model_config = {"env_prefix": "LLM_GATEWAY_"}
 
