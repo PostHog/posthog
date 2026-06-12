@@ -24,6 +24,7 @@ import {
     SessionEventBus,
     SessionInputsStore,
     LogSink,
+    verifyInferenceProxyToken,
 } from '@posthog/agent-shared'
 
 import { driveCodingSession } from './coding-driver'
@@ -77,8 +78,10 @@ class FakePool implements CodingSandboxPool {
     readonly kind = 'docker-coding' as const
     released: string[] = []
     sandbox: FakeCodingSandbox | null = null
+    acquireOpts: CodingAcquireOpts | null = null
     constructor(private readonly scriptTurn: (n: number) => HarnessFrame[]) {}
     async acquireForSession(opts: CodingAcquireOpts): Promise<CodingSandbox> {
+        this.acquireOpts = opts
         this.sandbox = new FakeCodingSandbox(opts.sessionId, this.scriptTurn)
         return this.sandbox
     }
@@ -364,6 +367,39 @@ describe('driveCodingSession', () => {
         const h = makeDeps(pool, { shutdown: controller.signal })
         const outcome = await driveCodingSession(rev(), makeSession('go'), h.deps)
         expect(outcome).toEqual({ state: 'suspended', reason: 'shutdown', turns: 0 })
+    })
+
+    it('with an inference proxy configured, the harness gets a session token — never the gateway key', async () => {
+        const pool = new FakePool(() => [
+            su({ sessionUpdate: 'agent_message_chunk', content: { text: 'ok' } }),
+            lifecycle('_posthog/turn_complete'),
+        ])
+        const h = makeDeps(pool)
+        ;(h.deps as { codingGateway?: unknown }).codingGateway = {
+            baseUrl: 'http://ingress:3210/inference',
+            projectId: 1,
+            inferenceProxy: { signingKey: 'test-signing-key' },
+        }
+        const session = makeSession('go')
+
+        const outcome = await driveCodingSession(rev(), session, h.deps)
+
+        expect(outcome).toEqual({ state: 'completed', turns: 1 })
+        const launch = pool.acquireOpts!.launch
+        expect(launch.modelBaseUrl).toBe('http://ingress:3210/inference')
+        // The launch carries a session-bound capability token, not a credential.
+        const claims = await verifyInferenceProxyToken({ token: launch.apiKey!, signingKey: 'test-signing-key' })
+        expect(claims.sessionId).toBe(session.id)
+    })
+
+    it('without a proxy, the legacy direct-gateway key still flows (interim)', async () => {
+        const pool = new FakePool(() => [
+            su({ sessionUpdate: 'agent_message_chunk', content: { text: 'ok' } }),
+            lifecycle('_posthog/turn_complete'),
+        ])
+        const h = makeDeps(pool)
+        await driveCodingSession(rev(), makeSession('go'), h.deps)
+        expect(pool.acquireOpts!.launch).toMatchObject({ modelBaseUrl: 'http://gw', apiKey: 'k' })
     })
 
     it('fails closed when no coding pool is wired', async () => {

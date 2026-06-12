@@ -35,6 +35,7 @@ import {
     LogLevel,
     LogSink,
     mintHarnessJwt,
+    mintInferenceProxyToken,
     NoopAnalyticsSink,
     parseFrame,
     renderLaunchConfig,
@@ -118,9 +119,22 @@ export async function driveCodingSession(
         systemPrompt = undefined
     }
 
+    // With a proxy configured, the sandbox holds only a session-bound
+    // capability token (dead once the session stops being live) — the real
+    // gateway key stays on the ingress proxy side. TTL covers the session's
+    // wall limit plus slack.
+    const proxy = deps.codingGateway?.inferenceProxy
+    const apiKey = proxy
+        ? await mintInferenceProxyToken({
+              sessionId: session.id,
+              signingKey: proxy.signingKey,
+              ttlSec: rev.spec.limits.max_wall_seconds + 600,
+          })
+        : deps.codingGateway?.apiKey
+
     const launch: CodingLaunchConfig = {
         ...renderLaunchConfig(rev.spec, { modelBaseUrl: deps.codingGateway?.baseUrl, systemPrompt }),
-        apiKey: deps.codingGateway?.apiKey,
+        apiKey,
         apiUrl: deps.posthogApiBaseUrl,
         projectId: deps.codingGateway?.projectId,
     }

@@ -60,8 +60,10 @@ export interface WorkerDeps {
     sandboxes: SandboxPool
     /** Tier-2 coding-sandbox pool — present when in-sandbox coding agents are enabled. */
     codingPool?: CodingSandboxPool
-    /** Gateway config the in-sandbox harness uses to reach the model. */
-    codingGateway?: { baseUrl: string; apiKey?: string; projectId?: number }
+    /** Gateway config the in-sandbox harness uses to reach the model. With
+     *  `inferenceProxy` set, `baseUrl` is the ingress inference proxy and the
+     *  driver mints a session capability token instead of passing `apiKey`. */
+    codingGateway?: { baseUrl: string; apiKey?: string; projectId?: number; inferenceProxy?: { signingKey: string } }
     broker: SecretBroker
     /** Resolved per-application secrets — wire from the team's encrypted env. */
     resolveSecrets: (session: AgentSession) => Promise<Record<string, string>>

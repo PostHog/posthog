@@ -288,13 +288,23 @@ async function main(): Promise<void> {
 
     // In-sandbox coding agents (tier-2). Off by default; Docker-only for now
     // (the runner pod needs Docker) — Modal coding pool is a follow-up. The
-    // harness wants the gateway ROOT (it appends /v1/messages itself), so strip
-    // a trailing /v1 from the configured gateway url.
+    // harness wants the model base ROOT (it appends /v1/messages itself), so
+    // strip a trailing /v1 from a configured gateway url.
+    //
+    // Preferred: the ingress inference proxy (AGENT_CODING_INFERENCE_PROXY_URL
+    // + AGENT_INTERNAL_SIGNING_KEY) — the sandbox gets a session capability
+    // token; the real gateway key never enters tier 2 and never reaches the
+    // driver. Fallback (dev only): direct gateway with the real key.
     const codingPool = config.codingEnabled
         ? new DockerCodingSandboxPool({ image: config.codingHarnessImage })
         : undefined
     const codingGateway = config.codingEnabled
-        ? { baseUrl: config.aiGatewayUrl.replace(/\/v1\/?$/, ''), apiKey: config.posthogAiGatewayKey }
+        ? config.codingInferenceProxyUrl && config.internalSigningKey
+            ? {
+                  baseUrl: config.codingInferenceProxyUrl.replace(/\/$/, ''),
+                  inferenceProxy: { signingKey: config.internalSigningKey },
+              }
+            : { baseUrl: config.aiGatewayUrl.replace(/\/v1\/?$/, ''), apiKey: config.posthogAiGatewayKey }
         : undefined
 
     const worker = new Worker({

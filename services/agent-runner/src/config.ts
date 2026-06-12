@@ -75,6 +75,18 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .string()
         .default('ghcr.io/posthog/posthog-sandbox-base:master')
         .describe('Image for the tier-2 coding harness (agent-server). Pin by digest in prod.'),
+    codingInferenceProxyUrl: z
+        .string()
+        .optional()
+        .describe(
+            'Ingress inference-proxy base the coding harness sends model calls to (e.g. `http://agent-ingress:8080/inference`). Set together with AGENT_INTERNAL_SIGNING_KEY to put a session capability token in the sandbox instead of the real gateway key (agent-sandbox-tiers.md §8). Unset → legacy direct-gateway path (dev only).'
+        ),
+    internalSigningKey: z
+        .string()
+        .optional()
+        .describe(
+            'Shared HMAC signing key (must match Django/ingress `AGENT_INTERNAL_SIGNING_KEY`). The runner mints the audience-bound inference-proxy session tokens with it.'
+        ),
     posthogAnalyticsApiKey: z
         .string()
         .optional()
@@ -230,6 +242,8 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     POSTHOG_AI_GATEWAY_KEY: 'posthogAiGatewayKey',
     AGENT_CODING_ENABLED: 'codingEnabled',
     AGENT_CODING_HARNESS_IMAGE: 'codingHarnessImage',
+    AGENT_CODING_INFERENCE_PROXY_URL: 'codingInferenceProxyUrl',
+    AGENT_INTERNAL_SIGNING_KEY: 'internalSigningKey',
     ANTHROPIC_API_KEY: 'anthropicApiKey',
     OPENAI_API_KEY: 'openaiApiKey',
     MODEL_API_KEY: 'modelApiKey',

@@ -218,8 +218,17 @@ export interface RunSessionDeps {
      * Gateway config the in-sandbox harness uses to reach the model
      * (`LLM_GATEWAY_URL` + token). Separate from the in-process model path
      * because the harness calls the gateway itself from inside the sandbox.
+     * With `inferenceProxy` set, `baseUrl` is the ingress inference proxy and
+     * the driver mints a session-bound capability token per acquisition —
+     * `apiKey` (the real gateway credential) is omitted and never enters
+     * tier 2. Without it, the legacy direct-gateway path applies (dev).
      */
-    codingGateway?: { baseUrl: string; apiKey?: string; projectId?: number }
+    codingGateway?: {
+        baseUrl: string
+        apiKey?: string
+        projectId?: number
+        inferenceProxy?: { signingKey: string }
+    }
 }
 
 export type RunOutcome =
