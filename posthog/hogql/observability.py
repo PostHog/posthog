@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from random import random
 from time import perf_counter
-from typing import Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Literal, TypeVar, cast
 
 import structlog
 from prometheus_client import (
@@ -25,6 +25,9 @@ from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 logger = structlog.get_logger(__name__)
 
@@ -275,16 +278,46 @@ def _source_from_query_tags() -> str:
     return str(getattr(product, "value", product))
 
 
-def classify_expr_type(type_: ast.Type | None) -> Precision:
+def classify_expr_type(type_: ast.Type | None, context: HogQLContext | None = None) -> Precision:
     if type_ is None or isinstance(type_, ast.UnknownType):
         return "unknown"
     if isinstance(type_, ast.CallType):
         return classify_constant_type(type_.return_type)
     if isinstance(type_, ast.FieldAliasType):
-        return classify_expr_type(type_.type)
+        return classify_expr_type(type_.type, context)
     if isinstance(type_, ast.ConstantType):
         return classify_constant_type(type_)
+    # FieldType/PropertyType hide a concrete scalar behind a reference; resolve it if we have a
+    # context. Other catch-all types (SelectQueryType, LazyJoinType, AsteriskType, lambda types)
+    # genuinely lack a scalar, so they skip resolution and stay "partial".
+    if context is not None and isinstance(type_, (ast.FieldType, ast.PropertyType)):
+        return _classify_via_resolution(type_, context)
     return "partial"
+
+
+def _classify_via_resolution(type_: ast.FieldType | ast.PropertyType, context: HogQLContext) -> Precision:
+    """Classify by the resolved scalar. For properties, follow PropertyType.resolve_constant_type's
+    precedence but stop before its nullable-String fallback: no metadata means "partial", not
+    precise-via-String."""
+    from posthog.hogql.property_planner import (
+        metadata_constant_type,  # noqa: PLC0415 — observability ← context ← property_planner; deferring breaks the cycle
+    )
+
+    try:
+        if isinstance(type_, ast.FieldType):
+            return classify_constant_type(type_.resolve_constant_type(context))
+        if (type_.joined_subquery is not None and type_.joined_subquery_field_name is not None) or isinstance(
+            type_.field_type.resolve_database_field(context), ast.StructDatabaseField
+        ):
+            return classify_constant_type(type_.resolve_constant_type(context))
+        metadata_type = metadata_constant_type(type_, context)
+        if metadata_type is None:
+            return "partial"
+        return classify_constant_type(metadata_type)
+    except Exception:
+        # Resolution can raise for genuinely unresolvable references — expected, so "partial"
+        # without bumping the observability error counter.
+        return "partial"
 
 
 def classify_constant_type(type_: ast.ConstantType | None) -> Precision:
@@ -337,10 +370,12 @@ def classify_function_group(function_name: str) -> str:
 
 
 @_safe
-def collect_hogql_type_coverage(node: ast.AST, stats: HogQLTypeObservability | None) -> None:
+def collect_hogql_type_coverage(
+    node: ast.AST, stats: HogQLTypeObservability | None, context: HogQLContext | None = None
+) -> None:
     if stats is None:
         return
-    TypeCoverageCollector(stats).visit(node)
+    TypeCoverageCollector(stats, context).visit(node)
 
 
 @_safe
@@ -376,14 +411,15 @@ def emit_hogql_type_observability(stats: HogQLTypeObservability | None) -> None:
 
 
 class TypeCoverageCollector(TraversingVisitor):
-    def __init__(self, stats: HogQLTypeObservability):
+    def __init__(self, stats: HogQLTypeObservability, context: HogQLContext | None = None):
         super().__init__()
         self.stats = stats
+        self.context = context
 
     def visit(self, node: ast.AST | None) -> None:
         if isinstance(node, ast.Expr):
             self.stats.expression_count += 1
-            self.stats.typed_by_precision[classify_expr_type(node.type)] += 1
+            self.stats.typed_by_precision[classify_expr_type(node.type, self.context)] += 1
         return super().visit(node)
 
 

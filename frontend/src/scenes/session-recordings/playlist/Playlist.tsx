@@ -19,7 +19,7 @@ import {
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
-import { range } from 'lib/utils'
+import { pluralize, range } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
@@ -258,6 +258,19 @@ export function Playlist({
                         />
                     </DraggableToNotebook>
                 </div>
+            )}
+            {!!filters?.session_ids?.length && (
+                <LemonBanner
+                    type="info"
+                    className="mb-2"
+                    action={{
+                        children: 'Show all recordings',
+                        onClick: () => setFilters({ session_ids: undefined }),
+                        loading: !!sessionRecordingsResponseLoading,
+                    }}
+                >
+                    Only showing {pluralize(filters.session_ids.length, 'selected recording')}
+                </LemonBanner>
             )}
             <div
                 ref={playlistRef}

@@ -16,7 +16,6 @@ from posthog.logging.timing import timed
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.filters.utils import get_filter
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
@@ -360,6 +359,10 @@ class InsightViewed(models.Model):
 
 @timed("generate_insight_cache_key")
 def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboard"]) -> str:
+    # Deferred: the legacy filters layer imports the HogQL/schema universe, and this model
+    # loads at django.setup() in every process.
+    from posthog.models.filters.utils import get_filter  # noqa: PLC0415
+
     try:
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
         candidate_filters_hash = generate_cache_key(

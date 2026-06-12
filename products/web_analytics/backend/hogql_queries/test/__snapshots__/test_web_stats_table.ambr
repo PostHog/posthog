@@ -72,10 +72,10 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))) AS visitors,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0))) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))) AS views,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0))) AS previous_views
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))) AS previous_visitors,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
@@ -112,8 +112,8 @@
      GROUP BY breakdown_value) AS time_on_page ON equals(counts.breakdown_value, time_on_page.breakdown_value)
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))) AS bounce_rate,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0))) AS previous_bounce_rate
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
                any(events__session.`$is_bounce`) AS is_bounce,
@@ -173,9 +173,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -213,7 +213,7 @@
      GROUP BY breakdown_value) AS time_on_page ON equals(counts.breakdown_value, time_on_page.breakdown_value)
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -274,9 +274,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -314,7 +314,7 @@
      GROUP BY breakdown_value) AS time_on_page ON equals(counts.breakdown_value, time_on_page.breakdown_value)
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -375,9 +375,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -415,7 +415,7 @@
      GROUP BY breakdown_value) AS time_on_page ON equals(counts.breakdown_value, time_on_page.breakdown_value)
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -475,9 +475,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -506,7 +506,7 @@
      GROUP BY breakdown_value) AS counts
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -566,9 +566,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -597,7 +597,7 @@
      GROUP BY breakdown_value) AS counts
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -657,9 +657,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -688,7 +688,7 @@
      GROUP BY breakdown_value) AS counts
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(events__session.`$entry_pathname`, '\\/a\\/\\d+', '/a/:id'), '\\/b\\/\\d+', '/b/:id'), '\\/c\\/\\d+', '/c/:id') AS breakdown_value,
@@ -748,9 +748,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -779,7 +779,7 @@
      GROUP BY breakdown_value) AS counts
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -839,9 +839,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -870,7 +870,7 @@
      GROUP BY breakdown_value) AS counts
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -1042,8 +1042,8 @@
 # name: TestWebStatsTableQueryRunner.test_comparison
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
-         tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0)))) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))), sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0)))) AS `context.columns.views`,
+         tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC')))))) AS `context.columns.visitors`,
+         tuple(sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))))), sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC')))))) AS `context.columns.views`,
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -3210,9 +3210,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -3250,7 +3250,7 @@
      GROUP BY breakdown_value) AS time_on_page ON equals(counts.breakdown_value, time_on_page.breakdown_value)
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -3880,9 +3880,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -3911,7 +3911,7 @@
      GROUP BY breakdown_value) AS counts
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -3971,9 +3971,9 @@
          `context.columns.bounce_rate`.1 AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -4002,7 +4002,7 @@
      GROUP BY breakdown_value) AS counts
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -4063,9 +4063,9 @@
          `context.columns.bounce_rate`.1 AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -4094,7 +4094,7 @@
      GROUP BY breakdown_value) AS counts
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,
@@ -4717,9 +4717,9 @@
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
-            uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
+            uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS visitors,
             uniqIf(filtered_person_id, 0) AS previous_visitors,
-            sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS views,
+            sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS views,
             sumIf(filtered_pageview_count, 0) AS previous_views
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
@@ -4757,7 +4757,7 @@
      GROUP BY breakdown_value) AS time_on_page ON equals(counts.breakdown_value, time_on_page.breakdown_value)
   LEFT JOIN
     (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+            avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
             avgIf(is_bounce, 0) AS previous_bounce_rate
      FROM
        (SELECT events__session.`$entry_pathname` AS breakdown_value,

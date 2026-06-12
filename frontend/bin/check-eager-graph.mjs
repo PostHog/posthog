@@ -199,17 +199,20 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
 }
 
 // Consumed by the workflow's comment + enforcement steps; written even on failure so
-// the PR comment can show what went over. The filename carries the built tree's HEAD
-// sha because compressed-size-action runs this for BOTH the PR build and the base
-// build in the same workspace — a plain filename would be overwritten by the base
-// build, making downstream steps report the wrong branch.
+// the PR comment can show what went over. The filename and the embedded sha carry the
+// built tree's HEAD because compressed-size-action runs this for BOTH the PR build and
+// the base build in the same workspace — the PR build's report is found by sha, and the
+// plain filename (last write = the base build) doubles as the base-branch measurement
+// for the comment's vs-base delta.
+try {
+    report.sha = execSync('git rev-parse HEAD', { cwd: frontendDir, encoding: 'utf-8' }).trim()
+} catch (err) {
+    console.error(`Could not resolve HEAD sha for the report: ${err.message}`)
+}
 const serialized = JSON.stringify(report, null, 2)
 fs.writeFileSync(path.join(frontendDir, 'eager-graph-report.json'), serialized)
-try {
-    const headSha = execSync('git rev-parse HEAD', { cwd: frontendDir, encoding: 'utf-8' }).trim()
-    fs.writeFileSync(path.join(frontendDir, `eager-graph-report-${headSha}.json`), serialized)
-} catch (err) {
-    console.error(`Could not write sha-specific report: ${err.message}`)
+if (report.sha) {
+    fs.writeFileSync(path.join(frontendDir, `eager-graph-report-${report.sha}.json`), serialized)
 }
 
 if (process.env.GITHUB_STEP_SUMMARY) {

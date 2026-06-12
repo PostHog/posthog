@@ -1,3 +1,4 @@
+import os
 import json
 import base64
 from datetime import datetime, timedelta
@@ -12,7 +13,7 @@ from unittest.mock import call, patch
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
@@ -23,6 +24,7 @@ from posthog.models import EventDefinition, GroupTypeMapping, Organization, Team
 from posthog.settings.utils import get_from_env
 from posthog.utils import (
     PotentialSecurityProblemException,
+    _build_flag_provider,
     absolute_uri,
     base64_decode,
     filters_override_requested_by_client,
@@ -1161,3 +1163,40 @@ class TestResolveDogfoodFlagsTeam(TestCase):
     def test_returns_none_when_there_are_no_teams(self):
         assert resolve_dogfood_flags_team() is None
         assert get_dogfood_flags_team_id() is None
+
+
+class TestBuildFlagProvider(TestCase):
+    def setUp(self):
+        super().setUp()
+        # The dogfood branch reads the whole teams table; clear ambient rows so the team we
+        # create is the first one. Cascade deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    @patch.dict(os.environ, {"POSTHOG_SELF_TEAM_ID": "5"}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_explicit_env_team_id_wins_over_self_capture(self):
+        assert _build_flag_provider()._resolve_team_id() == 5
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_self_capture_routes_to_dogfood_first_team(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+
+        assert _build_flag_provider()._resolve_team_id() == first_team.id
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False)
+    def test_falls_back_to_team_2_off_self_capture(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+
+        assert _build_flag_provider()._resolve_team_id() == 2
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=True)
+    def test_e2e_overrides_self_capture_to_team_2(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+
+        assert _build_flag_provider()._resolve_team_id() == 2

@@ -1,3 +1,4 @@
+import re
 import asyncio
 from collections.abc import Sequence
 from functools import cached_property
@@ -16,6 +17,7 @@ from posthog.schema import (
     HumanMessage,
     MaxBillingContext,
     MaxInsightContext,
+    MaxNotebookContext,
     MaxUIContext,
     ModeContext,
 )
@@ -49,6 +51,21 @@ from .prompts import (
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_UI_CONTEXT_PROMPT,
 )
+
+# Client-supplied notebook markdown is embedded verbatim in the prompt; cap it so a
+# malicious or buggy client can't blow up the context window.
+NOTEBOOK_MARKDOWN_MAX_LENGTH = 100_000
+
+
+def _sanitize_inline_prompt_value(value: str) -> str:
+    """Make a client-supplied string safe to interpolate into a single prompt line."""
+    return re.sub(r"\s+", " ", value.replace("`", "")).strip()
+
+
+def _markdown_fence_for(content: str) -> str:
+    """Return a backtick fence longer than any backtick run in the content, so the content can't close it."""
+    longest_run = max((len(match) for match in re.findall(r"`+", content)), default=0)
+    return "`" * max(3, longest_run + 1)
 
 
 class AssistantContextManager(AssistantContextMixin):
@@ -279,6 +296,10 @@ class AssistantContextManager(AssistantContextMixin):
 
             notebook_texts = []
             for nb in ui_context.notebooks:
+                if nb.markdown_with_insertion_placeholder:
+                    notebook_texts.append(self._format_markdown_notebook_context(nb))
+                    continue
+
                 ctx = await NotebookContext.from_short_id(self._team, nb.id)
                 if ctx:
                     notebook_texts.append(ctx.format())
@@ -333,6 +354,42 @@ class AssistantContextManager(AssistantContextMixin):
                 evaluations_context,
             )
         return None
+
+    def _format_markdown_notebook_context(self, notebook: MaxNotebookContext) -> str:
+        title = _sanitize_inline_prompt_value(notebook.name or f"Notebook {notebook.id}")
+        chat_id = _sanitize_inline_prompt_value(notebook.insertion_placeholder_block_id or "unknown")
+        chat_marker = _sanitize_inline_prompt_value(notebook.insertion_placeholder_marker or f'<Chat id="{chat_id}" />')
+        markdown = (notebook.markdown_with_insertion_placeholder or "")[:NOTEBOOK_MARKDOWN_MAX_LENGTH]
+        fence = _markdown_fence_for(markdown)
+
+        return "\n".join(
+            [
+                f"Notebook: {title}",
+                f"short_id: {notebook.id}",
+                "",
+                "The user is asking from a Markdown notebook v2 editor.",
+                f"Inline AI chat id: {chat_id}",
+                f"The chat is anchored in the markdown below at the marker `{chat_marker}`.",
+                "Placement rules when changing notebook content:",
+                (
+                    f"- Insert new or generated content immediately after `{chat_marker}`, unless the user "
+                    'explicitly names a different location. Phrases like "here", "this spot", "below", or '
+                    '"above" also refer to this anchor.'
+                ),
+                f"- Keep `{chat_marker}` in the markdown exactly once — never remove, move, or duplicate it.",
+                "- Leave the rest of the notebook unchanged unless the user asks you to change it.",
+                (
+                    "Use notebook tools against the current notebook when changing notebook content. "
+                    "For Markdown notebook v2, preserve the single ph-markdown-notebook node and update "
+                    "its attrs.markdown with valid markdown instead of replacing it with legacy rich-text blocks."
+                ),
+                "",
+                "Current notebook markdown with inline AI chat:",
+                f"{fence}markdown",
+                markdown,
+                fence,
+            ]
+        )
 
     def _build_insight_context(
         self,
