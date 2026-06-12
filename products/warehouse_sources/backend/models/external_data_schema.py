@@ -405,30 +405,13 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
     # data_load.service imports temporalio at module scope; this is a models module, so a
     # top-level import would put the Temporal client on the django.setup() path
-    from products.data_warehouse.backend.data_load.service import (  # noqa: PLC0415
-        external_data_workflow_exists,
-        pause_external_data_schedule,
-        sync_external_data_job_workflow,
-        unpause_external_data_schedule,
-    )
+    from products.data_warehouse.backend.data_load.service import sync_schema_schedule_state  # noqa: PLC0415
 
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
     schema.save()
 
-    if not schema.source.supports_scheduled_sync:
-        return schema
-
-    schedule_exists = external_data_workflow_exists(schema_id)
-
-    if schedule_exists:
-        if should_sync is False:
-            pause_external_data_schedule(schema_id)
-        elif should_sync is True:
-            unpause_external_data_schedule(schema_id)
-    else:
-        if should_sync is True:
-            sync_external_data_job_workflow(schema, create=True)
+    sync_schema_schedule_state(schema)
 
     return schema
 
@@ -515,19 +498,39 @@ def sync_old_schemas_with_new_schemas(
         if created:
             actually_created.append(schema)
 
+    # data_load.service imports temporalio at module scope; this is a models module, so a
+    # top-level import would put the Temporal client on the django.setup() path
+    from products.data_warehouse.backend.data_load.service import (  # noqa: PLC0415
+        delete_external_data_schedule,
+        sync_schema_schedule_state,
+    )
+
     for schema in schemas_to_possibly_delete:
         # There _could_ exist multiple schemas with the same name, there shouldn't be, but it's not impossible
-        schemas_to_check = ExternalDataSchema.objects.filter(
+        schemas_to_check = ExternalDataSchema.objects.select_related("source").filter(
             team_id=team_id, name=schema, source_id=source_id, deleted=False
         )
         for s in schemas_to_check:
+            # Schedule cleanup failures are logged, not raised: discovery re-walks
+            # still-missing schemas on every run, so they self-heal on the next cycle.
             if s.table_id is None:
+                try:
+                    delete_external_data_schedule(str(s.id))
+                except Exception as e:
+                    # Soft-deleting now would orphan the live schedule forever (deleted
+                    # schemas are never re-walked) — keep the row so the next run retries.
+                    capture_exception(e)
+                    continue
                 s.soft_delete()
                 deleted_schemas.append(schema)
             else:
                 s.should_sync = False
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
+                try:
+                    sync_schema_schedule_state(s)
+                except Exception as e:
+                    capture_exception(e)
 
     return actually_created, deleted_schemas
 

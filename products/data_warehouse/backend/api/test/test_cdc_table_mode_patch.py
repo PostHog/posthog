@@ -34,10 +34,10 @@ _PATCH_TARGETS = {
         "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter._alter_publication_membership"
     ),
     "external_data_workflow_exists": (
-        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists"
+        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists"
     ),
     "sync_external_data_job_workflow": (
-        "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"
+        "products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"
     ),
     "sync_cdc_extraction_schedule": (
         "products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"

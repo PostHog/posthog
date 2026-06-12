@@ -1,6 +1,7 @@
 import uuid
 
 from posthog.test.base import BaseTest
+from unittest import mock
 
 from parameterized import parameterized
 
@@ -87,3 +88,81 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert existing.should_sync is True
         assert "analytics.users" in created
         assert ExternalDataSchema.objects.filter(source_id=source.pk, name="analytics.users").exists()
+
+
+SERVICE = "products.data_warehouse.backend.data_load.service"
+
+
+class TestSchemaDiscoveryScheduleCleanup(BaseTest):
+    def _make_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+
+    def test_vanished_schema_with_table_is_disabled_and_schedule_converged(self) -> None:
+        source = self._make_source()
+        table = DataWarehouseTable.objects.create(
+            name="postgres_orders",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern="https://bucket/team_1/*",
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="orders",
+            should_sync=True,
+            table=table,
+        )
+
+        with mock.patch(f"{SERVICE}.sync_schema_schedule_state") as converge_mock:
+            sync_old_schemas_with_new_schemas({}, source_id=str(source.pk), team_id=self.team.pk)
+
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert schema.deleted is False
+        assert converge_mock.call_count == 1
+        assert converge_mock.call_args.args[0].id == schema.id
+
+    def test_vanished_schema_without_table_deletes_schedule_then_soft_deletes(self) -> None:
+        source = self._make_source()
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="orders",
+            should_sync=True,
+        )
+
+        with mock.patch(f"{SERVICE}.delete_external_data_schedule") as delete_mock:
+            _, deleted = sync_old_schemas_with_new_schemas({}, source_id=str(source.pk), team_id=self.team.pk)
+
+        schema.refresh_from_db()
+        assert schema.deleted is True
+        assert deleted == ["orders"]
+        delete_mock.assert_called_once_with(str(schema.id))
+
+    def test_vanished_schema_kept_when_schedule_delete_fails(self) -> None:
+        source = self._make_source()
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="orders",
+            should_sync=True,
+        )
+
+        with mock.patch(f"{SERVICE}.delete_external_data_schedule", side_effect=Exception("temporal down")):
+            _, deleted = sync_old_schemas_with_new_schemas({}, source_id=str(source.pk), team_id=self.team.pk)
+
+        # The row must survive so the next discovery run retries the schedule delete —
+        # soft-deleting now would orphan the live schedule forever.
+        schema.refresh_from_db()
+        assert schema.deleted is False
+        assert deleted == []

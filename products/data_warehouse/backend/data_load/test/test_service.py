@@ -30,6 +30,7 @@ from products.data_warehouse.backend.data_load.service import (
     cdc_min_interval,
     get_discover_schemas_schedule,
     get_sync_schedule,
+    sync_schema_schedule_state,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -456,3 +457,79 @@ def test_bulk_update_edj_mixed_skip_fail_and_success():
     assert [sid for sid, _ in failures] == [str(broken.id)]
     assert create_mock.call_count == 0
     assert update_mock.call_count == 3
+
+
+def _patch_schedule_state(exists=True):
+    return (
+        patch(f"{SERVICE}.external_data_workflow_exists", return_value=exists),
+        patch(f"{SERVICE}.sync_external_data_job_workflow"),
+        patch(f"{SERVICE}.pause_external_data_schedule"),
+    )
+
+
+@pytest.mark.parametrize("should_sync", [True, False])
+def test_sync_schema_schedule_state_reissues_existing_schedule(should_sync):
+    team = _sync_team()
+    schema = _make_schema(team, _make_source(team), should_sync=should_sync)
+
+    exists, sync, pause = _patch_schedule_state(exists=True)
+    with exists, sync as sync_mock, pause as pause_mock:
+        sync_schema_schedule_state(schema)
+
+    assert sync_mock.call_count == 1
+    assert sync_mock.call_args.kwargs == {"create": False, "should_sync": should_sync}
+    pause_mock.assert_not_called()
+
+
+def test_sync_schema_schedule_state_creates_missing_schedule_when_enabled():
+    team = _sync_team()
+    schema = _make_schema(team, _make_source(team), should_sync=True)
+
+    exists, sync, pause = _patch_schedule_state(exists=False)
+    with exists, sync as sync_mock, pause:
+        sync_schema_schedule_state(schema)
+
+    assert sync_mock.call_count == 1
+    assert sync_mock.call_args.kwargs == {"create": True, "should_sync": True}
+
+
+def test_sync_schema_schedule_state_noops_on_missing_schedule_when_disabled():
+    team = _sync_team()
+    schema = _make_schema(team, _make_source(team), should_sync=False)
+
+    exists, sync, pause = _patch_schedule_state(exists=False)
+    with exists, sync as sync_mock, pause as pause_mock:
+        sync_schema_schedule_state(schema)
+
+    sync_mock.assert_not_called()
+    pause_mock.assert_not_called()
+
+
+@pytest.mark.parametrize("schedule_exists,expect_pause", [(True, True), (False, False)])
+def test_sync_schema_schedule_state_pauses_when_no_frequency(schedule_exists, expect_pause):
+    team = _sync_team()
+    schema = _make_schema(team, _make_source(team), should_sync=True)
+    schema.sync_frequency_interval = None
+
+    exists, sync, pause = _patch_schedule_state(exists=schedule_exists)
+    with exists, sync as sync_mock, pause as pause_mock:
+        sync_schema_schedule_state(schema)
+
+    sync_mock.assert_not_called()
+    assert pause_mock.call_count == (1 if expect_pause else 0)
+
+
+def test_sync_schema_schedule_state_skips_direct_query_sources():
+    team = _sync_team()
+    source = _make_source(team)
+    source.access_method = ExternalDataSource.AccessMethod.DIRECT
+    source.save()
+    schema = _make_schema(team, source, should_sync=False)
+
+    exists, sync, pause = _patch_schedule_state()
+    with exists as exists_mock, sync as sync_mock, pause as pause_mock:
+        sync_schema_schedule_state(schema)
+
+    exists_mock.assert_not_called()
+    sync_mock.assert_not_called()
+    pause_mock.assert_not_called()

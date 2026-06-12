@@ -167,6 +167,33 @@ def sync_external_data_job_workflow(
     return external_data_schema
 
 
+def sync_schema_schedule_state(external_data_schema: ExternalDataSchema) -> None:
+    """Converge the schema's Temporal sync schedule to its DB state.
+
+    Re-issues the full schedule — interval, time-of-day offset, and paused flag — so the
+    spec cannot diverge from `sync_frequency_interval` / `should_sync`. Every code path
+    that writes `should_sync` or the frequency must call this instead of pausing/updating
+    the schedule piecemeal.
+    """
+    if not external_data_schema.source.supports_scheduled_sync:
+        return
+
+    schedule_id = str(external_data_schema.id)
+
+    # No cadence means there is no spec to issue — just make sure nothing keeps firing.
+    if external_data_schema.sync_frequency_interval is None:
+        if external_data_workflow_exists(schedule_id):
+            pause_external_data_schedule(schedule_id)
+        return
+
+    if external_data_workflow_exists(schedule_id):
+        sync_external_data_job_workflow(
+            external_data_schema, create=False, should_sync=external_data_schema.should_sync
+        )
+    elif external_data_schema.should_sync:
+        sync_external_data_job_workflow(external_data_schema, create=True, should_sync=True)
+
+
 async def a_sync_external_data_job_workflow(
     external_data_schema: ExternalDataSchema, create: bool = False, should_sync: bool = True
 ) -> ExternalDataSchema:

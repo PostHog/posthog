@@ -378,7 +378,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.description == "edited"
 
     @patch(
-        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas(self, _mock_workflow_exists):
@@ -421,7 +421,7 @@ class TestExternalDataSource(APIBaseTest):
         assert schema_two.should_sync is False
 
     @patch(
-        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas_runs_deferred_temporal_updates(self, _mock_workflow_exists):
@@ -435,7 +435,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         with patch(
-            "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"
+            "products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"
         ) as mock_sync_external_data_job_workflow:
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
@@ -448,11 +448,55 @@ class TestExternalDataSource(APIBaseTest):
         schema.refresh_from_db()
         assert sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval) == "7day"
         assert mock_sync_external_data_job_workflow.call_count == 1
-        assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": True}
+        # The schedule does not exist (mocked above), so an enabled schema gets it created
+        # rather than blind-updated into a NOT_FOUND error.
+        assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": True, "should_sync": True}
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
 
+    def test_bulk_update_schemas_one_failing_schedule_does_not_strand_the_rest(self):
+        source = self._create_external_data_source()
+        schema_one = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        schema_two = ExternalDataSchema.objects.create(
+            name="Invoices",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with patch(
+            "products.data_warehouse.backend.api.external_data_schema.sync_schema_schedule_state",
+            side_effect=[Exception("temporal down"), None],
+        ) as mock_converge:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={
+                    "schemas": [
+                        {"id": str(schema_one.id), "sync_frequency": "7day"},
+                        {"id": str(schema_two.id), "sync_frequency": "7day"},
+                    ]
+                },
+                format="json",
+            )
+
+        # Every schema's schedule update ran despite the first one failing, the DB changes
+        # stayed committed, and the failure surfaced to the caller.
+        assert mock_converge.call_count == 2
+        assert response.status_code == 500
+        assert "sync schedule" in response.json()["detail"]
+        schema_one.refresh_from_db()
+        schema_two.refresh_from_db()
+        assert sync_frequency_interval_to_sync_frequency(schema_one.sync_frequency_interval) == "7day"
+        assert sync_frequency_interval_to_sync_frequency(schema_two.sync_frequency_interval) == "7day"
+
     @patch(
-        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas_webhook_reconcile_raising_does_not_500(self, _mock_workflow_exists):
@@ -8004,9 +8048,12 @@ class TestDisableCDC(APIBaseTest):
             should_sync=True,
         )
 
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
-        )
+        with patch(
+            "products.data_warehouse.backend.api.external_data_source.sync_schema_schedule_state"
+        ) as mock_converge:
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+            )
         assert response.status_code == 200, response.content
 
         source.refresh_from_db()
@@ -8021,6 +8068,11 @@ class TestDisableCDC(APIBaseTest):
         cdc_schema.refresh_from_db()
         assert cdc_schema.sync_type is None
         assert cdc_schema.should_sync is False
+
+        # The sync schedule must be converged (paused) for the disabled schema, or it
+        # keeps firing while the schema reads as disabled.
+        assert mock_converge.call_count == 1
+        assert mock_converge.call_args.args[0].id == cdc_schema.id
 
         # Non-CDC schema must NOT be touched.
         non_cdc_schema.refresh_from_db()

@@ -366,7 +366,7 @@ class TestExternalDataSchema(APIBaseTest):
                 "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger_external_data_workflow,
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
         ):
@@ -380,6 +380,44 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_update_sync_frequency_on_disabled_never_activated_schema_is_db_only(self):
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"
+            ) as mock_sync,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_frequency": "7day"},
+            )
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == timedelta(days=7)
+        # No schedule exists and the schema is disabled — there is nothing to update,
+        # and blind-updating used to 500 with a Temporal NOT_FOUND.
+        mock_sync.assert_not_called()
 
     @parameterized.expand(
         [
@@ -447,7 +485,7 @@ class TestExternalDataSchema(APIBaseTest):
             ),
             mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
         ):
@@ -532,10 +570,10 @@ class TestExternalDataSchema(APIBaseTest):
                 return_value=True,
             ),
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
-            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"),
             mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
         ):
             response = self.client.patch(
@@ -643,7 +681,7 @@ class TestExternalDataSchema(APIBaseTest):
                 "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger_external_data_workflow,
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=True,
             ),
             mock.patch(
@@ -887,7 +925,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
@@ -936,7 +974,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
@@ -988,7 +1026,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
@@ -1041,7 +1079,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
@@ -1075,7 +1113,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
@@ -1105,7 +1143,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
@@ -1145,7 +1183,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
@@ -1184,7 +1222,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch.object(StripeSource, "get_schemas", return_value=mock_non_webhook_schemas),
@@ -1426,10 +1464,10 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists"
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists"
             ) as mock_external_data_workflow_exists,
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"
+                "products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"
             ) as mock_sync_external_data_job_workflow,
         ):
             response = client.patch(
@@ -1561,10 +1599,10 @@ class TestUpdateExternalDataSchema:
                 "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
             ) as mock_add_table,
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
-            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"),
             mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
         ):
             response = client.patch(
@@ -1776,14 +1814,14 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow",
             ) as mock_trigger,
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow",
+                "products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow",
             ),
         ):
             response = client.patch(
@@ -1818,14 +1856,14 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow",
             ) as mock_trigger,
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow",
+                "products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow",
             ),
         ):
             response = client.patch(

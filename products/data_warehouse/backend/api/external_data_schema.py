@@ -24,14 +24,12 @@ from posthog.temporal.data_imports.sources.common.sql import (
 
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
-    external_data_workflow_exists,
+    delete_external_data_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
-    pause_external_data_schedule,
     sync_cdc_extraction_schedule,
-    sync_external_data_job_workflow,
+    sync_schema_schedule_state,
     trigger_external_data_workflow,
-    unpause_external_data_schedule,
 )
 from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
@@ -634,23 +632,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if source.supports_scheduled_sync and (
             should_sync is not None or was_sync_frequency_updated or was_sync_time_of_day_updated
         ):
-
-            def update_schedule() -> None:
-                should_sync_value = should_sync if should_sync is not None else updated_instance.should_sync
-                schedule_exists = external_data_workflow_exists(str(updated_instance.id))
-
-                if schedule_exists:
-                    if should_sync is False:
-                        pause_external_data_schedule(str(updated_instance.id))
-                    elif should_sync is True:
-                        unpause_external_data_schedule(str(updated_instance.id))
-                elif should_sync is True:
-                    sync_external_data_job_workflow(updated_instance, create=True, should_sync=should_sync_value)
-
-                if was_sync_frequency_updated or was_sync_time_of_day_updated:
-                    sync_external_data_job_workflow(updated_instance, create=False, should_sync=should_sync_value)
-
-            self._run_temporal_side_effect(update_schedule)
+            self._run_temporal_side_effect(lambda: sync_schema_schedule_state(updated_instance))
 
         if trigger_refresh:
             self._run_temporal_side_effect(lambda: trigger_external_data_workflow(updated_instance))
@@ -866,6 +848,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.table.soft_delete()
         instance.soft_delete()
 
+        # Best-effort: a failed delete must not resurrect the request, but an orphaned
+        # schedule keeps syncing (and billing) a schema the user can no longer see.
+        try:
+            delete_external_data_schedule(str(instance.id))
+        except Exception as e:
+            logger.exception("Failed to delete sync schedule for deleted schema", exc_info=e)
+            capture_exception(e, {"schema_id": str(instance.id), "team_id": instance.team_id})
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=True)
@@ -968,6 +958,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             hide_direct_postgres_table(instance.table)
             instance.should_sync = False
             instance.save(update_fields=["should_sync", "updated_at"])
+            sync_schema_schedule_state(instance)
             return Response(status=status.HTTP_200_OK)
 
         instance.delete_table()

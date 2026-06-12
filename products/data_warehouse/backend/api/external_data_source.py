@@ -18,7 +18,7 @@ import temporalio
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -73,6 +73,7 @@ from products.data_warehouse.backend.data_load.service import (
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
+    sync_schema_schedule_state,
     trigger_external_data_source_workflow,
 )
 from products.data_warehouse.backend.direct_postgres import upsert_direct_postgres_table
@@ -2666,12 +2667,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             logger.exception("Failed engine-side CDC cleanup during disable_cdc", exc_info=e)
             capture_exception(e, {"source_id": str(instance.id)})
 
-        with transaction.atomic():
-            # Force CDC schemas to pick a new strategy by clearing sync_type and pausing.
-            ExternalDataSchema.objects.filter(
+        disabled_schemas = list(
+            ExternalDataSchema.objects.select_related("source")
+            .filter(
                 source=instance,
                 sync_type=ExternalDataSchema.SyncType.CDC,
-            ).exclude(deleted=True).update(sync_type=None, should_sync=False)
+            )
+            .exclude(deleted=True)
+        )
+
+        with transaction.atomic():
+            # Force CDC schemas to pick a new strategy by clearing sync_type and pausing.
+            # Per-instance saves (not a queryset update) so activity logging fires.
+            for disabled_schema in disabled_schemas:
+                disabled_schema.sync_type = None
+                disabled_schema.should_sync = False
+                disabled_schema.save(update_fields=["sync_type", "should_sync", "updated_at"])
 
             # Soft-delete `_cdc` companion DataWarehouseTable rows so the next sync
             # rebuilds them once the user picks a new strategy.
@@ -2691,6 +2702,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     job_inputs.pop(key, None)
             instance.job_inputs = job_inputs
             instance.save(update_fields=["job_inputs", "updated_at"])
+
+        # Pause the per-schema sync schedules after the commit — best-effort like the
+        # rest of the teardown, but without it the schedules keep firing while the
+        # schemas read as disabled.
+        for disabled_schema in disabled_schemas:
+            try:
+                sync_schema_schedule_state(disabled_schema)
+            except Exception as e:
+                logger.exception(
+                    "Failed to pause sync schedule during disable_cdc",
+                    extra={"source_id": str(instance.id), "schema_id": str(disabled_schema.id)},
+                )
+                capture_exception(e, {"source_id": str(instance.id), "schema_id": str(disabled_schema.id)})
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
@@ -3341,8 +3365,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 schema_serializer.is_valid(raise_exception=True)
                 updated_schemas.append(schema_serializer.save())
 
+        # Run every action even if one throws — the DB changes are already committed, and
+        # skipping the remaining actions would leave those schemas' schedules on stale state.
+        post_commit_failures = 0
         for post_commit_action in post_commit_actions:
-            post_commit_action()
+            try:
+                post_commit_action()
+            except Exception as e:
+                post_commit_failures += 1
+                logger.exception("bulk_update_schemas post-commit action failed", exc_info=e)
+                capture_exception(e, {"source_id": str(source.id), "team_id": self.team_id})
+
+        if post_commit_failures:
+            raise APIException(
+                f"Schema changes were saved, but updating the sync schedule failed for "
+                f"{post_commit_failures} schema(s). Save the affected schemas again to retry."
+            )
 
         return Response(
             ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
