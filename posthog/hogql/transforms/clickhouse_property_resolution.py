@@ -24,8 +24,6 @@ exist in the blob" test, but tightening it would change query results.
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from posthog.schema import MaterializationMode, PropertyGroupsMode
-
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
@@ -46,6 +44,7 @@ from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.property_groups import property_groups
+from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 # In non-nullable materialized columns these stored strings are treated as NULL.
 MAT_COL_NULL_SENTINELS = ["", "null"]

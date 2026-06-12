@@ -1,12 +1,12 @@
 from typing import Optional
 
-from posthog.schema import InlineCohortCalculation
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr
+
+from posthog.schema_enums import InlineCohortCalculation
 
 
 def inline_cohort_query(

@@ -30,3 +30,8 @@ UDFS: dict[str, HogQLFunctionMeta] = {
 # suffix applied at print time, from EngineConfig.udf_version.
 for _meta in UDFS.values():
     _meta.is_udf = True
+
+# JSONDropKeys is an executable UDF like the funnel UDFs, but it is printer-internal (restricted-property blob
+# stripping), not HogQL-exposed, so it lives outside UDFS. Its name is unversioned here too; the printer appends
+# the EngineConfig.udf_version suffix at print time.
+JSON_DROP_KEYS_CLICKHOUSE_NAME = "JSONDropKeys"

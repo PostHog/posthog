@@ -5,12 +5,13 @@ import * as http from 'http'
 import * as prometheus from 'prom-client'
 import express from 'ultimate-express'
 
+import { EncryptionCodec } from '~/common/temporal/codec'
+
 import { BrowserPool } from '../capture/browser-pool'
 import { playerHtmlCache } from '../capture/capture-page'
 import { config } from '../config'
 import { createLogger } from '../logger'
 import { createActivities } from './activities'
-import { EncryptionCodec } from './codec'
 
 prometheus.collectDefaultMetrics()
 

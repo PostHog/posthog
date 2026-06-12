@@ -17,11 +17,13 @@ import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as docs } from './docs'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
+import { GENERATED_TOOLS as email_templates } from './email_templates'
 import { GENERATED_TOOLS as endpoints } from './endpoints'
 import { GENERATED_TOOLS as engineering_analytics } from './engineering_analytics'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
 import { GENERATED_TOOLS as experiments } from './experiments'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
+import { GENERATED_TOOLS as field_notes } from './field_notes'
 import { GENERATED_TOOLS as health_issues } from './health_issues'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
@@ -61,11 +63,13 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...data_warehouse,
     ...docs,
     ...early_access_features,
+    ...email_templates,
     ...endpoints,
     ...engineering_analytics,
     ...error_tracking,
     ...experiments,
     ...feature_flags,
+    ...field_notes,
     ...health_issues,
     ...integrations,
     ...logs,

@@ -52,6 +52,7 @@ from posthog.temporal.ai.posthog_code_slack_mention_command import (
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_instance_region
 
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, SlackUserProfileCache
 from products.slack_app.backend.services.integration_resolver import (
@@ -554,6 +555,16 @@ WORKSPACE_CLAIMS_TIMEOUT_SECONDS = (1, 1)
 # re-flap routing for every subsequent event. Short TTL keeps us responsive when an integration
 # moves between regions; None answers are never cached.
 WORKSPACE_CLAIMS_CACHE_TTL_SECONDS = 60
+
+
+def _cross_region_routing_enabled() -> bool:
+    # Cross-region routing only makes sense between PostHog Cloud US and EU — they share the
+    # Slack app's signing secret and split workspace ownership between them. The hosted dev
+    # environment (CLOUD_DEPLOYMENT="DEV"), local dev, E2E, and self-hosted deployments all run
+    # as a single region; proxying their Slack events to us.posthog.com targets a different
+    # signing secret and a workspace this region doesn't own, which surfaces as a 403 on every
+    # webhook hit (see slack_app_region_proxy_non_success).
+    return get_instance_region() in ("US", "EU")
 
 
 def _us_region_domain() -> str:
@@ -1474,6 +1485,7 @@ def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: 
             UNTAGGED_THREAD_FOLLOWUPS_FLAG,
             f"slack_workspace:{slack_team_id}",
             groups={"organization": str(integration.team.organization_id)},
+            person_properties={"region": get_instance_region() or "unknown"},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -1680,7 +1692,7 @@ def route_posthog_code_event_to_relevant_region(
     # In local dev we run a single instance, so cross-region routing is meaningless: the only
     # consumer is this process. Disable both the probe and the proxy hop and always handle
     # locally.
-    can_defer_to_other_region = not _is_us_host(incoming_host) and not proxied and not settings.DEBUG
+    can_defer_to_other_region = _cross_region_routing_enabled() and not _is_us_host(incoming_host) and not proxied
 
     logger.info(
         "posthog_code_route_enter",
@@ -1923,9 +1935,10 @@ def _route_to_other_region_or_drop(
 ) -> str:
     """No local match: either forward to the other region or drop if we are the second hop.
 
-    In local dev there is no other region to forward to, so we just record the miss and stop.
+    Single-region deployments (local dev, hosted dev, E2E, self-hosted) have no other region
+    to forward to, so we just record the miss and stop.
     """
-    if proxied or settings.DEBUG:
+    if proxied or not _cross_region_routing_enabled():
         logger.warning(
             "posthog_code_no_integration_found",
             slack_team_id=slack_team_id,
@@ -3228,10 +3241,11 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         proxied=proxied,
     )
 
-    if not local and not proxied and not settings.DEBUG:
+    if not local and not proxied and _cross_region_routing_enabled():
         # The payload's integration_id pinpoints exactly one row, so a lookup would tell us
         # nothing new — just forward to the other region. The loop header keeps us at one hop.
-        # Skipped in local dev where there is only one region to talk to.
+        # Skipped in single-region deployments (local dev, hosted dev, E2E, self-hosted) where
+        # there is no other region to talk to.
         target = _other_region_domain(incoming_host)
         upstream = _proxy_event_to_region(request, target)
         if upstream is not None:

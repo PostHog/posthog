@@ -334,16 +334,18 @@ impl FingerprintedErrProps {
     }
 }
 
+// Deduplicates while preserving first-seen order, so derived properties
+// ($exception_types, $exception_values, ...) follow the $exception_list order.
 fn unique_by<T, I, F, K>(items: I, key_extractor: F) -> Vec<K>
 where
     I: Iterator<Item = T>,
     F: Fn(T) -> Option<K>,
     K: Eq + Hash + Clone,
 {
+    let mut seen = HashSet::new();
     items
         .filter_map(key_extractor)
-        .collect::<HashSet<_>>()
-        .into_iter()
+        .filter(|key| seen.insert(key.clone()))
         .collect()
 }
 
@@ -542,7 +544,7 @@ mod test {
 
     use crate::{frames::RawFrame, types::Stacktrace};
 
-    use super::RawErrProps;
+    use super::{Exception, ExceptionList, RawErrProps};
 
     #[test]
     fn it_deserialises_error_props() {
@@ -628,6 +630,33 @@ mod test {
         assert_eq!(
             props.unwrap_err().to_string(),
             "missing field `type` at line 5 column 13"
+        );
+    }
+
+    #[test]
+    fn unique_properties_preserve_exception_list_order() {
+        let make_exception = |t: &str, v: &str| Exception {
+            exception_id: None,
+            exception_type: t.to_string(),
+            exception_message: v.to_string(),
+            mechanism: None,
+            module: None,
+            thread_id: None,
+            stack: None,
+        };
+
+        let list: ExceptionList = vec![
+            make_exception("ZError", "z happened"),
+            make_exception("AError", "a happened"),
+            make_exception("ZError", "z happened"),
+            make_exception("MError", "m happened"),
+        ]
+        .into();
+
+        assert_eq!(list.get_unique_types(), vec!["ZError", "AError", "MError"]);
+        assert_eq!(
+            list.get_unique_messages(),
+            vec!["z happened", "a happened", "m happened"]
         );
     }
 }
