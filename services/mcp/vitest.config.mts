@@ -1,3 +1,4 @@
+import { resolve } from 'path'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
@@ -43,6 +44,41 @@ export default defineConfig({
                         'tests/workers/**',
                         'tests/hono/**',
                     ],
+                },
+            },
+            {
+                plugins: [tsconfigPaths({ root: '.' }), markdownLoader],
+                resolve: {
+                    // Mirrors the alias setup in vite.ui-apps.config.ts so the visualizer import
+                    // chain (which reaches outside this package via the `products` alias) resolves.
+                    // `@posthog/quill` points at source rather than dist so tests don't require a
+                    // prior `pnpm build:quill`.
+                    alias: [
+                        // Files reached via the `products` alias resolve bare imports from their
+                        // own directory, which has no node_modules — pin react to this package's copy.
+                        { find: 'react', replacement: resolve(__dirname, 'node_modules/react') },
+                        { find: 'react-dom', replacement: resolve(__dirname, 'node_modules/react-dom') },
+                        { find: 'products', replacement: resolve(__dirname, '../../products') },
+                        { find: '@posthog/mcp-ui', replacement: resolve(__dirname, 'src/ui-apps/lib') },
+                        {
+                            find: /^@posthog\/quill$/,
+                            replacement: resolve(__dirname, '../../packages/quill/packages/quill/src/index.ts'),
+                        },
+                        {
+                            find: /^@posthog\/quill-charts$/,
+                            replacement: resolve(__dirname, '../../packages/quill/packages/charts/src/index.ts'),
+                        },
+                        { find: /^lucide-react$/, replacement: resolve(__dirname, 'node_modules/lucide-react') },
+                        { find: '@common', replacement: resolve(__dirname, '../../common') },
+                    ],
+                },
+                test: {
+                    name: 'ui-apps-render',
+                    globals: true,
+                    environment: 'node',
+                    testTimeout: 10000,
+                    setupFiles: ['tests/render/setup.ts'],
+                    include: ['tests/render/**/*.test.tsx'],
                 },
             },
             './vitest.workers.config.mts',
