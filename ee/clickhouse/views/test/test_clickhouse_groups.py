@@ -246,6 +246,27 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(notebook.content[1]["type"], "text")
 
     @freeze_time("2021-05-02")
+    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    def test_find_with_skip_create_notebook_does_not_create_notebook(self, _):
+        index: GroupTypeIndex = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}&skip_create_notebook=true"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
+        self.assertEqual(response.json()["notebook"], None)
+        self.assertFalse(ResourceNotebook.objects.filter(group=group.id).exists())
+        self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
+
+    @freeze_time("2021-05-02")
     def test_retrieve_group_with_notebook(self):
         index: GroupTypeIndex = 0
         key = "key"
@@ -1616,6 +1637,70 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         cache.set(stale_cache_key, [{"stale": True}], 300)
         return cache_key, stale_cache_key
 
+    def test_list_serves_from_group_types_cache(self):
+        # No GroupTypeMapping rows exist — a response can only come from the cached helper
+        cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
+        cache.set(
+            cache_key,
+            [
+                {
+                    "group_type": "organization",
+                    "group_type_index": 0,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "detail_dashboard": 7,
+                    "default_columns": ["name"],
+                    "created_at": None,
+                }
+            ],
+            300,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            [
+                {
+                    "group_type": "organization",
+                    "group_type_index": 0,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "detail_dashboard": 7,
+                    "default_columns": ["name"],
+                    "created_at": None,
+                }
+            ],
+        )
+
+    def test_list_normalizes_legacy_detail_dashboard_id_cache_key(self):
+        # Cache entries written before the personhog converter matched the ORM
+        # .values() shape carry "detail_dashboard_id" — the response must still
+        # expose "detail_dashboard"
+        cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
+        cache.set(
+            cache_key,
+            [
+                {
+                    "group_type": "organization",
+                    "group_type_index": 0,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "detail_dashboard_id": 42,
+                    "default_columns": None,
+                    "created_at": None,
+                }
+            ],
+            300,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["detail_dashboard"], 42)
+        self.assertNotIn("detail_dashboard_id", response.json()[0])
+
     def test_update_metadata_invalidates_cache(self):
         GroupTypeMapping.objects.create(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
@@ -1628,8 +1713,9 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(cache.get(cache_key))
-        self.assertIsNone(cache.get(stale_cache_key))
+        # update_metadata responds with the list, which re-populates both caches with fresh rows
+        self.assertEqual(cache.get(cache_key)[0]["name_singular"], "org")
+        self.assertEqual(cache.get(stale_cache_key)[0]["name_singular"], "org")
 
     def test_destroy_invalidates_cache(self):
         GroupTypeMapping.objects.create(

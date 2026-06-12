@@ -86,6 +86,11 @@ BATCH_EXPORT_INTERNAL_STAGING_BUCKET: str = os.getenv("BATCH_EXPORT_INTERNAL_STA
 # The number of partitions controls how many files ClickHouse writes to concurrently. Used as the fallback
 # when we have no size estimate to drive a dynamic partition count (e.g. the first ever run of an export).
 BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS: int = get_from_env("BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS", 10, type_cast=int)
+# Kill switch for dynamic partition sizing: when disabled, every run uses the static
+# BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS value.
+BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED: bool = get_from_env(
+    "BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED", True, type_cast=str_to_bool
+)
 # When a previous run's row count is known, the staging partition count is chosen to target roughly this many
 # rows per staging Arrow file (file size ≈ rows × per-team row width), clamped to [MIN, MAX]. Set MIN == MAX to
 # pin the partition count back to a fixed value.

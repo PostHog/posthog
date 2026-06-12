@@ -178,8 +178,13 @@ export class InsightPage {
     }
 
     async discard(): Promise<void> {
+        // Discarding switches back to view mode, which re-fetches the insight. Drain that
+        // fetch before returning — left in flight, its response can land after a later
+        // edit and clobber it (see waitForInsightLoad).
+        const insightReloaded = this.waitForInsightLoad()
         await this.page.getByTestId('insight-cancel-edit-button').click()
         await expect(this.editButton).toBeVisible()
+        await insightReloaded
     }
 
     async editName(insightName: string = randomString('insight')): Promise<void> {

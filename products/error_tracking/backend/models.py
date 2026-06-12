@@ -64,6 +64,7 @@ class ErrorTrackingIssue(UUIDTModel):
             ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue_id__in=issue_ids).update(issue=self)
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            sync_issues_to_clickhouse(issue_ids=[self.id], team_id=self.team_id)
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
         own_fingerprints = set(
@@ -94,6 +95,7 @@ class ErrorTrackingIssue(UUIDTModel):
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
             # Spike events are no longer meaningful after splitting since the issue composition changed
             ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue=self).delete()
+            sync_issues_to_clickhouse(issue_ids=[self.id] + [issue.id for issue in new_issues], team_id=self.team_id)
         return new_issues
 
 

@@ -68,8 +68,6 @@ const FUNNEL_QUERY = {
 }
 
 test.describe('Funnel insights', () => {
-    test.setTimeout(60_000)
-
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
@@ -409,8 +407,7 @@ test.describe('Funnel insights', () => {
         })
 
         await test.step('cancel edit — conversion window reverts to saved value', async () => {
-            await insight.cancelButton.click()
-            await expect(insight.editButton).toBeVisible()
+            await insight.discard()
             await insight.funnels.waitForChart()
 
             await insight.edit()
@@ -453,8 +450,7 @@ test.describe('Funnel insights', () => {
         })
 
         await test.step('cancel restores original state after discard flow', async () => {
-            await insight.cancelButton.click()
-            await expect(insight.editButton).toBeVisible()
+            await insight.discard()
 
             await insight.edit()
             await expect(insight.funnels.conversionWindowInput).not.toHaveValue('3')

@@ -25,7 +25,7 @@ class TestIntercomSource:
         config = self.source.get_source_config
 
         assert config.name.value == "Intercom"
-        assert config.releaseStatus == "alpha"
+        assert config.releaseStatus == "beta"
         assert not config.unreleasedSource
 
         oauth_field = config.fields[0]
