@@ -87,7 +87,7 @@ def _merge(state_alias: str, base_aggregator: str) -> ast.Call:
     return ast.Call(name=base_aggregator + _MERGE_SUFFIX, args=[ast.Field(chain=["ev", state_alias])])
 
 
-class ErrorTrackingQueryV3Builder:
+class ErrorTrackingQueryBuilder:
     """ClickHouse-only query builder using the denormalized fingerprint table.
 
     Two query shapes are supported:
