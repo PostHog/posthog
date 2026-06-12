@@ -48,7 +48,7 @@ describe('linkedin template', () => {
               "headers": {
                 "Authorization": "Bearer oauth-1234",
                 "Content-Type": "application/json",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202605",
               },
               "method": "POST",
               "type": "fetch",
@@ -80,7 +80,7 @@ describe('linkedin template', () => {
               "headers": {
                 "Authorization": "Bearer oauth-1234",
                 "Content-Type": "application/json",
-                "LinkedIn-Version": "202508",
+                "LinkedIn-Version": "202605",
               },
               "method": "POST",
               "type": "fetch",

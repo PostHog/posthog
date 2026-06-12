@@ -51,7 +51,7 @@ let res := fetch('https://api.linkedin.com/rest/conversionEvents', {
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',
         'Content-Type': 'application/json',
-        'LinkedIn-Version': '202508'
+        'LinkedIn-Version': '202605'
     },
     'body': body
 })
