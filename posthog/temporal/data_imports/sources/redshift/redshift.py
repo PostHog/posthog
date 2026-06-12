@@ -296,7 +296,7 @@ class RedshiftColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):  # noqa: type-var
+class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):
     # `psycopg.Cursor` does not satisfy `_CursorLike` (its `execute`
     # signature uses `params` instead of `args`, and accepts `Query`
     # rather than `str`), so the cursor type is widened to `Any` here.
