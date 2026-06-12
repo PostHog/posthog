@@ -2,7 +2,7 @@ import re
 import logging
 from collections.abc import Iterable
 from functools import cached_property
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -11,15 +11,17 @@ import dns.name
 import dns.resolver
 from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
-from types_boto3_ses.client import SESClient
-from types_boto3_sesv2.client import SESV2Client
+
+if TYPE_CHECKING:
+    from types_boto3_ses.client import SESClient
+    from types_boto3_sesv2.client import SESV2Client
 
 logger = logging.getLogger(__name__)
 
 
 class SESProvider:
-    ses_client: SESClient
-    ses_v2_client: SESV2Client
+    ses_client: "SESClient"
+    ses_v2_client: "SESV2Client"
 
     def __init__(self):
         # Initialize the boto3 clients
