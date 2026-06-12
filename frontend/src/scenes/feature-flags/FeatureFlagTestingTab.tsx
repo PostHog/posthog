@@ -322,7 +322,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <div className="space-y-3 xl:col-span-2 flex flex-col min-h-0">
                                         <LemonLabel>Condition analysis</LemonLabel>
 
-                                        <div className="flex-1 min-h-96 space-y-3">
+                                        <div className="flex-1 space-y-3">
                                             {enrichedConditions.map((condition) => {
                                                 const styles = CONDITION_DISPLAY_STYLES[condition.display.tone]
 
@@ -391,7 +391,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                         </LemonLabel>
                                     </div>
 
-                                    <div className="flex-1 min-h-96">
+                                    <div className="flex-1">
                                         <PropertiesTable
                                             properties={result.person_properties}
                                             type={PropertyDefinitionType.Person}
