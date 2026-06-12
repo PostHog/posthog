@@ -210,29 +210,64 @@ pub async fn process_replay_events(
     let mut first_event = events_iter.next().ok_or(CaptureError::EmptyBatch)?;
 
     let uuid = first_event.uuid.unwrap_or_else(uuid_v7);
-    let distinct_id = first_event
-        .extract_distinct_id()
-        .ok_or(CaptureError::MissingDistinctId)?;
+    let Some(distinct_id) = first_event.extract_distinct_id() else {
+        return Err(reject_replay_batch(
+            &sink,
+            context,
+            CaptureError::MissingDistinctId,
+            "missing_distinct_id",
+            None,
+            None,
+            computed_timestamp,
+        )
+        .await);
+    };
+    // no warning here: extract_is_cookieless_mode never returns None
     let is_cookieless_mode = first_event
         .extract_is_cookieless_mode()
         .ok_or(CaptureError::InvalidCookielessMode)?;
 
     // Take metadata fields by ownership (no clone!)
-    let session_id = first_event
-        .properties
-        .session_id
-        .take()
-        .ok_or(CaptureError::MissingSessionId)?;
+    let Some(session_id) = first_event.properties.session_id.take() else {
+        return Err(reject_replay_batch(
+            &sink,
+            context,
+            CaptureError::MissingSessionId,
+            "missing_session_id",
+            None,
+            Some(&distinct_id),
+            computed_timestamp,
+        )
+        .await);
+    };
 
     // Validate session_id
-    let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
-    if session_id_str.len() > 70
-        || !session_id_str
+    let session_id_valid = session_id
+        .as_str()
+        .is_some_and(|s| s.len() <= 70 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    if !session_id_valid {
+        // include the malformed value so teams can spot integration bugs
+        let raw_session_id: String = session_id
+            .as_str()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| session_id.to_string())
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-')
-    {
-        return Err(CaptureError::InvalidSessionId);
+            .take(100)
+            .collect();
+        return Err(reject_replay_batch(
+            &sink,
+            context,
+            CaptureError::InvalidSessionId,
+            "invalid_session_id",
+            Some(&raw_session_id),
+            Some(&distinct_id),
+            computed_timestamp,
+        )
+        .await);
     }
+    let session_id_str = session_id
+        .as_str()
+        .expect("session_id validated as string above");
     Span::current().record("session_id", session_id_str);
 
     // Apply event restrictions
@@ -284,36 +319,29 @@ pub async fn process_replay_events(
     // Start with the first event's snapshot data, then iterate over the rest
     let mut snapshot_items: Vec<Value> = Vec::new();
 
-    // Process first event's snapshot_data
-    let Some(snapshot_data) = first_event.properties.snapshot_data.take() else {
-        return Err(CaptureError::MissingSnapshotData);
-    };
-    match snapshot_data {
-        Value::Array(mut arr) => {
-            snapshot_items.append(&mut arr);
-        }
-        Value::Object(obj) => {
-            snapshot_items.push(Value::Object(obj));
-        }
-        _ => {
-            return Err(CaptureError::MissingSnapshotData);
-        }
-    }
-
-    // Process remaining events' snapshot_data
-    for mut event in events_iter {
-        let Some(snapshot_data) = event.properties.snapshot_data.take() else {
-            return Err(CaptureError::MissingSnapshotData);
-        };
+    // Process first event's snapshot_data, then the remaining events'
+    let first_snapshot_data = first_event.properties.snapshot_data.take();
+    for snapshot_data in std::iter::once(first_snapshot_data)
+        .chain(events_iter.map(|mut event| event.properties.snapshot_data.take()))
+    {
         match snapshot_data {
-            Value::Array(mut arr) => {
+            Some(Value::Array(mut arr)) => {
                 snapshot_items.append(&mut arr);
             }
-            Value::Object(obj) => {
+            Some(Value::Object(obj)) => {
                 snapshot_items.push(Value::Object(obj));
             }
             _ => {
-                return Err(CaptureError::MissingSnapshotData);
+                return Err(reject_replay_batch(
+                    &sink,
+                    context,
+                    CaptureError::MissingSnapshotData,
+                    "missing_snapshot_data",
+                    Some(session_id_str),
+                    Some(&distinct_id),
+                    computed_timestamp,
+                )
+                .await);
             }
         }
     }
@@ -441,22 +469,76 @@ fn replay_message_too_large_warning(
     let message = format!(
         "Replay data for session {session_id} was dropped because it was too large to ingest ({snapshot_bytes} bytes, {snapshot_items_count} snapshot items)"
     );
-    let lib = bounded_warning_lib(snapshot_library);
+    let details = json!({
+        "timestamp": timestamp.to_rfc3339(),
+        "replayRecord": { "session_id": session_id },
+        "snapshotBytes": snapshot_bytes,
+        "snapshotItemsCount": snapshot_items_count,
+        "lib": bounded_warning_lib(snapshot_library),
+    });
+    client_ingestion_warning_event(
+        context,
+        distinct_id,
+        Some(session_id),
+        timestamp,
+        "replay_message_too_large",
+        message,
+        details,
+    )
+}
+
+/// Flag the rejected payload with a `replay_message_invalid` warning (best
+/// effort, since the SDK drops the 400 silently), then hand back the error.
+#[allow(clippy::too_many_arguments)]
+async fn reject_replay_batch(
+    sink: &Arc<dyn sinks::Event + Send + Sync>,
+    context: &ProcessingContext,
+    err: CaptureError,
+    reason: &'static str,
+    session_id: Option<&str>,
+    distinct_id: Option<&str>,
+    timestamp: chrono::DateTime<chrono::Utc>,
+) -> CaptureError {
+    counter!("capture_replay_message_invalid_total", "reason" => reason).increment(1);
+    let message = format!("Replay data was rejected at capture: {reason}");
+    let details = json!({
+        "reason": reason,
+        "sessionId": session_id,
+    });
+    let warning = client_ingestion_warning_event(
+        context,
+        distinct_id.unwrap_or("unknown").to_string(),
+        None,
+        timestamp,
+        "replay_message_invalid",
+        message,
+        details,
+    );
+    if let Err(warning_err) = sink.send(warning).await {
+        error!("failed to send replay_message_invalid ingestion warning: {warning_err:?}");
+    }
+    err
+}
+
+/// Build a `$$client_ingestion_warning` event. Ingestion resolves the team
+/// from the token and persists it as an ingestion warning of `warning_type`.
+fn client_ingestion_warning_event(
+    context: &ProcessingContext,
+    distinct_id: String,
+    session_id: Option<&str>,
+    timestamp: chrono::DateTime<chrono::Utc>,
+    warning_type: &str,
+    message: String,
+    details: Value,
+) -> ProcessedEvent {
     let data = json!({
         "event": "$$client_ingestion_warning",
         "distinct_id": &distinct_id,
         "properties": {
             "$$client_ingestion_warning_message": message,
-            "$$client_ingestion_warning_type": "replay_message_too_large",
-            "$$client_ingestion_warning_details": {
-                "timestamp": timestamp.to_rfc3339(),
-                "replayRecord": { "session_id": session_id },
-                "snapshotBytes": snapshot_bytes,
-                "snapshotItemsCount": snapshot_items_count,
-                "lib": lib.as_str(),
-            },
+            "$$client_ingestion_warning_type": warning_type,
+            "$$client_ingestion_warning_details": details,
             "$session_id": session_id,
-            "$lib": lib.as_str(),
         }
     })
     .to_string();
@@ -464,7 +546,7 @@ fn replay_message_too_large_warning(
     ProcessedEvent {
         metadata: ProcessedEventMetadata {
             data_type: DataType::ClientIngestionWarning,
-            session_id: Some(session_id.to_string()),
+            session_id: session_id.map(|s| s.to_string()),
             computed_timestamp: Some(timestamp),
             event_name: "$$client_ingestion_warning".to_string(),
             force_overflow: false,
@@ -477,7 +559,7 @@ fn replay_message_too_large_warning(
         event: CapturedEvent {
             uuid: uuid_v7(),
             distinct_id,
-            session_id: Some(session_id.to_string()),
+            session_id: session_id.map(|s| s.to_string()),
             ip: context.client_ip.clone(),
             data,
             now: context
@@ -1314,6 +1396,122 @@ mod tests {
             .is_some_and(|m| m.contains("test-session-123")));
     }
 
+    // ============ rejected payload flagging tests ============
+
+    async fn run_rejected_payload_case(
+        recording_json: Value,
+    ) -> (Result<(), CaptureError>, Vec<ProcessedEvent>) {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+        let recording: RawRecording = serde_json::from_value(recording_json).unwrap();
+        let context = create_test_context();
+        let result = process_replay_events(sink, None, None, vec![recording], &context).await;
+        let captured = events_captured.lock().unwrap().clone();
+        (result, captured)
+    }
+
+    fn assert_invalid_warning(captured: &[ProcessedEvent], reason: &str) -> Value {
+        assert_eq!(captured.len(), 1, "exactly one warning event must be sent");
+        let warning = &captured[0];
+        assert_eq!(warning.metadata.data_type, DataType::ClientIngestionWarning);
+        let data: Value = serde_json::from_str(&warning.event.data).unwrap();
+        let props = data["properties"].clone();
+        assert_eq!(
+            props["$$client_ingestion_warning_type"],
+            "replay_message_invalid"
+        );
+        assert_eq!(
+            props["$$client_ingestion_warning_details"]["reason"],
+            reason
+        );
+        props
+    }
+
+    #[tokio::test]
+    async fn test_missing_session_id_emits_invalid_warning() {
+        let (result, captured) = run_rejected_payload_case(json!({
+            "event": "$snapshot",
+            "distinct_id": "test_user",
+            "properties": { "$snapshot_data": [{"type": 1}] }
+        }))
+        .await;
+
+        assert!(matches!(result, Err(CaptureError::MissingSessionId)));
+        assert_invalid_warning(&captured, "missing_session_id");
+    }
+
+    #[tokio::test]
+    async fn test_invalid_session_id_emits_warning_with_offending_value() {
+        let (result, captured) = run_rejected_payload_case(json!({
+            "event": "$snapshot",
+            "distinct_id": "test_user",
+            "properties": {
+                "$session_id": "not!a!valid!session!id",
+                "$snapshot_data": [{"type": 1}]
+            }
+        }))
+        .await;
+
+        assert!(matches!(result, Err(CaptureError::InvalidSessionId)));
+        let props = assert_invalid_warning(&captured, "invalid_session_id");
+        assert_eq!(
+            props["$$client_ingestion_warning_details"]["sessionId"],
+            "not!a!valid!session!id"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_missing_snapshot_data_emits_invalid_warning() {
+        let (result, captured) = run_rejected_payload_case(json!({
+            "event": "$snapshot",
+            "distinct_id": "test_user",
+            "properties": { "$session_id": "test-session-123" }
+        }))
+        .await;
+
+        assert!(matches!(result, Err(CaptureError::MissingSnapshotData)));
+        let props = assert_invalid_warning(&captured, "missing_snapshot_data");
+        assert_eq!(
+            props["$$client_ingestion_warning_details"]["sessionId"],
+            "test-session-123"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_missing_distinct_id_emits_invalid_warning_with_fallback_id() {
+        let (result, captured) = run_rejected_payload_case(json!({
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "test-session-123",
+                "$snapshot_data": [{"type": 1}]
+            }
+        }))
+        .await;
+
+        assert!(matches!(result, Err(CaptureError::MissingDistinctId)));
+        assert_invalid_warning(&captured, "missing_distinct_id");
+        assert_eq!(captured[0].event.distinct_id, "unknown");
+    }
+
+    #[tokio::test]
+    async fn test_valid_payload_emits_no_invalid_warning() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+        let context = create_test_context();
+
+        let result =
+            process_replay_events(sink, None, None, vec![create_test_recording()], &context).await;
+
+        assert!(result.is_ok());
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].metadata.data_type, DataType::SnapshotMain);
+    }
+
     #[tokio::test]
     async fn test_oversized_snapshot_warning_caps_client_lib() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
@@ -1350,11 +1548,6 @@ mod tests {
                 .map(|s| s.chars().count()),
             Some(200),
             "client lib must be capped in the warning details"
-        );
-        assert_eq!(
-            props["$lib"].as_str().map(|s| s.chars().count()),
-            Some(200),
-            "top-level $lib must be capped too"
         );
     }
 

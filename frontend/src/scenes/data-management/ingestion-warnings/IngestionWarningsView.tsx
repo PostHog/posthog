@@ -32,6 +32,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     replay_timestamp_invalid: 'Replay event timestamp is invalid',
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
+    replay_message_invalid: 'Replay data was rejected at capture because the payload was invalid',
     set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
     schema_validation_failed: 'Event rejected due to schema validation failure',
 }
@@ -204,6 +205,24 @@ const WARNING_TYPE_RENDERER = {
                         data-attr="skewed-timestamp-view-recording"
                     />
                 </div>
+            </>
+        )
+    },
+    replay_message_invalid: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            reason: string
+            sessionId?: string
+        } = {
+            reason: warning.details.reason,
+            sessionId: warning.details.sessionId,
+        }
+        return (
+            <>
+                Session replay data was rejected at capture, so the recording is missing data:
+                <ul>
+                    <li>reason: {details.reason}</li>
+                    {details.sessionId ? <li>session_id: {details.sessionId}</li> : null}
+                </ul>
             </>
         )
     },

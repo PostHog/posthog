@@ -268,6 +268,29 @@ describe('handleClientIngestionWarningStep', () => {
             expect(result.warnings[0].type).toBe('client_ingestion_warning')
         })
 
+        it.each([
+            ['valid reason', { reason: 'invalid_session_id', sessionId: 'bad!id' }, 'replay_message_invalid'],
+            ['missing reason', { sessionId: 'bad!id' }, 'client_ingestion_warning'],
+            ['non-string reason', { reason: 42 }, 'client_ingestion_warning'],
+        ])('replay_message_invalid override with %s', async (_name, details, expectedType) => {
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_type: 'replay_message_invalid',
+                        $$client_ingestion_warning_details: details,
+                    },
+                },
+            }
+
+            const result = await handleStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings[0].type).toBe(expectedType)
+        })
+
         it('ignores warning types outside the allowlist', async () => {
             const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,

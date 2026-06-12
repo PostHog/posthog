@@ -44,6 +44,21 @@ const WARNING_TYPE_OVERRIDES = new Map<string, (details: Record<string, unknown>
             }
         },
     ],
+    // emitted by capture when a replay payload fails validation
+    [
+        'replay_message_invalid',
+        (details) => {
+            const reason = boundedString(details.reason)
+            if (reason === null) {
+                return null
+            }
+            const sessionId = boundedString(details.sessionId)
+            return {
+                details: { reason, sessionId: sessionId ?? undefined },
+                debounceKey: sessionId ?? reason,
+            }
+        },
+    ],
 ])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
