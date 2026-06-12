@@ -1262,7 +1262,12 @@ class TestConversationSandboxRoute(APIBaseTest):
     def test_sandbox_route_reachable_and_delegates_to_handler(self):
         conversation = self._sandbox_conversation()
         sentinel = SandboxRouteResult(
-            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+            task_id="t",
+            run_id="r",
+            trace_id=None,
+            run_status="queued",
+            just_created_run=True,
+            attached_context_count=2,
         )
         with (
             patch("ee.api.conversation.MessageRoutingService") as m_service,
@@ -1275,13 +1280,20 @@ class TestConversationSandboxRoute(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), sentinel.model_dump())
+        # attached_context_count is internal telemetry plumbing, excluded from the response body.
+        self.assertEqual(response.json(), sentinel.model_dump(exclude={"attached_context_count"}))
         m_service.return_value.handle.assert_called_once()
         # The service receives the resolved conversation, not just an id.
         passed_conversation = m_service.call_args[0][0]
         self.assertEqual(passed_conversation.id, conversation.id)
-        # Telemetry fires at the API boundary, after the service returns.
+        # Telemetry fires once at the API boundary with sandbox-path field parity, derived
+        # from the routing result.
         m_telemetry.assert_called_once()
+        props = m_telemetry.call_args[0][2]
+        self.assertEqual(props["execution_type"], "sandbox")
+        self.assertEqual(props["agent_runtime"], "sandbox")
+        self.assertTrue(props["has_attached_context"])
+        self.assertEqual(props["attached_context_count"], 2)
 
     def test_sandbox_route_blocked_when_quota_limited(self):
         conversation = self._sandbox_conversation()
@@ -1339,12 +1351,38 @@ class TestConversationSandboxRoute(APIBaseTest):
 
     def test_cancel_sandbox_conversation_delegates_to_sandbox_handler(self):
         conversation = self._sandbox_conversation()
-        sentinel = SandboxCancelResult(task_id="t", run_id="r", run_status="cancelled")
-        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+        sentinel = SandboxCancelResult(task_id="t", run_id="r", run_status="cancelled", cancel_requested=True)
+        with (
+            patch("ee.api.conversation.MessageRoutingService") as m_service,
+            patch("ee.api.conversation.report_user_action") as m_telemetry,
+        ):
             m_service.return_value.cancel.return_value = sentinel
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), sentinel.model_dump())
+        # cancel_requested only gates telemetry; it's excluded from the response body.
+        self.assertEqual(response.json(), sentinel.model_dump(exclude={"cancel_requested"}))
         m_service.return_value.cancel.assert_called_once()
+        # A real cancel fires task_run_cancelled with the user source.
+        m_telemetry.assert_called_once()
+        self.assertEqual(m_telemetry.call_args[0][1], "task_run_cancelled")
+        props = m_telemetry.call_args[0][2]
+        self.assertEqual(props["execution_type"], "sandbox")
+        self.assertEqual(props["cancel_source"], "user")
+        self.assertEqual(props["run_id"], "r")
+
+    def test_cancel_sandbox_conversation_skips_telemetry_for_terminal_noop(self):
+        conversation = self._sandbox_conversation()
+        # cancel_requested defaults False — an already-terminal run was a no-op.
+        sentinel = SandboxCancelResult(task_id="t", run_id="r", run_status="completed")
+        with (
+            patch("ee.api.conversation.MessageRoutingService") as m_service,
+            patch("ee.api.conversation.report_user_action") as m_telemetry,
+        ):
+            m_service.return_value.cancel.return_value = sentinel
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_telemetry.assert_not_called()

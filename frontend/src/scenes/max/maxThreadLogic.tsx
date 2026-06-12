@@ -198,7 +198,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'openSseForRun as openSandboxSse',
                 'pushHumanMessage as pushSandboxHumanMessage',
                 'pushErrorItem as pushSandboxError',
+                'bootstrapRun as bootstrapSandboxRun',
+                'reset as resetSandboxStream',
             ],
+            posthogAiContextLogic({ conversationId }),
+            ['clearAttachments as clearSandboxAttachments'],
         ],
     })),
 
@@ -686,6 +690,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             runId: run_id,
                             // Fresh runs need everything from the top; follow-ups resume from latest.
                             startLatest: !just_created_run,
+                            // Correlate SSE-side telemetry with the trace this run was sent under.
+                            traceId,
                         })
                         // The streaming lock must span the whole SSE stream so the input stays
                         // guarded until `_posthog/turn_complete` or a terminal/error event —
@@ -1928,6 +1934,27 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // Grab freshly loaded conversation from cache; if missing, the load failed, so skip reconnect
         const conversation = maxGlobalLogic.values.conversationHistory.find((c) => c.id === parentConversationId)
         if (!conversation || conversation.messages === undefined) {
+            return
+        }
+
+        // Sandbox history-load branch. Sandbox conversations don't persist messages Django-side —
+        // history lives in S3 ACP logs, read via the products/tasks logs/ endpoint. Hand off to
+        // sandboxStreamLogic, which replays logs/ then opens SSE if non-terminal. The LangGraph
+        // reconnect path below is never entered for sandbox runtimes (coexistence).
+        if (conversation.agent_runtime === 'sandbox') {
+            // sandboxStreamLogic and posthogAiContextLogic are connected (so already mounted) for this
+            // conversation. Reset their per-conversation state before replaying this run's history.
+            actions.resetSandboxStream()
+            actions.clearSandboxAttachments()
+            if (conversation.task) {
+                const runId = conversation.task.current_run_id
+                if (runId) {
+                    actions.bootstrapSandboxRun({
+                        taskId: conversation.task.id,
+                        runId,
+                    })
+                }
+            }
             return
         }
 

@@ -108,6 +108,10 @@ class PermissionResponseSerializer(serializers.Serializer):
         max_length=10000,
         help_text="Optional feedback text sent with a 'reject_with_feedback' decision.",
     )
+    traceId = serializers.UUIDField(
+        required=False,
+        help_text="Trace id the client associated with the run, for PERMISSION_RESPONDED telemetry correlation.",
+    )
 
 
 class PermissionResponseResultSerializer(serializers.Serializer):
@@ -262,6 +266,14 @@ class SandboxMessageResponseSerializer(serializers.Serializer):
     just_created_run = serializers.BooleanField(
         help_text="True when a new Run was created (first message or terminal resume); false for an in-progress follow-up."
     )
+
+
+class SandboxCancelResponseSerializer(serializers.Serializer):
+    """Response for `PATCH /conversations/{id}/cancel/` on a sandbox-runtime conversation."""
+
+    task_id = serializers.CharField(help_text="The products/tasks Task backing the conversation.")
+    run_id = serializers.CharField(help_text="The Run that was targeted for cancellation.")
+    run_status = serializers.CharField(help_text="Status of the Run after the cancel command was issued.")
 
 
 @extend_schema(tags=["max"])
@@ -685,13 +697,27 @@ class ConversationViewSet(
                 "trace_id": result.trace_id,
                 "conversation_id": str(conversation.id),
                 "execution_type": "sandbox",
+                "agent_runtime": "sandbox",
                 "just_created_run": result.just_created_run,
+                "has_attached_context": result.attached_context_count > 0,
+                "attached_context_count": result.attached_context_count,
             },
             team=self.team,
             request=request,
         )
-        return Response(result.model_dump(), status=status.HTTP_200_OK)
+        # attached_context_count is internal telemetry plumbing — keep it out of the response body.
+        return Response(result.model_dump(exclude={"attached_context_count"}), status=status.HTTP_200_OK)
 
+    @extend_schema(
+        description="Cancel the conversation's in-progress run (sandbox or LangGraph).",
+        responses={
+            200: SandboxCancelResponseSerializer,
+            204: OpenApiResponse(description="LangGraph cancellation accepted, or already cancelling."),
+            400: OpenApiResponse(description="Sandbox conversation has no backing task or active run."),
+            422: OpenApiResponse(description="Failed to cancel the LangGraph conversation."),
+            502: OpenApiResponse(description="Sandbox agent unreachable or rejected the cancel command."),
+        },
+    )
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
@@ -699,8 +725,26 @@ class ConversationViewSet(
         if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
             # Sandbox runs are cancelled in-process via the products/tasks command
             # path; no LangGraph workflow is involved.
-            result = MessageRoutingService(conversation, cast(User, request.user)).cancel()
-            return Response(result.model_dump(), status=status.HTTP_200_OK)
+            user = cast(User, request.user)
+            result = MessageRoutingService(conversation, user).cancel()
+            if result.cancel_requested:
+                # Only when a live run was actually signalled — an already-terminal no-op
+                # cancelled nothing. The endpoint is always user-initiated; sandbox idle
+                # shutdowns surface separately as a terminal task_run_state.
+                report_user_action(
+                    user,
+                    "task_run_cancelled",
+                    {
+                        "conversation_id": str(conversation.id),
+                        "run_id": result.run_id,
+                        "execution_type": "sandbox",
+                        "cancel_source": "user",
+                    },
+                    team=self.team,
+                    request=request,
+                )
+            # cancel_requested only gates the telemetry above — keep it out of the response body.
+            return Response(result.model_dump(exclude={"cancel_requested"}), status=status.HTTP_200_OK)
 
         # IDLE is intentionally not short-circuited: during the handoff between the main
         # workflow completing and a queued workflow starting, the status is briefly IDLE
@@ -748,6 +792,9 @@ class ConversationViewSet(
         request_id = serializer.validated_data["requestId"]
         option_id = serializer.validated_data["optionId"]
         custom_input = serializer.validated_data.get("customInput")
+        # UUIDField yields a UUID instance; stringify for the analytics payload.
+        trace_id = serializer.validated_data.get("traceId")
+        trace_id = str(trace_id) if trace_id else None
 
         result = send_permission_response(
             task_run,
@@ -763,6 +810,7 @@ class ConversationViewSet(
                 event="permission_responded",
                 properties={
                     "conversation_id": str(conversation.id),
+                    "trace_id": trace_id,
                     "request_id": request_id,
                     "option_id": option_id,
                     "execution_type": "sandbox",

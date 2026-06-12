@@ -30,6 +30,7 @@ import type {
     PatchedTicketApi,
     PermissionResponseApi,
     PermissionResponseResultApi,
+    SandboxCancelResponseApi,
     SandboxMessageApi,
     SandboxMessageResponseApi,
     SuggestReplyResponseApi,
@@ -166,18 +167,24 @@ export const getConversationsCancelPartialUpdateUrl = (projectId: string, conver
     return `/api/environments/${projectId}/conversations/${conversation}/cancel/`
 }
 
+/**
+ * Cancel the conversation's in-progress run (sandbox or LangGraph).
+ */
 export const conversationsCancelPartialUpdate = async (
     projectId: string,
     conversation: string,
     patchedConversationApi?: NonReadonly<PatchedConversationApi>,
     options?: RequestInit
-): Promise<ConversationApi> => {
-    return apiMutator<ConversationApi>(getConversationsCancelPartialUpdateUrl(projectId, conversation), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedConversationApi),
-    })
+): Promise<SandboxCancelResponseApi | void> => {
+    return apiMutator<SandboxCancelResponseApi | void>(
+        getConversationsCancelPartialUpdateUrl(projectId, conversation),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedConversationApi),
+        }
+    )
 }
 
 export const getConversationsPermissionCreateUrl = (projectId: string, conversation: string) => {
