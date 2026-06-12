@@ -126,6 +126,14 @@ const config: Config = {
     // Make calling deprecated APIs throw helpful error messages
     // errorOnDeprecated: false,
 
+    // Faking queueMicrotask starves the web-streams pump that MSW v2 response bodies ride on:
+    // each pump microtask lands in the fake queue and respawns the next one, so any
+    // advanceTimersByTimeAsync allocates unboundedly until the worker OOMs. Keep microtasks real.
+    // Merged into per-test `jest.useFakeTimers({...})` configs unless they pass their own doNotFake.
+    fakeTimers: {
+        doNotFake: ['queueMicrotask'],
+    },
+
     // Force coverage collection from ignored files using an array of glob patterns
     // forceCoverageMatch: [],
 
@@ -262,7 +270,12 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/', '/products/[^/]+/frontend/e2e/', '/products/visual_review/cli/'],
+    testPathIgnorePatterns: [
+        '/node_modules/',
+        '/services/mcp/',
+        '/products/[^/]+/frontend/e2e/',
+        '/products/visual_review/cli/',
+    ],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],
