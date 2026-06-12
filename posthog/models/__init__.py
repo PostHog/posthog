@@ -27,6 +27,7 @@ from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .role_external_reference import RoleExternalReference
 from .file_system.file_system import FileSystem
+from .file_system.folder_context_generation import FileSystemFolderContextGeneration
 from .file_system.folder_instructions import FileSystemFolderInstructions
 from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
@@ -112,6 +113,7 @@ __all__ = [
     "EventProperty",
     "RoleExternalReference",
     "FileSystem",
+    "FileSystemFolderContextGeneration",
     "FileSystemFolderInstructions",
     "FileSystemViewLog",
     "Filter",
