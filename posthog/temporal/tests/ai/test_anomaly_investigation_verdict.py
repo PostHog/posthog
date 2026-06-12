@@ -8,7 +8,6 @@ from asgiref.sync import sync_to_async
 
 from posthog.schema import AlertState
 
-from posthog.models import Insight
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.runner import InvestigationRunResult
 from posthog.temporal.ai.anomaly_investigation.workflow import (
@@ -22,6 +21,7 @@ from products.alerts.backend.models.alert import (
     InvestigationStatus,
     InvestigationVerdict,
 )
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestInvestigationVerdictPersistence(NonAtomicBaseTest):

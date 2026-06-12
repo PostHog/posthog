@@ -86,6 +86,7 @@ def queries_to_keep_fresh(
                     'web_overview_lazy_query',
                     'web_stats_paths_lazy_query',
                     'web_vitals_path_breakdown_query',
+                    'web_vitals_paths_lazy_query',
                     'external_clicks_query'
                 )
                 )

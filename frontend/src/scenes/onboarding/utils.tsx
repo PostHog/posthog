@@ -169,7 +169,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         setupEffort: 'automatic',
         socialProof: 'Used by 160K+ teams',
     },
-    [ProductKey.LLM_ANALYTICS]: {
+    [ProductKey.AI_OBSERVABILITY]: {
         name: 'AI observability',
         description: 'Monitor AI usage, costs, and quality',
         userCentricDescription: 'Keep your AI costs down and quality up',
@@ -182,8 +182,8 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         hedgehog: RobotHog,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
-        url: urls.llmAnalyticsDashboard(),
-        scene: Scene.LLMAnalytics,
+        url: urls.aiObservabilityDashboard(),
+        scene: Scene.AIObservability,
         setupEffort: 'low',
         socialProof: 'Used by 55K+ teams',
     },

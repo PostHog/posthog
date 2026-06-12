@@ -5,6 +5,7 @@ import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { UniversalFiltersGroup } from '~/types'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
@@ -31,6 +32,12 @@ export interface LogsViewerProps {
     showFullScreenButton?: boolean
     showSavedViewsButton?: boolean
     initialFilters?: Partial<LogsViewerFilters>
+    // Filters enforced by the embedding scene. Merged into the user-editable filterGroup
+    // and rendered without an X so users can't accidentally drop the scope.
+    pinnedFilters?: UniversalFiltersGroup
+    // Hide the filter bar (levels/services/search/date range) entirely. For embeds where the
+    // scope is fixed by `pinnedFilters` and editing filters in place isn't wanted. @default true
+    showFilterBar?: boolean
 }
 
 export function LogsViewer({
@@ -38,9 +45,11 @@ export function LogsViewer({
     showFullScreenButton = true,
     showSavedViewsButton = false,
     initialFilters,
+    pinnedFilters,
+    showFilterBar = true,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters }}>
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters }}>
             <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
@@ -50,6 +59,7 @@ export function LogsViewer({
                                     <LogsViewerContent
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
+                                        showFilterBar={showFilterBar}
                                     />
                                 </BindLogic>
                             </BindLogic>
@@ -64,9 +74,11 @@ export function LogsViewer({
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
+    showFilterBar,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
+    showFilterBar: boolean
 }): JSX.Element {
     const {
         id,
@@ -278,7 +290,7 @@ function LogsViewerContent({
                 onToggleCollapse={toggleSparklineCollapsed}
             />
             <SceneDivider />
-            <LogsFilterBar showSavedViewsButton={showSavedViewsButton} />
+            {showFilterBar && <LogsFilterBar showSavedViewsButton={showSavedViewsButton} />}
             <LogsViewerToolbar
                 totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
                 orderBy={orderBy}

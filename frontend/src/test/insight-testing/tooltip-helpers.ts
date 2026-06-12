@@ -1,4 +1,4 @@
-import { createHogChartTooltip, type HogChartTooltip } from 'lib/hog-charts/testing'
+import { createHogChartTooltip, type HogChartTooltip } from '@posthog/quill-charts/testing'
 
 /** Insight-flavored tooltip accessor. Extends the generic hog-charts tooltip
  *  with helpers for the InsightTooltip's table layout — a header `<th>` row

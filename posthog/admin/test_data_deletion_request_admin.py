@@ -11,7 +11,7 @@ from django.test import RequestFactory, override_settings
 
 from parameterized import parameterized
 
-from posthog.admin.admins.data_deletion_request_admin import DataDeletionRequestAdmin
+from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 
 
@@ -504,3 +504,298 @@ class TestDataDeletionRequestModelValidation(BaseTest):
             msg_dict = exc.message_dict if hasattr(exc, "message_dict") else {}
             self.assertNotIn("properties", msg_dict)
             self.assertNotIn("person_properties", msg_dict)
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminEditLock(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _make_request(self, status: str):
+        return DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=status,
+        )
+
+    def _readonly_fields(self, obj):
+        http_request = self.factory.get("/admin/posthog/datadeletionrequest/")
+        http_request.user = self.user
+        return self.admin.get_readonly_fields(http_request, obj)
+
+    @parameterized.expand(
+        [
+            ("approved", RequestStatus.APPROVED),
+            ("in_progress", RequestStatus.IN_PROGRESS),
+            ("queued", RequestStatus.QUEUED),
+            ("completed", RequestStatus.COMPLETED),
+            ("failed", RequestStatus.FAILED),
+        ]
+    )
+    def test_locked_statuses_make_all_fields_readonly(self, _name, status):
+        obj = self._make_request(status)
+        readonly = self._readonly_fields(obj)
+        for field in EDITABLE_FIELDS:
+            self.assertIn(field, readonly)
+
+    @parameterized.expand(
+        [
+            ("draft", RequestStatus.DRAFT),
+            ("pending", RequestStatus.PENDING),
+        ]
+    )
+    def test_editable_statuses_keep_fields_editable(self, _name, status):
+        obj = self._make_request(status)
+        readonly = self._readonly_fields(obj)
+        for field in EDITABLE_FIELDS:
+            self.assertNotIn(field, readonly)
+
+    def test_add_view_fields_editable(self):
+        readonly = self._readonly_fields(None)
+        for field in EDITABLE_FIELDS:
+            self.assertNotIn(field, readonly)
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminChangeViewStatsAndLock(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _make_request(self, status: str = RequestStatus.DRAFT):
+        return DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=status,
+        )
+
+    def _change_context(
+        self, request: DataDeletionRequest, in_clickhouse_team: bool = False, session: dict | None = None
+    ):
+        if in_clickhouse_team:
+            clickhouse_team, _ = Group.objects.get_or_create(name="ClickHouse Team")
+            self.user.groups.add(clickhouse_team)
+        else:
+            self.user.groups.clear()
+
+        http_request = self.factory.get(f"/admin/posthog/datadeletionrequest/{request.pk}/change/")
+        http_request.user = self.user
+        _attach_messages(http_request)
+        if session:
+            http_request.session.update(session)
+
+        captured: dict = {}
+
+        def _capture_super(self_admin, http_req, object_id, form_url, extra_context):
+            captured.update(extra_context)
+            from django.http import HttpResponse
+
+            return HttpResponse(status=200)
+
+        with (
+            patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse),
+            patch("django.contrib.admin.ModelAdmin.change_view", _capture_super),
+        ):
+            self.admin.change_view(http_request, str(request.pk))
+        return captured
+
+    def test_change_view_exposes_stats_urls(self):
+        request = self._make_request()
+        ctx = self._change_context(request)
+        self.assertIn("fetch_stats_url", ctx)
+        self.assertIn("preview_stats_url", ctx)
+
+    def test_change_view_is_clickhouse_team_flag(self):
+        request = self._make_request()
+        self.assertTrue(self._change_context(request, in_clickhouse_team=True)["is_clickhouse_team"])
+        self.assertFalse(self._change_context(request, in_clickhouse_team=False)["is_clickhouse_team"])
+
+    def test_change_view_pops_matching_preview_stats(self):
+        request = self._make_request()
+        preview = {"obj_pk": str(request.pk), "count": 42, "calculated_at": "2025-01-15T12:00:00"}
+        ctx = self._change_context(request, session={"data_deletion_preview_stats": preview})
+        self.assertEqual(ctx["preview_stats"], preview)
+
+    def test_change_view_drops_mismatched_preview_stats(self):
+        request = self._make_request()
+        preview = {"obj_pk": "999999", "count": 42, "calculated_at": "2025-01-15T12:00:00"}
+        ctx = self._change_context(request, session={"data_deletion_preview_stats": preview})
+        self.assertIsNone(ctx["preview_stats"])
+
+    @parameterized.expand(
+        [
+            ("approved", RequestStatus.APPROVED),
+            ("in_progress", RequestStatus.IN_PROGRESS),
+            ("queued", RequestStatus.QUEUED),
+            ("completed", RequestStatus.COMPLETED),
+            ("failed", RequestStatus.FAILED),
+        ]
+    )
+    def test_change_view_hides_save_for_locked(self, _name, status):
+        ctx = self._change_context(self._make_request(status))
+        self.assertFalse(ctx.get("show_save", True))
+
+    @parameterized.expand(
+        [
+            ("draft", RequestStatus.DRAFT),
+            ("pending", RequestStatus.PENDING),
+        ]
+    )
+    def test_change_view_shows_save_for_editable(self, _name, status):
+        ctx = self._change_context(self._make_request(status))
+        self.assertTrue(ctx.get("show_save", True))
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        clickhouse_team, _ = Group.objects.get_or_create(name="ClickHouse Team")
+        self.user.groups.add(clickhouse_team)
+        self.factory = RequestFactory()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _person_request(self):
+        return DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.PERSON_REMOVAL,
+            person_uuids=["00000000-0000-0000-0000-000000000001"],
+            person_drop_profiles=True,
+            status=RequestStatus.APPROVED,
+            approved_at=datetime.now(),
+        )
+
+    def _call(self, view, request: DataDeletionRequest, user=None):
+        http_request = self.factory.post(f"/admin/posthog/datadeletionrequest/{request.pk}/x/")
+        http_request.user = user or self.user
+        _attach_messages(http_request)
+        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
+            return view(http_request, str(request.pk))
+
+    def test_fetch_stats_redirects_to_change_page(self):
+        request = self._person_request()
+        response = self._call(self.admin.fetch_stats_view, request)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("posthog_datadeletionrequest_change", response.url)
+        request.refresh_from_db()
+        self.assertIsNotNone(request.stats_calculated_at)
+
+    def test_preview_stats_redirects_to_change_page(self):
+        request = self._person_request()
+        response = self._call(self.admin.preview_stats_view, request)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("posthog_datadeletionrequest_change", response.url)
+
+    def test_preview_stats_rejects_non_clickhouse_team(self):
+        request = self._person_request()
+        self.user.groups.clear()
+        response = self._call(self.admin.preview_stats_view, request)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("posthog_datadeletionrequest_change", response.url)
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminVerify(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        clickhouse_team, _ = Group.objects.get_or_create(name="ClickHouse Team")
+        self.user.groups.add(clickhouse_team)
+
+        self.factory = RequestFactory()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _queued_request(self):
+        return DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.QUEUED,
+            execution_mode=ExecutionMode.DEFERRED,
+        )
+
+    def _call_verify(self, request, user=None):
+        path = f"/admin/posthog/datadeletionrequest/{request.pk}/verify/"
+        http_request = self.factory.post(path)
+        http_request.user = user or self.user
+        _attach_messages(http_request)
+        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
+            return self.admin.verify_view(http_request, str(request.pk))
+
+    def test_verify_view_promotes_when_events_gone(self):
+        request = self._queued_request()
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0):
+            response = self._call_verify(request)
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
+
+    def test_verify_view_keeps_queued_when_events_remain(self):
+        request = self._queued_request()
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=5):
+            response = self._call_verify(request)
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.QUEUED)
+
+    def test_verify_view_rejects_non_verifiable_status(self):
+        request = self._queued_request()
+        request.status = RequestStatus.APPROVED
+        request.save(update_fields=["status"])
+        self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.APPROVED)
+
+    def test_verify_view_promotes_failed_when_events_gone(self):
+        request = self._queued_request()
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0):
+            self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
+
+    def test_verify_view_keeps_failed_when_events_remain(self):
+        request = self._queued_request()
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=3):
+            self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
+
+    def test_verify_view_rejects_non_event_removal(self):
+        request = self._queued_request()
+        request.request_type = RequestType.PROPERTY_REMOVAL
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["request_type", "status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0) as counted:
+            self._call_verify(request)
+        counted.assert_not_called()
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
+
+    def test_verify_view_rejects_non_clickhouse_team(self):
+        request = self._queued_request()
+        self.user.groups.clear()
+        self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.QUEUED)

@@ -36,4 +36,4 @@ posthog/tasks/hog_flows.py
 posthog/tasks/hog_functions.py
 posthog/tasks/team_metadata.py
 posthog/utils.py
-products/llm_analytics/backend/models/clustering_job.py
+products/ai_observability/backend/models/clustering_job.py

@@ -21,6 +21,8 @@ use serde_json::{json, Value as JsonValue};
 use tracing::debug;
 use uuid::Uuid;
 
+use crate::log_record::{extract_span_id, extract_trace_id};
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KafkaMetricRow {
     pub uuid: String,
@@ -252,9 +254,27 @@ fn build_number_row(
     value: f64,
     histogram_bounds: Option<Vec<f64>>,
     histogram_counts: Option<Vec<i64>>,
-    _exemplars: &[opentelemetry_proto::tonic::metrics::v1::Exemplar],
+    exemplars: &[opentelemetry_proto::tonic::metrics::v1::Exemplar],
     flags: u32,
 ) -> Result<(KafkaMetricRow, bool)> {
+    // OTel exemplars attach trace context (and per-bucket trace context on histograms) to
+    // data points. V1 picks the first exemplar with a spec-conformant 16-byte trace_id and
+    // runs it through the shared extract_trace_id / extract_span_id helpers (same encoding
+    // path as log_record / trace_record). Filtering by length up front avoids the case
+    // where a malformed exemplar earlier in the vec would shadow a valid one — exemplar
+    // selection is a metrics-specific concern with no precedent in logs/traces, which
+    // each carry a single trace_id field. Per-bucket attribution on histograms is lossy
+    // in this representation; revisit when we add a multi-row or array exemplar column.
+    let (exemplar_trace_id, exemplar_span_id) = exemplars
+        .iter()
+        .find(|e| e.trace_id.len() == 16)
+        .map(|e| {
+            (
+                BASE64_STANDARD.encode(extract_trace_id(&e.trace_id)),
+                BASE64_STANDARD.encode(extract_span_id(&e.span_id)),
+            )
+        })
+        .unwrap_or_default();
     let raw_timestamp = match time_unix_nano {
         0 => Utc::now(),
         _ => DateTime::<Utc>::from_timestamp_nanos(time_unix_nano.try_into()?),
@@ -283,8 +303,8 @@ fn build_number_row(
 
     let row = KafkaMetricRow {
         uuid: Uuid::now_v7().to_string(),
-        trace_id: String::new(),
-        span_id: String::new(),
+        trace_id: exemplar_trace_id,
+        span_id: exemplar_span_id,
         trace_flags: flags,
         timestamp,
         observed_timestamp,
@@ -497,5 +517,167 @@ mod tests {
         assert_eq!(temporality_str(1), "delta");
         assert_eq!(temporality_str(2), "cumulative");
         assert_eq!(temporality_str(0), "unspecified");
+    }
+
+    // --- Exemplar extraction ---
+
+    use opentelemetry_proto::tonic::metrics::v1::{
+        Exemplar, Gauge, Histogram, HistogramDataPoint, Metric, NumberDataPoint,
+    };
+
+    const VALID_TRACE_BYTES: [u8; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    const VALID_SPAN_BYTES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+
+    fn make_exemplar(trace_id: Vec<u8>, span_id: Vec<u8>) -> Exemplar {
+        Exemplar {
+            filtered_attributes: vec![],
+            time_unix_nano: 0,
+            value: None,
+            span_id,
+            trace_id,
+        }
+    }
+
+    fn build_test_row(exemplars: &[Exemplar]) -> KafkaMetricRow {
+        let (row, _) = build_number_row(
+            "test.metric",
+            "gauge",
+            "",
+            &HashMap::new(),
+            "test-service",
+            "test-scope@1.0",
+            1_700_000_000_000_000_000,
+            0,
+            &[],
+            1.0,
+            None,
+            None,
+            exemplars,
+            0,
+        )
+        .expect("build_number_row should succeed");
+        row
+    }
+
+    #[test]
+    fn test_exemplar_populates_trace_and_span_ids() {
+        let exemplar = make_exemplar(VALID_TRACE_BYTES.to_vec(), VALID_SPAN_BYTES.to_vec());
+        let row = build_test_row(&[exemplar]);
+
+        assert_eq!(row.trace_id, BASE64_STANDARD.encode(VALID_TRACE_BYTES));
+        assert_eq!(row.span_id, BASE64_STANDARD.encode(VALID_SPAN_BYTES));
+    }
+
+    #[test]
+    fn test_no_exemplar_yields_empty_ids() {
+        let row = build_test_row(&[]);
+        assert_eq!(row.trace_id, "");
+        assert_eq!(row.span_id, "");
+    }
+
+    #[test]
+    fn test_first_well_formed_exemplar_is_picked() {
+        // First exemplar has an empty trace_id (no context attached) and is skipped;
+        // second carries spec-conformant 16-byte bytes and wins.
+        let other_trace = [9u8; 16];
+        let other_span = [9u8; 8];
+        let exemplars = vec![
+            make_exemplar(vec![], vec![]),
+            make_exemplar(other_trace.to_vec(), other_span.to_vec()),
+        ];
+        let row = build_test_row(&exemplars);
+
+        assert_eq!(row.trace_id, BASE64_STANDARD.encode(other_trace));
+        assert_eq!(row.span_id, BASE64_STANDARD.encode(other_span));
+    }
+
+    #[test]
+    fn test_malformed_exemplar_before_valid_picks_valid() {
+        // A malformed (12-byte) trace_id must not shadow a later well-formed one. Without
+        // a length-based filter the malformed entry would be selected and zero-filled by
+        // extract_trace_id, silently overwriting real trace context. Regression guard.
+        let valid_trace = [7u8; 16];
+        let valid_span = [7u8; 8];
+        let exemplars = vec![
+            make_exemplar(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], vec![0; 8]),
+            make_exemplar(valid_trace.to_vec(), valid_span.to_vec()),
+        ];
+        let row = build_test_row(&exemplars);
+
+        assert_eq!(row.trace_id, BASE64_STANDARD.encode(valid_trace));
+        assert_eq!(row.span_id, BASE64_STANDARD.encode(valid_span));
+    }
+
+    #[test]
+    fn test_only_malformed_exemplar_yields_empty_ids() {
+        // When every exemplar in the vec is malformed, none pass the length filter and
+        // the row falls back to empty strings rather than producing an all-zeros sentinel.
+        let exemplar = make_exemplar(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], vec![]);
+        let row = build_test_row(&[exemplar]);
+
+        assert_eq!(row.trace_id, "");
+        assert_eq!(row.span_id, "");
+    }
+
+    #[test]
+    fn test_histogram_exemplar_flows_through_pipeline() {
+        // Exercises the histogram code path via the public flatten_metric API so a
+        // future refactor that splits the histogram path off build_number_row would
+        // surface here.
+        let exemplar = make_exemplar(VALID_TRACE_BYTES.to_vec(), VALID_SPAN_BYTES.to_vec());
+        let metric = Metric {
+            name: "test.histogram".to_string(),
+            description: String::new(),
+            unit: String::new(),
+            metadata: vec![],
+            data: Some(Data::Histogram(Histogram {
+                aggregation_temporality: 2,
+                data_points: vec![HistogramDataPoint {
+                    attributes: vec![],
+                    start_time_unix_nano: 1_700_000_000_000_000_000,
+                    time_unix_nano: 1_700_000_000_000_000_000,
+                    count: 1,
+                    sum: Some(1.0),
+                    bucket_counts: vec![1],
+                    explicit_bounds: vec![],
+                    exemplars: vec![exemplar],
+                    flags: 0,
+                    min: None,
+                    max: None,
+                }],
+            })),
+        };
+
+        let (rows, _) = flatten_metric(metric, None, None).expect("flatten_metric ok");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].trace_id, BASE64_STANDARD.encode(VALID_TRACE_BYTES));
+        assert_eq!(rows[0].span_id, BASE64_STANDARD.encode(VALID_SPAN_BYTES));
+    }
+
+    #[test]
+    fn test_gauge_with_no_exemplar_path_unchanged() {
+        // Regression guard: rows without exemplars must still set empty trace/span ids
+        // through the public flatten_metric path (the back-compat promise).
+        let metric = Metric {
+            name: "test.gauge".to_string(),
+            description: String::new(),
+            unit: String::new(),
+            metadata: vec![],
+            data: Some(Data::Gauge(Gauge {
+                data_points: vec![NumberDataPoint {
+                    attributes: vec![],
+                    start_time_unix_nano: 1_700_000_000_000_000_000,
+                    time_unix_nano: 1_700_000_000_000_000_000,
+                    exemplars: vec![],
+                    flags: 0,
+                    value: None,
+                }],
+            })),
+        };
+
+        let (rows, _) = flatten_metric(metric, None, None).expect("flatten_metric ok");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].trace_id, "");
+        assert_eq!(rows[0].span_id, "");
     }
 }

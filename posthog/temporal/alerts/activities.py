@@ -19,7 +19,6 @@ from posthog.tasks.alerts.investigation_notifications import run_investigation_n
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
     add_alert_check,
-    check_alert_for_insight,
     disable_invalid_alert,
     dispatch_alert_notification,
     next_check_time,
@@ -40,6 +39,7 @@ from posthog.temporal.alerts.types import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -166,6 +166,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                     alert.config,
                     threshold_config,
                     alert.calculation_interval,
+                    detector_config=alert.detector_config,
                 )
         except ValueError as e:
             disable_invalid_alert(alert, str(e))

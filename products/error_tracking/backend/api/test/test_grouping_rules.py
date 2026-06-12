@@ -152,6 +152,30 @@ class TestGroupingRuleAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("empty_values", {"type": "AND", "values": []}),
+            ("empty_nested_filter", {"type": "AND", "values": [{"type": "empty"}]}),
+            ("or_empty_nested_filter", {"type": "OR", "values": [{"type": "empty"}]}),
+            (
+                "deeply_nested_empty",
+                {"type": "AND", "values": [{"type": "AND", "values": [{"type": "empty"}]}]},
+            ),
+        ]
+    )
+    def test_create_rejects_no_op_filters(self, _name: str, empty_filters: dict[str, Any]) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"filters": empty_filters},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "filters"
+        assert body["detail"] == "Filters must contain at least one filter value."
+
+    @parameterized.expand(
+        [
             ("user_type_with_uuid_id", {"type": "user", "id": str(uuid4())}, "User assignee IDs must be integers."),
             ("role_type_with_int_id", {"type": "role", "id": 42}, "Role assignee IDs must be UUIDs."),
         ]

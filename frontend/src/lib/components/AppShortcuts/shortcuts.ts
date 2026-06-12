@@ -6,7 +6,6 @@ export const keyBinds: Record<string, string[]> = {
     toggleLeftNav: ['['],
     toggleRightNav: [']'],
     helpMenu: ['?'],
-    healthMenu: ['g', 'then', 'h'],
     newAccountMenu: ['g', 'then', 'a'],
     projectSwitcher: ['g', 'then', 'p'],
     orgSwitcher: ['g', 'then', 'o'],

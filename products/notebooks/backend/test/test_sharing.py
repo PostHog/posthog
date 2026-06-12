@@ -5,7 +5,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Insight, SharingConfiguration
+from posthog.models import SharingConfiguration
 
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import (
@@ -14,6 +14,7 @@ from products.notebooks.backend.util import (
     filter_notebook_content_for_sharing,
     iter_prosemirror_nodes,
 )
+from products.product_analytics.backend.models.insight import Insight
 
 
 def _saved_insight_query_node(short_id: str) -> dict[str, Any]:

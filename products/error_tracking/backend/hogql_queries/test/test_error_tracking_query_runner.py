@@ -17,6 +17,8 @@ from unittest import TestCase
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     DateRange,
@@ -123,8 +125,10 @@ class ErrorTrackingQueryRunnerTestsMixin:
     def setUpClass(cls) -> None:
         from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 
-        if ("$exception_issue_id", "properties") not in get_materialized_columns("events"):
-            materialize("events", "$exception_issue_id", is_nullable=True)
+        materialized_columns = get_materialized_columns("events")
+        for property_name in ("$exception_issue_id", "$exception_types", "$exception_values"):
+            if (property_name, "properties") not in materialized_columns:
+                materialize("events", property_name, is_nullable=property_name == "$exception_issue_id")
         super(ErrorTrackingQueryRunnerTestsMixin, cls).setUpClass()  # type: ignore[misc] # noqa: UP008
 
     def setUp(self):
@@ -739,6 +743,24 @@ class ErrorTrackingQueryRunnerTestsMixin:
 class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, APIBaseTest):
     __test__ = True
     use_v2 = False
+
+    @parameterized.expand(["issueId", "personId"])
+    def test_rejects_malformed_uuid_params(self, field):
+        with self.assertRaises(ValidationError):
+            self._calculate(**{field: "test-distinct-id"})
+
+    def test_canonicalizes_uuid_params(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+                volumeResolution=1,
+                issueId="01936E7FD7FF7314B2D47627981E34F0",
+            ),
+        )
+        self.assertEqual(runner.query.issueId, "01936e7f-d7ff-7314-b2d4-7627981e34f0")
 
     @freeze_time("2022-01-10T12:11:00")
     def test_event_filter_group_operator(self):

@@ -29,6 +29,33 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
+# Continuous log silence required before salvaging a dropped-finalization turn — one SSE read window
+# (SSE_READ_TIMEOUT_SECONDS). The null-cost finalization fingerprint (_ended_on_pending_finalization)
+# is the real safety gate; this floor only rules out salvaging a turn caught mid-stream. It must sit
+# well below the 1800s poll budget: a floor near the budget would only salvage turns that fell silent
+# in the first few minutes and reject a turn that does real work late and *then* drops end_turn — the
+# exact case this path exists to recover. The relay's true continuous-silence ceiling is
+# 6 × SSE_READ_TIMEOUT_SECONDS = 1800s, which can't be fully observed inside the 1800s budget; keying
+# salvage off a real terminal signal instead of the poll deadline stays the layer-2 follow-up.
+STALE_TURN_SALVAGE_SECONDS = 300
+
+# Notification method the sandbox agent emits on a terminal failure. The agent
+# classifies upstream failures (rate limits, stream/connection drops, provider
+# errors) via classifyAgentError() and writes the category + raw message here, so
+# the PostHog side can surface the real cause instead of Temporal's opaque
+# "Activity task failed" wrapper.
+AGENT_ERROR_METHOD = "_posthog/error"
+
+
+@dataclass(frozen=True)
+class AgentError:
+    """A terminal error the sandbox agent reported in its S3 log."""
+
+    message: str
+    category: str | None = None
+
+    def describe(self) -> str:
+        return f"{self.category}: {self.message}" if self.category else self.message
 
 
 @dataclass(frozen=True)
@@ -41,7 +68,7 @@ class CustomPromptSandboxContext:
     sandbox_environment_id: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes | None = None
     model: str | None = None
-    """Override the agent model (e.g. ``"claude-opus-4-7"``). Falls back to the
+    """Override the agent model (e.g. ``"claude-opus-4-8"``). Falls back to the
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
 
@@ -66,6 +93,11 @@ async def create_task_and_trigger(
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
+    # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
+    # None would clobber it. sandbox_environment_id already accepts None.
+    posthog_mcp_scopes: PosthogMcpScopes = (
+        context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
+    )
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
@@ -77,6 +109,8 @@ async def create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
+        posthog_mcp_scopes=posthog_mcp_scopes,
+        sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
         internal=internal,
     )
@@ -104,6 +138,10 @@ async def poll_for_turn(
     last_new_lines_at = 0
     # Remember assistant text, as the agent message and end_message could arrive in different poll slices
     latest_assistant_text: str | None = None
+    # Cursor at start of this turn — passed to _drain_final_log so the terminal-status drain can
+    # recover an agent_message emitted earlier in *this* turn without crossing the previous turn's
+    # boundary (which would return a stale previous-turn response in multi-turn sessions).
+    original_skip_lines = skip_lines
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
@@ -170,8 +208,9 @@ async def poll_for_turn(
                 total_lines=total_lines,
                 printed_lines=printed_lines,
             )
-        # Keep the cursor monotonic — S3 eventual-consistency can briefly return
-        # fewer lines than the prior poll; without the clamp we'd re-parse old lines.
+        # Keep the cursor monotonic — S3 eventual-consistency can briefly return fewer lines than the
+        # prior poll; without the clamp we'd re-parse old lines. Doubles as the line-count high-water
+        # mark handed to salvage: every line up to here was seen (and watched go quiet) during polling.
         skip_lines = max(skip_lines, total_lines)
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
         if refreshed.status in {
@@ -193,12 +232,144 @@ async def poll_for_turn(
                 task_run,
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
-                skip_lines=skip_lines,
                 printed_lines=printed_lines,
+                original_skip_lines=original_skip_lines,
                 verbose=verbose,
                 output_fn=output_fn,
             )
+    # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
+    # relay-detected crash) — drain it; otherwise try to salvage below.
+    refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    if refreshed.status in {
+        TaskRun.Status.COMPLETED,
+        TaskRun.Status.FAILED,
+        TaskRun.Status.CANCELLED,
+    }:
+        logger.warning(
+            "custom_prompt - poll_for_turn: terminal status=%s at poll timeout, run=%s, elapsed=%ds",
+            refreshed.status,
+            task_run.id,
+            elapsed,
+        )
+        return await _drain_final_log(
+            task_run,
+            refreshed_status=refreshed.status,
+            error_message=refreshed.error_message,
+            printed_lines=printed_lines,
+            original_skip_lines=original_skip_lines,
+            verbose=verbose,
+            output_fn=output_fn,
+        )
+    # Otherwise salvage a dropped-finalization turn, but only after enough continuous silence.
+    stale_seconds = elapsed - last_new_lines_at
+    if stale_seconds >= STALE_TURN_SALVAGE_SECONDS:
+        salvaged = await _salvage_dropped_finalization(
+            task_run,
+            printed_lines=printed_lines,
+            original_skip_lines=original_skip_lines,
+            max_total_lines_seen=skip_lines,
+            elapsed=elapsed,
+            stale_seconds=stale_seconds,
+            verbose=verbose,
+            output_fn=output_fn,
+        )
+        if salvaged is not None:
+            return salvaged
     raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
+
+
+async def _read_turn_log_with_retry(
+    task_run, *, skip_lines: int, context: str
+) -> tuple[bool, str | None, str | None, int, bool]:
+    """Read the turn log via _check_logs, retrying transient ObjectStorageError up to
+    MAX_CONSECUTIVE_STORAGE_ERRORS times (one POLL_INTERVAL_SECONDS apart). Re-raises the error
+    if every attempt fails, so a single S3 blip doesn't fail an otherwise-recoverable turn.
+    `context` names the caller in the warning log. Shared by the terminal drain and the salvage
+    path so the bounded-retry loop lives in one place."""
+    for attempt in range(1, MAX_CONSECUTIVE_STORAGE_ERRORS + 1):
+        try:
+            return await sync_to_async(
+                # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
+                _check_logs,
+                thread_sensitive=False,
+            )(task_run, skip_lines=skip_lines)
+        except ObjectStorageError:
+            logger.warning(
+                "custom_prompt - %s: storage error on final log read (%d/%d), run=%s",
+                context,
+                attempt,
+                MAX_CONSECUTIVE_STORAGE_ERRORS,
+                task_run.id,
+                exc_info=True,
+            )
+            if attempt >= MAX_CONSECUTIVE_STORAGE_ERRORS:
+                raise
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    raise AssertionError("unreachable: loop returns on success or raises on exhaustion")  # pragma: no cover
+
+
+async def _salvage_dropped_finalization(
+    task_run,
+    *,
+    printed_lines: int,
+    original_skip_lines: int,
+    max_total_lines_seen: int,
+    elapsed: int,
+    stale_seconds: int,
+    verbose: bool,
+    output_fn: OutputFn,
+) -> tuple[str, str | None, int, int] | None:
+    """Recover a turn whose closing end_turn was dropped (final message + null-cost usage_update,
+    then silence). Re-reads from the start-of-turn cursor so a chunked response is recovered in full.
+
+    Classified by the reread's tail:
+    - the real end_turn present -> the turn completed (the close just landed late); return it;
+    - the null-cost finalization fingerprint -> dropped-finalization; salvage the last message — but
+      only if nothing new arrived since polling beyond that single accounting line. A null-cost
+      usage_update is also emitted *between* chunks of an active turn, so fresh activity that landed
+      after the final poll has had no silence window and may still be live; decline it;
+    - anything else (a tool call / bare message / error tail) -> still live or failed; decline.
+
+    Declining falls back to the caller's timeout failure. A storage outage on the reread propagates
+    (like the poll loop and terminal drain) rather than masquerading as a timeout."""
+    finished, last_message, full_log, total_lines, _ = await _read_turn_log_with_retry(
+        task_run, skip_lines=original_skip_lines, context="salvage_dropped_finalization"
+    )
+    if finished and last_message is not None:
+        printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+        logger.warning(
+            "custom_prompt - salvage_dropped_finalization: end_turn recovered on reread at poll timeout "
+            "(%ds) — completing, run=%s total_lines=%d",
+            elapsed,
+            task_run.id,
+            total_lines,
+        )
+        return last_message, full_log, total_lines, printed_lines
+    if last_message is None or not _ended_on_pending_finalization(full_log):
+        return None
+    # The fingerprint also matches a mid-turn pause between chunks. The log is append-only, so the only
+    # benign growth since polling is the finalization usage_update itself landing late (+1 line beyond
+    # the high-water mark). Any more than that — a new message chunk, a tool call, etc. — is fresh
+    # activity that has had no silence window and could still be live, so decline rather than truncate.
+    if total_lines - max_total_lines_seen > 1:
+        logger.warning(
+            "custom_prompt - salvage_dropped_finalization: reread grew %d line(s) past the high-water "
+            "mark (%d) — fresh activity, no silence window; declining salvage, run=%s",
+            total_lines - max_total_lines_seen,
+            max_total_lines_seen,
+            task_run.id,
+        )
+        return None
+    printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+    logger.warning(
+        "custom_prompt - salvage_dropped_finalization: end_turn missing, turn-accounting tail present, "
+        "stale %ds at poll timeout (%ds) — salvaging last message, run=%s total_lines=%d",
+        stale_seconds,
+        elapsed,
+        task_run.id,
+        total_lines,
+    )
+    return last_message, full_log, total_lines, printed_lines
 
 
 async def _drain_final_log(
@@ -206,45 +377,99 @@ async def _drain_final_log(
     *,
     refreshed_status: str,
     error_message: str | None = None,
-    skip_lines: int,
     printed_lines: int,
+    original_skip_lines: int,
     verbose: bool,
     output_fn: OutputFn,
 ) -> tuple[str, str | None, int, int]:
     """
     Drain one last S3 read after the TaskRun hit a terminal status. S3 may not have flushed the final agent_message
     before Temporal marked the run done, so we retry the read. Raises RuntimeError if no message is recoverable.
+
+    Re-parses from the start-of-turn cursor (`original_skip_lines`) rather than only the slice past the *last* poll
+    cursor: when the agent emits text mid-run but never reaches `end_turn` (e.g. killed by inactivity timeout
+    mid-tool-call), the agent_message landed in an earlier poll slice and the per-poll cursor has advanced past
+    it. Scanning from start-of-turn recovers it without crossing into the previous turn (which would return a
+    stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
+    the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
     """
-    final_message = None
-    final_log = None
-    final_lines = skip_lines
-    final_empty_end_turn = False
-    for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
-        try:
-            _, final_message, final_log, final_lines, final_empty_end_turn = await sync_to_async(
-                # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
-                _check_logs,
-                thread_sensitive=False,
-            )(task_run, skip_lines)
-            break
-        except ObjectStorageError:
-            logger.warning(
-                "custom_prompt - drain_final_log: storage error on final log read (%d/%d)",
-                attempt + 1,
-                MAX_CONSECUTIVE_STORAGE_ERRORS,
-                exc_info=True,
-            )
-            if attempt + 1 >= MAX_CONSECUTIVE_STORAGE_ERRORS:
-                raise
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    _, final_message, final_log, final_lines, final_empty_end_turn = await _read_turn_log_with_retry(
+        task_run, skip_lines=original_skip_lines, context="drain_final_log"
+    )
     printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
     if final_message:
         return final_message, final_log, final_lines, printed_lines
+    # Prefer the agent's own classified error over the generic terminal-status message
+    # (Temporal's "Activity task failed"). Only on FAILED — CANCELLED is a user action and
+    # COMPLETED-with-no-message is the empty-turn path, neither of which we want to relabel.
+    if refreshed_status == TaskRun.Status.FAILED:
+        agent_error = _extract_agent_error(final_log, skip_lines=original_skip_lines)
+        if agent_error is not None:
+            cause_text = agent_error.describe()
+            # Persist the real cause so the TaskRun stops showing "Activity task failed".
+            await _persist_task_run_error_message(str(task_run.id), cause_text)
+            raise RuntimeError(
+                f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status} "
+                f"(cause: {cause_text})"
+            )
     reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
     raise RuntimeError(
         f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     )
+
+
+def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentError | None:
+    """Scan log lines for the agent's structured terminal-error notification.
+
+    Returns the last `_posthog/error` entry carrying a non-empty message (with the
+    classified `error_category` when the agent build provides it), or None when no
+    such entry exists — e.g. an older agent build or a non-agent failure — in which
+    case the caller falls back to the generic terminal-status message.
+    """
+    if not log_content:
+        return None
+    lines = log_content.strip().split("\n")
+    found: AgentError | None = None
+    for line in lines[skip_lines:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        notification = entry.get("notification")
+        if not isinstance(notification, dict) or notification.get("method") != AGENT_ERROR_METHOD:
+            continue
+        params = notification.get("params")
+        if not isinstance(params, dict):
+            continue
+        message = params.get("message")
+        if not isinstance(message, str) or not message.strip():
+            continue
+        raw_category = params.get("error_category")
+        category = raw_category.strip() if isinstance(raw_category, str) and raw_category.strip() else None
+        found = AgentError(message=message.strip(), category=category)
+    return found
+
+
+def _update_task_run_error_message(run_id: str, message: str) -> None:
+    TaskRun.objects.filter(id=run_id).update(error_message=message)
+
+
+async def _persist_task_run_error_message(run_id: str, message: str) -> None:
+    """Best-effort write of the agent's real error onto the TaskRun. The raised
+    RuntimeError already carries the message for Temporal, so a failed write here
+    must not mask the underlying failure."""
+    try:
+        await sync_to_async(_update_task_run_error_message)(run_id, message)
+    except Exception:
+        logger.warning(
+            "custom_prompt - drain_final_log: failed to persist agent error to TaskRun run=%s",
+            run_id,
+            exc_info=True,
+        )
 
 
 def _stream_new_lines(
@@ -344,6 +569,34 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
     if agent_finished and latest_text is None:
         return False, None, log_content, total_lines, True
     return agent_finished, latest_text, log_content, total_lines, False
+
+
+def _ended_on_pending_finalization(full_log: str | None) -> bool:
+    """True when the log's last notification is a usage_update carrying an explicit null cost —
+    the sandbox ran turn accounting but the closing end_turn was dropped. The cost key must be
+    present and null: older usage_update lines omit it entirely and are not this fingerprint.
+    Any other trailing notification (an end_turn/result, a `_posthog/error`, a mid-turn update)
+    is decisive that this is not the dropped-finalization case, so we don't salvage and let the
+    normal completion / terminal-status drain handle it."""
+    if not full_log:
+        return False
+    for line in reversed(full_log.strip().split("\n")):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            notification = json.loads(line).get("notification")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(notification, dict):
+            continue
+        params = notification.get("params")
+        update = params.get("update") if isinstance(params, dict) else None
+        if not isinstance(update, dict):
+            # The last notification is a result/error/other — not a turn sitting on accounting.
+            return False
+        return update.get("sessionUpdate") == "usage_update" and "cost" in update and update["cost"] is None
+    return False
 
 
 def _extract_text(update: dict) -> str | None:

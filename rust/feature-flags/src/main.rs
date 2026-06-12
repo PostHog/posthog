@@ -14,6 +14,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use feature_flags::config::{Config, ThreadCounts};
+use feature_flags::handler::body_logger::BODY_LOG_TARGET;
 use feature_flags::rayon_dispatcher::RayonDispatcher;
 use feature_flags::server::{register_components, serve};
 
@@ -98,6 +99,22 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
     };
 
     let otel_layer = if let Some(ref otel_url) = config.otel_url {
+        // Build the OTEL filter explicitly: keep the configured level for
+        // every other target, but drop the body-log target. Body logs go to
+        // stdout (and from there to Loki on a short retention) by design;
+        // routing them through OTEL too would re-sink PII (`distinct_id`,
+        // `person_properties`, `ip_address`) into a tier the body-log
+        // retention budget was not sized for. The directive is parsed at
+        // runtime from `BODY_LOG_TARGET` so the constant stays the single
+        // source of truth.
+        let otel_filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::from_level(config.otel_log_level).into())
+            .parse_lossy("")
+            .add_directive(
+                format!("{BODY_LOG_TARGET}=off")
+                    .parse()
+                    .expect("BODY_LOG_TARGET must form a valid tracing directive"),
+            );
         Some(
             OpenTelemetryLayer::new(init_tracer(
                 otel_url,
@@ -105,7 +122,7 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
                 &config.otel_service_name,
                 config.otel_export_timeout_secs,
             ))
-            .with_filter(LevelFilter::from_level(config.otel_log_level)),
+            .with_filter(otel_filter),
         )
     } else {
         None

@@ -5,7 +5,7 @@ import pytest
 from unittest import mock
 
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS
+from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, WORKFLOW_RUNS
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -70,6 +70,28 @@ def external_data_schema_pull_requests_incremental(external_data_source, team):
         source_id=external_data_source.pk,
         sync_type="incremental",
         sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+    )
+
+
+@pytest.fixture
+def external_data_schema_workflow_runs_full_refresh(external_data_source, team):
+    return ExternalDataSchema.objects.create(
+        name="workflow_runs",
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="full_refresh",
+        sync_type_config={},
+    )
+
+
+@pytest.fixture
+def external_data_schema_workflow_runs_incremental(external_data_source, team):
+    return ExternalDataSchema.objects.create(
+        name="workflow_runs",
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="incremental",
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
     )
 
 
@@ -197,3 +219,68 @@ async def test_github_pull_requests_incremental(
     assert first_call_params.get("sort") == ["created"]
     assert first_call_params.get("direction") == ["asc"]
     assert "since" not in first_call_params
+
+
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_github_workflow_runs_full_refresh(
+    team, mock_github_api, external_data_source, external_data_schema_workflow_runs_full_refresh
+):
+    expected_num_rows = len(WORKFLOW_RUNS)
+
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_workflow_runs_full_refresh,
+        table_name="github_workflow_runs",
+        expected_rows_synced=expected_num_rows,
+        expected_total_rows=expected_num_rows,
+    )
+
+    api_calls = mock_github_api.get_all_api_calls()
+    assert len(api_calls) == 1
+    assert "/repos/owner/repo/actions/runs" in api_calls[0].url
+    # workflow_runs is a minimal-params endpoint: no sort/direction/state.
+    first_call_params = parse_qs(urlparse(api_calls[0].url).query)
+    assert "sort" not in first_call_params
+    assert "direction" not in first_call_params
+    assert "state" not in first_call_params
+    assert "created" not in first_call_params
+
+
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_github_workflow_runs_incremental(
+    team, mock_github_api, external_data_source, external_data_schema_workflow_runs_incremental
+):
+    # Single-sync test mirroring the pull_requests/commits incremental tests:
+    # workflow_runs scrolls newest-first and bounds incremental syncs via
+    # client-side early-stop (no server filter), so the request shape is what
+    # matters here. The newest-first re-read + primary-key dedup across syncs is
+    # the pipeline merge's job; exercising it through two rapid in-harness syncs
+    # is flaky, so the desc early-stop overlap is covered deterministically in
+    # test_github_source.py instead.
+    expected_num_rows = len(WORKFLOW_RUNS)
+
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_workflow_runs_incremental,
+        table_name="github_workflow_runs",
+        expected_rows_synced=expected_num_rows,
+        expected_total_rows=expected_num_rows,
+    )
+
+    api_calls = mock_github_api.get_all_api_calls()
+    assert len(api_calls) == 1
+    assert "/repos/owner/repo/actions/runs" in api_calls[0].url
+    # No created/since/sort/state — the 1,000-result search cap is only hit when
+    # those filters are sent, so workflow_runs avoids them entirely.
+    first_call_params = parse_qs(urlparse(api_calls[0].url).query)
+    assert "created" not in first_call_params
+    assert "since" not in first_call_params
+    assert "sort" not in first_call_params
+    assert "direction" not in first_call_params
+    assert "state" not in first_call_params

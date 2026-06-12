@@ -23,8 +23,9 @@ class CanEditDashboardCollaborator(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         try:
-            # nosemgrep: idor-lookup-without-team (dashboard access validated by parent viewset)
-            dashboard: Dashboard = Dashboard.objects.get(id=view.parents_query_dict["dashboard_id"])
+            dashboard: Dashboard = Dashboard.objects.get(
+                id=view.parents_query_dict["dashboard_id"], team__project_id=view.team.project_id
+            )
         except Dashboard.DoesNotExist:
             raise exceptions.NotFound("Dashboard not found.")
 
@@ -104,8 +105,9 @@ class DashboardCollaboratorViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         try:
-            # nosemgrep: idor-lookup-without-team (dashboard access validated by parent viewset)
-            context["dashboard"] = Dashboard.objects.get(id=context["dashboard_id"])
+            context["dashboard"] = Dashboard.objects.get(
+                id=context["dashboard_id"], team__project_id=self.team.project_id
+            )
         except Dashboard.DoesNotExist:
             raise exceptions.NotFound("Dashboard not found.")
         return context

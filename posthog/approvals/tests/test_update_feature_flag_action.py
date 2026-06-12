@@ -8,7 +8,8 @@ from parameterized import parameterized
 from posthog.approvals.actions.feature_flags import UpdateFeatureFlagAction
 from posthog.approvals.models import ApprovalPolicy, ChangeRequest
 from posthog.approvals.policies import PolicyEngine
-from posthog.models import FeatureFlag
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SINGLE_DICT_PATHS = {"holdout"}
 
@@ -123,7 +124,6 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
     def test_extract_intent_captures_rollout_percentage_from_all_locations(self):
         old_filters = {
             "groups": [{"properties": [], "rollout_percentage": 50}],
-            "super_groups": [{"properties": [], "rollout_percentage": 100}],
             "holdout": {"id": 1, "exclusion_percentage": 70},
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
         }
@@ -131,7 +131,6 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
 
         new_filters = {
             "groups": [{"properties": [], "rollout_percentage": 80}],
-            "super_groups": [{"properties": [], "rollout_percentage": 100}],
             "holdout": {"id": 1, "exclusion_percentage": 70},
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 60}]},
         }

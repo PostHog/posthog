@@ -35,18 +35,28 @@ describe('ErrorTrackingSettingsManager', () => {
     const upsertSettings = async (
         targetTeamId: number,
         projectRateLimitValue: number | null,
-        projectRateLimitBucketSizeMinutes: number | null
+        projectRateLimitBucketSizeMinutes: number | null,
+        perIssueRateLimitValue: number | null = null,
+        perIssueRateLimitBucketSizeMinutes: number | null = null
     ): Promise<void> => {
         await postgres.query(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_errortrackingsettings
                 (team_id, project_rate_limit_value, project_rate_limit_bucket_size_minutes,
                  per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes)
-             VALUES ($1, $2, $3, NULL, NULL)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (team_id) DO UPDATE SET
                 project_rate_limit_value = EXCLUDED.project_rate_limit_value,
-                project_rate_limit_bucket_size_minutes = EXCLUDED.project_rate_limit_bucket_size_minutes`,
-            [targetTeamId, projectRateLimitValue, projectRateLimitBucketSizeMinutes],
+                project_rate_limit_bucket_size_minutes = EXCLUDED.project_rate_limit_bucket_size_minutes,
+                per_issue_rate_limit_value = EXCLUDED.per_issue_rate_limit_value,
+                per_issue_rate_limit_bucket_size_minutes = EXCLUDED.per_issue_rate_limit_bucket_size_minutes`,
+            [
+                targetTeamId,
+                projectRateLimitValue,
+                projectRateLimitBucketSizeMinutes,
+                perIssueRateLimitValue,
+                perIssueRateLimitBucketSizeMinutes,
+            ],
             'upsert-test-error-tracking-settings'
         )
     }
@@ -57,12 +67,14 @@ describe('ErrorTrackingSettingsManager', () => {
     })
 
     it('returns settings when the team has a row', async () => {
-        await upsertSettings(teamId, 100, 5)
+        await upsertSettings(teamId, 100, 5, 20, 15)
 
         const result = await manager.getSettings(teamId)
         expect(result).toEqual({
             projectRateLimitValue: 100,
             projectRateLimitBucketSizeMinutes: 5,
+            perIssueRateLimitValue: 20,
+            perIssueRateLimitBucketSizeMinutes: 15,
         })
     })
 
@@ -73,6 +85,8 @@ describe('ErrorTrackingSettingsManager', () => {
         expect(result).toEqual({
             projectRateLimitValue: null,
             projectRateLimitBucketSizeMinutes: null,
+            perIssueRateLimitValue: null,
+            perIssueRateLimitBucketSizeMinutes: null,
         })
     })
 

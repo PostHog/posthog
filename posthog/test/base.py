@@ -67,17 +67,18 @@ from posthog.clickhouse.preaggregation.sql import (
     SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL,
 )
 from posthog.clickhouse.query_log_archive import (
-    QUERY_LOG_ARCHIVE_DATA_TABLE,
-    QUERY_LOG_ARCHIVE_MV,
-    QUERY_LOG_ARCHIVE_NEW_MV_SQL,
-    QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
-    QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW,
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_OPS_MV,
+    QUERY_LOG_ARCHIVE_OPS_MV_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Insight, Organization, Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
@@ -86,7 +87,6 @@ from posthog.models.channel_type.sql import (
     DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
     DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.cohortmembership.sql import (
     COHORT_MEMBERSHIP_MV_SQL,
     COHORT_MEMBERSHIP_TABLE_SQL,
@@ -198,12 +198,14 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 from posthog.test.assert_faster_than import assert_faster_than
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
+from products.product_analytics.backend.models.insight import Insight
 
 # Make sure freezegun ignores our utils class that times functions, and heavy optional
 # deps (e.g. transformers) that can break when freezegun walks sys.modules.
@@ -720,7 +722,7 @@ class PostHogTestCase(SimpleTestCase):
             yield value
 
     @contextmanager
-    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
+    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None]:
         for attempt in range(max_retries):
             try:
                 yield  # Only yield once per context manager instance
@@ -808,18 +810,28 @@ class MemoryLeakTestMixin:
     MEMORY_LEAK_CHECK_RUNS_N: int
     """How many times to run every test method to check for memory leaks"""
 
+    # Re-run index for the current test, exposed so a test body can do work that must happen
+    # exactly once (e.g. a snapshot/oracle comparison whose own machinery allocates and would
+    # otherwise trip the leak check on every rerun) only when this is 0, while still exercising
+    # the code under test on every rerun. Outside the priming/measure loop it stays 0.
+    _memory_leak_run_index: int = 0
+
     def _callTestMethod(self, method):
         # Tests marked `@no_memory_leak_check` run once, no priming/measure loop.
         if getattr(method, "_no_memory_leak_check", False):
+            self._memory_leak_run_index = 0
             method()
             return
         test_case = cast(unittest.TestCase, self)
+        self._memory_leak_run_index = 0
         mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
             method()
+            self._memory_leak_run_index += 1
         mem_primed_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_LEAK_CHECK_RUNS_N):  # Memory leak check runs
             method()
+            self._memory_leak_run_index += 1
         mem_tested_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         avg_memory_priming_increase_b = (mem_primed_b - mem_original_b) / self.MEMORY_PRIMING_RUNS_N
         avg_memory_test_increase_b = (mem_tested_b - mem_primed_b) / self.MEMORY_LEAK_CHECK_RUNS_N
@@ -1155,6 +1167,7 @@ def materialized(
     property,
     create_minmax_index: bool = False,
     is_nullable: bool = False,
+    column_type: str | None = None,
     create_bloom_filter_index: bool = False,
     create_ngram_lower_index: bool = False,
     create_bloom_filter_lower_index: bool = False,
@@ -1178,6 +1191,7 @@ def materialized(
             property,
             create_minmax_index=create_minmax_index,
             is_nullable=is_nullable,
+            column_type=column_type,
             create_bloom_filter_index=create_bloom_filter_index,
             create_ngram_lower_index=create_ngram_lower_index,
             create_bloom_filter_lower_index=create_bloom_filter_lower_index,
@@ -1721,9 +1735,7 @@ def reset_clickhouse_database() -> None:
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
-                table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW()
-            ),
+            SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
             SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
@@ -1745,7 +1757,8 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_TEST_VIEW(),
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
@@ -1768,6 +1781,9 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
+            QUERY_LOG_ARCHIVE_OPS_MV_SQL(
+                view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
+            ),
         ]
     )
 

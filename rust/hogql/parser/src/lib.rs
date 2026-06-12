@@ -15,6 +15,12 @@
 
 // `#[pyfunction]`'s expansion does an `.into()` on the `PyResult<PyObject>` return value, which is an identity conversion when the function already returns the target type — clippy's `useless_conversion` doesn't see through the macro and would flag every `parse_*_py` entry point. The lint isn't actionable from our side without leaving pyo3's `#[pyfunction]` abstraction.
 #![allow(clippy::useless_conversion)]
+// Style lints that conflict with the parser's deliberate shape: a few internal helpers return wide tuples (the table-alias chain, function-arg bundles) rather than one-off structs; some builder-style helpers are named `from_*` but take `&self`; and the heavily-prose doc comments use markdown lists clippy's `doc_lazy_continuation` flags. None are actionable without churning the parser, so allow them crate-wide.
+#![allow(
+    clippy::type_complexity,
+    clippy::wrong_self_convention,
+    clippy::doc_lazy_continuation
+)]
 
 use pyo3::prelude::*;
 use std::panic::AssertUnwindSafe;
@@ -30,7 +36,25 @@ fn run<F>(f: F) -> String
 where
     F: FnOnce() -> Result<serde_json::Value, error::ParseError>,
 {
-    match f() {
+    // Catch panics so a parser bug surfaces as a structured JSON error envelope (a `NotImplementedError` the Python side maps to the `ExposedHogQLError` family) instead of a `PanicException` — a `BaseException` that slips past callers' `except Exception` and the shadow-comparison harness's guard, crashing the primary parse. `run_py` wraps its deep parse the same way; the `*_json` entry points have no other unwind boundary, so they need it here.
+    let outcome = std::panic::catch_unwind(AssertUnwindSafe(f));
+    let result = match outcome {
+        Ok(r) => r,
+        Err(panic) => {
+            let msg = panic
+                .downcast_ref::<&'static str>()
+                .copied()
+                .map(str::to_string)
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "parser panicked".to_string());
+            Err(error::ParseError::not_implemented(
+                format!("internal parser panic: {msg}"),
+                0,
+                0,
+            ))
+        }
+    };
+    match result {
         Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| {
             // serde_json::Value -> string never fails in practice, but emit a structured error rather than panic across the FFI.
             error::ParseError::syntax("internal: failed to serialize AST", 0, 0).to_json_string()
@@ -47,11 +71,16 @@ where
     F: FnOnce(emit_py::PyEmitter<'py>) -> Result<emit_py::PyAst, error::ParseError>,
 {
     let emitter = emit_py::PyEmitter::new(py)?;
-    // Convert any panic from the emitter drive (e.g. `class(**kwargs)` tripping dataclass `__post_init__`) into a `NotImplementedError` envelope. PyO3 would surface it as `PanicException`, which production callers catching the `ExposedHogQLError` family won't intercept.
+    // Drive the emitter under `catch_unwind`: a dataclass constructor / `__post_init__` raising mid-build unwinds via panic (the `Emitter` trait is infallible, so there's no Result channel out of the deep parse).
     let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| f(emitter)));
     let result = match outcome {
         Ok(r) => r,
         Err(panic) => {
+            // `PyEmitter::build` restores the original Python exception before unwinding, so re-raise it verbatim — rust-py then surfaces the same exception the json backends do (they hit it in `deserialize_ast`), rather than a wrapped envelope.
+            if let Some(err) = PyErr::take(py) {
+                return Err(err);
+            }
+            // Genuine (non-PyErr) panic: wrap as a `NotImplementedError` envelope so production callers catching the `ExposedHogQLError` family intercept it, instead of PyO3 surfacing a raw `PanicException`.
             let msg = panic
                 .downcast_ref::<&'static str>()
                 .copied()
@@ -145,4 +174,30 @@ fn hogql_parser_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_program_py, m)?)?;
     m.add_function(wrap_pyfunction!(parse_full_template_string_py, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_converts_panic_to_json_error_envelope() {
+        // A panic on a `*_json` path must surface as a structured error envelope, not unwind across the FFI as a `PanicException` (a `BaseException` that escapes callers' `except Exception` and the shadow harness). cargo captures the expected panic's stderr for a passing test, so no hook silencing is needed.
+        let out = run(|| panic!("synthetic json-path panic"));
+        assert!(out.contains("\"error\":true"), "got: {out}");
+        assert!(out.contains("NotImplementedError"), "got: {out}");
+        assert!(out.contains("synthetic json-path panic"), "got: {out}");
+    }
+
+    #[test]
+    fn run_passes_through_ok_and_error_results() {
+        // The catch_unwind wrapper must not disturb the normal Ok / Err paths.
+        let ok = run(|| Ok(serde_json::json!({"node": "Constant"})));
+        assert!(ok.contains("Constant"), "got: {ok}");
+        let err = run(|| Err(error::ParseError::syntax("nope", 1, 2)));
+        assert!(
+            err.contains("SyntaxError") && err.contains("nope"),
+            "got: {err}"
+        );
+    }
 }

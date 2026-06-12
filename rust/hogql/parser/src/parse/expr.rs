@@ -32,9 +32,9 @@ type FunctionArgs<V> = (bool, Vec<V>, Option<Vec<V>>);
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_expr_bp(&mut self, min_bp: u8) -> Result<E::Value, ParseError> {
-        // Cap the central recursive entry so deeply-nested input (`((…))` with thousands of nests) surfaces as a syntax error rather than stack OOM. Bound rationale on `MAX_EXPR_RECURSION_DEPTH`.
-        self.expr_recursion_depth += 1;
-        let result = if self.expr_recursion_depth > crate::parse::MAX_EXPR_RECURSION_DEPTH {
+        // Cap the central recursive entry so deeply-nested input (`((…))` with thousands of nests) surfaces as a syntax error rather than stack OOM. Shares the counter with subquery / statement nesting; bound rationale on `MAX_RECURSION_DEPTH`.
+        self.recursion_depth += 1;
+        let result = if self.recursion_depth > crate::parse::MAX_RECURSION_DEPTH {
             Err(ParseError::syntax(
                 "expression too deeply nested",
                 self.peek0.start,
@@ -46,7 +46,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 .map(|lhs| self.wrap_pos(lhs, lhs_start))
                 .and_then(|lhs| self.pratt_continue_with_lhs(lhs, min_bp, lhs_start))
         };
-        self.expr_recursion_depth -= 1;
+        self.recursion_depth -= 1;
         result
     }
 
@@ -94,7 +94,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         }
                     }
                     let next = self.peek_next();
-                    if !peek_can_start_clause_body(next) || is_pure_infix_op(next) {
+                    // `<` is a pure-infix token (less-than), but it also starts
+                    // a HogQLX tag: `1 % <a/>` is `1 modulo <tag>`. Don't treat
+                    // the `%` as the PERCENT marker when a tag follows. Plain
+                    // `1 % < 2` (peek-next `<` not a tag) still breaks.
+                    if (!peek_can_start_clause_body(next) || is_pure_infix_op(next))
+                        && !self.peek_next_starts_hogqlx_tag()
+                    {
                         break;
                     }
                 }
@@ -126,7 +132,31 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 lhs = self.wrap_pos(build_infix(&self.emit, op, lhs, rhs), lhs_start);
                 continue;
             }
-            if let Some(handled) = self.try_special_infix(kind, &mut lhs, min_bp, lhs_start)? {
+            // Special-infix (LIKE / BETWEEN / IS [NOT] (NULL|DISTINCT FROM) /
+            // IN / …). At a statement boundary (recover flag set) an INCOMPLETE
+            // form is cpp's "end this statement, start the next" shape, not an
+            // error: `week like` is two Field statements, `"_" between "_"` is
+            // three. The body/RHS parse happens before `lhs.take()`, so a
+            // failure leaves `lhs` intact — roll back the lexer and break so the
+            // operator begins the next statement (mirrors cpp ALL(*) backtrack
+            // and the regular-infix recovery above). At expression level (flag
+            // off) the failure stays a hard error, matching cpp.
+            if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                let cp = self.checkpoint();
+                match self.try_special_infix(kind, &mut lhs, min_bp, lhs_start) {
+                    Ok(Some(true)) => {
+                        lhs = self.wrap_pos(lhs, lhs_start);
+                        continue;
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        self.restore(cp)?;
+                        break;
+                    }
+                }
+            } else if let Some(handled) =
+                self.try_special_infix(kind, &mut lhs, min_bp, lhs_start)?
+            {
                 if handled {
                     // `try_special_infix` mutates `lhs` in place with a fresh
                     // unpositioned JSON node (`CompareOperation`, `BetweenExpr`,
@@ -153,6 +183,26 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     && self.paren_block_then_colon_equals(self.peek0.end)
                 {
                     break;
+                }
+                // Same statement-boundary recovery as special-infix: a failing
+                // postfix (`[ ] [ ]` — the second `[` can't index the first
+                // empty array) ends the statement so the postfix token begins
+                // the next one. `parse_postfix` moves `lhs` by value, so clone
+                // it to restore on failure. Expression level keeps the error.
+                if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                    let cp = self.checkpoint();
+                    let lhs_backup = lhs.clone();
+                    match self.parse_postfix(kind, lhs) {
+                        Ok(v) => {
+                            lhs = self.wrap_pos(v, lhs_start);
+                            continue;
+                        }
+                        Err(_) => {
+                            self.restore(cp)?;
+                            lhs = lhs_backup;
+                            break;
+                        }
+                    }
                 }
                 lhs = self.parse_postfix(kind, lhs)?;
                 lhs = self.wrap_pos(lhs, lhs_start);
@@ -303,16 +353,35 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 if self.peek_next() == TokenKind::Arrow {
                     return self.parse_single_arg_arrow_lambda();
                 }
+                // `not <tag>` — a `<` that begins a HogQLX tag is NOT the
+                // less-than operator, so NOT is the unary prefix and the tag is
+                // its operand (`not <a/>` → `Not(<a/>)`). Without this, the
+                // `Lt` arm in the pure-binary-operator set below would read NOT
+                // as a Field and `<` as less-than, stranding the tag. Plain
+                // `not < 2` (peek-next `<` not a tag) still falls through there.
+                if self.peek_next_starts_hogqlx_tag() {
+                    // `<…` is the tag operand only when it forms a *complete* tag
+                    // (`not <a/>` -> `Not(<a/>)`); an incomplete `< ident`
+                    // (`not < a`) is the less-than operator with NOT as a Field.
+                    // Try the tag and fall through to the Field path on failure.
+                    let cp = self.checkpoint();
+                    self.bump()?; // NOT
+                    match self.parse_expr_bp(BP_NOT) {
+                        Ok(rhs) => return Ok(self.emit.not_(rhs)),
+                        Err(_) => self.restore(cp)?,
+                    }
+                }
                 // Bare `NOT` followed by a token that can't start an
-                // expression (alias / list-terminator / EOF) is the
-                // identifier "not" — cpp's `keyword` rule admits NOT
-                // as an identifier and falls back to a Field. Without
-                // this check, parse_prefix would eagerly consume NOT
-                // and then error on the unexpected following token.
+                // expression (list-terminator / EOF) is the identifier
+                // "not" — cpp's `keyword` rule admits NOT as an identifier
+                // and falls back to a Field. Without this check, parse_prefix
+                // would eagerly consume NOT and then error on the unexpected
+                // following token. (`not as` is NOT here: `AS` parses as a
+                // Field operand, so cpp keeps `Not(Field('AS'))` via the
+                // general fallback below.)
                 if matches!(
                     self.peek_next(),
-                    TokenKind::Keyword(Kw::As)
-                        | TokenKind::Comma
+                    TokenKind::Comma
                         | TokenKind::RParen
                         | TokenKind::RBracket
                         | TokenKind::RBrace
@@ -360,6 +429,60 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         | TokenKind::ColonEquals
                 ) {
                     return self.parse_ident_lead();
+                }
+                // At a STATEMENT boundary cpp takes the shortest leading
+                // statement, so a `not <op-keyword> <rhs>` is `Not(Field(<kw>))`
+                // (statement 1) with `<rhs>` opening the next statement, rather
+                // than the greedy single expression `Field(not) <op> <rhs>`.
+                // Skip all the expression-context NOT-flip probes below and go
+                // straight to the general fallback, which produces exactly that
+                // split (`not like 'a'` → `Not(Field(like))`; then `'a'`).
+                if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                    let cp = self.checkpoint();
+                    self.bump()?; // NOT
+                    return match self.parse_expr_bp(BP_NOT) {
+                        Ok(rhs) => Ok(self.emit.not_(rhs)),
+                        Err(_) => {
+                            self.restore(cp)?;
+                            self.parse_ident_lead()
+                        }
+                    };
+                }
+                // EXPRESSION context below: cpp's single-expression parse greedily
+                // reads NOT as a Field so a following infix / alias binds to it.
+                // `not as <alias>` → `Field(not) AS <alias>`; a bare `not as` (no
+                // alias after `AS`) stays `Not(Field('as'))`. Aliases are
+                // IDENTIFIER / QUOTED_IDENTIFIER / keywordForAlias (date/first/id/key).
+                if self.peek_next() == TokenKind::Keyword(Kw::As) {
+                    let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+                    if matches!(
+                        probe.next_token().map(|t| t.kind),
+                        Ok(TokenKind::Ident
+                            | TokenKind::QuotedIdent
+                            | TokenKind::Keyword(Kw::Date | Kw::First | Kw::Id | Kw::Key))
+                    ) {
+                        return self.parse_ident_lead();
+                    }
+                }
+                // `not in a` → binary `in` (`Compare(Field(not), "in", a)`), but
+                // `not in (1,2)` keeps the unary `Not(Call(in, [1,2]))` via the
+                // LParen exclusion.
+                if self.peek_next() == TokenKind::Keyword(Kw::In) {
+                    let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+                    if let Ok(after) = probe.next_token() {
+                        if !matches!(
+                            after.kind,
+                            TokenKind::Eof
+                                | TokenKind::Comma
+                                | TokenKind::RParen
+                                | TokenKind::RBracket
+                                | TokenKind::RBrace
+                                | TokenKind::Semicolon
+                                | TokenKind::LParen
+                        ) {
+                            return self.parse_ident_lead();
+                        }
+                    }
                 }
                 // `not <kw-infix> <rhs>`: cpp's ALL(*) prefers
                 // `Field([not]) <kw-infix> <rhs>` over `Not(Field([kw]))`
@@ -473,9 +596,26 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         return self.parse_ident_lead();
                     }
                 }
-                self.bump()?;
-                let rhs = self.parse_expr_bp(BP_NOT)?;
-                Ok(self.emit.not_(rhs))
+                // General NOT fallback (cpp ALL(*) parity): try NOT as the unary
+                // prefix; if its operand can't parse, cpp re-reads NOT as a bare
+                // Field and the following infix/postfix binds to it — `not < a` ->
+                // `(Field not) < a`, `not + a` -> `(Field not) + a`, `not in a` ->
+                // `(Field not) in a`. `not AS` keeps `Not(Field('AS'))` because the
+                // operand parses. The earlier probes already diverted the cases
+                // where the operand parses but cpp still prefers Field(not), so the
+                // fallback only fires on a genuine operand failure. At a statement
+                // boundary this is also the `not let x` shape (`not` Field stmt then
+                // the `let x` statement). rust rejects only when both the unary and
+                // the Field interpretation fail — exactly as cpp does.
+                let cp = self.checkpoint();
+                self.bump()?; // NOT
+                match self.parse_expr_bp(BP_NOT) {
+                    Ok(rhs) => Ok(self.emit.not_(rhs)),
+                    Err(_) => {
+                        self.restore(cp)?;
+                        self.parse_ident_lead()
+                    }
+                }
             }
             _ => {
                 // `<Tag ...>` — HogQLX tag in column position (cpp's
@@ -492,8 +632,29 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         }
     }
 
+    /// After `<cursor> .` (the cursor token followed by a `.`), is the token
+    /// past the `.` a Field-chain link (identifier-ish) rather than a
+    /// tuple-access index (number)? `true.x` is a Field chain; `true.1` is
+    /// tuple access on the boolean Constant. Used to keep `true`/`false` a
+    /// Constant base for numeric tuple access while still folding `.identifier`
+    /// into a Field chain.
+    pub(crate) fn dot_next_is_chain_link(&self) -> bool {
+        if self.peek_next() != TokenKind::Dot {
+            return false;
+        }
+        let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+        matches!(
+            probe.next_token().map(|t| t.kind),
+            Ok(TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_))
+        )
+    }
+
     fn parse_primary(&mut self) -> Result<E::Value, ParseError> {
         let tok = self.peek0;
+        // One-shot: true only for the leading primary of an enclosing INTERVAL's
+        // value (set in `parse_interval_expr`). Taken here so it never leaks past
+        // the first primary — parens / call-args reset it for free.
+        let interval_value = std::mem::take(&mut self.interval_value_pending);
         match tok.kind {
             TokenKind::Number => {
                 self.bump()?;
@@ -536,21 +697,21 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 parse_template_body(&self.emit, self.src, body_offset, body_end)
             }
             TokenKind::Keyword(Kw::True | Kw::False)
-                if self.peek_next() == TokenKind::LParen || self.peek_next() == TokenKind::Dot =>
+                if self.peek_next() == TokenKind::LParen || self.dot_next_is_chain_link() =>
             {
-                // `true`/`false` are not lexer tokens in the grammar —
-                // they are ordinary identifiers, and become Bool
-                // Constants only as a bare `columnIdentifier`. cpp
-                // treats them as identifiers in two columnExpr-leading
-                // postfix positions:
-                //   `true(…)`     → Call(name='true')          (function call)
-                //   `true.x`      → Field(['true', 'x'])       (chain)
-                // The Pratt loop would otherwise wrap a `Constant(true)`
-                // in an `ArrayAccess` for the `.x`, diverging from cpp's
-                // Field shape. Route both shapes through ident-lead so
-                // the chain accumulates correctly. `null` differs —
-                // `NULL` is a real keyword, so `null(…)` stays an
-                // `ExprCall` on the Null constant.
+                // `true`/`false` are not lexer tokens in the grammar — they are
+                // ordinary identifiers, and become Bool Constants only as a bare
+                // `columnIdentifier`. cpp treats them as identifiers in two
+                // columnExpr-leading postfix positions:
+                //   `true(…)`  → Call(name='true')       (function call)
+                //   `true.x`   → Field(['true', 'x'])    (chain)
+                // Route those through ident-lead so the chain accumulates. But
+                // `true.<number>` is tuple access on the boolean Constant
+                // (`true.1` → TupleAccess(Constant(true), 1)) — cpp keeps the
+                // Constant base, so that case is NOT routed here: it falls
+                // through to the Constant arms and the Pratt `.` postfix builds
+                // the TupleAccess. `null` differs — NULL is a real keyword, so
+                // `null(…)` / `null.1` already keep the Null constant.
                 self.parse_ident_lead()
             }
             TokenKind::Keyword(Kw::True) => {
@@ -626,9 +787,79 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // back to identifier and parses as a function call (which also
             // covers `interval(distinct …)`, `interval(a, b) within group …`,
             // `interval(a, b) over …`, and the empty `interval()` no-args
-            // form). Mirror with `try_alt`.
+            // form).
+            //
+            // cpp commits to the INTERVAL form only when a STRING_LITERAL
+            // follows (the `INTERVAL STRING_LITERAL` ColumnExprIntervalString
+            // alt): then a missing / bad unit is a hard error, never a fall-back
+            // to `interval`-as-Field. This matters at statement level —
+            // `{ interval 'ln' }` must reject, not split into `interval` (Field)
+            // + `'ln'` (Constant). So mark the string-committed parse fatal so no
+            // outer `try_alt` rolls it back. For a number / identifier / quoted-
+            // identifier value (`interval 1`, `interval x`, `interval "a"`) cpp
+            // does NOT commit: with no trailing unit it backtracks to `interval`-
+            // as-Field, so at program level `interval 1` is two statements
+            // (`interval` + `1`). Use try_alt there so `interval 1 day` still
+            // parses as an interval while a unit-less `interval 1` falls back to
+            // a Field. The `interval(...)` shape keeps the function-call fall-
+            // back; operator continuations like `interval + 1` reach try_alt too.
+            //
+            // A nested INTERVAL in the value position of an enclosing INTERVAL
+            // (`interval interval '5 day' month`) is special: cpp's ALL(*)
+            // reserves the trailing unit (`month`) for the OUTER interval, so
+            // the inner one never takes the unit-consuming form. Parse it
+            // string-only when a string follows (`interval '5 day'` →
+            // `toIntervalDay(5)`, with a bad string a hard error like cpp's
+            // `ColumnExprIntervalString`), else as a Field / call via the ident
+            // path (`interval - x` → `interval` Field minus `x`; `interval(1)`
+            // → call). The trailing unit then binds to the outer interval.
+            TokenKind::Keyword(Kw::Interval) if interval_value => {
+                if self.peek_next() == TokenKind::String {
+                    self.parse_interval_string_only()
+                        .map_err(ParseError::into_fatal)
+                } else {
+                    self.parse_ident_lead()
+                }
+            }
             TokenKind::Keyword(Kw::Interval) if can_start_interval_value(self.peek_next()) => {
-                self.try_alt(&[&Self::parse_interval_expr, &Self::parse_ident_lead])
+                if self.peek_next() == TokenKind::String {
+                    self.parse_interval_expr().map_err(ParseError::into_fatal)
+                } else {
+                    self.try_alt(&[&Self::parse_interval_expr, &Self::parse_ident_lead])
+                }
+            }
+            // ColumnExprDate (`DATE STRING_LITERAL`) / ColumnExprTimestamp
+            // (`TIMESTAMP STRING_LITERAL`). cpp's grammar matches these but its
+            // visitor raises NotImplementedError — the AST builder has no date /
+            // timestamp literal node — so they reject. Without this arm rust
+            // treats `date` / `timestamp` as a plain identifier and strands the
+            // string: at expression level `expect_eof` rejects, but inside a Hog
+            // `{ … }` block body the string becomes a second statement, so
+            // `{ date 'x' }` parses as `date; 'x'` and accepts input cpp rejects.
+            // Reject fatally so no outer `try_alt` rolls it back to the
+            // identifier form. `date(…)` (function call) and bare `date` keep
+            // the identifier path — only `date <string>` is the literal form.
+            TokenKind::Keyword(Kw::Date | Kw::Timestamp)
+                if self.peek_next() == TokenKind::String =>
+            {
+                if self.suppress_unvisited_clause_checks {
+                    // Inside a clause cpp grammar-parses but never visits (a
+                    // selectStmtWithParens trailing ORDER BY): consume `DATE
+                    // STRING` into a throwaway Constant so the discarded parse
+                    // completes, matching cpp's accept. The node value is moot.
+                    self.bump()?;
+                    let str_tok = self.peek0;
+                    self.bump()?;
+                    return Ok(self
+                        .emit
+                        .constant(self.emit.string(&unquote_single_string(self.text(str_tok)))));
+                }
+                let tok = self.peek0;
+                Err(ParseError::not_implemented_fatal(
+                    "Date and timestamp literals are not supported",
+                    tok.start,
+                    tok.end,
+                ))
             }
             // Grammar (line 289): LAMBDA identifier (COMMA identifier)* COMMA? COLON columnExpr
             // vs the keyword rule's "LAMBDA as identifier in primary position."
@@ -1045,6 +1276,21 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     str_tok.end,
                 ));
             }
+            // Reaching here means the string has no internal space (the split
+            // failed) and — per the branch guard — no trailing unit keyword:
+            // cpp's `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
+            // rejects (it isn't `<count> <unit>`). In a clause cpp grammar-parses
+            // but never visits (`suppress_unvisited_clause_checks`), tolerate it
+            // with a throwaway so the discarded parse completes — matching cpp's
+            // accept (`{x} order by interval 'p'`). The node value is moot.
+            if self.suppress_unvisited_clause_checks {
+                let s = unquote_single_string(self.text(str_tok));
+                self.bump()?;
+                return Ok(self.emit.call(
+                    "toIntervalSecond",
+                    vec![self.emit.constant(self.emit.string(&s))],
+                ));
+            }
             // Fall through to the expr+unit form: parse the string as
             // the value expression and let the trailing unit keyword
             // close the INTERVAL.
@@ -1058,7 +1304,19 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // keyword terminates the interval value before they're seen
         // — the outer call gets to those operators after parse_interval_expr
         // returns.
-        let expr = self.parse_expr_bp(0)?;
+        //
+        // Flag the value's leading primary so a nested INTERVAL there yields
+        // the unit to us rather than eating it (see `parse_primary`). One-shot:
+        // `parse_primary` takes it, so only that first primary is affected.
+        // Reset unconditionally after the parse before propagating: on success
+        // `parse_primary` already took it, but if `parse_expr_bp` errors BEFORE
+        // reaching `parse_primary` (e.g. `interval + <non-number>`), the flag
+        // would otherwise leak past the enclosing `try_alt` rollback (whose
+        // checkpoint doesn't track it) and corrupt a following INTERVAL.
+        self.interval_value_pending = true;
+        let value_result = self.parse_expr_bp(0);
+        self.interval_value_pending = false;
+        let expr = value_result?;
         // The grammar's `interval` rule is the eight singular unit
         // *keyword* tokens (`SECOND | MINUTE | HOUR | DAY | WEEK |
         // MONTH | QUARTER | YEAR`, with `YYYY` lexed as `YEAR`). A
@@ -1092,6 +1350,61 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             }
         };
         Ok(self.emit.call(unit_name, vec![expr]))
+    }
+
+    /// Parse `INTERVAL '<count> <unit>'` as the string-only
+    /// `ColumnExprIntervalString` form WITHOUT consuming a following unit
+    /// keyword. Used when an INTERVAL sits in the value position of an
+    /// enclosing INTERVAL (`interval interval '5 day' month`): cpp reserves the
+    /// trailing unit for the outer interval, so the inner string must carry its
+    /// own count+unit. Mirrors the combined-string branch of
+    /// `parse_interval_expr`, except a string that is not `<count> <unit>` is a
+    /// hard error (cpp's `visitColumnExprIntervalString`) rather than a
+    /// fall-through to the expr+unit form, which would steal the outer's unit.
+    fn parse_interval_string_only(&mut self) -> Result<E::Value, ParseError> {
+        self.expect_kw(Kw::Interval, "INTERVAL")?;
+        let str_tok = self.peek0;
+        let raw = unquote_single_string(self.text(str_tok));
+        let Some((count_str, unit)) = raw.split_once(' ') else {
+            self.bump()?;
+            return Err(ParseError::not_implemented_fatal(
+                "Unsupported interval type: must be in the format '<count> <unit>'",
+                str_tok.start,
+                str_tok.end,
+            ));
+        };
+        let count_valid = !count_str.is_empty() && count_str.bytes().all(|b| b.is_ascii_digit());
+        if !count_valid {
+            self.bump()?;
+            return Err(ParseError::not_implemented_fatal(
+                format!("Unsupported interval count: {count_str}"),
+                str_tok.start,
+                str_tok.end,
+            ));
+        }
+        let count: i64 = match count_str.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                self.bump()?;
+                return Err(ParseError::not_implemented_fatal(
+                    "Unknown error: stoi: out of range",
+                    str_tok.start,
+                    str_tok.end,
+                ));
+            }
+        };
+        let Some(unit_name) = interval_call_name_case_sensitive(unit) else {
+            self.bump()?;
+            return Err(ParseError::not_implemented_fatal(
+                format!("Unsupported interval unit: {unit}"),
+                str_tok.start,
+                str_tok.end,
+            ));
+        };
+        self.bump()?;
+        Ok(self
+            .emit
+            .call(unit_name, vec![self.emit.constant(self.emit.int(count))]))
     }
 
     /// Is `peek_next` a recognised INTERVAL unit keyword? Used by
@@ -1231,6 +1544,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     fn parse_columns_expr(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Columns, "COLUMNS")?;
         self.expect(TokenKind::LParen, "(")?;
+        // Empty `columns()` matches no `ColumnExprColumns*` production (regex needs a string, the list needs >=1 columnExpr, the all-form needs `*`), so reject it: a bare `columns()` then falls back to a function call and `* columns()` (spread) is rejected, both matching cpp.
+        if self.peek() == TokenKind::RParen {
+            return Err(self.err("empty COLUMNS() is not a columns expression"));
+        }
         // Three shapes inside the parens:
         //   1. `'regex'` → ColumnsRegex
         //   2. `*` [EXCLUDE (...)] [REPLACE (...)]
@@ -1281,16 +1598,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     self.emit.columns_expr(None, None, true, exclude, None),
                     asterisk_pos,
                 );
-                self.columns_list_from_first(inner)?
+                self.columns_list_from_first(inner, asterisk_pos)?
             }
         } else {
             // Could be `ident . *` or an expression list.
             // Peek for the qualified-asterisk pattern: IDENT DOT ASTERISK.
-            if matches!(
-                self.peek(),
-                TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-            ) && self.peek_next() == TokenKind::Dot
-            {
+            // The qualifier is the grammar's `identifier`, so only keywords admitted by `kw_valid_as_identifier` qualify — Hog-statement keywords (try/catch/finally) and the rest of the omitted set are not Field qualifiers, so cpp rejects `columns(try.*)`; without this gate rust took it as a qualified-asterisk ColumnsExpr.
+            let first_is_qualifier_ident =
+                matches!(self.peek(), TokenKind::Ident | TokenKind::QuotedIdent)
+                    || matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
+            if first_is_qualifier_ident && self.peek_next() == TokenKind::Dot {
                 // Try to consume `IDENT.*` (or longer dotted chain ending in `*`).
                 let saved_pos = self.peek0.start;
                 let mut chain: Vec<String> = Vec::new();
@@ -1313,10 +1630,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         saw_star = true;
                         break;
                     }
-                    if matches!(
-                        nxt.kind,
-                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-                    ) {
+                    // Chain links are `identifier` too — gate keyword links on `kw_valid_as_identifier` so `columns(a.try.*)` rejects like cpp.
+                    if matches!(nxt.kind, TokenKind::Ident | TokenKind::QuotedIdent)
+                        || matches!(nxt.kind, TokenKind::Keyword(kw) if kw_valid_as_identifier(kw))
+                    {
                         chain.push(identifier_text(&self.src[nxt.start..nxt.end], nxt.kind));
                     } else {
                         ok = false;
@@ -1343,7 +1660,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     //   QualifiedReplace:       ColumnsExpr(all_columns=True, replace=...)  // qualifier dropped
                     //   QualifiedExcludeReplace: ColumnsExpr(all_columns=True, exclude=..., replace=...)  // qualifier dropped
                     match (exclude, replace) {
-                        (None, None) => self.columns_list_from_first(qualified_field)?,
+                        (None, None) => self.columns_list_from_first(qualified_field, saved_pos)?,
                         (Some(ex), None) => {
                             // cpp's `ColumnExprColumnsQualifiedExclude`
                             // ctx covers `IDENT.* EXCLUDE(...)`; the
@@ -1353,7 +1670,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                                 self.emit.columns_expr(None, None, true, Some(ex), None),
                                 saved_pos,
                             );
-                            self.columns_list_from_first(inner)?
+                            self.columns_list_from_first(inner, saved_pos)?
                         }
                         (ex, repl @ Some(_)) => {
                             // cpp's `ColumnExprColumnsQualifiedReplace` /
@@ -1389,14 +1706,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// larger `columnExpr` (a postfix `(…)` call etc.) and may be the
     /// first of a comma list — continue it through the Pratt loop and
     /// collect the rest as `ColumnExprColumnsList`.
-    fn columns_list_from_first(&mut self, first: E::Value) -> Result<E::Value, ParseError> {
+    fn columns_list_from_first(
+        &mut self,
+        first: E::Value,
+        first_start: usize,
+    ) -> Result<E::Value, ParseError> {
         if self.peek() == TokenKind::RParen {
             return Ok(self
                 .emit
                 .columns_expr(None, Some(vec![first]), false, None, None));
         }
-        let cont_start = self.peek0.start;
-        let first = self.pratt_continue_with_lhs(first, 0, cont_start)?;
+        // The continuation (postfix call, infix op) extends the asterisk LHS, so its span must start at the LHS's start (`first_start`), not `self.peek0.start` (the token after it) — cpp spans `columns(a.*(b))`'s call from `a`, not from the `(`.
+        let first = self.pratt_continue_with_lhs(first, 0, first_start)?;
         let mut list = vec![first];
         while self.eat(TokenKind::Comma)? {
             if self.peek() == TokenKind::RParen {
@@ -1408,110 +1729,114 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     }
 
     fn parse_columns_decorators(&mut self) -> Result<ColumnsDecorators<E::Value>, ParseError> {
-        let exclude = if self.eat_kw(Kw::Exclude)? {
-            self.expect(TokenKind::LParen, "(")?;
-            let mut names = Vec::new();
-            loop {
-                // Each entry is a `nestedIdentifier`: identifier
-                // (DOT identifier)*. The cpp `visitNestedIdentifier`
-                // joins the parts with `.` into a single string.
-                let mut parts: Vec<String> = Vec::new();
-                let first = self.bump()?;
-                parts.push(match first.kind {
+        let exclude = self.parse_exclude_clause()?;
+        let replace = self.parse_replace_clause()?;
+        Ok((exclude, replace))
+    }
+
+    /// `EXCLUDE LPAREN identifierList RPAREN` — the optional exclude list shared by the `COLUMNS(...)` family and the bare `ColumnExprAsterisk` (grammar line 289). Returns `None` when no EXCLUDE keyword follows.
+    fn parse_exclude_clause(&mut self) -> Result<Option<Vec<String>>, ParseError> {
+        if !self.eat_kw(Kw::Exclude)? {
+            return Ok(None);
+        }
+        self.expect(TokenKind::LParen, "(")?;
+        let mut names = Vec::new();
+        loop {
+            // Each entry is a `nestedIdentifier`: identifier
+            // (DOT identifier)*. The cpp `visitNestedIdentifier`
+            // joins the parts with `.` into a single string.
+            let mut parts: Vec<String> = Vec::new();
+            let first = self.bump()?;
+            parts.push(match first.kind {
+                TokenKind::Ident | TokenKind::QuotedIdent => {
+                    identifier_text(self.text(first), first.kind)
+                }
+                TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
+                    identifier_text(self.text(first), first.kind)
+                }
+                _ => {
+                    return Err(self.err(format!(
+                        "expected identifier in EXCLUDE list, got {:?}",
+                        first.kind
+                    )))
+                }
+            });
+            while self.peek() == TokenKind::Dot {
+                self.bump()?;
+                let part = self.bump()?;
+                parts.push(match part.kind {
                     TokenKind::Ident | TokenKind::QuotedIdent => {
-                        identifier_text(self.text(first), first.kind)
+                        identifier_text(self.text(part), part.kind)
                     }
                     TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
-                        identifier_text(self.text(first), first.kind)
+                        identifier_text(self.text(part), part.kind)
                     }
                     _ => {
                         return Err(self.err(format!(
-                            "expected identifier in EXCLUDE list, got {:?}",
-                            first.kind
+                            "expected identifier after `.` in EXCLUDE list, got {:?}",
+                            part.kind
                         )))
                     }
                 });
-                while self.peek() == TokenKind::Dot {
-                    self.bump()?;
-                    let part = self.bump()?;
-                    parts.push(match part.kind {
-                        TokenKind::Ident | TokenKind::QuotedIdent => {
-                            identifier_text(self.text(part), part.kind)
-                        }
-                        TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
-                            identifier_text(self.text(part), part.kind)
-                        }
-                        _ => {
-                            return Err(self.err(format!(
-                                "expected identifier after `.` in EXCLUDE list, got {:?}",
-                                part.kind
-                            )))
-                        }
-                    });
-                }
-                names.push(parts.join("."));
-                if !self.eat(TokenKind::Comma)? {
-                    break;
-                }
-                if self.peek() == TokenKind::RParen {
-                    break;
-                }
             }
-            self.expect(TokenKind::RParen, ")")?;
-            Some(names)
-        } else {
-            None
-        };
-
-        let replace = if self.eat_kw(Kw::Replace)? {
-            self.expect(TokenKind::LParen, "(")?;
-            let mut items = Vec::new();
-            loop {
-                // `columnsReplaceItem: columnExpr AS identifier`. The
-                // separator `AS` is the item's second-to-last token
-                // (the last token is the replacement `identifier`).
-                // Gate the alias-infix on that offset (same mechanism
-                // as CAST) so the inner `columnExpr` parse takes any
-                // earlier aliases and stops before the separator.
-                let item_as = self.find_replace_item_as_pos()?;
-                let prev_stop = std::mem::replace(&mut self.cast_as_stop, item_as);
-                let expr_result = self.parse_expr_bp(0);
-                self.cast_as_stop = prev_stop;
-                let expr = expr_result?;
-                self.expect_kw(Kw::As, "AS")?;
-                let t = self.bump()?;
-                let name = match t.kind {
-                    TokenKind::Ident | TokenKind::QuotedIdent => {
-                        identifier_text(self.text(t), t.kind)
-                    }
-                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
-                        identifier_text(self.text(t), t.kind)
-                    }
-                    _ => {
-                        return Err(self.err(format!(
-                            "expected identifier in REPLACE clause, got {:?}",
-                            t.kind
-                        )))
-                    }
-                };
-                items.push((name, expr));
-                if !self.eat(TokenKind::Comma)? {
-                    break;
-                }
-                // `columnsReplaceList: columnsReplaceItem (COMMA
-                // columnsReplaceItem)*` — no trailing comma; cpp rejects
-                // `REPLACE (b AS c,)`.
-                if self.peek() == TokenKind::RParen {
-                    return Err(self.err("trailing comma in REPLACE clause"));
-                }
+            names.push(parts.join("."));
+            if !self.eat(TokenKind::Comma)? {
+                break;
             }
-            self.expect(TokenKind::RParen, ")")?;
-            Some(items)
-        } else {
-            None
-        };
+            if self.peek() == TokenKind::RParen {
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, ")")?;
+        Ok(Some(names))
+    }
 
-        Ok((exclude, replace))
+    /// `REPLACE LPAREN columnsReplaceList RPAREN` — the optional replace list, valid only inside the `COLUMNS(...)` / `(*...)` wrapper forms (a bare `ColumnExprAsterisk` admits EXCLUDE but never REPLACE). Returns `None` when no REPLACE keyword follows.
+    fn parse_replace_clause(&mut self) -> Result<Option<Vec<(String, E::Value)>>, ParseError> {
+        if !self.eat_kw(Kw::Replace)? {
+            return Ok(None);
+        }
+        self.expect(TokenKind::LParen, "(")?;
+        let mut items = Vec::new();
+        loop {
+            // `columnsReplaceItem: columnExpr AS identifier`. The
+            // separator `AS` is the item's second-to-last token
+            // (the last token is the replacement `identifier`).
+            // Gate the alias-infix on that offset (same mechanism
+            // as CAST) so the inner `columnExpr` parse takes any
+            // earlier aliases and stops before the separator.
+            let item_as = self.find_replace_item_as_pos()?;
+            let prev_stop = std::mem::replace(&mut self.cast_as_stop, item_as);
+            let expr_result = self.parse_expr_bp(0);
+            self.cast_as_stop = prev_stop;
+            let expr = expr_result?;
+            self.expect_kw(Kw::As, "AS")?;
+            let t = self.bump()?;
+            let name = match t.kind {
+                TokenKind::Ident | TokenKind::QuotedIdent => identifier_text(self.text(t), t.kind),
+                TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
+                    identifier_text(self.text(t), t.kind)
+                }
+                _ => {
+                    return Err(self.err(format!(
+                        "expected identifier in REPLACE clause, got {:?}",
+                        t.kind
+                    )))
+                }
+            };
+            items.push((name, expr));
+            if !self.eat(TokenKind::Comma)? {
+                break;
+            }
+            // `columnsReplaceList: columnsReplaceItem (COMMA
+            // columnsReplaceItem)*` — no trailing comma; cpp rejects
+            // `REPLACE (b AS c,)`.
+            if self.peek() == TokenKind::RParen {
+                return Err(self.err("trailing comma in REPLACE clause"));
+            }
+        }
+        self.expect(TokenKind::RParen, ")")?;
+        Ok(Some(items))
     }
 
     /// Bare `*` at primary position. Three forms, in grammar-declared
@@ -1532,30 +1857,59 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if matches!(self.peek(), TokenKind::Keyword(Kw::Columns))
             && self.peek_next() == TokenKind::LParen
         {
-            let inner = self.parse_columns_expr()?;
-            return Ok(self.emit.spread_expr(inner));
+            // cpp's ANTLR tries the `* COLUMNS(…)` spread (regex / list) and, when neither matches (e.g. an empty `columns()`), backs off to bare `*` (`ColumnExprAsterisk`), leaving COLUMNS(…) to the enclosing context (a later statement, or an error at the closing `)`). Mirror that fall-back on a non-fatal spread failure.
+            let cp = self.checkpoint();
+            match self.parse_columns_expr() {
+                Ok(inner) => return Ok(self.emit.spread_expr(inner)),
+                Err(e) if e.fatal => return Err(e),
+                Err(_) => self.restore(cp)?,
+            }
         }
-        // `ColumnExprAsterisk` (grammar line 289) admits ONLY an
-        // optional trailing EXCLUDE on a bare `*`. `REPLACE` after `*`
-        // is valid only inside the paren-wrapped forms (lines 220-225)
-        // — `(* REPLACE (…))`, `(* EXCLUDE (…) REPLACE (…))`, and the
-        // `COLUMNS(* … REPLACE …)` family. We detect the paren-wrapped
-        // case by looking at what follows the REPLACE-list's closing
-        // `)`: if it's `)` we're inside a wrapping paren (cpp's
-        // ColumnExprColumnsReplace alt); anything else means the bare-
-        // `*` REPLACE attempted at top level, which cpp rejects.
+        // `ColumnExprAsterisk` (grammar line 289) admits ONLY an optional trailing
+        // EXCLUDE on a bare `*`. `REPLACE` after `*` is valid only inside the
+        // paren-wrapped forms — `(* REPLACE (…))`, `(* EXCLUDE (…) REPLACE (…))`
+        // (parse_paren_or_tuple) and `COLUMNS(* … REPLACE …)` (parse_columns_expr),
+        // each of which consumes the `*` itself. So a `* … REPLACE` that reaches here is
+        // a bare top-level attempt (a function argument, a tuple element, …) — which cpp
+        // rejects, since bare `* … REPLACE` is not a columnExpr.
         let cp_before_decorators = self.checkpoint();
-        let (exclude, replace) = self.parse_columns_decorators()?;
-        if replace.is_some() && self.peek() != TokenKind::RParen {
-            self.restore(cp_before_decorators)?;
-            return Err(self.err(
-                "REPLACE after a bare `*` is only valid inside `(* REPLACE …)` / `COLUMNS(* REPLACE …)`",
-            ));
+        let exclude = match self.parse_exclude_clause() {
+            Ok(e) => e,
+            Err(e) if e.fatal => return Err(e),
+            Err(e) => {
+                // The EXCLUDE list needs >=1 identifier, so a string / empty list
+                // fails the columns-exclude. At a statement boundary cpp re-reads
+                // `*` as a bare Field statement and `exclude(<…>)` as the next
+                // statement (a call): `* exclude ('j')` -> `*` ; `exclude('j')`.
+                // Outside a statement boundary (a SELECT column, an arg, …) there
+                // is no split, so propagate the rejection — matching cpp.
+                self.restore(cp_before_decorators)?;
+                if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                    return Ok(self.emit.field(vec![self.emit.string("*")]));
+                }
+                return Err(e);
+            }
+        };
+        // A bare `*` / `* EXCLUDE(...)` admits no trailing REPLACE (that needs the
+        // paren-wrapped `(* REPLACE …)` / `COLUMNS(* … REPLACE …)`). At a statement
+        // boundary cpp keeps the `*` / `* EXCLUDE(...)` as this statement and
+        // re-reads `replace(...)` as the next statement's call (`* replace (1 as b)`
+        // -> `*` ; `replace(1 as b)`); elsewhere it's a hard reject.
+        let cp_before_replace = self.checkpoint();
+        if self.parse_replace_clause()?.is_some() {
+            if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                self.restore(cp_before_replace)?;
+            } else {
+                self.restore(cp_before_decorators)?;
+                return Err(self.err(
+                    "REPLACE after a bare `*` is only valid inside `(* REPLACE …)` / `COLUMNS(* REPLACE …)`",
+                ));
+            }
         }
-        if exclude.is_none() && replace.is_none() {
+        if exclude.is_none() {
             Ok(self.emit.field(vec![self.emit.string("*")]))
         } else {
-            Ok(self.emit.columns_expr(None, None, true, exclude, replace))
+            Ok(self.emit.columns_expr(None, None, true, exclude, None))
         }
     }
 
@@ -1563,8 +1917,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     fn parse_positional(&mut self) -> Result<E::Value, ParseError> {
         self.expect(TokenKind::Hash, "#")?;
         let tok = self.bump()?;
-        if tok.kind != TokenKind::Number {
-            return Err(self.err(format!("expected integer after '#', got {:?}", tok.kind)));
+        // Grammar: `HASH DECIMAL_LITERAL # ColumnExprPositional` — only a base-10 integer. Rust's lexer folds hex / octal / float into one `Number` kind, so re-check the text: `#0x6` (hex), `#017` (octal), `#1e3` (float) all reject in cpp, where rust used to read them as PositionalRef(0) via `parse().unwrap_or(0)`.
+        let is_dec = tok.kind == TokenKind::Number && is_decimal_literal(self.text(tok));
+        if !is_dec {
+            let got = self.text(tok).to_string();
+            return Err(self.err(format!("expected decimal integer after '#', got {got:?}")));
         }
         let n: i64 = self.text(tok).parse().unwrap_or(0);
         Ok(self.emit.positional_ref(n))
@@ -1603,12 +1960,25 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         }
     }
 
+    /// Parse a placeholder-only `{ … }` slot (`tableExpr` / `ratioExpr` / `selectStmtWithParens`): only `{ columnExpr }` is valid, so reject the Dict that `{}` or `{k: v}` would otherwise produce.
+    pub(crate) fn parse_brace_placeholder_only(&mut self) -> Result<E::Value, ParseError> {
+        let node = self.parse_brace_dict_or_placeholder()?;
+        if self.emit.node_kind(&node).as_deref() != Some("Placeholder") {
+            return Err(self.err("expected a placeholder `{name}` here, not a dict"));
+        }
+        Ok(node)
+    }
+
     fn parse_single_arg_arrow_lambda(&mut self) -> Result<E::Value, ParseError> {
+        let lambda_start = self.peek0.start;
         let ident = self.bump()?;
         let name = identifier_text(self.text(ident), ident.kind);
         self.expect(TokenKind::Arrow, "->")?;
         let body = self.parse_lambda_body()?;
-        Ok(self.emit.lambda(vec![name], body))
+        // Stamp the span here (not just via the caller's `wrap_pos`): a block
+        // body followed by a postfix leaves the lambda as an intermediate
+        // pratt-loop lhs the outer wrap never reaches.
+        Ok(self.wrap_pos(self.emit.lambda(vec![name], body), lambda_start))
     }
 
     /// Lambda body — either a single expression (`(x) -> expr`) or a
@@ -1655,6 +2025,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if !is_ident_kind(self.peek()) {
             return Ok(None);
         }
+        // The Lambda spans from its first parameter through the body's last
+        // token. Stamp it here rather than relying on the caller's `wrap_pos`:
+        // a block body that can't absorb a trailing postfix (`x -> { … } . 1`)
+        // leaves the lambda as an intermediate pratt-loop lhs that the outer
+        // wrap never reaches, so it would otherwise be position-less.
+        let lambda_start = self.peek0.start;
         // Probe with a shadow lexer that doesn't disturb the parser state.
         let mut probe = Lexer::with_pos(self.src, self.peek0.start);
         let mut names: Vec<String> = Vec::new();
@@ -1673,7 +2049,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // Confirmed; commit the consumption.
                     self.set_lexer_pos(probe.pos())?;
                     let body = self.parse_lambda_body()?;
-                    return Ok(Some(self.emit.lambda(names, body)));
+                    return Ok(Some(
+                        self.wrap_pos(self.emit.lambda(names, body), lambda_start),
+                    ));
                 }
                 TokenKind::Comma => {
                     // Peek past the comma to handle the trailing-comma
@@ -1684,7 +2062,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         TokenKind::Arrow => {
                             self.set_lexer_pos(probe.pos())?;
                             let body = self.parse_lambda_body()?;
-                            return Ok(Some(self.emit.lambda(names, body)));
+                            return Ok(Some(
+                                self.wrap_pos(self.emit.lambda(names, body), lambda_start),
+                            ));
                         }
                         k if is_ident_kind(k) => {
                             names.push(identifier_text(
@@ -1896,6 +2276,24 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if self.peek() == TokenKind::RParen {
             return Err(self.err("empty parentheses are not a valid expression"));
         }
+        // `(* [EXCLUDE(...)] REPLACE(...))` — ColumnExprColumns[Exclude]Replace. A bare
+        // `* … REPLACE(…)` is a columnExpr only inside this paren form (or
+        // `COLUMNS(* … REPLACE(…))`); the general asterisk path rejects REPLACE everywhere
+        // else (function arg, tuple element, …) as cpp does. Recognise it here, consuming
+        // the wrapping `)`, rather than via a peek-at-`)` heuristic that can't tell this
+        // wrapper paren from a borrowed function-call paren.
+        if self.peek() == TokenKind::Asterisk {
+            let cp = self.checkpoint();
+            self.bump()?;
+            if let Ok((exclude, replace)) = self.parse_columns_decorators() {
+                if replace.is_some() && self.peek() == TokenKind::RParen {
+                    self.bump()?;
+                    let node = self.emit.columns_expr(None, None, true, exclude, replace);
+                    return Ok(self.wrap_pos_to(node, outer_start, self.last_consumed_end));
+                }
+            }
+            self.restore(cp)?;
+        }
         // Three competing grammar arms when the inner is non-empty:
         //   ColumnExprSubquery: LPAREN selectSetStmt RPAREN
         //   ColumnExprParens:   LPAREN columnExpr RPAREN
@@ -1920,16 +2318,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // Alt 2: parens / tuple
             &Self::parse_paren_expr_or_tuple_arm,
         ])?;
-        // Re-wrap ColumnsExpr-with-REPLACE shapes whose grammar rule
-        // (`LPAREN ASTERISK [EXCLUDE(...)]? REPLACE(...) RPAREN`) makes the
-        // outer parens part of the ctx span — the inner wrap missed them.
-        // Exclude-only `(* EXCLUDE (...))` is a regular ColumnExprAsterisk
-        // inside ColumnExprParens (pass-through), so REPLACE is the
-        // distinguishing marker.
-        if is_paren_form_columns_replace(&self.emit, &result) {
-            let end = self.last_consumed_end;
-            return Ok(self.replace_pos_to(result, outer_start, end));
-        }
+        // The bare `LPAREN ASTERISK [EXCLUDE(...)]? REPLACE(...) RPAREN` form —
+        // the only ColumnsExpr-with-REPLACE shape whose ctx includes the outer
+        // parens — is already handled above (the `peek == Asterisk` branch wraps
+        // it at `outer_start`). Any ColumnsExpr reaching here came through a
+        // `columns(...)` call or an extra wrapping paren, where cpp treats the
+        // wrapping parens as a separate `ColumnExprParens` (stripped) — so leave
+        // the inner span untouched rather than over-extending to the parens.
         Ok(result)
     }
 
@@ -2463,8 +2858,24 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // `name(args) [FILTER (WHERE …)] OVER (windowExpr | name)` —
             // window function form. Distinguishable from the plain-call
             // case by the trailing `OVER` keyword.
-            // Optional `FILTER (WHERE …)` between the args and OVER.
-            let filter_expr_for_window = self.parse_optional_filter()?;
+            // Optional `FILTER (WHERE …)` between the args and OVER. An invalid
+            // FILTER (e.g. `filter ()`, no `(WHERE …)`) is, at a statement
+            // boundary, cpp's completed `name(args)` statement followed by a
+            // `filter(...)` call as the NEXT statement (`l() filter ()` -> `l()`
+            // ; `filter()`); outside a statement boundary there is no split.
+            let cp_before_filter = self.checkpoint();
+            let filter_expr_for_window = match self.parse_optional_filter() {
+                Ok(f) => f,
+                Err(e) if e.fatal => return Err(e),
+                Err(e) => {
+                    if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                        self.restore(cp_before_filter)?;
+                        None
+                    } else {
+                        return Err(e);
+                    }
+                }
+            };
             if matches!(self.peek(), TokenKind::Keyword(Kw::Over)) {
                 // `ColumnExprWinFunction` (grammar line 235) takes a
                 // plain `columnExprList` — NO DISTINCT, NO in-arg
@@ -2491,7 +2902,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 } else {
                     let tok = self.bump()?;
                     let id = match tok.kind {
-                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                        TokenKind::Ident | TokenKind::QuotedIdent => {
+                            identifier_text(self.text(tok), tok.kind)
+                        }
+                        // A window name is an `identifier`, which admits only `kw_valid_as_identifier` keywords — the Hog-statement keywords (try / catch / finally / …) are not valid window names.
+                        TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                             identifier_text(self.text(tok), tok.kind)
                         }
                         _ => {
@@ -2637,7 +3052,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // qualifier in that branch (returning `ColumnsExpr(all_columns=True,
         // exclude=[…])`, NOT a Field chain).
         if ended_with_star && matches!(self.peek(), TokenKind::Keyword(Kw::Exclude)) {
-            let (exclude, _) = self.parse_columns_decorators()?;
+            // Bare `ColumnExprAsterisk` admits only EXCLUDE — a trailing REPLACE has no bare production (REPLACE lives only inside `columns(...)` / `(*...)`), so consume exclude-only and leave any REPLACE for the enclosing context to reject, matching cpp's `a.* exclude(z) replace(...)` rejection.
+            let exclude = self.parse_exclude_clause()?;
             return Ok(self.emit.columns_expr(None, None, true, exclude, None));
         }
         Ok(self.emit.field(chain))
@@ -2751,7 +3167,24 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.expect(TokenKind::LParen, "(")?;
         let (distinct, args, order_by) = self.parse_function_args_inner()?;
         self.expect(TokenKind::RParen, ")")?;
-        let filter_expr = self.parse_optional_filter()?;
+        // `<call>() FILTER (...)` is the aggregate FILTER clause, which requires
+        // `(WHERE <expr>)`. An invalid FILTER (e.g. `filter ()`, no WHERE) is, at
+        // a statement boundary, cpp's completed `<call>()` statement followed by a
+        // `filter(...)` call as the NEXT statement (`l() filter ()` -> `l()` ;
+        // `filter()`). Outside a statement boundary there is no split, so reject.
+        let cp_before_filter = self.checkpoint();
+        let filter_expr = match self.parse_optional_filter() {
+            Ok(f) => f,
+            Err(e) if e.fatal => return Err(e),
+            Err(e) => {
+                if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                    self.restore(cp_before_filter)?;
+                    None
+                } else {
+                    return Err(e);
+                }
+            }
+        };
         if matches!(self.peek(), TokenKind::Keyword(Kw::Over)) {
             self.bump()?;
             drop((distinct, order_by, filter_expr));
@@ -2763,7 +3196,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             } else {
                 let tok = self.bump()?;
                 let id = match tok.kind {
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                    TokenKind::Ident | TokenKind::QuotedIdent => {
+                        identifier_text(self.text(tok), tok.kind)
+                    }
+                    // A window name is an `identifier`, which admits only `kw_valid_as_identifier` keywords — the Hog-statement keywords (try / catch / finally / …) are not valid window names.
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         identifier_text(self.text(tok), tok.kind)
                     }
                     _ => {
@@ -2949,6 +3386,76 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(name)
     }
 
+    /// True when the parenthesised type body starting at `peek0` is a complete
+    /// `ColumnTypeExprEnum` list: `enumValue (COMMA enumValue)* COMMA?` where
+    /// `enumValue: string EQ_SINGLE numberLiteral`. Mirrors ANTLR committing to
+    /// the Enum alt only when EVERY entry matches; any non-numberLiteral value
+    /// (`'a' = ''`, `'a' = x`, `'a' = 1 + 2`) or a `==` separator instead of `=`
+    /// makes it fall through to `ColumnTypeExprParam` (a `columnExprList`).
+    /// NOTE: the lexer's `EqDouble` is the *single* `=` (grammar EQ_SINGLE);
+    /// `EqSingle` is `==`. numberLiteral folds to `Number` (plus optional sign)
+    /// or the `inf` / `nan` keywords.
+    fn paren_body_is_enum_value_list(&self) -> bool {
+        let mut pos = self.peek0.start;
+        loop {
+            let mut probe = Lexer::with_pos(self.src, pos);
+            // enumValue: STRING `=` numberLiteral
+            if !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::String)) {
+                return false;
+            }
+            if !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::EqDouble)) {
+                return false;
+            }
+            // numberLiteral: optional sign, then a number / leading-dot float /
+            // inf / nan. The lexer assembles a `.`-float across tokens (`1.5` is
+            // `1` `.` `5`), so after the leading number token consume the
+            // `(Dot|Number)*` continuation run before reading the separator —
+            // that keeps `'k' = 1.5e3` an enumValue while `'k' = 1 + 2` (an
+            // operator after the number) and `'k' = x` / `'k' = ''` fall through.
+            let mut t = match probe.next_token() {
+                Ok(t) => t,
+                Err(_) => return false,
+            };
+            if matches!(t.kind, TokenKind::Plus | TokenKind::Dash) {
+                t = match probe.next_token() {
+                    Ok(t) => t,
+                    Err(_) => return false,
+                };
+            }
+            if !matches!(
+                t.kind,
+                TokenKind::Number
+                    | TokenKind::Dot
+                    | TokenKind::Keyword(Kw::Inf)
+                    | TokenKind::Keyword(Kw::Nan)
+            ) {
+                return false;
+            }
+            let mut sep = match probe.next_token() {
+                Ok(t) => t,
+                Err(_) => return false,
+            };
+            while matches!(sep.kind, TokenKind::Dot | TokenKind::Number) {
+                sep = match probe.next_token() {
+                    Ok(t) => t,
+                    Err(_) => return false,
+                };
+            }
+            match sep.kind {
+                TokenKind::RParen => return true,
+                TokenKind::Comma => {
+                    pos = sep.end;
+                    // Trailing comma (`… ,)`) closes a valid enum list.
+                    let mut after = Lexer::with_pos(self.src, pos);
+                    if matches!(after.next_token().map(|t| t.kind), Ok(TokenKind::RParen)) {
+                        return true;
+                    }
+                }
+                _ => return false,
+            }
+        }
+    }
+
     fn parse_type_atom(&mut self) -> Result<String, ParseError> {
         // Decode a single type-name token, unquoting quoted-idents and
         // lowercasing the rest. The grammar's `columnTypeExpr` resolves
@@ -2981,11 +3488,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // with "Unsupported rule: ColumnTypeExprEnum", so rust must
             // also error rather than fall through to the Param raw-text
             // path (which would happily emit `enum8('a'=1)`).
-            // Detect the enumValue shape at the head of the paren body —
-            // STRING `=` Number — and short-circuit with the same error.
-            if matches!(self.peek(), TokenKind::String)
-                && matches!(self.peek_next(), TokenKind::EqDouble | TokenKind::EqSingle)
-            {
+            //
+            // But ANTLR commits to Enum only when the WHOLE body is a valid
+            // enumValue list — `string '=' numberLiteral`, comma-separated. If
+            // any entry's value is not a numberLiteral (`q('a' = '')`, `q('a' =
+            // x)`, `q('a' = 1 + 2)`) or the separator is `==` rather than `=`
+            // (`q('a' == 1)`), ANTLR falls through to `ColumnTypeExprParam` (the
+            // body is a `columnExprList`, e.g. the comparison `'a' = ''`), which
+            // cpp ACCEPTS. So gate the reject on the full enum-list shape and let
+            // the Param path below handle the rest.
+            if self.paren_body_is_enum_value_list() {
                 let start = self.peek0.start;
                 let end = self.peek0.end;
                 // Fatal so the outer `try_alt`'s parse_ident_lead
@@ -3628,6 +4140,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let cp = self.checkpoint();
         match self.parse_type_expr() {
             Ok(name) if matches!(self.peek(), TokenKind::Comma | TokenKind::RParen) => Ok(name),
+            // A FATAL error means the nested type committed and failed a
+            // visitor-level check — e.g. `q(w('k'=1))`, where the inner
+            // `w('k'=1)` is a `ColumnTypeExprEnum` that cpp rejects. Propagate
+            // it rather than masking it with the raw-text Param fallback (which
+            // would over-accept). Mirrors `try_alt`'s fatal short-circuit.
+            Err(e) if e.fatal => Err(e),
             _ => {
                 self.restore(cp)?;
                 self.consume_raw_type_param_text()
@@ -3719,6 +4237,21 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // original input text is used verbatim — case is preserved
         // (`ABC` stays `ABC`) and QuotedIdents keep their quotes
         // (`"a"` stays `"a"`).
+        //
+        // ANTLR runs `getText()` only after matching the item as a `columnExpr`,
+        // so the verbatim text is a *valid* expression. Validate that first:
+        // parse the item as a columnExpr and require it to land on the param
+        // terminator. Otherwise non-columnExpr junk — `()` (empty group),
+        // `a() b` (juxtaposition), `Int NULL` — is swallowed as raw text and
+        // accepted, where cpp rejects. Both callers (param-mode loop and the
+        // `parse_type_param_item` fall-back) route through here.
+        let validate_cp = self.checkpoint();
+        self.parse_expr_bp(0)?;
+        if !matches!(self.peek(), TokenKind::Comma | TokenKind::RParen) {
+            return Err(self.err("type parameter is not a valid expression"));
+        }
+        self.restore(validate_cp)?;
+
         let mut out = String::new();
         let mut depth: i32 = 0;
         loop {
@@ -4008,14 +4541,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let part = self.bump()?;
                 match part.kind {
                     TokenKind::Number => {
-                        // cpp's lexer matches `0123` as OCTAL_PREFIX_LITERAL,
-                        // not DECIMAL_LITERAL — so a leading-zero multi-digit
-                        // index is grammatically rejected at the tuple-access
-                        // alt. Rust's lexer collapses both forms into one
-                        // `Number` token and used to silently re-parse it as
-                        // decimal (`a.0123` → TupleAccess(a, 123)).
+                        // Grammar: tuple access takes a DECIMAL_LITERAL index. Rust's lexer folds hex / octal / float into one `Number` kind, so re-check the text. cpp's lexer matches `0123` / `017` as OCTAL_LITERAL (leading zero, all-octal digits) and rejects them here, but `08` / `019` are DECIMAL (8 and 9 are not octal digits) and accept.
                         let text = self.text(part);
-                        if text.len() > 1 && text.starts_with('0') && !text.contains('.') {
+                        if !is_decimal_literal(text) {
                             return Err(self
                                 .err(format!("expected decimal integer after '.', got {text:?}")));
                         }
@@ -4065,10 +4593,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let part = self.bump()?;
                 match part.kind {
                     TokenKind::Number => {
-                        // Same OCTAL_PREFIX_LITERAL vs DECIMAL_LITERAL
-                        // split as the regular `.<N>` branch above.
+                        // Same DECIMAL_LITERAL check as the regular `.<N>` branch above.
                         let text = self.text(part);
-                        if text.len() > 1 && text.starts_with('0') && !text.contains('.') {
+                        if !is_decimal_literal(text) {
                             return Err(self.err(format!(
                                 "expected decimal integer after '?.', got {text:?}"
                             )));
@@ -4153,6 +4680,69 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         }
         self.bump()?;
         Ok(true)
+    }
+
+    /// Parse the RHS of `IN` / `NOT IN`, consuming an optional `COHORT` marker.
+    /// cpp only takes the grammar's `COHORT?` alternative when a `columnExpr`
+    /// actually follows. `try_consume_cohort_marker` rejects the obvious
+    /// terminators up front, but a value that *starts* to parse and then fails
+    /// (e.g. `a IN COHORT < b`, where `< b` is a comparison on the whole
+    /// `(a in COHORT)` and is not a cohort value) must also fall back to
+    /// `COHORT`-as-Field. Try the cohort value and, on failure, restore and
+    /// re-read `COHORT` as the IN rhs Field. Returns `(is_cohort, rhs)`.
+    fn parse_in_cohort_rhs(&mut self) -> Result<(bool, E::Value), ParseError> {
+        let cp = self.checkpoint();
+        if self.try_consume_cohort_marker()? {
+            if let Ok(rhs) = self.parse_expr_bp(BP_COMPARE + 1) {
+                // The marker holds only when the value is a *complete* columnExpr
+                // with nothing left dangling. If a fresh primary sits right after
+                // it, the "value" was really an infix operator that parsed as a
+                // bare Field / `*` (`cohort * b`, `cohort like b`, `cohort is
+                // null`): two primaries can't be adjacent, so `cohort` is part of
+                // the rhs expression instead. `cohort < b` / `cohort + b` already
+                // fail the value parse above (incomplete tag / unary `+`), so they
+                // restore here too. Then the non-marker parse below yields
+                // `a in (cohort * b)` or `(a in cohort) like b` per precedence.
+                if !matches!(
+                    self.peek(),
+                    TokenKind::Number
+                        | TokenKind::String
+                        | TokenKind::Ident
+                        | TokenKind::QuotedIdent
+                        | TokenKind::Keyword(Kw::Null | Kw::Inf | Kw::Nan | Kw::True | Kw::False)
+                ) {
+                    return Ok((true, rhs));
+                }
+            }
+            self.restore(cp)?;
+        }
+        let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
+        Ok((false, rhs))
+    }
+
+    /// True when the `lambda` keyword sitting at `peek_next` (peek1) is the head
+    /// of a `lambdaExpr` body — `LAMBDA (identifier (COMMA identifier)* COMMA?)?
+    /// COLON …`. Probes past the keyword with a shadow lexer. Used by the
+    /// AS-alias infix to distinguish a lambda value (`… AS lambda y: y`, only
+    /// reachable in INTERPOLATE) from a plain `lambda` alias (`1 AS lambda`).
+    fn lambda_body_follows_after_peek_next(&self) -> bool {
+        let mut lex = Lexer::with_pos(self.src, self.peek1.end);
+        loop {
+            match lex.next_token().map(|t| t.kind) {
+                // bare `lambda :` or the `:` after the last param
+                Ok(TokenKind::Colon) => return true,
+                // a parameter identifier — must be followed by `,` (more params)
+                // or `:` (body); anything else means this isn't a lambda head.
+                Ok(TokenKind::Ident | TokenKind::QuotedIdent) => {
+                    match lex.next_token().map(|t| t.kind) {
+                        Ok(TokenKind::Colon) => return true,
+                        Ok(TokenKind::Comma) => continue,
+                        _ => return false,
+                    }
+                }
+                _ => return false,
+            }
+        }
     }
 
     // ---- Multi-token / context-sensitive infix --------------------------
@@ -4256,19 +4846,25 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // at line ~126 stamps positions onto the OUTERMOST wrapper, but the BetweenExpr
                     // is now buried inside (e.g. as `Call(if, [BetweenExpr, …])` for the ternary hoist)
                     // and would not otherwise receive a span. cpp emits position info on BetweenExpr
-                    // unconditionally — match that. Use `high.end` (not `last_consumed_end`) — see
-                    // the BETWEEN arm below for the rationale.
+                    // unconditionally — match that. Simple BETWEEN spans through the high operand's
+                    // last consumed token (incl. a parenthesized high's trailing `)`); only the
+                    // WIDE/hoist case needs `high.end` (last_consumed_end overshoots there).
                     let high_end = self.emit.get_field(&high, "end");
                     let between_inner = self.emit.between(prev, low, high, true);
-                    let mut between = match high_end {
-                        Some(end) => {
-                            self.emit
-                                .with_pos(between_inner, self.pos_obj(lhs_start), end)
+                    let mut between = if hoisted.is_empty() {
+                        self.wrap_pos(between_inner, lhs_start)
+                    } else {
+                        match high_end {
+                            Some(end) => {
+                                self.emit
+                                    .with_pos(between_inner, self.pos_obj(lhs_start), end)
+                            }
+                            None => self.wrap_pos(between_inner, lhs_start),
                         }
-                        None => self.wrap_pos(between_inner, lhs_start),
                     };
-                    for hoist in hoisted {
+                    for (hoist, hoist_end) in hoisted {
                         between = apply_between_hoist(&self.emit, between, hoist);
+                        between = self.stamp_hoist_pos(between, lhs_start, hoist_end);
                     }
                     *lhs = between;
                     Ok(Some(true))
@@ -4279,8 +4875,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     }
                     self.bump()?;
                     self.bump()?;
-                    let cohort = self.try_consume_cohort_marker()?;
-                    let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
+                    let (cohort, rhs) = self.parse_in_cohort_rhs()?;
                     let op = if cohort { "not in cohort" } else { "not in" };
                     let prev = std::mem::replace(lhs, self.emit.null());
                     *lhs = self.emit.compare(prev, op, rhs);
@@ -4318,20 +4913,28 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 self.bump()?;
                 let (low, high, hoisted) = self.parse_between_body(min_bp)?;
                 let prev = std::mem::replace(lhs, self.emit.null());
-                // The inner BetweenExpr's structural end is `high.end`, not `self.last_consumed_end`.
-                // When `parse_between_body`'s WIDE arm absorbs a nested BETWEEN and the split hoists
-                // it back out (`BetweenHoist::Between`), `last_consumed_end` is past the high we'll
-                // actually use; mirror cpp's per-ctx span by reading the end off `high` directly.
+                // The simple BETWEEN spans through the high operand's *last consumed*
+                // token — including a trailing `)` that a parenthesized high
+                // (`… and (3)`) strips from `high.end`. Only the WIDE/hoist case
+                // (`parse_between_body` absorbed a nested BETWEEN that is now hoisted
+                // back out) needs `high.end`, because there `last_consumed_end` is
+                // past the high we actually keep.
                 let high_end = self.emit.get_field(&high, "end");
                 let between_inner = self.emit.between(prev, low, high, false);
-                let mut between = match high_end {
-                    Some(end) => self
-                        .emit
-                        .with_pos(between_inner, self.pos_obj(lhs_start), end),
-                    None => self.wrap_pos(between_inner, lhs_start),
+                let mut between = if hoisted.is_empty() {
+                    self.wrap_pos(between_inner, lhs_start)
+                } else {
+                    match high_end {
+                        Some(end) => {
+                            self.emit
+                                .with_pos(between_inner, self.pos_obj(lhs_start), end)
+                        }
+                        None => self.wrap_pos(between_inner, lhs_start),
+                    }
                 };
-                for hoist in hoisted {
+                for (hoist, hoist_end) in hoisted {
                     between = apply_between_hoist(&self.emit, between, hoist);
+                    between = self.stamp_hoist_pos(between, lhs_start, hoist_end);
                 }
                 *lhs = between;
                 Ok(Some(true))
@@ -4348,8 +4951,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     return Ok(None);
                 }
                 self.bump()?;
-                let cohort = self.try_consume_cohort_marker()?;
-                let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
+                let (cohort, rhs) = self.parse_in_cohort_rhs()?;
                 let op = if cohort { "in cohort" } else { "in" };
                 let prev = std::mem::replace(lhs, self.emit.null());
                 *lhs = self.emit.compare(prev, op, rhs);
@@ -4434,14 +5036,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 if !next_is_alias_target {
                     return Ok(None);
                 }
-                // `LAMBDA` after `AS` always starts a `lambdaExpr`
-                // (`LAMBDA identifier (COMMA identifier)* COMMA?
-                // COLON columnExpr`), not an alias name. cpp's ALL(*)
-                // sees the lambda body's `:` and backtracks the alias
-                // alt; Pratt can't, so refuse the alias here so the
-                // outer `INTERPOLATE (expr AS columnExpr)` form picks
-                // the AS up itself.
-                if matches!(self.peek_next(), TokenKind::Keyword(Kw::Lambda)) {
+                // `AS lambda <params> :` is a `lambdaExpr` value, not an alias —
+                // only valid in `INTERPOLATE (expr AS columnExpr)`, where refusing
+                // the alias here lets the INTERPOLATE clause pick up the AS and
+                // parse the lambda. But a bare `AS lambda` with NO lambda body is
+                // a plain alias (`1 as lambda` -> `Alias(1, 'lambda')`, cpp
+                // accepts; `1 as lambda: 2` rejects on both since the lambda-expr
+                // form isn't allowed in plain expression context — the alias
+                // absorbs `lambda` and the trailing `: 2` then fails). So refuse
+                // only when a lambda body actually follows.
+                if matches!(self.peek_next(), TokenKind::Keyword(Kw::Lambda))
+                    && self.lambda_body_follows_after_peek_next()
+                {
                     return Ok(None);
                 }
                 // `AS <ident> ->` is the arrow-form lambda. The single
@@ -4534,6 +5140,19 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ///
     /// Both alts share the same post-parse split + literal-AND
     /// fallback; the difference is just the starting BP.
+    /// Stamp a hoisted BETWEEN wrapper's span. Every wrapper starts at the
+    /// BETWEEN's leftmost operand (`start`); the `end` is the wrapper's own last
+    /// token, captured during the split. `apply_between_hoist` builds a
+    /// position-less node, so `with_pos` fills it; the OUTERMOST wrapper's span
+    /// matches the outer pratt `wrap_pos` (idempotent). Falls back to
+    /// `wrap_pos` when the end wasn't captured.
+    fn stamp_hoist_pos(&self, node: E::Value, start: usize, end: Option<E::Value>) -> E::Value {
+        match end {
+            Some(e) => self.emit.with_pos(node, self.pos_obj(start), e),
+            None => self.wrap_pos(node, start),
+        }
+    }
+
     fn parse_between_body(
         &mut self,
         outer_min_bp: u8,
@@ -4599,7 +5218,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         outer_min_bp: u8,
     ) -> Result<BetweenSplit<E::Value>, ParseError> {
         let (low, high, hoisted) = Self::parse_between_body_arm(self, start_bp)?;
-        if hoisted.iter().any(|h| hoist_min_bp(h) <= outer_min_bp) {
+        if hoisted.iter().any(|(h, _)| hoist_min_bp(h) <= outer_min_bp) {
             return Err(
                 self.err("WIDE body hoist conflicts with outer precedence; falling through")
             );
@@ -4615,7 +5234,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         start_bp: u8,
     ) -> Result<BetweenSplit<E::Value>, ParseError> {
         let chain = self.parse_expr_bp(start_bp)?;
-        if let Some((low, high, hoisted)) = split_at_rightmost_and(&self.emit, &chain) {
+        if let Some((low, high, hoisted)) = split_at_rightmost_and(self, &chain) {
             return Ok((low, high, hoisted));
         }
         // The body had no AND that the split could find — consume the
@@ -4640,6 +5259,23 @@ fn can_start_case_body(tok: TokenKind) -> bool {
     peek_can_start_clause_body(tok) && !is_pure_infix_op(tok)
 }
 
+/// Is `text` a HogQL `DECIMAL_LITERAL` (base-10 integer) as the lexer would
+/// classify it? Used after `#`, `.`, and `?.`, all of which the grammar
+/// restricts to DECIMAL_LITERAL. Rust's lexer folds every numeric literal
+/// into one `Number` kind, so we re-check the text and reject what cpp's
+/// lexer would tokenize as something else: hex (`0x6`), floats (`1e3`,
+/// `1.5`), and OCTAL_LITERAL — a leading-zero run of octal digits (`017`,
+/// `00`), which the lexer matches as OCTAL before DECIMAL. A leading-zero
+/// number containing an 8 or 9 (`08`, `019`) is NOT octal, so the lexer
+/// reads it as DECIMAL and it is allowed.
+fn is_decimal_literal(text: &str) -> bool {
+    !text.is_empty()
+        && text.bytes().all(|b| b.is_ascii_digit())
+        && !(text.len() >= 2
+            && text.starts_with('0')
+            && text.bytes().all(|b| b.is_ascii_digit() && b <= b'7'))
+}
+
 /// Can `tok` plausibly begin an INTERVAL value? Either an expression
 /// starter (Number, Ident, etc.) or a string literal (the combined
 /// `INTERVAL '5 day'` form).
@@ -4652,7 +5288,7 @@ fn can_start_interval_value(tok: TokenKind) -> bool {
 /// `interval := 5` should fall back to the named-argument identifier
 /// path because `:=` can't open an INTERVAL value, and similar for
 /// comparison / equality operators.
-fn is_pure_infix_op(tok: TokenKind) -> bool {
+pub(crate) fn is_pure_infix_op(tok: TokenKind) -> bool {
     matches!(
         tok,
         TokenKind::ColonEquals
@@ -4938,10 +5574,18 @@ pub(crate) enum BetweenHoist<V> {
     },
 }
 
+/// A hoisted BETWEEN wrapper paired with the `end` position of the
+/// original node it was lifted from. The `end` lets the apply loop stamp
+/// `[lhs_start, end]` on each wrapper so the INNER ones (which the outer
+/// pratt `wrap_pos` never reaches once a further wrapper sits outside
+/// them) carry cpp's span — e.g. `1 between 2 and 3 as l :: Int` needs the
+/// Alias at `[0, end-of-`l`]` and the TypeCast at `[0, end-of-`Int`]`.
+type HoistWithEnd<V> = (BetweenHoist<V>, Option<V>);
+
 /// Result of finding the BETWEEN separator AND inside a greedy body
 /// parse. `hoisted` wrappers are applied around the BetweenExpr by
 /// the caller of `parse_between_body`, innermost first.
-type BetweenSplit<V> = (V, V, Vec<BetweenHoist<V>>);
+type BetweenSplit<V> = (V, V, Vec<HoistWithEnd<V>>);
 
 /// The lowest binding power at which this hoist's outer wrapper can
 /// fire. Used by `parse_between_body_arm_wide` to detect when an
@@ -5019,30 +5663,170 @@ fn apply_between_hoist<E: Emitter>(
     }
 }
 
+/// The byte offset carried by a position value, if present. ASCII-only —
+/// for non-ASCII sources this is a CHARACTER index, so callers that need a
+/// byte offset must gate on `parser.is_ascii_src` first. The JSON backend
+/// stores positions as `{line, column, offset}`; the Python backend stores
+/// the offset directly as an int — read whichever shape applies.
+fn pos_offset<E: Emitter>(emit: &E, pos: Option<&E::Value>) -> Option<usize> {
+    let pos = pos?;
+    if let Some(o) = emit.as_i64(pos) {
+        return usize::try_from(o).ok();
+    }
+    let offset = emit.get_field(pos, "offset")?;
+    usize::try_from(emit.as_i64(&offset)?).ok()
+}
+
+/// Given a child's inner `[start, end)` byte span, return the
+/// paren-inclusive `(outer_start, outer_end)` by counting the balanced
+/// `(`…`)` pairs that DIRECTLY wrap the child. A leading `(` (skipping
+/// whitespace) only counts when matched by a trailing `)` (skipping
+/// whitespace) — `min(leading_run, trailing_run)` — so parens belonging
+/// to a larger enclosing construct (the synthetic node itself, or a
+/// sibling group) are never absorbed. Byte-scanning is UTF-8-safe here:
+/// `(`, `)` and ASCII whitespace are single-byte and can't collide with
+/// any continuation byte.
+fn paren_inclusive_span(src: &str, start: usize, end: usize) -> (usize, usize) {
+    let bytes = src.as_bytes();
+    let mut lparens: Vec<usize> = Vec::new();
+    let mut i = start;
+    while i > 0 {
+        i -= 1;
+        match bytes[i] {
+            b'(' => lparens.push(i),
+            b if b.is_ascii_whitespace() => {}
+            _ => break,
+        }
+    }
+    let mut rparen_ends: Vec<usize> = Vec::new();
+    let mut j = end;
+    while j < bytes.len() {
+        match bytes[j] {
+            b')' => {
+                rparen_ends.push(j + 1);
+                j += 1;
+            }
+            b if b.is_ascii_whitespace() => j += 1,
+            _ => break,
+        }
+    }
+    let owned = lparens.len().min(rparen_ends.len());
+    let new_start = if owned > 0 { lparens[owned - 1] } else { start };
+    let new_end = if owned > 0 {
+        rparen_ends[owned - 1]
+    } else {
+        end
+    };
+    (new_start, new_end)
+}
+
+/// `child`'s `start` position extended backward over the parens it owns,
+/// rebuilt via `parser.pos_obj`. None when `child` lacks scannable byte
+/// offsets (non-ASCII source or a `no_pos` child).
+fn paren_extended_start<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    child: &E::Value,
+) -> Option<E::Value> {
+    if !parser.is_ascii_src {
+        return None;
+    }
+    let cs = pos_offset(&parser.emit, parser.emit.get_field(child, "start").as_ref())?;
+    let ce = pos_offset(&parser.emit, parser.emit.get_field(child, "end").as_ref())?;
+    let (new_start, _) = paren_inclusive_span(parser.src, cs, ce);
+    Some(parser.pos_obj(new_start))
+}
+
+/// `child`'s `end` position extended forward over the parens it owns.
+fn paren_extended_end<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    child: &E::Value,
+) -> Option<E::Value> {
+    if !parser.is_ascii_src {
+        return None;
+    }
+    let cs = pos_offset(&parser.emit, parser.emit.get_field(child, "start").as_ref())?;
+    let ce = pos_offset(&parser.emit, parser.emit.get_field(child, "end").as_ref())?;
+    let (_, new_end) = paren_inclusive_span(parser.src, cs, ce);
+    Some(parser.pos_obj(new_end))
+}
+
+/// The source-end position of `child` for stamping a synthetic And/Or
+/// or re-stamping a wrapper. A positioned node yields its paren-inclusive
+/// end; a `no_pos` NamedArgument (null `end`, but `name := value` source)
+/// ends where its `value` ends, so descend into it. cpp derives these
+/// ends from the operand's ANTLR ctx stop token even when the visitor
+/// emitted the node without its own position. None when nothing
+/// positioned is reachable.
+fn child_source_end_value<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    child: &E::Value,
+) -> Option<E::Value> {
+    if pos_offset(&parser.emit, parser.emit.get_field(child, "end").as_ref()).is_some() {
+        return paren_extended_end(parser, child).or_else(|| parser.emit.get_field(child, "end"));
+    }
+    if parser.emit.node_kind(child).as_deref() == Some("NamedArgument") {
+        return child_source_end_value(parser, &parser.emit.get_field(child, "value")?);
+    }
+    None
+}
+
+/// Re-stamp `node`'s `end` to `child`'s paren-inclusive end. Called by
+/// the stay-in-place wrapper arms of `split_at_rightmost_and` (Lambda /
+/// Not / ArithmeticOperation.right / the if-call else-branch) after they
+/// replace their rightmost child with the SHORTER left side of the AND
+/// split: the wrapper now ends where that child ends, not where the
+/// original greedy body parse stretched it. A `no_pos` wrapper (null
+/// `end`, e.g. NamedArgument) is left bare.
+fn restamp_end_from_child<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    node: &mut E::Value,
+    child: &E::Value,
+) {
+    // A node with no `end` field, or an explicitly null `end` (e.g. a
+    // `no_pos` NamedArgument), is left bare.
+    match parser.emit.get_field(node, "end") {
+        None => return,
+        Some(e) if parser.emit.is_null(&e) => return,
+        Some(_) => {}
+    }
+    if let Some(e) = child_source_end_value(parser, child) {
+        parser.emit.set_field(node, "end", e);
+    }
+}
+
 /// Stamp `start` / `end` on a synthetic And/Or built by
 /// `split_at_rightmost_and` from a slice of pre-positioned children.
-/// `emit::and_` / `emit::or_` produce position-less JSON; an outer
+/// `emit.and_` / `emit.or_` produce position-less JSON; an outer
 /// `wrap_pos` would catch the BETWEEN-level wrap but not the inner
 /// synthetic And/Or that lives inside BetweenExpr's `low` or `high`,
 /// because BetweenExpr's `low` / `high` are direct fields (not nested
 /// expressions that the pratt loop wraps). Derive the span from the
-/// first child's `start` and the last child's `end` so the inner
-/// synthetic node carries a non-null span.
-fn stamp_span_from_children<E: Emitter>(
-    emit: &E,
-    node: E::Value,
+/// first child's `start` and the last child's `end`. cpp positions
+/// these nodes from the ANTLR ctx of the boundary operands, whose
+/// `ColumnExprParens` start/stop tokens are the OUTER parens — but rust
+/// strips parens to inner spans, so extend the boundary children over
+/// the parens they own (matching the pratt loop's `lhs_start` capture,
+/// which sees the leading `(` as the first token).
+fn stamp_span_from_children<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    mut node: E::Value,
     children: &[E::Value],
 ) -> E::Value {
     if children.is_empty() {
         return node;
     }
-    let start = emit.get_field(&children[0], "start");
-    let end = emit.get_field(&children[children.len() - 1], "end");
-    if let (Some(s), Some(e)) = (start, end) {
-        emit.replace_pos(node, s, e)
-    } else {
-        node
+    let first = &children[0];
+    let last = &children[children.len() - 1];
+    let start =
+        paren_extended_start(parser, first).or_else(|| parser.emit.get_field(first, "start"));
+    let end = child_source_end_value(parser, last).or_else(|| parser.emit.get_field(last, "end"));
+    if let Some(s) = start {
+        parser.emit.set_field(&mut node, "start", s);
     }
+    if let Some(e) = end {
+        parser.emit.set_field(&mut node, "end", e);
+    }
+    node
 }
 
 /// Walk an already-parsed boolean tree to find the rightmost AND in
@@ -5056,15 +5840,252 @@ fn stamp_span_from_children<E: Emitter>(
 /// - An `Or` node defers — walk children right-to-left so we find the
 ///   *latest* AND-bearing child. Reconstruct the Or above the split.
 /// - Anything else has no AND in it; return None.
-fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<BetweenSplit<E::Value>> {
-    let node_name = emit.node_kind(node);
+/// True when `node` is wholly wrapped in parentheses in the source. Parens are
+/// stripped at parse time and the node carries the INNER span, so we look
+/// OUTWARD: the nearest non-whitespace byte before `start` must be `(`, the
+/// nearest at/after `end` must be `)`, and that `(` must balance-match that
+/// exact `)` (so `(b) and (c)` — whose outer `(`/`)` belong to different pairs —
+/// is NOT treated as wholly parenthesized). The split must treat such a node as
+/// opaque: cpp picks the rightmost AND at paren-depth 0, so an AND inside
+/// `(...)` is never the BETWEEN separator (`1 between a and (b and c)` keeps
+/// `high = (b and c)`, not the inner AND). Skips string / quoted-identifier
+/// bodies and block comments so parens inside literals don't miscount.
+/// ASCII-gated (byte-scan); callers fall back to descend-anyway on non-ASCII.
+fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    node: &E::Value,
+) -> bool {
+    let start = match pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref()) {
+        Some(s) => s,
+        None => return false,
+    };
+    let end = match pos_offset(&parser.emit, parser.emit.get_field(node, "end").as_ref()) {
+        Some(e) => e,
+        None => return false,
+    };
+    let bytes = parser.src.as_bytes();
+    if start >= end || end > bytes.len() {
+        return false;
+    }
+    // Nearest non-whitespace byte before `start` must be an opening paren.
+    let mut lp = start;
+    loop {
+        if lp == 0 {
+            return false;
+        }
+        lp -= 1;
+        if !bytes[lp].is_ascii_whitespace() {
+            break;
+        }
+    }
+    if bytes[lp] != b'(' {
+        return false;
+    }
+    // Nearest non-whitespace byte at/after `end` must be a closing paren.
+    let mut rp = end;
+    while rp < bytes.len() && bytes[rp].is_ascii_whitespace() {
+        rp += 1;
+    }
+    if rp >= bytes.len() || bytes[rp] != b')' {
+        return false;
+    }
+    // The `(` at `lp` must balance-match the `)` at `rp` exactly.
+    let mut depth = 0i32;
+    let mut i = lp;
+    while i <= rp {
+        match bytes[i] {
+            q @ (b'\'' | b'"' | b'`') => {
+                i += 1;
+                while i <= rp {
+                    let c = bytes[i];
+                    if c == b'\\' {
+                        i += 2; // backslash escape
+                        continue;
+                    }
+                    if c == q {
+                        if i < rp && bytes[i + 1] == q {
+                            i += 2; // doubled-quote escape
+                            continue;
+                        }
+                        break; // closing quote
+                    }
+                    i += 1;
+                }
+            }
+            b'/' if i < rp && bytes[i + 1] == b'*' => {
+                i += 2;
+                while i < rp && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1; // skip the `*`; the outer `i += 1` skips the `/`
+            }
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return i == rp;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
+/// `a and (b and c)` flattens to `And([a,b,c])` (cpp does the same for a
+/// standalone expr), but in a BETWEEN body cpp keeps `(b and c)` as one high
+/// operand because the rightmost AND at paren-depth 0 is the one BEFORE the
+/// parens. The flattened node erases the grouping from its structure, so
+/// recover it from spans: scan from the node's start tracking paren-depth and
+/// split at the rightmost operand still at the node's base depth — the trailing
+/// deeper-nested operands are the parenthesized group (the high). Returns
+/// `(low, high)` only when such a trailing group exists (caller's normal split
+/// handles the rest). The group node gets the INNER span (its wrapping parens
+/// belong to the enclosing grammar, not the And/Or). ASCII-gated.
+fn try_trailing_paren_group_split<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    node: &E::Value,
+    exprs: &[E::Value],
+    is_or: bool,
+) -> Option<(E::Value, E::Value)> {
+    if !parser.is_ascii_src || exprs.len() < 3 {
+        return None;
+    }
+    let node_start = pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref())?;
+    let starts: Vec<usize> = exprs
+        .iter()
+        .map(|e| pos_offset(&parser.emit, parser.emit.get_field(e, "start").as_ref()))
+        .collect::<Option<Vec<_>>>()?;
+    let ends: Vec<usize> = exprs
+        .iter()
+        .map(|e| pos_offset(&parser.emit, parser.emit.get_field(e, "end").as_ref()))
+        .collect::<Option<Vec<_>>>()?;
+    let bytes = parser.src.as_bytes();
+    let last_start = *starts.last().unwrap();
+    if node_start > starts[0] || last_start >= bytes.len() {
+        return None;
+    }
+    // For each junction k (gap between operand k and k+1) the AND/OR keyword sits
+    // at the gap's MINIMUM paren-depth — after any `)` closes, before any `(`
+    // opens. A junction at the node's base depth is a real top-level separator;
+    // deeper ones are inside parens. Scan once, sampling the running depth across
+    // each gap. (String / quoted-ident bodies and block comments are skipped so
+    // their parens don't miscount.)
+    let mut jmin = vec![i32::MAX; exprs.len() - 1];
+    let mut depth = 0i32;
+    let mut k_op = 0usize;
+    let mut i = node_start;
+    while i <= last_start {
+        while k_op + 1 < starts.len() && i >= starts[k_op + 1] {
+            k_op += 1;
+        }
+        let in_gap = k_op + 1 < exprs.len() && i >= ends[k_op];
+        match bytes[i] {
+            q @ (b'\'' | b'"' | b'`') => {
+                i += 1;
+                while i <= last_start {
+                    let c = bytes[i];
+                    if c == b'\\' {
+                        i += 2;
+                        continue;
+                    }
+                    if c == q {
+                        if i < last_start && bytes[i + 1] == q {
+                            i += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'/' if i < last_start && bytes[i + 1] == b'*' => {
+                i += 2;
+                while i < last_start && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'(' => {
+                if in_gap {
+                    jmin[k_op] = jmin[k_op].min(depth);
+                }
+                depth += 1;
+            }
+            b')' => {
+                if in_gap {
+                    jmin[k_op] = jmin[k_op].min(depth);
+                }
+                depth -= 1;
+            }
+            _ => {
+                if in_gap {
+                    jmin[k_op] = jmin[k_op].min(depth);
+                }
+            }
+        }
+        i += 1;
+    }
+    let base = *jmin.iter().min().unwrap();
+    let mut split_idx = 0usize;
+    for (k, d) in jmin.iter().enumerate() {
+        if *d == base {
+            split_idx = k;
+        }
+    }
+    // A trailing parenthesized group needs 2+ operands after the split point;
+    // otherwise the normal "pop the last operand" split already matches.
+    if split_idx >= exprs.len() - 2 {
+        return None;
+    }
+    let build = |lo: usize, hi_excl: usize| -> E::Value {
+        let group: Vec<E::Value> = exprs[lo..hi_excl].to_vec();
+        if group.len() == 1 {
+            return group.into_iter().next().unwrap();
+        }
+        let n = if is_or {
+            parser.emit.or_(group.clone())
+        } else {
+            parser.emit.and_(group.clone())
+        };
+        // Span from the children (paren-extended per child), matching cpp's
+        // ctx — the group's OWN wrapping parens belong to the enclosing grammar.
+        stamp_span_from_children(parser, n, &group)
+    };
+    let low = build(0, split_idx + 1);
+    let high = build(split_idx + 1, exprs.len());
+    Some((low, high))
+}
+
+fn split_at_rightmost_and<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    node: &E::Value,
+) -> Option<BetweenSplit<E::Value>> {
+    // A parenthesized sub-expression is opaque to the rightmost-AND search:
+    // its ANDs sit at paren-depth > 0 and can't be the BETWEEN separator.
+    if parser.is_ascii_src && is_wholly_parenthesized(parser, node) {
+        return None;
+    }
+    let node_name = parser.emit.node_kind(node);
     let node_name = node_name.as_deref();
+    // `node`'s `end` is the end of the wrapper this frame hoists (Alias, cast,
+    // postfix, …). Captured once so each `hoisted.push` can record it for the
+    // apply loop to stamp the wrapper's `[lhs_start, end]` span — needed for
+    // INNER wrappers the outer pratt `wrap_pos` never reaches.
+    let node_end = parser.emit.get_field(node, "end");
     if node_name == Some("And") {
-        let exprs = emit
+        let exprs = parser
+            .emit
             .get_field(node, "exprs")
-            .and_then(|v| emit.as_list(&v))?;
+            .and_then(|v| parser.emit.as_list(&v))?;
         if exprs.len() < 2 {
             return None;
+        }
+        // A trailing parenthesized group (`a and (b and c)` -> And([a,b,c])) is
+        // the opaque high; split before it at the paren-depth-0 AND.
+        if let Some((low, high)) = try_trailing_paren_group_split(parser, node, &exprs, false) {
+            return Some((low, high, Vec::new()));
         }
         // Try descending the LAST element first — it may itself contain
         // a deeper AND that's the rightmost in source order. e.g.
@@ -5075,7 +6096,7 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
         // outer high. Without this descent we'd just pop the last
         // element (NamedArg) wholesale and lose that AND.
         if let Some((deep_left, deep_right, hoisted)) =
-            split_at_rightmost_and(emit, &exprs[exprs.len() - 1])
+            split_at_rightmost_and(parser, &exprs[exprs.len() - 1])
         {
             let mut new_exprs = exprs.clone();
             let last_idx = new_exprs.len() - 1;
@@ -5083,8 +6104,8 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
             let new_left = if new_exprs.len() == 1 {
                 new_exprs.into_iter().next().unwrap()
             } else {
-                let synthetic = emit.and_(new_exprs.clone());
-                stamp_span_from_children(emit, synthetic, &new_exprs)
+                let synthetic = parser.emit.and_(new_exprs.clone());
+                stamp_span_from_children(parser, synthetic, &new_exprs)
             };
             return Some((new_left, deep_right, hoisted));
         }
@@ -5094,17 +6115,19 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
         let left = if exprs.len() == 1 {
             exprs.pop().unwrap()
         } else {
-            let synthetic = emit.and_(exprs.clone());
-            stamp_span_from_children(emit, synthetic, &exprs)
+            let synthetic = parser.emit.and_(exprs.clone());
+            stamp_span_from_children(parser, synthetic, &exprs)
         };
         return Some((left, right, Vec::new()));
     }
     if node_name == Some("Or") {
-        let exprs = emit
+        let exprs = parser
+            .emit
             .get_field(node, "exprs")
-            .and_then(|v| emit.as_list(&v))?;
+            .and_then(|v| parser.emit.as_list(&v))?;
         for i in (0..exprs.len()).rev() {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &exprs[i])
+            if let Some((left_in, right_in, mut hoisted)) =
+                split_at_rightmost_and(parser, &exprs[i])
             {
                 if hoisted.is_empty() {
                     // AND was found directly inside the Or's child (no
@@ -5118,8 +6141,8 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
                     let left = if left_children.len() == 1 {
                         left_children.pop().unwrap()
                     } else {
-                        let synthetic = emit.or_(left_children.clone());
-                        stamp_span_from_children(emit, synthetic, &left_children)
+                        let synthetic = parser.emit.or_(left_children.clone());
+                        stamp_span_from_children(parser, synthetic, &left_children)
                     };
                     let mut right_children: Vec<E::Value> = Vec::with_capacity(exprs.len() - i);
                     right_children.push(right_in);
@@ -5127,8 +6150,8 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
                     let right = if right_children.len() == 1 {
                         right_children.pop().unwrap()
                     } else {
-                        let synthetic = emit.or_(right_children.clone());
-                        stamp_span_from_children(emit, synthetic, &right_children)
+                        let synthetic = parser.emit.or_(right_children.clone());
+                        stamp_span_from_children(parser, synthetic, &right_children)
                     };
                     return Some((left, right, hoisted));
                 }
@@ -5142,10 +6165,13 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
                 let left_siblings: Vec<E::Value> = exprs[..i].to_vec();
                 let right_siblings: Vec<E::Value> = exprs[i + 1..].to_vec();
                 if !left_siblings.is_empty() || !right_siblings.is_empty() {
-                    hoisted.push(BetweenHoist::Or {
-                        left_siblings,
-                        right_siblings,
-                    });
+                    hoisted.push((
+                        BetweenHoist::Or {
+                            left_siblings,
+                            right_siblings,
+                        },
+                        node_end,
+                    ));
                 }
                 return Some((left_in, right_in, hoisted));
             }
@@ -5166,10 +6192,11 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     //   BetweenExpr. Descend through the Alias and HOIST its name to
     //   the caller's outer-wrap list.
     if node_name == Some("Lambda") {
-        if let Some(inner) = emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(emit, &inner) {
+        if let Some(inner) = parser.emit.get_field(node, "expr") {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &inner) {
                 let mut new_node = node.clone();
-                emit.set_field(&mut new_node, "expr", left_in);
+                restamp_end_from_child(parser, &mut new_node, &left_in);
+                parser.emit.set_field(&mut new_node, "expr", left_in);
                 return Some((new_node, right_in, hoisted));
             }
         }
@@ -5181,10 +6208,11 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     // `Not.expr` peels the AND off so the outer BETWEEN sees its own
     // `low = Not(Lambda(x, b))`, `high = c` split.
     if node_name == Some("Not") {
-        if let Some(inner) = emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(emit, &inner) {
+        if let Some(inner) = parser.emit.get_field(node, "expr") {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &inner) {
                 let mut new_node = node.clone();
-                emit.set_field(&mut new_node, "expr", left_in);
+                restamp_end_from_child(parser, &mut new_node, &left_in);
+                parser.emit.set_field(&mut new_node, "expr", left_in);
                 return Some((new_node, right_in, hoisted));
             }
         }
@@ -5212,51 +6240,66 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     // possible), cpp prefers the rightmost-in-source which lives in
     // `.right`.
     if node_name == Some("ArithmeticOperation") {
-        if let Some(inner) = emit.get_field(node, "right") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(emit, &inner) {
+        if let Some(inner) = parser.emit.get_field(node, "right") {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &inner) {
                 let mut new_node = node.clone();
-                emit.set_field(&mut new_node, "right", left_in);
+                restamp_end_from_child(parser, &mut new_node, &left_in);
+                parser.emit.set_field(&mut new_node, "right", left_in);
                 return Some((new_node, right_in, hoisted));
             }
         }
-        if let Some(inner) = emit.get_field(node, "left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let op = emit
+        if let Some(inner) = parser.emit.get_field(node, "left") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
+                let op = parser
+                    .emit
                     .get_field(node, "op")
-                    .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()))
+                    .and_then(|v| parser.emit.as_str(&v).map(|s| s.into_owned()))
                     .unwrap_or_default();
-                let right = emit.get_field(node, "right").unwrap_or_else(|| emit.null());
-                hoisted.push(BetweenHoist::ArithmeticOperation { op, right });
+                let right = parser
+                    .emit
+                    .get_field(node, "right")
+                    .unwrap_or_else(|| parser.emit.null());
+                hoisted.push((BetweenHoist::ArithmeticOperation { op, right }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
     }
     if node_name == Some("NamedArgument") {
-        if let Some(inner) = emit.get_field(node, "value") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(emit, &inner) {
+        if let Some(inner) = parser.emit.get_field(node, "value") {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &inner) {
                 let mut new_node = node.clone();
-                emit.set_field(&mut new_node, "value", left_in);
+                parser.emit.set_field(&mut new_node, "value", left_in);
                 return Some((new_node, right_in, hoisted));
             }
         }
     }
     if node_name == Some("Call")
-        && emit
+        && parser
+            .emit
             .get_field(node, "name")
-            .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()))
+            .and_then(|v| parser.emit.as_str(&v).map(|s| s.into_owned()))
             .as_deref()
             == Some("if")
     {
-        if let Some(args) = emit.get_field(node, "args").and_then(|v| emit.as_list(&v)) {
+        if let Some(args) = parser
+            .emit
+            .get_field(node, "args")
+            .and_then(|v| parser.emit.as_list(&v))
+        {
             if args.len() == 3 {
                 // Try the else-branch (args[2]) first: `cond ? then :
                 // else AND high` parses with else absorbing the AND;
                 // we peel and rewrap the if-call.
-                if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(emit, &args[2]) {
+                if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &args[2])
+                {
                     let mut new_args = args.clone();
                     new_args[2] = left_in;
                     let mut new_node = node.clone();
-                    emit.set_field(&mut new_node, "args", emit.array_(new_args));
+                    restamp_end_from_child(parser, &mut new_node, &new_args[2]);
+                    // `args` is a plain list field on the Call node (not an Array AST node), so rebuild it via `list_value`.
+                    parser
+                        .emit
+                        .set_field(&mut new_node, "args", parser.emit.list_value(new_args));
                     return Some((new_node, right_in, hoisted));
                 }
                 // Try the cond (args[0]): `(BETWEEN body AND high) ?
@@ -5268,29 +6311,33 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
                 // itself dissolves: its then/else go to the hoist, its
                 // cond's split becomes BETWEEN's low/high.
                 if let Some((left_in, right_in, mut hoisted)) =
-                    split_at_rightmost_and(emit, &args[0])
+                    split_at_rightmost_and(parser, &args[0])
                 {
-                    hoisted.push(BetweenHoist::Ternary {
-                        then_branch: args[1].clone(),
-                        else_branch: args[2].clone(),
-                    });
+                    hoisted.push((
+                        BetweenHoist::Ternary {
+                            then_branch: args[1].clone(),
+                            else_branch: args[2].clone(),
+                        },
+                        node_end,
+                    ));
                     return Some((left_in, right_in, hoisted));
                 }
             }
         }
     }
     if node_name == Some("Alias") {
-        if let Some(inner) = emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
+        if let Some(inner) = parser.emit.get_field(node, "expr") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
                 // Hoist *this* alias name. Caller wraps BetweenExpr
                 // with each hoisted item in order (innermost first),
                 // which matches cpp's `Alias(BetweenExpr(...),
                 // outer_name)` shape.
-                let name = emit
+                let name = parser
+                    .emit
                     .get_field(node, "alias")
-                    .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()))
+                    .and_then(|v| parser.emit.as_str(&v).map(|s| s.into_owned()))
                     .unwrap_or_default();
-                hoisted.push(BetweenHoist::Alias(name));
+                hoisted.push((BetweenHoist::Alias(name), node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -5306,33 +6353,39 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     // accumulated wrappers so it ends up OUTERMOST around the
     // alias-wrapped BetweenExpr the caller will build.
     if node_name == Some("IsDistinctFrom") {
-        if let Some(inner) = emit.get_field(node, "left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let right = emit.get_field(node, "right").unwrap_or_else(|| emit.null());
-                let negated = emit
+        if let Some(inner) = parser.emit.get_field(node, "left") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
+                let right = parser
+                    .emit
+                    .get_field(node, "right")
+                    .unwrap_or_else(|| parser.emit.null());
+                let negated = parser
+                    .emit
                     .get_field(node, "negated")
-                    .and_then(|v| emit.as_bool(&v))
+                    .and_then(|v| parser.emit.as_bool(&v))
                     .unwrap_or(false);
-                hoisted.push(BetweenHoist::IsDistinctFrom { right, negated });
+                hoisted.push((BetweenHoist::IsDistinctFrom { right, negated }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
     }
     if node_name == Some("CompareOperation")
-        && emit
+        && parser
+            .emit
             .get_field(node, "is_null_comparison_style")
-            .and_then(|v| emit.as_bool(&v))
+            .and_then(|v| parser.emit.as_bool(&v))
             == Some(true)
     {
-        if let Some(inner) = emit.get_field(node, "left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
+        if let Some(inner) = parser.emit.get_field(node, "left") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
                 // `op` is "==" for IS NULL, "!=" for IS NOT NULL.
-                let negated = emit
+                let negated = parser
+                    .emit
                     .get_field(node, "op")
-                    .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()))
+                    .and_then(|v| parser.emit.as_str(&v).map(|s| s.into_owned()))
                     .as_deref()
                     == Some("!=");
-                hoisted.push(BetweenHoist::IsNull { negated });
+                hoisted.push((BetweenHoist::IsNull { negated }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -5342,16 +6395,18 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     // Descend through `array`; on success, hoist the access OUTSIDE
     // the alias so it wraps the BetweenExpr the caller builds.
     if node_name == Some("ArrayAccess") {
-        if let Some(inner) = emit.get_field(node, "array") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let property = emit
+        if let Some(inner) = parser.emit.get_field(node, "array") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
+                let property = parser
+                    .emit
                     .get_field(node, "property")
-                    .unwrap_or_else(|| emit.null());
-                let nullish = emit
+                    .unwrap_or_else(|| parser.emit.null());
+                let nullish = parser
+                    .emit
                     .get_field(node, "nullish")
-                    .and_then(|v| emit.as_bool(&v))
+                    .and_then(|v| parser.emit.as_bool(&v))
                     .unwrap_or(false);
-                hoisted.push(BetweenHoist::ArrayAccess { property, nullish });
+                hoisted.push((BetweenHoist::ArrayAccess { property, nullish }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -5364,13 +6419,14 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     // on `Alias(And(1, (2)), 'a')`, burying the BETWEEN-separator
     // AND inside the call's `.expr`.
     if node_name == Some("ExprCall") {
-        if let Some(inner) = emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let args = emit
+        if let Some(inner) = parser.emit.get_field(node, "expr") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
+                let args = parser
+                    .emit
                     .get_field(node, "args")
-                    .and_then(|v| emit.as_list(&v))
+                    .and_then(|v| parser.emit.as_list(&v))
                     .unwrap_or_default();
-                hoisted.push(BetweenHoist::ExprCall { args });
+                hoisted.push((BetweenHoist::ExprCall { args }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -5378,13 +6434,14 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     // `TypeCast(<expr>, type_name)` — postfix `:: <type>` at
     // BP_POSTFIX=130. Same hoisting pattern as ExprCall.
     if node_name == Some("TypeCast") {
-        if let Some(inner) = emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let type_name = emit
+        if let Some(inner) = parser.emit.get_field(node, "expr") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
+                let type_name = parser
+                    .emit
                     .get_field(node, "type_name")
-                    .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()))
+                    .and_then(|v| parser.emit.as_str(&v).map(|s| s.into_owned()))
                     .unwrap_or_default();
-                hoisted.push(BetweenHoist::TypeCast { type_name });
+                hoisted.push((BetweenHoist::TypeCast { type_name }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -5394,17 +6451,19 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     // ArrayAccess but on a different node type with a different
     // field name (`tuple` vs `array`, `index` vs `property`).
     if node_name == Some("TupleAccess") {
-        if let Some(inner) = emit.get_field(node, "tuple") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let index = emit
+        if let Some(inner) = parser.emit.get_field(node, "tuple") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
+                let index = parser
+                    .emit
                     .get_field(node, "index")
-                    .and_then(|v| emit.as_i64(&v))
+                    .and_then(|v| parser.emit.as_i64(&v))
                     .unwrap_or(0);
-                let nullish = emit
+                let nullish = parser
+                    .emit
                     .get_field(node, "nullish")
-                    .and_then(|v| emit.as_bool(&v))
+                    .and_then(|v| parser.emit.as_bool(&v))
                     .unwrap_or(false);
-                hoisted.push(BetweenHoist::TupleAccess { index, nullish });
+                hoisted.push((BetweenHoist::TupleAccess { index, nullish }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -5437,27 +6496,36 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     //    (no AND), so the `low` peel above fails. Fall through to
     //    `expr`: split And(d,e), hoist (f, g, neg=true).
     if node_name == Some("BetweenExpr") {
-        if let (Some(inner_low), Some(inner_high)) =
-            (emit.get_field(node, "low"), emit.get_field(node, "high"))
-        {
-            if let Some((new_low, new_high, hoisted)) = split_at_rightmost_and(emit, &inner_low) {
+        if let (Some(inner_low), Some(inner_high)) = (
+            parser.emit.get_field(node, "low"),
+            parser.emit.get_field(node, "high"),
+        ) {
+            if let Some((new_low, new_high, hoisted)) = split_at_rightmost_and(parser, &inner_low) {
                 let mut new_inner = node.clone();
-                emit.set_field(&mut new_inner, "low", new_low);
-                emit.set_field(&mut new_inner, "high", new_high);
+                restamp_end_from_child(parser, &mut new_inner, &new_high);
+                parser.emit.set_field(&mut new_inner, "low", new_low);
+                parser.emit.set_field(&mut new_inner, "high", new_high);
                 return Some((new_inner, inner_high, hoisted));
             }
         }
-        if let Some(inner_expr) = emit.get_field(node, "expr") {
+        if let Some(inner_expr) = parser.emit.get_field(node, "expr") {
             if let Some((left_in, right_in, mut hoisted)) =
-                split_at_rightmost_and(emit, &inner_expr)
+                split_at_rightmost_and(parser, &inner_expr)
             {
-                let low = emit.get_field(node, "low").unwrap_or_else(|| emit.null());
-                let high = emit.get_field(node, "high").unwrap_or_else(|| emit.null());
-                let negated = emit
+                let low = parser
+                    .emit
+                    .get_field(node, "low")
+                    .unwrap_or_else(|| parser.emit.null());
+                let high = parser
+                    .emit
+                    .get_field(node, "high")
+                    .unwrap_or_else(|| parser.emit.null());
+                let negated = parser
+                    .emit
                     .get_field(node, "negated")
-                    .and_then(|v| emit.as_bool(&v))
+                    .and_then(|v| parser.emit.as_bool(&v))
                     .unwrap_or(false);
-                hoisted.push(BetweenHoist::Between { low, high, negated });
+                hoisted.push((BetweenHoist::Between { low, high, negated }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -5479,28 +6547,4 @@ pub(crate) fn is_bare_field<E: Emitter>(emit: &E, v: &E::Value) -> bool {
         return false;
     };
     chain.len() == 1
-}
-
-/// Detect a ColumnsExpr produced by the bare-paren grammar alts
-/// `LPAREN ASTERISK [EXCLUDE(...)]? REPLACE(...) RPAREN`, whose ctx
-/// span includes the outer parens. Exclude-only `(* EXCLUDE(...))` is
-/// a regular `ColumnExprAsterisk` inside `ColumnExprParens` (paren
-/// pass-through), so we key off `replace` presence to identify the
-/// bare-paren form. The COLUMNS-prefixed `COLUMNS(* REPLACE(...))`
-/// variant takes a different parse path (it doesn't go through
-/// `parse_paren_or_tuple`), so this check is safe.
-fn is_paren_form_columns_replace<E: Emitter>(emit: &E, v: &E::Value) -> bool {
-    if emit.node_kind(v).as_deref() != Some("ColumnsExpr") {
-        return false;
-    }
-    if emit
-        .get_field(v, "all_columns")
-        .and_then(|v| emit.as_bool(&v))
-        != Some(true)
-    {
-        return false;
-    }
-    emit.get_field(v, "replace")
-        .map(|v| !emit.is_null(&v))
-        .unwrap_or(false)
 }

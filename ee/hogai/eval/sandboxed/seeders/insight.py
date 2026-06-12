@@ -118,7 +118,7 @@ def seed_insight_noise(context: CustomPromptSandboxContext) -> dict[str, Any]:
     whether the agent found the right one. Synchronous — runs in a worker
     thread via ``asyncio.to_thread`` from ``base.py:task()``.
     """
-    from posthog.models.insight import Insight
+    from products.product_analytics.backend.models.insight import Insight
 
     team_id = context.team_id
     user_id = context.user_id

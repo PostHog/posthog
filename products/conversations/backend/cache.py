@@ -10,6 +10,7 @@ from django.core.cache import cache
 import structlog
 
 from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.conversations.backend.models.constants import Status
 
@@ -181,7 +182,8 @@ def get_person_distinct_ids(team_id: int, distinct_id: str) -> list[str]:
     except Exception:
         logger.warning("conversations_cache_get_error", key=key)
 
-    persons = get_persons_by_distinct_ids(team_id, [distinct_id])
+    with personhog_caller_tag("conversations/widget-person-distinct-ids"):
+        persons = get_persons_by_distinct_ids(team_id, [distinct_id])
     all_ids = persons[0].distinct_ids if persons and persons[0].distinct_ids else [distinct_id]
 
     try:
@@ -222,6 +224,34 @@ def set_cached_slack_avatar(email: str, avatar_url: str) -> None:
     key = _make_cache_key("slack_avatar", email.lower())
     try:
         cache.set(key, avatar_url, timeout=SLACK_AVATAR_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+
+# Slack Bot User ID Cache
+# Caches the bot's own user_id (from auth.test) so member join/leave handlers
+# don't burn Slack's Tier-1 rate-limit budget with a round-trip per event.
+# Keyed by team_id; the identity is stable per bot token. Only positive results
+# are cached so a transient auth.test failure retries on the next event.
+
+BOT_USER_ID_CACHE_TTL = 60 * 60  # 1 hour
+
+
+def get_cached_bot_user_id(team_id: int) -> str | None:
+    """Get the cached Slack bot user_id for a team."""
+    key = _make_cache_key("slack_bot_user_id", str(team_id))
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
+
+
+def set_cached_bot_user_id(team_id: int, bot_user_id: str) -> None:
+    """Cache the Slack bot user_id for a team."""
+    key = _make_cache_key("slack_bot_user_id", str(team_id))
+    try:
+        cache.set(key, bot_user_id, timeout=BOT_USER_ID_CACHE_TTL)
     except Exception:
         logger.warning("conversations_cache_set_error", key=key)
 

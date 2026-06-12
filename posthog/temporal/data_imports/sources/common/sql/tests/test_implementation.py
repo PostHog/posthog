@@ -165,3 +165,46 @@ class TestGetChunkSize:
         cursor = MagicMock()
         impl.get_chunk_size(cursor, "db", "t", "SELECT x FROM y", {"a": 1}, logger)
         assert impl.fetch_average_row_size_calls == [(cursor, "db", "t", "SELECT x FROM y", {"a": 1})]
+
+
+class TestGetRowsToSync:
+    def test_returns_count_from_cursor(self, logger):
+        impl = _FakeImplementation()
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (42,)
+        result = impl.get_rows_to_sync(cursor, "SELECT 1", None, logger)
+        assert result == 42
+
+    def test_wraps_query_in_count_subquery(self, logger):
+        impl = _FakeImplementation()
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (7,)
+        impl.get_rows_to_sync(cursor, "SELECT x FROM y", {"a": 1}, logger)
+        cursor.execute.assert_called_once_with("SELECT COUNT(*) FROM (SELECT x FROM y) as t", {"a": 1})
+
+    @pytest.mark.parametrize(
+        "configure_cursor",
+        [
+            pytest.param(lambda c: setattr(c, "fetchone", MagicMock(return_value=None)), id="fetchone_none"),
+            pytest.param(lambda c: setattr(c, "fetchone", MagicMock(return_value=(None,))), id="count_null"),
+            pytest.param(
+                lambda c: setattr(c, "execute", MagicMock(side_effect=RuntimeError("connection lost"))),
+                id="execute_exception",
+            ),
+            pytest.param(
+                lambda c: setattr(c, "fetchone", MagicMock(side_effect=RuntimeError("read failed"))),
+                id="fetchone_exception",
+            ),
+        ],
+    )
+    def test_returns_zero(self, logger, configure_cursor):
+        impl = _FakeImplementation()
+        cursor = MagicMock()
+        configure_cursor(cursor)
+        assert impl.get_rows_to_sync(cursor, "SELECT 1", None, logger) == 0
+
+    def test_casts_count_to_int(self, logger):
+        impl = _FakeImplementation()
+        cursor = MagicMock()
+        cursor.fetchone.return_value = ("123",)
+        assert impl.get_rows_to_sync(cursor, "SELECT 1", None, logger) == 123

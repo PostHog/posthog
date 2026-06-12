@@ -89,7 +89,7 @@ export default {
             }
 
             if (normalized === '') {
-                return new Response('PostHog OAuth Proxy — https://posthog.com/docs/model-context-protocol', {
+                return new Response('PostHog OAuth Proxy - https://posthog.com/docs/api/oauth', {
                     headers: { 'Content-Type': 'text/plain' },
                 })
             }

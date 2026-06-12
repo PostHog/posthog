@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_client_name, current_method_name};
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
@@ -18,11 +18,13 @@ impl GroupStorage for PostgresStorage {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Option<Group>> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             ("operation".to_string(), "get_group".to_string()),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -33,10 +35,10 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
-                   group_type_index, group_key, group_properties,
+                   group_type_index, group_key, group_properties::text as "group_properties?",
                    created_at,
-                   properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                   properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   properties_last_updated_at::text as "properties_last_updated_at?",
+                   properties_last_operation::text as "properties_last_operation?",
                    version
             FROM posthog_group
             WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
@@ -56,17 +58,20 @@ impl GroupStorage for PostgresStorage {
         team_id: i64,
         identifiers: &[GroupIdentifier],
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<Vec<Group>> {
         if identifiers.is_empty() {
             return Ok(Vec::new());
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             ("operation".to_string(), "get_groups".to_string()),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -80,10 +85,11 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
-                   g.group_type_index, g.group_key, g.group_properties,
+                   g.group_type_index, g.group_key,
+                   CASE WHEN $4::boolean THEN g.group_properties::text ELSE NULL END as "group_properties?",
                    g.created_at,
-                   g.properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                   g.properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   CASE WHEN $4::boolean THEN g.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $4::boolean THEN g.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    g.version
             FROM posthog_group g
             INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
@@ -92,7 +98,8 @@ impl GroupStorage for PostgresStorage {
             "#,
             team_id as i32,
             &group_type_indexes,
-            &group_keys
+            &group_keys,
+            include_properties
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -102,6 +109,7 @@ impl GroupStorage for PostgresStorage {
             &[
                 ("operation".to_string(), "get_groups".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -113,17 +121,20 @@ impl GroupStorage for PostgresStorage {
         &self,
         keys: &[GroupKey],
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<Vec<(GroupKey, Group)>> {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             ("operation".to_string(), "get_groups_batch".to_string()),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -138,10 +149,11 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
-                   g.group_type_index, g.group_key, g.group_properties,
+                   g.group_type_index, g.group_key,
+                   CASE WHEN $4::boolean THEN g.group_properties::text ELSE NULL END as "group_properties?",
                    g.created_at,
-                   g.properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                   g.properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   CASE WHEN $4::boolean THEN g.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $4::boolean THEN g.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    g.version
             FROM posthog_group g
             INNER JOIN UNNEST($1::integer[], $2::integer[], $3::text[]) AS t(team_id, group_type_index, group_key)
@@ -149,7 +161,8 @@ impl GroupStorage for PostgresStorage {
             "#,
             &team_ids,
             &group_type_indexes,
-            &group_keys
+            &group_keys,
+            include_properties
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -159,6 +172,7 @@ impl GroupStorage for PostgresStorage {
             &[
                 ("operation".to_string(), "get_groups_batch".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             groups.len() as f64,
         );
@@ -182,6 +196,7 @@ impl GroupStorage for PostgresStorage {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<GroupTypeMapping>> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -190,6 +205,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -220,6 +236,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_team_id".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -237,6 +254,7 @@ impl GroupStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -245,6 +263,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -277,6 +296,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_team_ids".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -290,6 +310,7 @@ impl GroupStorage for PostgresStorage {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<GroupTypeMapping>> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -298,6 +319,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -328,6 +350,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_project_id".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -345,6 +368,7 @@ impl GroupStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -353,6 +377,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -383,11 +408,60 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_project_ids".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
 
         Ok(rows)
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        consistency: ConsistencyLevel,
+    ) -> StorageResult<Vec<(i64, i64)>> {
+        let client = current_client_name();
+        let method = current_method_name();
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "count_group_type_mappings".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+            ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
+
+        let rows = sqlx::query!(
+            r#"
+            SELECT team_id::bigint as "team_id!", COUNT(*)::bigint as "count!"
+            FROM posthog_grouptypemapping
+            GROUP BY team_id
+            ORDER BY team_id
+            "#,
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                (
+                    "operation".to_string(),
+                    "count_group_type_mappings".to_string(),
+                ),
+                ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
+            ],
+            rows.len() as f64,
+        );
+
+        Ok(rows.into_iter().map(|r| (r.team_id, r.count)).collect())
     }
 
     async fn get_group_type_mapping_by_dashboard_id(
@@ -397,6 +471,7 @@ impl GroupStorage for PostgresStorage {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Option<GroupTypeMapping>> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -405,6 +480,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -443,13 +519,16 @@ impl GroupStorage for PostgresStorage {
         cursor_id: i64,
         limit: i32,
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<(Vec<Group>, bool)> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             ("operation".to_string(), "list_groups".to_string()),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -475,10 +554,11 @@ impl GroupStorage for PostgresStorage {
             Group,
             r#"
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
-                   group_type_index, group_key, group_properties,
+                   group_type_index, group_key,
+                   CASE WHEN $12::boolean THEN group_properties::text ELSE NULL END as "group_properties?",
                    created_at,
-                   properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                   properties_last_operation as "properties_last_operation?: serde_json::Value",
+                   CASE WHEN $12::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $12::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    version
             FROM posthog_group
             WHERE team_id = $1
@@ -500,6 +580,7 @@ impl GroupStorage for PostgresStorage {
             cursor_created_at,
             cursor_id,
             fetch_limit,
+            include_properties,
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -516,6 +597,7 @@ impl GroupStorage for PostgresStorage {
             &[
                 ("operation".to_string(), "list_groups".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             groups.len() as f64,
         );
@@ -536,10 +618,12 @@ impl GroupStorage for PostgresStorage {
         created_at: DateTime<Utc>,
     ) -> StorageResult<Group> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "create_group".to_string()),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -551,10 +635,10 @@ impl GroupStorage for PostgresStorage {
             INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, '{}'::jsonb, 0)
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
-                      group_type_index, group_key, group_properties,
+                      group_type_index, group_key, group_properties::text as "group_properties?",
                       created_at,
-                      properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                      properties_last_operation as "properties_last_operation?: serde_json::Value",
+                      properties_last_updated_at::text as "properties_last_updated_at?",
+                      properties_last_operation::text as "properties_last_operation?",
                       version
             "#,
             team_id as i32,
@@ -581,10 +665,12 @@ impl GroupStorage for PostgresStorage {
         created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> StorageResult<Option<Group>> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "update_group".to_string()),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -604,10 +690,10 @@ impl GroupStorage for PostgresStorage {
                 version = version + 1
             WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
-                      group_type_index, group_key, group_properties,
+                      group_type_index, group_key, group_properties::text as "group_properties?",
                       created_at,
-                      properties_last_updated_at as "properties_last_updated_at?: serde_json::Value",
-                      properties_last_operation as "properties_last_operation?: serde_json::Value",
+                      properties_last_updated_at::text as "properties_last_updated_at?",
+                      properties_last_operation::text as "properties_last_operation?",
                       version
             "#,
             team_id as i32,
@@ -638,6 +724,7 @@ impl GroupStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -645,6 +732,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -676,6 +764,7 @@ impl GroupStorage for PostgresStorage {
                 ),
                 ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             result.rows_affected() as f64,
         );
@@ -698,6 +787,7 @@ impl GroupStorage for PostgresStorage {
         default_columns: Option<&[String]>,
     ) -> StorageResult<Option<GroupTypeMapping>> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -705,6 +795,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -771,6 +862,7 @@ impl GroupStorage for PostgresStorage {
         group_type_index: i32,
     ) -> StorageResult<bool> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -778,6 +870,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -807,6 +900,7 @@ impl GroupStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -814,6 +908,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -845,6 +940,7 @@ impl GroupStorage for PostgresStorage {
                 ),
                 ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             result.rows_affected() as f64,
         );

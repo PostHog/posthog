@@ -20,10 +20,13 @@ import type {
     BatchExportsRunsLogsRetrieveParams,
     CreateFileDownloadRequestApi,
     CreateOutputApi,
+    FileDownloadBatchExportOnDemandApi,
+    FileDownloadBatchExportsListParams,
     FileDownloadBatchExportsLogsRetrieveParams,
     PaginatedBatchExportBackfillListApi,
     PaginatedBatchExportListApi,
     PaginatedBatchExportRunListApi,
+    PaginatedListOutputListApi,
     PatchedBatchExportRequestApi,
     RetrieveFileDownloadResponseApi,
 } from './api.schemas'
@@ -50,7 +53,7 @@ export const getBatchExportsListUrl = (projectId: string, params?: BatchExportsL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -98,7 +101,7 @@ export const getBatchExportsBackfillsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -111,8 +114,8 @@ export const getBatchExportsBackfillsListUrl = (
 
 /**
  * ViewSet for BatchExportBackfill models.
-
-Allows creating and reading backfills, but not updating or deleting them.
+ *
+ * Allows creating and reading backfills, but not updating or deleting them.
  */
 export const batchExportsBackfillsList = async (
     projectId: string,
@@ -156,8 +159,8 @@ export const getBatchExportsBackfillsRetrieveUrl = (projectId: string, batchExpo
 
 /**
  * ViewSet for BatchExportBackfill models.
-
-Allows creating and reading backfills, but not updating or deleting them.
+ *
+ * Allows creating and reading backfills, but not updating or deleting them.
  */
 export const batchExportsBackfillsRetrieve = async (
     projectId: string,
@@ -202,7 +205,7 @@ export const getBatchExportsRunsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -273,7 +276,7 @@ export const getBatchExportsRunsLogsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -303,9 +306,9 @@ export const getBatchExportsRunsRetryCreateUrl = (projectId: string, batchExport
 
 /**
  * Retry a batch export run.
-
-We use the same underlying mechanism as when backfilling a batch export, as retrying
-a run is the same as backfilling one run.
+ *
+ * We use the same underlying mechanism as when backfilling a batch export, as retrying
+ * a run is the same as backfilling one run.
  */
 export const batchExportsRunsRetryCreate = async (
     projectId: string,
@@ -393,7 +396,7 @@ export const getBatchExportsLogsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -504,6 +507,33 @@ export const batchExportsTestRetrieve = async (projectId: string, options?: Requ
     })
 }
 
+export const getFileDownloadBatchExportsListUrl = (projectId: string, params?: FileDownloadBatchExportsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/file_download_batch_exports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/file_download_batch_exports/`
+}
+
+export const fileDownloadBatchExportsList = async (
+    projectId: string,
+    params?: FileDownloadBatchExportsListParams,
+    options?: RequestInit
+): Promise<PaginatedListOutputListApi> => {
+    return apiMutator<PaginatedListOutputListApi>(getFileDownloadBatchExportsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getFileDownloadBatchExportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_download_batch_exports/`
 }
@@ -529,11 +559,11 @@ export const getFileDownloadBatchExportsRetrieveUrl = (projectId: string, id: st
 }
 
 /**
- * Get a run of a batch export on demand.
-
-If the underlying batch export run has completed, we return keys to the
-generated file downloads so that users may download them by making a request
-to /download.
+ * Get a batch export on demand run.
+ *
+ * If the underlying batch export run has completed, we return keys to the
+ * generated file downloads so that users may download them by making a request
+ * to /download.
  */
 export const fileDownloadBatchExportsRetrieve = async (
     projectId: string,
@@ -546,20 +576,41 @@ export const fileDownloadBatchExportsRetrieve = async (
     })
 }
 
+export const getFileDownloadBatchExportsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/file_download_batch_exports/${id}/cancel/`
+}
+
+/**
+ * Cancel an ongoing file-download batch export.
+ */
+export const fileDownloadBatchExportsCancelCreate = async (
+    projectId: string,
+    id: string,
+    fileDownloadBatchExportOnDemandApi: FileDownloadBatchExportOnDemandApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFileDownloadBatchExportsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileDownloadBatchExportOnDemandApi),
+    })
+}
+
 export const getFileDownloadBatchExportsDownloadRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_download_batch_exports/${id}/download/`
 }
 
 /**
  * Download a file (or a part) from this batch export run.
-
-Users can provide a part component with an id or index, or no part component at
-all:
-* If part id is included: The file download matching the id is downloaded.
-* If part index is included: The file download matching the index (as ordered
-    by key) is downloaded.
-* If no part component is present: If there is only one file downloaded, that
-    is downloaded. Otherwise the first one as sorted by key is downloaded.
+ *
+ * Users can provide a part component with an id or index, or no part component at
+ * all:
+ * * If part id is included: The file download matching the id is downloaded.
+ * * If part index is included: The file download matching the index (as ordered
+ *     by key) is downloaded.
+ * * If no part component is present: If there is only one file downloaded, that
+ *     is downloaded. Otherwise the first one as sorted by key is downloaded.
  */
 export const fileDownloadBatchExportsDownloadRetrieve = async (
     projectId: string,
@@ -581,7 +632,7 @@ export const getFileDownloadBatchExportsLogsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

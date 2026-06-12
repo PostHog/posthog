@@ -23,6 +23,48 @@
 
 <div id="messages"></div>
 
+<div id="global-disable" style="margin-bottom: 30px;">
+    <fieldset class="module aligned">
+        <h2>Global email MFA disable</h2>
+        {% if global_disable %}
+        <div class="msg-error">
+            <strong>Email MFA is currently DISABLED for all users.</strong><br/>
+            Reason: {{ global_disable.reason }}<br/>
+            Disabled by: {{ global_disable.disabled_by }}<br/>
+            Disabled at: {{ global_disable.disabled_at }}<br/>
+            {% if global_disable.expires_in_seconds %}Auto re-enables in ~{{ global_disable.expires_in_seconds }} seconds.{% endif %}
+        </div>
+        <div class="submit-row">
+            <button type="button" id="reenable-btn" class="default">Re-enable email MFA now</button>
+        </div>
+        {% else %}
+        <p class="empty-state">Email MFA is currently enabled for all users.</p>
+
+        <form id="disable-form">
+            {% csrf_token %}
+            <div class="form-row">
+                <label for="id_reason">Reason:</label>
+                <input type="text" name="reason" id="id_reason" required />
+                <p class="help">Why email MFA is being disabled. Required and stored for audit.</p>
+            </div>
+            <div class="form-row">
+                <label for="id_duration">Duration:</label>
+                <input type="number" id="id_duration" min="1" value="6" style="width: 80px;" required />
+                <select id="id_duration_unit">
+                    <option value="60">minutes</option>
+                    <option value="3600" selected>hours</option>
+                    <option value="86400">days</option>
+                </select>
+                <p class="help">Auto re-enables after this. Maximum 7 days.</p>
+            </div>
+            <div class="submit-row">
+                <input type="submit" value="Disable email MFA for all users" class="default" />
+            </div>
+        </form>
+        {% endif %}
+    </fieldset>
+</div>
+
 <div class="email-list">
     <fieldset class="module aligned">
         <h2>Bypassed emails (<span id="email-count">{{ bypass_emails|length }}</span>)</h2>
@@ -157,5 +199,69 @@ document.getElementById('email-list-body').addEventListener('click', function(e)
     const row = btn.closest('tr');
     if (row) removeEmail(row.dataset.email);
 });
+
+// --- Global email MFA disable ---
+const GLOBAL_API = '/admin/api/email-mfa-global-disable/';
+const MAX_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+const disableForm = document.getElementById('disable-form');
+if (disableForm) {
+    disableForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const reason = document.getElementById('id_reason').value.trim();
+        const amount = parseInt(document.getElementById('id_duration').value, 10);
+        const unit = parseInt(document.getElementById('id_duration_unit').value, 10);
+        if (!reason) { showMessage('A reason is required.', true); return; }
+        if (!amount || amount < 1) { showMessage('Enter a valid duration.', true); return; }
+        const ttlSeconds = amount * unit;
+        if (ttlSeconds > MAX_TTL_SECONDS) { showMessage('Duration cannot exceed 7 days.', true); return; }
+
+        const submitBtn = disableForm.querySelector('input[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.value = 'Disabling…';
+        fetch(GLOBAL_API, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken()},
+            body: JSON.stringify({reason: reason, ttl_seconds: ttlSeconds})
+        }).then(r => {
+            if (r.ok) {
+                window.location.reload();
+            } else {
+                r.json().then(d => showMessage(d.reason ? d.reason[0] : (d.ttl_seconds ? d.ttl_seconds[0] : 'Failed to disable email MFA.'), true));
+                submitBtn.disabled = false;
+                submitBtn.value = 'Disable email MFA for all users';
+            }
+        }).catch(() => {
+            showMessage('Failed to disable email MFA.', true);
+            submitBtn.disabled = false;
+            submitBtn.value = 'Disable email MFA for all users';
+        });
+    });
+}
+
+const reenableBtn = document.getElementById('reenable-btn');
+if (reenableBtn) {
+    reenableBtn.addEventListener('click', function() {
+        if (!confirm('Re-enable email MFA for all users now?')) return;
+        reenableBtn.disabled = true;
+        reenableBtn.textContent = 'Re-enabling…';
+        fetch(GLOBAL_API, {
+            method: 'DELETE',
+            headers: {'X-CSRFToken': getCSRFToken()},
+        }).then(r => {
+            if (r.ok || r.status === 204) {
+                window.location.reload();
+            } else {
+                showMessage('Failed to re-enable email MFA.', true);
+                reenableBtn.disabled = false;
+                reenableBtn.textContent = 'Re-enable email MFA now';
+            }
+        }).catch(() => {
+            showMessage('Failed to re-enable email MFA.', true);
+            reenableBtn.disabled = false;
+            reenableBtn.textContent = 'Re-enable email MFA now';
+        });
+    });
+}
 </script>
 {% endblock %}

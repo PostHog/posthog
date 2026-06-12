@@ -30,7 +30,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Tracing',
             intents: [ProductKey.TRACING],
-            category: ProductItemCategory.UNRELEASED,
+            category: ProductItemCategory.APP_MONITORING,
             iconType: 'tracing',
             iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
             href: urls.tracing(),

@@ -50,12 +50,11 @@ function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTabl
 export type GroupLogicProps = {
     groupTypeIndex: number
     groupKey: string
-    tabId?: string
 }
 
 export const groupLogic = kea<groupLogicType>([
     props({} as GroupLogicProps),
-    key(({ groupKey, groupTypeIndex, tabId }) => `${groupTypeIndex}-${groupKey}-${tabId}`),
+    key(({ groupKey, groupTypeIndex }) => `${groupTypeIndex}-${groupKey}`),
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect(() => ({
         actions: [groupsModel, ['createDetailDashboard']],

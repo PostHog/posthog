@@ -1,14 +1,15 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from celery import shared_task
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
 from posthog.scoping_audit import skip_team_scope_audit
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.sentry_stats import get_stats_for_timerange
 
@@ -69,7 +70,7 @@ def check_condition(rollback_condition: dict, feature_flag: FeatureFlag) -> bool
         base_start_date = created_date.strftime("%Y-%m-%dT%H:%M:%S")
         base_end_date = (created_date + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 
-        current_time = datetime.utcnow()
+        current_time = datetime.now(UTC)
         target_end_date = current_time.strftime("%Y-%m-%dT%H:%M:%S")
         target_start_date = (current_time - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 

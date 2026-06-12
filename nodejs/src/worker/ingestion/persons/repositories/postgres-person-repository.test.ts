@@ -998,6 +998,42 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('fetchDistinctIdsForPersons', () => {
+        it('returns empty object when no person ids provided', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const result = await repository.fetchDistinctIdsForPersons(team.id, [])
+            expect(result).toEqual({})
+        })
+
+        it('returns distinct_ids keyed by int person_id, capped per person', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person1 = await createTestPerson(team.id, 'distinct-1-a', { name: 'Person 1' })
+            await repository.addDistinctId(person1, 'distinct-1-b', 0)
+            await repository.addDistinctId(person1, 'distinct-1-c', 0)
+            const person2 = await createTestPerson(team.id, 'distinct-2-a', { name: 'Person 2' })
+
+            const all = await repository.fetchDistinctIdsForPersons(team.id, [person1.id, person2.id])
+            expect(all[person1.id]).toEqual(expect.arrayContaining(['distinct-1-a', 'distinct-1-b', 'distinct-1-c']))
+            expect(all[person1.id]).toHaveLength(3)
+            expect(all[person2.id]).toEqual(['distinct-2-a'])
+
+            const limited = await repository.fetchDistinctIdsForPersons(team.id, [person1.id], {
+                limitPerPerson: 1,
+            })
+            // Ordered by insertion (id ASC), so the cap keeps the first one
+            expect(limited[person1.id]).toEqual(['distinct-1-a'])
+        })
+
+        it('omits persons that have no distinct_ids in the target team', async () => {
+            const team1 = await getFirstTeam(hub.postgres)
+            const team2Id = await createTeam(postgres, team1.organization_id)
+            const personInTeam2 = await createTestPerson(team2Id, 'team2-only', { name: 'Team 2' })
+
+            const result = await repository.fetchDistinctIdsForPersons(team1.id, [personInTeam2.id])
+            expect(result).toEqual({})
+        })
+    })
+
     describe('addPersonlessDistinctId', () => {
         it('should insert personless distinct ID successfully', async () => {
             const team = await getFirstTeam(hub.postgres)

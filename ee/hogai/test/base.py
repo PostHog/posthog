@@ -10,9 +10,10 @@ from pydantic import BaseModel
 
 from posthog.schema import AssistantEventType, AssistantToolCallMessage
 
+from products.posthog_ai.backend.models.assistant import Conversation, CoreMemory
+
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types import AssistantOutput
-from ee.models.assistant import Conversation, CoreMemory
 
 
 class BaseAssistantTest(NonAtomicBaseTest):

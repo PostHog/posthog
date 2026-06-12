@@ -548,8 +548,8 @@ def serializedATN():
         0,1200,1201,5,119,0,0,1201,1202,5,165,0,0,1202,1203,3,154,77,0,1203,
         1204,5,6,0,0,1204,1205,3,138,69,0,1205,1206,5,185,0,0,1206,1523,
         1,0,0,0,1207,1208,5,21,0,0,1208,1523,5,143,0,0,1209,1210,5,56,0,
-        0,1210,1523,5,143,0,0,1211,1212,5,56,0,0,1212,1213,3,154,77,0,1213,
-        1214,3,208,104,0,1214,1523,1,0,0,0,1215,1216,5,104,0,0,1216,1217,
+        0,1210,1211,3,154,77,0,1211,1212,3,208,104,0,1212,1523,1,0,0,0,1213,
+        1214,5,56,0,0,1214,1523,5,143,0,0,1215,1216,5,104,0,0,1216,1217,
         5,165,0,0,1217,1218,3,154,77,0,1218,1219,5,39,0,0,1219,1222,3,154,
         77,0,1220,1221,5,38,0,0,1221,1223,3,154,77,0,1222,1220,1,0,0,0,1222,
         1223,1,0,0,0,1223,1224,1,0,0,0,1224,1225,5,185,0,0,1225,1523,1,0,
@@ -649,7 +649,7 @@ def serializedATN():
         1523,3,156,78,0,1515,1516,3,220,110,0,1516,1517,5,149,0,0,1517,1518,
         3,154,77,3,1518,1523,1,0,0,0,1519,1520,5,160,0,0,1520,1523,5,139,
         0,0,1521,1523,3,176,88,0,1522,1173,1,0,0,0,1522,1193,1,0,0,0,1522,
-        1200,1,0,0,0,1522,1207,1,0,0,0,1522,1209,1,0,0,0,1522,1211,1,0,0,
+        1200,1,0,0,0,1522,1207,1,0,0,0,1522,1209,1,0,0,0,1522,1213,1,0,0,
         0,1522,1215,1,0,0,0,1522,1226,1,0,0,0,1522,1228,1,0,0,0,1522,1236,
         1,0,0,0,1522,1240,1,0,0,0,1522,1270,1,0,0,0,1522,1272,1,0,0,0,1522,
         1298,1,0,0,0,1522,1300,1,0,0,0,1522,1304,1,0,0,0,1522,1319,1,0,0,
@@ -10097,25 +10097,25 @@ class HogQLParser ( Parser ):
                 pass
 
             elif la_ == 5:
-                localctx = HogQLParser.ColumnExprIntervalStringContext(self, localctx)
+                localctx = HogQLParser.ColumnExprIntervalContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
                 self.state = 1209
                 self.match(HogQLParser.INTERVAL)
                 self.state = 1210
-                self.match(HogQLParser.STRING_LITERAL)
+                self.columnExpr(0)
+                self.state = 1211
+                self.interval()
                 pass
 
             elif la_ == 6:
-                localctx = HogQLParser.ColumnExprIntervalContext(self, localctx)
+                localctx = HogQLParser.ColumnExprIntervalStringContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 1211
-                self.match(HogQLParser.INTERVAL)
-                self.state = 1212
-                self.columnExpr(0)
                 self.state = 1213
-                self.interval()
+                self.match(HogQLParser.INTERVAL)
+                self.state = 1214
+                self.match(HogQLParser.STRING_LITERAL)
                 pass
 
             elif la_ == 7:

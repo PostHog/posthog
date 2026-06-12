@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import click
 
-from .lint import lint_all_products, lint_product
+from .lint import lint_all_products, lint_owners, lint_product
 from .maturity import generate_codegen_report, generate_detail, generate_report, score_all_products, score_product
 from .scaffold import bootstrap_product
 
@@ -82,6 +82,17 @@ def cmd_lint(name: str | None, lint_all: bool) -> None:
     for issue in issues:
         click.echo(f"  • {issue}")
     raise SystemExit(1)
+
+
+@click.command(
+    name="product:lint:owners",
+    help="Validate product.yaml owners against PostHog/posthog collaborator teams. "
+    "Pass product names to limit to those (CI passes the list derived from changed yamls); "
+    "no args = sweep every product.",
+)
+@click.argument("names", nargs=-1)
+def cmd_lint_owners(names: tuple[str, ...]) -> None:
+    lint_owners(list(names))
 
 
 @click.command(name="product:maturity", help="Score product maturity across isolation dimensions")

@@ -11,7 +11,7 @@ use axum::{
     error_handling::HandleErrorLayer,
     extract::DefaultBodyLimit,
     http::{Method, StatusCode},
-    routing::{any, get},
+    routing::{any, get, post},
     Router,
 };
 use common_cache::{NegativeCache, ReadThroughCacheWithMetrics};
@@ -34,6 +34,7 @@ use tower_http::{
 
 use crate::{
     api::{
+        batch_flag_evaluation,
         body_read_metrics::{record_body_read, MAX_FLAGS_BODY_BYTES},
         concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
@@ -46,6 +47,7 @@ use crate::{
         flag_definitions_cache::FlagDefinitionsCache,
         flag_group_type_mapping::GroupTypeCacheManager,
     },
+    handler::body_logger::BodyLogger,
     metrics::{
         buckets::bucket_overrides,
         consts::{
@@ -104,9 +106,12 @@ pub struct State {
     pub auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     /// Provider for realtime/behavioral cohort membership lookups
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
-    /// Shadow-keyspace billing aggregator. See `crate::billing` for the
-    /// dual-write contract.
-    pub billing_aggregator: Option<Arc<BillingAggregator>>,
+    /// Authoritative writer for the production billing keyspace. See
+    /// `crate::billing` for the aggregation/flush contract.
+    pub billing_aggregator: Arc<BillingAggregator>,
+    /// Per-team request/response body logging for `/flags`. Refreshed
+    /// every ~60s from `posthog_instancesetting`.
+    pub body_logger: Arc<BodyLogger>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -131,7 +136,7 @@ pub fn router(
     team_negative_cache: NegativeCache,
     auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
-    billing_aggregator: Option<Arc<BillingAggregator>>,
+    billing_aggregator: Arc<BillingAggregator>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -200,6 +205,16 @@ pub fn router(
     // (sub-ms) build cost on its hot path.
     bot_detection::warm_caches();
 
+    let body_logger = Arc::new(BodyLogger::new(
+        config.flags_log_bodies_teams.clone(),
+        config.flags_log_bodies_request_max_bytes,
+    ));
+
+    // 1 query per pod per interval regardless of /flags RPS.
+    body_logger
+        .clone()
+        .spawn_refresh_task(database_pools.non_persons_reader.clone());
+
     let state = State {
         redis_client,
         dedicated_redis_client,
@@ -225,6 +240,7 @@ pub fn router(
         cohort_membership_provider,
         auth_token_cache,
         billing_aggregator,
+        body_logger,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -282,6 +298,40 @@ pub fn router(
             .route("/decide/", any(endpoint::flags))
             .layer(axum::middleware::from_fn(record_body_read))
             .layer(DefaultBodyLimit::max(MAX_FLAGS_BODY_BYTES));
+    }
+
+    // Internal-only batch flag evaluation for static cohort generation. Kept outside
+    // `flags_router` on purpose: it must not share the live path's concurrency limit or
+    // request timeout (a page evaluates up to BATCH_FLAG_EVAL_MAX_LIMIT persons), and it
+    // bypasses the /flags pipeline (no billing, no flag analytics). Auth is enforced in
+    // the handler before the body is read: the handler accepts a raw `Body` (not `Bytes`)
+    // so unauthenticated requests are rejected without buffering the payload.
+    let mut internal_endpoints: Router<State> = Router::new();
+    if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
+        internal_endpoints = internal_endpoints
+            .route(
+                "/internal/batch_flag_evaluation",
+                post(batch_flag_evaluation::batch_flag_evaluation),
+            )
+            .layer(DefaultBodyLimit::max(
+                batch_flag_evaluation::MAX_BATCH_BODY_BYTES,
+            ))
+            .layer(
+                ServiceBuilder::new()
+                    .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
+                        let is_timeout = err.is::<tower::timeout::error::Elapsed>();
+                        tracing::warn!(error = %err, timeout = is_timeout, "Batch flag evaluation request aborted by tower layer");
+                        let body = if is_timeout {
+                            "Request timed out"
+                        } else {
+                            "Service unavailable"
+                        };
+                        (StatusCode::SERVICE_UNAVAILABLE, body)
+                    }))
+                    .layer(TimeoutLayer::new(Duration::from_millis(
+                        config.batch_flag_eval_timeout_ms,
+                    ))),
+            );
     }
 
     let mut definitions_endpoints: Router<State> = Router::new();
@@ -342,6 +392,7 @@ pub fn router(
     let router = Router::new()
         .merge(status_router)
         .merge(flags_router)
+        .merge(internal_endpoints)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state);

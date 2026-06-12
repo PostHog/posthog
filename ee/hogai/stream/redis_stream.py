@@ -23,9 +23,10 @@ from posthog.schema import (
 
 from posthog.redis import get_async_client
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.utils.types import AssistantOutput
 from ee.hogai.utils.types.base import ApprovalPayload, AssistantStreamedMessageUnion
-from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)
@@ -236,7 +237,7 @@ class ConversationRedisStream:
         delay_increment = 0.15  # Increment by 150ms each attempt
         max_delay = 2.0  # Cap at 2 seconds
         timeout = 60.0  # 60 seconds timeout
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
         last_iteration_time = None
         attempts = 0
 
@@ -252,7 +253,7 @@ class ConversationRedisStream:
                 last_iteration_time = current_time
                 attempts += 1
 
-                elapsed_time = asyncio.get_event_loop().time() - start_time
+                elapsed_time = asyncio.get_running_loop().time() - start_time
                 if elapsed_time >= timeout:
                     logger.debug(
                         f"Stream creation timeout after {elapsed_time:.2f}s",
@@ -281,7 +282,7 @@ class ConversationRedisStream:
         start_id: str = "0",
         block_ms: int = 50,  # Block for 50ms waiting for new messages
         count: Optional[int] = CONVERSATION_STREAM_CONCURRENT_READ_COUNT,
-    ) -> AsyncGenerator[StreamEvent, None]:
+    ) -> AsyncGenerator[StreamEvent]:
         """
         Read updates from Redis stream.
 
@@ -294,7 +295,7 @@ class ConversationRedisStream:
             RedisStreamEvent
         """
         current_id = start_id
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
         last_iteration_time = None
 
         while True:
@@ -304,7 +305,7 @@ class ConversationRedisStream:
                 REDIS_READ_ITERATION_LATENCY_HISTOGRAM.observe(iteration_duration)
             last_iteration_time = current_time
 
-            if asyncio.get_event_loop().time() - start_time > self._timeout:
+            if asyncio.get_running_loop().time() - start_time > self._timeout:
                 raise StreamError("Stream timeout - conversation took too long to complete")
 
             try:
@@ -376,7 +377,7 @@ class ConversationRedisStream:
 
     async def write_to_stream(
         self,
-        generator: AsyncGenerator[AssistantOutput, None],
+        generator: AsyncGenerator[AssistantOutput],
         callback: Callable[[], None] | None = None,
         emit_completion: bool = True,
     ) -> None:

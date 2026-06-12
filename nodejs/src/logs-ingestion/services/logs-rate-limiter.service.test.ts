@@ -818,4 +818,33 @@ describe('LogsRateLimiterService', () => {
             expect(result.tokensBefore).toBe(DEFAULT_BUCKET_SIZE_KB)
         })
     })
+
+    // Construction does no Redis I/O, so these need neither a hub nor a live connection.
+    describe('key namespacing', () => {
+        const minimalConfig = {
+            LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
+            LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
+            LOGS_LIMITER_DISABLED_FOR_TEAMS: '',
+            LOGS_LIMITER_ENABLED_TEAMS: '*',
+            LOGS_LIMITER_BUCKET_SIZE_KB: 100,
+            LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: 10,
+            LOGS_LIMITER_TTL_SECONDS: 3600,
+        } as any
+
+        it.each([
+            {
+                limiterName: undefined,
+                expectedPrefix: '@posthog-test/logs-rate-limiter/tokens',
+                description: 'defaults to the logs key prefix',
+            },
+            {
+                limiterName: 'traces-rate-limiter',
+                expectedPrefix: '@posthog-test/traces-rate-limiter/tokens',
+                description: 'uses a distinct prefix when a limiter name is given (e.g. traces)',
+            },
+        ])('$description', ({ limiterName, expectedPrefix }) => {
+            const rateLimiter = new LogsRateLimiterService(minimalConfig, {} as RedisV2, limiterName)
+            expect(rateLimiter['rateLimiter'].getKeyPrefix()).toBe(expectedPrefix)
+        })
+    })
 })

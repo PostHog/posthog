@@ -22,8 +22,8 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
+from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns
 
-from products.data_warehouse.backend.postgres_helpers import filter_dwh_columns_by_enabled_columns
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema

@@ -12,7 +12,8 @@ from django.utils import timezone
 import structlog
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.insight import Insight
+
+from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -25,7 +26,7 @@ class SharingConfiguration(models.Model):
     # Relations
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True)
     recording = models.ForeignKey(
         "SessionRecording",
         related_name="sharing_configurations",

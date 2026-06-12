@@ -1,5 +1,6 @@
 import re
-from datetime import datetime
+from contextlib import nullcontext
+from datetime import UTC, datetime
 from itertools import product
 from typing import Literal
 from uuid import uuid4
@@ -15,7 +16,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 
 from django.utils.timezone import now
 
@@ -32,7 +33,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import Person
-from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import (
@@ -49,6 +49,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SES
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
@@ -368,7 +369,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             keypress_count=2,
             mouse_activity_count=2,
             active_milliseconds=59000,
-            kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=6)),
+            kafka_timestamp=(datetime.now(UTC).replace(tzinfo=None) - relativedelta(minutes=6)),
         )
 
         produce_replay_summary(
@@ -382,7 +383,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             keypress_count=2,
             mouse_activity_count=2,
             active_milliseconds=61000,
-            kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=3)),
+            kafka_timestamp=(datetime.now(UTC).replace(tzinfo=None) - relativedelta(minutes=3)),
         )
 
         (session_recordings, _, _, _) = self._filter_recordings_by({})
@@ -911,6 +912,158 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 second_session_id,
             ],
         )
+
+    def _an_old_recording(self) -> str:
+        user = "test_session_ids_date_window-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        ten_days_ago = self.an_hour_ago - relativedelta(days=10)
+        old_session_id = str(uuid4())
+        produce_replay_summary(
+            session_id=old_session_id,
+            team_id=self.team.pk,
+            first_timestamp=ten_days_ago,
+            last_timestamp=ten_days_ago + relativedelta(minutes=5),
+            distinct_id=user,
+        )
+        return old_session_id
+
+    def _filter_recordings_with_bypass(self, query: dict) -> list[str]:
+        result = SessionRecordingListFromQuery(
+            query=RecordingsQuery.model_validate(query),
+            team=self.team,
+            hogql_query_modifiers=None,
+            bypass_date_window_for_session_ids=True,
+        ).run()
+        return sorted(r["session_id"] for r in result.results)
+
+    @parameterized.expand(
+        [
+            ("default_date_range", None, False),
+            ("explicit_narrow_date_range", "-1d", False),
+            ("window_covering_the_recording", "-30d", True),
+        ]
+    )
+    def test_session_ids_apply_date_window_by_default(
+        self, _name: str, date_from: str | None, expect_found: bool
+    ) -> None:
+        old_session_id = self._an_old_recording()
+
+        query: dict = {"session_ids": [old_session_id]}
+        if date_from is not None:
+            query["date_from"] = date_from
+
+        self._assert_query_matches_session_ids(query, [old_session_id] if expect_found else [])
+
+    @parameterized.expand(
+        [
+            ("default_date_range", None),
+            ("explicit_narrow_date_range", "-1d"),
+        ]
+    )
+    def test_bypass_returns_explicitly_selected_sessions_regardless_of_date_window(
+        self, _name: str, date_from: str | None
+    ) -> None:
+        old_session_id = self._an_old_recording()
+
+        query: dict = {"session_ids": [old_session_id]}
+        if date_from is not None:
+            query["date_from"] = date_from
+
+        assert self._filter_recordings_with_bypass(query) == [old_session_id]
+
+    def test_date_window_still_excludes_old_recordings_without_session_ids(self) -> None:
+        self._an_old_recording()
+
+        self._assert_query_matches_session_ids(None, [])
+
+    def test_bypass_does_not_apply_to_session_ids_derived_from_comment_search(self) -> None:
+        old_session_id = self._an_old_recording()
+
+        # comment-derived session_ids are not user-selected, so the date range still applies
+        comment_query = {
+            "session_ids": [old_session_id],
+            "comment_text": {
+                "key": "comment_text",
+                "type": "recording",
+                "operator": "icontains",
+                "value": "anything",
+            },
+        }
+        assert self._filter_recordings_with_bypass(comment_query) == []
+
+    @parameterized.expand(
+        [
+            ("default", False),
+            ("with_bypass", True),
+        ]
+    )
+    def test_empty_session_ids_list_still_matches_nothing(self, _name: str, bypass: bool) -> None:
+        self._an_old_recording()
+
+        result = SessionRecordingListFromQuery(
+            query=RecordingsQuery(session_ids=[]),
+            team=self.team,
+            hogql_query_modifiers=None,
+            bypass_date_window_for_session_ids=bypass,
+        ).run()
+        assert result.results == []
+
+    def test_retention_bound_cannot_hide_live_recordings(self) -> None:
+        # anything older than the 5y bound is past every retention period, so never viewable
+        user = "test_retention_bound-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        six_years_ago = self.an_hour_ago - relativedelta(years=6)
+        ancient_session_id = str(uuid4())
+        produce_replay_summary(
+            session_id=ancient_session_id,
+            team_id=self.team.pk,
+            first_timestamp=six_years_ago,
+            last_timestamp=six_years_ago + relativedelta(minutes=5),
+            distinct_id=user,
+            retention_period_days=1826,
+        )
+
+        assert self._filter_recordings_with_bypass({"session_ids": [ancient_session_id]}) == []
+
+    @parameterized.expand(
+        [
+            ("default_window_excludes_events", None, False),
+            ("wide_window_includes_events", "-30d", True),
+        ]
+    )
+    def test_event_filters_bound_session_ids_queries_by_date_even_with_bypass(
+        self, _name: str, date_from: str | None, expect_found: bool
+    ) -> None:
+        # event subqueries scan within the date range even when bypassing
+        user = "test_session_ids_event_window-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        ten_days_ago = self.an_hour_ago - relativedelta(days=10)
+        old_session_id = str(uuid4())
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=ten_days_ago,
+            properties={"$session_id": old_session_id, "$window_id": str(uuid4())},
+        )
+        produce_replay_summary(
+            session_id=old_session_id,
+            team_id=self.team.pk,
+            first_timestamp=ten_days_ago,
+            last_timestamp=ten_days_ago + relativedelta(minutes=5),
+            distinct_id=user,
+        )
+
+        query: dict = {
+            "session_ids": [old_session_id],
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+        }
+        if date_from is not None:
+            query["date_from"] = date_from
+
+        assert self._filter_recordings_with_bypass(query) == ([old_session_id] if expect_found else [])
 
     @snapshot_clickhouse_queries
     def test_event_filter_with_active_sessions(
@@ -4534,10 +4687,24 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
 
             wait_for_materialized_columns()
 
-        with self.settings(
-            PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
-            PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
-            ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
+        # Pin materialization state to avoid non-deterministic snapshots when
+        # leftover materialized columns exist in the CI ClickHouse instance.
+        mat_mock = (
+            nullcontext()
+            if materialize_person_props
+            else patch(
+                "ee.clickhouse.materialized_columns.columns.get_materialized_columns",
+                return_value={},
+            )
+        )
+
+        with (
+            mat_mock,
+            self.settings(
+                PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
+                PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
+                ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
+            ),
         ):
             user_one = "test_event_filter_with_person_properties-user"
             user_two = "test_event_filter_with_person_properties-user2"
@@ -4621,10 +4788,22 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             materialize("events", "email", table_column="person_properties")
             materialize("person", "email")
 
-        with self.settings(
-            PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
-            PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
-            ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
+        mat_mock = (
+            nullcontext()
+            if materialize_person_props
+            else patch(
+                "ee.clickhouse.materialized_columns.columns.get_materialized_columns",
+                return_value={},
+            )
+        )
+
+        with (
+            mat_mock,
+            self.settings(
+                PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
+                PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
+                ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
+            ),
         ):
             three_user_ids = ["person-1-distinct-1", "person-1-distinct-2", "person-2"]
             session_id_one = f"test_person_id_filter-session-one"
@@ -4784,3 +4963,80 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
 
         self.assertEqual(len(result2.results), 2)
         self.assertTrue(result2.has_more_recording)
+
+    def _produce_sessions(self, base_session_id: str, count: int) -> list[str]:
+        session_ids = []
+        for i in range(count):
+            session_id = f"{base_session_id}-{i}"
+            session_ids.append(session_id)
+            produce_replay_summary(
+                session_id=session_id,
+                team_id=self.team.pk,
+                first_timestamp=self.base_time + relativedelta(seconds=i * 10),
+                last_timestamp=self.base_time + relativedelta(seconds=i * 10 + 30),
+            )
+        return session_ids
+
+    def test_session_ids_to_exclude_removes_those_sessions(self):
+        session_ids = self._produce_sessions(f"exclude-{uuid4()}", 3)
+
+        query = RecordingsQuery.model_validate({"limit": 10})
+        result = SessionRecordingListFromQuery(
+            query=query,
+            team=self.team,
+            hogql_query_modifiers=None,
+            session_ids_to_exclude=[session_ids[1]],
+        ).run()
+
+        assert sorted(r["session_id"] for r in result.results) == sorted([session_ids[0], session_ids[2]])
+
+    @parameterized.expand([("empty_list", []), ("none", None)])
+    def test_session_ids_to_exclude_no_op_when_empty(self, _name: str, exclude):
+        session_ids = self._produce_sessions(f"no-exclude-{uuid4()}", 3)
+
+        query = RecordingsQuery.model_validate({"limit": 10})
+        result = SessionRecordingListFromQuery(
+            query=query,
+            team=self.team,
+            hogql_query_modifiers=None,
+            session_ids_to_exclude=exclude,
+        ).run()
+
+        assert sorted(r["session_id"] for r in result.results) == sorted(session_ids)
+
+    def test_session_ids_to_exclude_is_and_combined_with_or_operand(self):
+        # Even with an OR operand the exclusion must always be AND'd, otherwise it could be OR'd away.
+        session_ids = self._produce_sessions(f"exclude-or-{uuid4()}", 2)
+
+        query = RecordingsQuery.model_validate({"limit": 10, "operand": "OR"})
+        instance = SessionRecordingListFromQuery(
+            query=query,
+            team=self.team,
+            hogql_query_modifiers=None,
+            session_ids_to_exclude=[session_ids[0]],
+        )
+        # the printer renders NOT IN as the function form notin(...), and it must sit inside the
+        # top-level and(...) so the OR operand can't cancel the exclusion
+        printed_query = self._print_query(instance.get_query())
+        assert "notin(s.session_id" in printed_query.lower()
+
+        result = instance.run()
+        assert [r["session_id"] for r in result.results] == [session_ids[1]]
+
+    def test_session_ids_to_exclude_paginates_over_filtered_set(self):
+        # Sessions are produced oldest-to-newest; with DESC order the two newest are excluded, so a
+        # page of size 2 must still surface the older unexcluded sessions rather than an empty page.
+        session_ids = self._produce_sessions(f"exclude-page-{uuid4()}", 4)
+        newest_two = session_ids[2:]
+        oldest_two = session_ids[:2]
+
+        query = RecordingsQuery.model_validate({"limit": 2, "order": "start_time", "order_direction": "DESC"})
+        result = SessionRecordingListFromQuery(
+            query=query,
+            team=self.team,
+            hogql_query_modifiers=None,
+            session_ids_to_exclude=newest_two,
+        ).run()
+
+        assert sorted(r["session_id"] for r in result.results) == sorted(oldest_two)
+        assert result.has_more_recording is False

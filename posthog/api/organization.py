@@ -1,12 +1,8 @@
-import dataclasses
 from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Literal, Union, cast
 
-from django.core.cache import cache
-from django.db import transaction
 from django.db.models import Model, QuerySet
-from django.db.models.signals import post_delete, post_save
 from django.shortcuts import get_object_or_404
 
 import posthoganalytics
@@ -22,6 +18,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.caching.organization_serializer_cache import (
+    ORG_SERIALIZER_CACHE_TTL_SECONDS,
+    _org_serializer_cache_version,
+)
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import (
@@ -32,13 +32,9 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
-from posthog.models import Organization, Team, User
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
-from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.project import Project
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -53,10 +49,6 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.tasks import delete_organization_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
-
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import RoleMembership
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -94,43 +86,6 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
 
 
 tracer = trace.get_tracer(__name__)
-
-
-ORG_SERIALIZER_CACHE_TTL_SECONDS = 60 * 60
-ORG_SERIALIZER_VERSION_TTL_SECONDS = 7 * 24 * 60 * 60
-_ORG_SERIALIZER_VERSION_KEY_PREFIX = "org_serializer_version:"
-
-
-def _org_serializer_version_key(organization_id: str) -> str:
-    return f"{_ORG_SERIALIZER_VERSION_KEY_PREFIX}{organization_id}"
-
-
-def _org_serializer_cache_version(organization_id: str) -> int:
-    key = _org_serializer_version_key(organization_id)
-    raw = get_safe_cache(key)
-    if raw is None:
-        try:
-            cache.add(key, 0, timeout=ORG_SERIALIZER_VERSION_TTL_SECONDS)
-        except Exception:
-            pass
-        return 0
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _bump_org_serializer_cache_version(organization_id: str) -> None:
-    key = _org_serializer_version_key(organization_id)
-    try:
-        cache.incr(key)
-    except ValueError:
-        try:
-            cache.add(key, 1, timeout=ORG_SERIALIZER_VERSION_TTL_SECONDS)
-        except Exception:
-            pass
-    except Exception:
-        pass
 
 
 CacheField = Literal["teams", "projects"]
@@ -180,62 +135,6 @@ def _resolve_cached_user_id(serializer_context: dict[str, Any]) -> int | None:
     return user.id
 
 
-def _instance_org_id(instance: Any) -> str | None:
-    organization_id = getattr(instance, "organization_id", None)
-    return str(organization_id) if organization_id is not None else None
-
-
-def _team_id_to_org_id(instance: Any) -> str | None:
-    team_id = getattr(instance, "team_id", None)
-    if team_id is None:
-        return None
-    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
-    return str(organization_id) if organization_id is not None else None
-
-
-def _role_id_to_org_id(instance: Any) -> str | None:
-    role = getattr(instance, "role", None)
-    if role is None:
-        return None
-    organization_id = getattr(role, "organization_id", None)
-    return str(organization_id) if organization_id is not None else None
-
-
-_VISIBILITY_RESOURCES = {"project", "organization"}
-
-
-def _access_control_to_org_id(instance: Any) -> str | None:
-    if getattr(instance, "resource", None) not in _VISIBILITY_RESOURCES:
-        return None
-    return _team_id_to_org_id(instance)
-
-
-_INVALIDATION_SOURCES: list[tuple[type[Model], Callable[[Any], str | None]]] = [
-    (Team, _instance_org_id),
-    (Project, _instance_org_id),
-    (OrganizationMembership, _instance_org_id),
-    (AccessControl, _access_control_to_org_id),
-    (ExplicitTeamMembership, _team_id_to_org_id),
-    (RoleMembership, _role_id_to_org_id),
-]
-
-
-def _connect_invalidation(model: type[Model], get_org_id: Callable[[Any], str | None]) -> None:
-    def receiver_fn(sender: type[Model], instance: Any, **kwargs: Any) -> None:
-        organization_id = get_org_id(instance)
-        if organization_id is None:
-            return
-        _bump_org_serializer_cache_version(organization_id)
-        transaction.on_commit(lambda: _bump_org_serializer_cache_version(organization_id))
-
-    post_save.connect(receiver_fn, sender=model, weak=False)
-    post_delete.connect(receiver_fn, sender=model, weak=False)
-
-
-for _model, _resolver in _INVALIDATION_SOURCES:
-    _connect_invalidation(_model, _resolver)
-
-
 class OrganizationSerializer(
     serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
 ):
@@ -276,6 +175,7 @@ class OrganizationSerializer(
             "customer_id",
             "enforce_2fa",
             "members_can_invite",
+            "members_can_create_projects",
             "members_can_use_personal_api_keys",
             "allow_publicly_shared_resources",
             "member_count",
@@ -390,6 +290,16 @@ class OrganizationSerializer(
                 )
         return value
 
+    def validate_members_can_create_projects(self, value: bool) -> bool:
+        # Gated behind the organization invite settings entitlement for now (will move to a dedicated feature later).
+        if self.instance and self.instance.members_can_create_projects != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure who can create projects.",
+                    code="payment_required",
+                )
+        return value
+
     def validate_enforce_2fa(self, value: bool | None) -> bool | None:
         if self.instance and self.instance.enforce_2fa != value:
             if not self.instance.is_feature_available(AvailableFeature.TWO_FACTOR_ENFORCEMENT):
@@ -441,7 +351,7 @@ class OrganizationSerializer(
         return super().to_representation(instance)
 
 
-@extend_schema(tags=["platform_features"])
+@extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationSerializer
@@ -554,15 +464,30 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         organization.is_pending_deletion = True
         organization.save(update_fields=["is_pending_deletion"])
 
-        # Queue background task to handle all deletion
-        # bulky postgres, batch exports, org/team records, ClickHouse, email
-        delete_organization_data_and_notify_task.delay(
-            team_ids=team_ids,
-            organization_id=str(organization_id),
-            user_id=user.id,
-            organization_name=organization_name,
-            project_names=project_names,
+        # Hand off all deletion work (bulky postgres, batch exports, org/team records,
+        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
+        # is enabled for this org; otherwise keep the legacy Celery task.
+        from posthog.temporal.delete_teams.dispatch import (
+            delete_via_temporal_enabled,
+            start_delete_organization_workflow,
         )
+
+        if delete_via_temporal_enabled(str(organization_id)):
+            start_delete_organization_workflow(
+                team_ids=team_ids,
+                organization_id=str(organization_id),
+                user_id=user.id,
+                organization_name=organization_name,
+                project_names=project_names,
+            )
+        else:
+            delete_organization_data_and_notify_task.delay(
+                team_ids=team_ids,
+                organization_id=str(organization_id),
+                user_id=user.id,
+                organization_name=organization_name,
+                project_names=project_names,
+            )
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {
@@ -641,137 +566,3 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"status": False, "error": "An internal error has occurred."}, status=500)
 
         return Response({"status": True})
-
-
-@mutable_receiver(model_activity_signal, sender=Organization)
-def handle_organization_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    log_activity(
-        organization_id=after_update.id,
-        team_id=None,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-        ),
-    )
-
-
-@dataclasses.dataclass(frozen=True)
-class OrganizationMembershipContext(ActivityContextBase):
-    organization_id: str
-    organization_name: str
-    user_id: str
-    user_email: str
-    user_name: str
-    level: str
-
-
-@dataclasses.dataclass(frozen=True)
-class OrganizationInviteContext(ActivityContextBase):
-    organization_id: str
-    organization_name: str
-    target_email: str
-    inviter_user_id: str | None
-    inviter_user_email: str | None
-    inviter_user_name: str | None
-    level: str
-
-
-@mutable_receiver(model_activity_signal, sender=OrganizationMembership)
-def handle_organization_membership_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    # Use after_update for create/update, before_update for delete
-    membership = after_update or before_update
-
-    if not membership:
-        return
-
-    member_user = membership.user
-    member_name = f"{member_user.first_name} {member_user.last_name}".strip()
-
-    context = OrganizationMembershipContext(
-        organization_id=str(membership.organization_id),
-        organization_name=membership.organization.name,
-        user_id=str(member_user.id),
-        user_email=member_user.email,
-        user_name=member_name,
-        level=str(OrganizationMembership.Level(membership.level).label),
-    )
-
-    if activity == "created":
-        detail_name = f"{member_name} ({member_user.email}) joined {membership.organization.name}"
-    elif activity == "deleted":
-        detail_name = f"{member_name} ({member_user.email}) left {membership.organization.name}"
-    else:
-        detail_name = f"{member_name} ({member_user.email}) membership updated in {membership.organization.name}"
-
-    log_activity(
-        organization_id=membership.organization_id,
-        team_id=None,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=membership.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=detail_name,
-            context=context,
-        ),
-    )
-
-
-@mutable_receiver(model_activity_signal, sender=OrganizationInvite)
-def handle_organization_invite_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    # Use after_update for create/update, before_update for delete
-    invite = after_update or before_update
-
-    if not invite:
-        return
-
-    inviter_user = invite.created_by
-    inviter_name = f"{inviter_user.first_name} {inviter_user.last_name}".strip() if inviter_user else None
-
-    context = OrganizationInviteContext(
-        organization_id=str(invite.organization_id),
-        organization_name=invite.organization.name,
-        target_email=invite.target_email,
-        inviter_user_id=str(inviter_user.id) if inviter_user else None,
-        inviter_user_email=inviter_user.email if inviter_user else None,
-        inviter_user_name=inviter_name,
-        level=str(OrganizationMembership.Level(invite.level).label),
-    )
-
-    if activity == "created":
-        if inviter_user:
-            detail_name = f"User {inviter_name} ({inviter_user.email}) invited user {invite.target_email} into organization {invite.organization.name}"
-        else:
-            detail_name = f"User {invite.target_email} was invited to organization {invite.organization.name}"
-    elif activity == "deleted":
-        detail_name = f"Invite for {invite.target_email} to organization {invite.organization.name} was cancelled"
-    else:
-        detail_name = f"Invite for {invite.target_email} to organization {invite.organization.name} was updated"
-
-    log_activity(
-        organization_id=invite.organization_id,
-        team_id=None,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=invite.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=detail_name,
-            context=context,
-        ),
-    )
