@@ -404,8 +404,6 @@ export namespace Schemas {
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       timings?: boolean | null;
-      /** Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): recover blank `$geoip_city_name` / `$geoip_postal_code` event property reads from `$ip` at query time, via the `city_postal_ip_trie` ClickHouse dictionary. Remove once the affected events are backfilled. */
-      useGeoipDictFallback?: boolean | null;
       useMaterializedViews?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
