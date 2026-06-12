@@ -129,6 +129,7 @@ the row lists both.
 | pipedrive        | HTTP                        | requests                                                        | ✅                          |
 | plain            | HTTP                        | requests                                                        | ✅                          |
 | polar            | HTTP                        | requests                                                        | ✅                          |
+| plaid            | HTTP                        | requests                                                        | ✅                          |
 | postgres         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark         | HTTP                        | requests                                                        | ✅                          |
 | productboard     | HTTP                        | requests                                                        | ✅                          |
@@ -280,7 +281,6 @@ doesn't conflict with concurrent PRs.
 - paylocity
 - paypal
 - pendo
-- plaid
 - planetscale
 - qualtrics
 - quickbooks
