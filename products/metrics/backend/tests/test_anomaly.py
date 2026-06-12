@@ -89,6 +89,64 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
             self._characterize(anomaly_to=self.anomaly_from - dt.timedelta(minutes=1))
         with self.assertRaises(ValueError):
             self._characterize(baseline_to=self.anomaly_from + dt.timedelta(minutes=5))
+        with self.assertRaises(ValueError):
+            self._characterize(
+                baseline_from=self.start + dt.timedelta(minutes=5),
+                baseline_to=self.start,
+            )
+
+    def test_explicit_disjoint_baseline_excludes_the_gap(self):
+        # Baseline minutes 0-5 (steady 10), gap minutes 5-10 polluted with
+        # huge values, anomaly minutes 10-20 (steady 100). If the gap leaked
+        # into the baseline stats, the mean would be wildly inflated.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="gap_metric",
+            metric_type="gauge",
+            points=(
+                [(self.start + dt.timedelta(minutes=m), 10.0) for m in range(5)]
+                + [(self.start + dt.timedelta(minutes=m), 100000.0) for m in range(5, 10)]
+                + [(self.start + dt.timedelta(minutes=m), 100.0) for m in range(10, 20)]
+            ),
+        )
+        report = self._characterize(
+            metric_name="gap_metric",
+            baseline_from=self.start,
+            baseline_to=self.start + dt.timedelta(minutes=5),
+        )
+        self.assertAlmostEqual(report.baseline_mean, 10.0)
+        self.assertAlmostEqual(report.anomaly_mean, 100.0)
+        self.assertEqual(report.direction, "up")
+
+    def test_non_utc_project_timezone(self):
+        # Bucket times come back from HogQL in the project timezone; the
+        # baseline/anomaly split must still be chronological.
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        report = self._characterize()
+        self.assertEqual(report.direction, "up")
+        self.assertAlmostEqual(report.baseline_mean, 7.5)
+        self.assertIsNotNone(report.onset_time)
+
+    def test_service_name_candidate_key_uses_the_column(self):
+        # The service name lives in a first-class column on real ingested
+        # rows, not in the attribute maps — the drill must still find it.
+        for service, anomaly_value in (("svc-steady", 10.0), ("svc-spiky", 100.0)):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="svc_metric",
+                metric_type="gauge",
+                service_name=service,
+                points=(
+                    [(self.start + dt.timedelta(minutes=m), 10.0) for m in range(10)]
+                    + [(self.start + dt.timedelta(minutes=m), anomaly_value) for m in range(10, 20)]
+                ),
+            )
+        report = self._characterize(metric_name="svc_metric", candidate_keys=("service_name",))
+        self.assertTrue(report.top_movers)
+        top = report.top_movers[0]
+        self.assertEqual((top.key, top.label), ("service_name", "svc-spiky"))
+        self.assertNotIn("svc-steady", [m.label for m in report.top_movers])
 
     def test_counter_auto_picks_rate(self):
         seed_metric(
