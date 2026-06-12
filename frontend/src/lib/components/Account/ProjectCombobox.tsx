@@ -174,11 +174,16 @@ export function ProjectCombobox(): JSX.Element | null {
                 {preflight?.can_create_org && (
                     <Combobox.Item
                         asChild
-                        onClick={() =>
+                        onClick={() => {
+                            // The button below is rendered disabled when creation is forbidden, but the
+                            // Combobox still fires onClick/Enter — enforce the disabled state here too.
+                            if (projectCreationForbiddenReason) {
+                                return
+                            }
                             guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
                                 currentUsage: currentOrganization?.teams?.length,
                             })
-                        }
+                        }}
                     >
                         <ButtonPrimitive
                             menuItem
