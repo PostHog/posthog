@@ -55,8 +55,7 @@ def get_rows(
         wait=wait_exponential_jitter(initial=5, max=120),
         reraise=True,
     )
-    def fetch(path: str, params: dict[str, Any], interval: float) -> dict[str, Any]:
-        time.sleep(interval)
+    def fetch(path: str, params: dict[str, Any]) -> dict[str, Any]:
         url = f"{CODA_BASE_URL}{path}"
         if params:
             url = f"{url}?{urlencode(params)}"
@@ -80,7 +79,10 @@ def get_rows(
             if token:
                 # pageToken supersedes other params on continuation requests.
                 params = {"pageToken": token}
-            data = fetch(path, params, interval)
+            # Proactive pacing sits outside fetch's @retry boundary so tenacity
+            # backoff isn't compounded by this sleep on every retry attempt.
+            time.sleep(interval)
+            data = fetch(path, params)
             items = data.get("items", []) or []
             if items:
                 yield items
@@ -89,12 +91,9 @@ def get_rows(
                 return
 
     def doc_ids() -> list[str]:
-        return [
-            doc["id"]
-            for page in iterate_pages("/docs", PAGE_SIZE, DOC_LIST_INTERVAL_SECONDS)
-            for doc in page
-            if doc.get("id")
-        ]
+        # Direct access on the primary key so malformed API data fails fast
+        # rather than silently dropping docs from the sync.
+        return [doc["id"] for page in iterate_pages("/docs", PAGE_SIZE, DOC_LIST_INTERVAL_SECONDS) for doc in page]
 
     if endpoint == "docs":
         yield from iterate_pages("/docs", PAGE_SIZE, DOC_LIST_INTERVAL_SECONDS)
@@ -106,11 +105,15 @@ def get_rows(
                 yield [{**table, "_doc_id": doc_id} for table in page]
         return
 
+    if endpoint != "rows":
+        raise ValueError(f"Unknown Coda endpoint: {endpoint!r}")
+
     # rows: fan out docs → tables → rows.
     for doc_id in doc_ids():
         tables: list[str] = []
         for page in iterate_pages(f"/docs/{quote(doc_id)}/tables", PAGE_SIZE, READ_INTERVAL_SECONDS):
-            tables.extend(table["id"] for table in page if table.get("id"))
+            # Direct access on the primary key so malformed API data fails fast.
+            tables.extend(table["id"] for table in page)
 
         for table_id in tables:
             for page in iterate_pages(

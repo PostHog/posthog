@@ -97,19 +97,27 @@ class TestGetRows:
         assert parse_qs(parsed.query)["useColumnNames"] == ["true"]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_tables_without_id_are_skipped_in_rows(self, mock_session):
+    def test_table_without_id_fails_fast_in_rows(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _response([{"id": "doc1"}]),
             _response([{"name": "broken"}]),
         ]
 
-        assert list(get_rows("token", "rows", mock.MagicMock())) == []
+        with pytest.raises(KeyError):
+            list(get_rows("token", "rows", mock.MagicMock()))
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_empty_workspace_yields_nothing(self, mock_session):
         mock_session.return_value.get.return_value = _response([])
 
         assert list(get_rows("token", "rows", mock.MagicMock())) == []
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_unknown_endpoint_raises(self, mock_session):
+        mock_session.return_value.get.return_value = _response([])
+
+        with pytest.raises(ValueError, match="Unknown Coda endpoint"):
+            list(get_rows("token", "nonsense", mock.MagicMock()))
 
 
 class TestCodaSourceResponse:
