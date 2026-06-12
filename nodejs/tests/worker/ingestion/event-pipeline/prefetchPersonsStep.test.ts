@@ -2,18 +2,18 @@ import { PipelineResultType } from '~/ingestion/pipelines/results'
 import { Team } from '~/types'
 
 import { prefetchPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/prefetchPersonsStep'
-import { PersonsStore } from '../../../../src/worker/ingestion/persons/persons-store'
+import { PersonsStoreForBatch } from '../../../../src/worker/ingestion/persons/persons-store-for-batch'
 import { createTestPluginEvent } from '../../../helpers/plugin-event'
 import { createTestTeam } from '../../../helpers/team'
 
 describe('prefetchPersonsStep', () => {
-    let mockPersonsStore: jest.Mocked<PersonsStore>
+    let mockPersonsStore: jest.Mocked<PersonsStoreForBatch>
     let team: Team
 
-    function createMockPersonsStore(): jest.Mocked<PersonsStore> {
+    function createMockPersonsStore(): jest.Mocked<PersonsStoreForBatch> {
         return {
             prefetchPersons: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<PersonsStore>
+        } as unknown as jest.Mocked<PersonsStoreForBatch>
     }
 
     beforeEach(() => {
@@ -27,11 +27,12 @@ describe('prefetchPersonsStep', () => {
             team_id: (overrides.team ?? team).id,
         }),
         team: overrides.team ?? team,
+        personsStoreForBatch: mockPersonsStore,
     })
 
     describe('when enabled', () => {
         it('should prefetch persons for all events', async () => {
-            const step = prefetchPersonsStep(mockPersonsStore, true)
+            const step = prefetchPersonsStep(true)
             const events = [createInput('user-1'), createInput('user-2'), createInput('user-3')]
 
             const results = await step(events)
@@ -46,7 +47,7 @@ describe('prefetchPersonsStep', () => {
         })
 
         it('should not call prefetch for empty batch', async () => {
-            const step = prefetchPersonsStep(mockPersonsStore, true)
+            const step = prefetchPersonsStep(true)
 
             const results = await step([])
 
@@ -55,7 +56,7 @@ describe('prefetchPersonsStep', () => {
         })
 
         it('should call prefetch once for all events', async () => {
-            const step = prefetchPersonsStep(mockPersonsStore, true)
+            const step = prefetchPersonsStep(true)
             const events = [createInput('user-1'), createInput('user-2')]
 
             await step(events)
@@ -66,7 +67,7 @@ describe('prefetchPersonsStep', () => {
 
     describe('when disabled', () => {
         it('should not prefetch and return all events as OK', async () => {
-            const step = prefetchPersonsStep(mockPersonsStore, false)
+            const step = prefetchPersonsStep(false)
             const events = [createInput('user-1'), createInput('user-2')]
 
             const results = await step(events)
