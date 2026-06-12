@@ -2,9 +2,9 @@ import clsx from 'clsx'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { humanFriendlyDuration } from 'lib/utils'
-import { DuplicateStepIndicator } from 'scenes/funnels/FunnelBarHorizontal/DuplicateStepIndicator'
-import { FunnelStepMore } from 'scenes/funnels/FunnelStepMore'
-import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
+import { DuplicateStepIndicator } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelBarHorizontal/DuplicateStepIndicator'
+import { FunnelStepMore } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelStepMore'
+import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { type FunnelStepWithConversionMetrics } from '~/types'
 

@@ -6,7 +6,7 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { createExperimentLogic } from './ExperimentForm/createExperimentLogic'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'

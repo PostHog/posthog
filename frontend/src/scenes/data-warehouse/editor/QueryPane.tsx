@@ -7,7 +7,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 
-import { HogQLQuery } from '~/queries/schema/schema-general'
+import { HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'

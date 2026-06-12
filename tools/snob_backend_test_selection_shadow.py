@@ -74,7 +74,7 @@ FULL_RUN_PATTERNS = (
     "bin/wait-for-docker",
     "bin/ci-wait-for-docker",
     # Non-Python files that affect generated Python code or test behavior
-    "frontend/src/queries/schema.json",
+    "common/query-frontend/src/schema.json",
     "frontend/src/products.json",
     "frontend/public/email/",
     "rust/feature-flags/src/properties/property_models.rs",

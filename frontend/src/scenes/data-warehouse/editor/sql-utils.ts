@@ -1,6 +1,6 @@
 import type { ASTNode } from '@posthog/hogql-parser'
 
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier } from '@posthog/query-frontend/utils'
 
 import { parseSelect } from './hogqlParserSingleton'
 

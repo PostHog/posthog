@@ -11,7 +11,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { slugify } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
+import { EndpointQueryNode, HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { validateEndpointName } from './common'
 import { endpointLogic } from './endpointLogic'

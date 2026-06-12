@@ -2,7 +2,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 
 export interface SourceReleaseTagProps {
     releaseStatus?: SourceConfig['releaseStatus']

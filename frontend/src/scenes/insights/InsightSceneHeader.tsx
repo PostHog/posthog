@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { InsightShortId, InsightLogicProps, ItemMode } from '~/types'
 
-import { insightDataLogic } from './insightDataLogic'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
 import { InsightPageHeader } from './InsightPageHeader'
 

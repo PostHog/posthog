@@ -1,4 +1,4 @@
-import { DataWarehouseNode, MarketingAnalyticsConstants, NodeKind } from '~/queries/schema/schema-general'
+import { DataWarehouseNode, MarketingAnalyticsConstants, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { HogQLMathType } from '~/types'
 
 import { ExternalTable } from './marketingAnalyticsLogic'

@@ -7,8 +7,8 @@ import { App } from 'scenes/App'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { useStorybookMocks } from '~/mocks/browser'
-import { InsightVizNode, Node } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { InsightVizNode, Node } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '@posthog/query-frontend/utils'
 import { QueryBasedInsightModel } from '~/types'
 
 function setLegendFilter(query: Node | null | undefined, showLegend: boolean): Node | null | undefined {

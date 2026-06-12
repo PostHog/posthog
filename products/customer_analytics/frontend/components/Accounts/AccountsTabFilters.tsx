@@ -6,7 +6,7 @@ import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 
 import { tagsModel } from '~/models/tagsModel'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 

@@ -26,7 +26,7 @@ import sys
 import json
 from pathlib import Path
 
-SCHEMA_JSON = Path("frontend/src/queries/schema.json")
+SCHEMA_JSON = Path("common/query-frontend/src/schema.json")
 SCHEMA_PY = Path("posthog/schema.py")
 
 

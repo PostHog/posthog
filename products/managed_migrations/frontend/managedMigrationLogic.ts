@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { managedMigrationLogicType } from './managedMigrationLogicType'

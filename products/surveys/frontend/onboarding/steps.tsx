@@ -3,7 +3,7 @@ import { SurveysSDKInstructions } from 'scenes/onboarding/sdks/surveys/SurveysSD
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 export const surveysOnboarding: ProductOnboardingProvider = {

@@ -5,7 +5,7 @@ import { LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { TeamMembershipLevel } from 'lib/constants'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
-import { SelectOption } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { SelectOption } from '@posthog/query-frontend/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { ingestionControlsLogic } from './ingestionControlsLogic'

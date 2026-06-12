@@ -18,8 +18,8 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { CurrencyCode, NodeKind } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { CurrencyCode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'

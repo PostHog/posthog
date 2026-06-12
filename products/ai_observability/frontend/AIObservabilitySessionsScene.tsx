@@ -10,9 +10,9 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
-import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { isHogQLQuery } from '~/queries/utils'
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { DataTableRow } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
+import { isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import { LazyPersonColumnCell, ToolsDisplay } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'

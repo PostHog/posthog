@@ -13,13 +13,13 @@ import {
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { BoxPlotLegend } from '@posthog/visualizations/BoxPlot/BoxPlotLegend'
+import { InsightsTable } from '@posthog/query-frontend/nodes/InsightViz/views/InsightsTable/InsightsTable'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { Query } from '~/queries/Query/Query'
-import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { SharingConfigurationSettings } from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '@posthog/query-frontend/utils'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({

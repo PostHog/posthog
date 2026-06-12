@@ -9,7 +9,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { urls } from 'scenes/urls'
 
-import { Node, NodeKind } from '~/queries/schema/schema-general'
+import { Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardPlacement, Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 function GroupDetailDashboard({

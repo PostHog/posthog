@@ -1,4 +1,4 @@
-import { ChartAxis } from '~/queries/schema/schema-general'
+import { ChartAxis } from '@posthog/query-frontend/schema/schema-general'
 
 export interface QueryConfig {
     dateFrom: string

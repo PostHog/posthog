@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 
 import { useMocks } from '~/mocks/jest'
-import type { SourceConfig } from '~/queries/schema/schema-general'
+import type { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'

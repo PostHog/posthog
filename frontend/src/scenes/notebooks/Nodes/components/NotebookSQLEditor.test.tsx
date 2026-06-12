@@ -9,7 +9,7 @@ jest.mock('scenes/data-warehouse/editor/sqlEditorLogic', () => ({
     sqlEditorLogic: jest.fn(),
 }))
 
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import {

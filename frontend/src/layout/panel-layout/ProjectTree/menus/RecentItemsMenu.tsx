@@ -22,7 +22,7 @@ import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 
 import { recentItemsMenuLogic } from './recentItemsMenuLogic'
 

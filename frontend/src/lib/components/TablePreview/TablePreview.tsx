@@ -4,7 +4,7 @@ import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 
 import { TablePreviewExtraColumn } from './types'
 

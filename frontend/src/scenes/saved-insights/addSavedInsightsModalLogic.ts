@@ -14,7 +14,7 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import type { QueryBasedInsightModel } from '~/types'
 
 import type { addSavedInsightsModalLogicType } from './addSavedInsightsModalLogicType'

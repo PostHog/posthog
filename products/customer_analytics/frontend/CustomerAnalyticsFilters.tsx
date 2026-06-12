@@ -15,8 +15,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'

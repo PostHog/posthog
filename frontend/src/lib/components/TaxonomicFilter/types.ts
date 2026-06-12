@@ -2,11 +2,11 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
-import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { LocalFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
-import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
 import {
     ActionType,
     CohortType,

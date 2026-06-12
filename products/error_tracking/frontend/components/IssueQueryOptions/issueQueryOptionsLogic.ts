@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { Params } from 'scenes/sceneTypes'
 
-import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { syncSearchParams, updateSearchParams } from '../../utils'
 import type { issueQueryOptionsLogicType } from './issueQueryOptionsLogicType'

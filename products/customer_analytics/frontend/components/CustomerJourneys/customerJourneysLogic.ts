@@ -8,8 +8,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUUIDLike } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
+import { FunnelsQuery, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightVizNode } from '@posthog/query-frontend/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { FunnelVizType, PropertyFilterType, PropertyOperator, QueryBasedInsightModel } from '~/types'
 

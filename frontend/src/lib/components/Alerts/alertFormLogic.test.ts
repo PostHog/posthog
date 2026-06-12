@@ -6,9 +6,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiError } from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -16,7 +16,7 @@ import {
     AlertConditionType,
     InsightThresholdType,
     NodeKind,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 

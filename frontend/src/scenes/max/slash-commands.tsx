@@ -2,7 +2,7 @@ import { IconActivity, IconMemory, IconRocket, IconSupport, IconThumbsUp } from 
 
 import { FeatureFlagKey } from 'lib/constants'
 
-import { SlashCommandName } from '~/queries/schema/schema-assistant-messages'
+import { SlashCommandName } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 export { SlashCommandName }
 

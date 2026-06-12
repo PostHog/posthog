@@ -27,7 +27,7 @@ import { pluralize } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataSchemaStatus,

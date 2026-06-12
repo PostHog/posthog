@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { FALLBACK_DELAY_MS, TEXT_REPR_API_TIMEOUT_MS, UI_TEXT_REPR_MAX_LENGTH } from './constants'
 import type { textViewLogicType } from './textViewLogicType'

@@ -13,7 +13,7 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 

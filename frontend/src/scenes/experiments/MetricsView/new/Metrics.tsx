@@ -7,7 +7,7 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
 import { METRIC_CONTEXTS } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 
-import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
+import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { experimentLogic } from '../../experimentLogic'
 import { modalsLogic } from '../../modalsLogic'

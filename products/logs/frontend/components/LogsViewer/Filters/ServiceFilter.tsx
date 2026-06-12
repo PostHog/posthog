@@ -5,7 +5,7 @@ import { List } from 'react-window'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
-import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
+import { DateRange, LogsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { serviceFilterLogic, ServiceFilterLogicProps } from './serviceFilterLogic'
 

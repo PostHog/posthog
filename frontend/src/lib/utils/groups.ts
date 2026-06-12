@@ -1,4 +1,4 @@
-import { GroupsQueryResponse } from '~/queries/schema/schema-general'
+import { GroupsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import { Group } from '~/types'
 
 export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>

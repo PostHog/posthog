@@ -7,7 +7,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { fixSQLErrorsLogic } from '../fixSQLErrorsLogic'
 import { sqlEditorLogic } from '../sqlEditorLogic'

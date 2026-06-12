@@ -7,11 +7,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupBy } from 'lib/utils'
 import { parseDateInTimezone } from 'lib/utils/dateTimeUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnnotationScope,
     AnnotationType,

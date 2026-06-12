@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
+import { OverviewGrid, OverviewItem } from '@posthog/query-frontend/nodes/OverviewGrid/OverviewGrid'
 
 import { accountsOverviewTilesLogic, AccountsOverviewTile, isTileClickable } from './accountsOverviewTilesLogic'
 

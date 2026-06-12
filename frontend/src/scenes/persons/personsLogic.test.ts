@@ -7,7 +7,7 @@ import api from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 

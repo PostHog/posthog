@@ -14,8 +14,8 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { examples } from '~/queries/examples'
-import { DataTableNode, type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { examples } from '@posthog/query-frontend/examples'
+import { DataTableNode, type InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -33,7 +33,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { insightDataLogic } from './insightDataLogic'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {

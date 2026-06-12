@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { InsightsWrapper } from '@posthog/query-frontend/nodes/InsightViz/InsightsWrapper'
+import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { GraphDataset, GraphType } from '~/types'

@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { ErrorTrackingSettings } from 'lib/components/Errors/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import type { issueRateLimitConfigLogicType } from './issueRateLimitConfigLogicType'
 import { DEFAULT_BUCKET_MINUTES, ExceptionVolumeBucket, getBucketOption } from './rateLimitConfigLogic'

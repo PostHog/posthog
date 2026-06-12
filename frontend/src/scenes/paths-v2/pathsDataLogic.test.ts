@@ -4,8 +4,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { pathsDataLogic } from 'scenes/paths-v2/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { examples } from '~/queries/examples'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { examples } from '@posthog/query-frontend/examples'
+import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, PathType } from '~/types'
 

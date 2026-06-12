@@ -10,8 +10,8 @@ import {
     WEB_VITALS_THRESHOLDS,
     getThresholdColor,
     getValueWithUnit,
-} from '~/queries/nodes/WebVitals/definitions'
-import { WebVitalsMetric } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/nodes/WebVitals/definitions'
+import { WebVitalsMetric } from '@posthog/query-frontend/schema/schema-general'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { joinWithUiHost } from '~/toolbar/utils'
 

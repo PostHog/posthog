@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType, DataWarehouseJobStats } from '~/types'
 
 interface JobStatsChartProps {

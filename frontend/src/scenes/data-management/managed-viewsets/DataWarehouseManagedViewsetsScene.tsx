@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
+import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
 
 import { DataWarehouseManagedViewsetCard } from './DataWarehouseManagedViewsetCard'

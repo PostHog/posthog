@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { LemonInput, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { dataColorVars } from 'lib/colors'
-import { Sparkline, SparklineReferenceLine, SparklineTimeSeries } from 'lib/components/Sparkline'
+import { Sparkline, SparklineReferenceLine, SparklineTimeSeries } from '@posthog/visualizations/Sparkline/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 

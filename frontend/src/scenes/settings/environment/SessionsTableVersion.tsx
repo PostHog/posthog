@@ -5,7 +5,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
+import { HogQLQueryModifiers } from '@posthog/query-frontend/schema/schema-general'
 
 import { TeamSettingRadio } from '../components/TeamSettingRadio'
 

@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { Breadcrumb, InsightModel, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'

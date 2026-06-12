@@ -49,7 +49,7 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import {
     AccessControlLevel,
     AccessControlResourceType,

@@ -21,7 +21,7 @@ import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
-import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
 import {
     AggregatedSpanRow,
     AnyResponseType,
@@ -61,8 +61,8 @@ import {
     SpanTreeNode,
     TileFilters,
     UserProductListItem,
-} from '~/queries/schema/schema-general'
-import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { HogQLQueryString, setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import {
     ActionType,
     ActivityScope,
@@ -247,7 +247,7 @@ import type {
     HogFlowTemplate,
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
-import { AgentMode } from '../queries/schema'
+import { AgentMode } from '@posthog/query-frontend/schema.json'
 import type { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {

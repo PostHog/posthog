@@ -1,6 +1,6 @@
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import { ExperimentMetricGoal } from '~/types'
 
 export type MetricGoalProps = {

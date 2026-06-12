@@ -19,7 +19,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from './constants'

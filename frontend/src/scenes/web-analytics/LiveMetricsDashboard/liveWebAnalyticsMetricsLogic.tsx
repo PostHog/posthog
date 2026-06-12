@@ -16,7 +16,7 @@ import { ProductTab } from 'scenes/web-analytics/common'
 import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { performQuery } from '~/queries/query'
+import { performQuery } from '@posthog/query-frontend/query'
 import {
     HogQLQuery,
     HogQLQueryResponse,
@@ -24,7 +24,7 @@ import {
     TrendsQuery,
     TrendsQueryResponse,
     WebAnalyticsPropertyFilter,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { BaseMathType, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { createStreamConnection } from './createStreamConnection'

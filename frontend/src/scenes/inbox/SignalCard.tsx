@@ -19,7 +19,7 @@ import type {
     LlmEvalSignalExtra,
     SessionSegmentClusterSignalExtra,
     ZendeskTicketSignalExtra,
-} from '~/queries/schema/schema-signals'
+} from '@posthog/query-frontend/schema/schema-signals'
 
 export function SignalCard({ signal }: { signal: SignalNode }): JSX.Element {
     if (signal.source_product === 'error_tracking' && isErrorTrackingExtra(signal.extra)) {

@@ -5,7 +5,7 @@ import api, { ApiConfig } from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import type { recentItemsModelType } from './recentItemsModelType'
 

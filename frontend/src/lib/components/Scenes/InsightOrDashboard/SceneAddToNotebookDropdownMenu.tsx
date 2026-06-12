@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/D
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { SceneDataAttrKeyProps } from '../utils'
 import { SceneNotebookMenuItems } from './SceneNotebookMenuItems'

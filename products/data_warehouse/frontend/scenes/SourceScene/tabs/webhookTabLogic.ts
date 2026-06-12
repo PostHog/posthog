@@ -7,7 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 import { ExternalDataSource, WebhookInfo } from '~/types'
 
 import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'

@@ -7,15 +7,15 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { Node } from '~/queries/schema/schema-general'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { Node } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import type { insightUsageLogicType } from './insightUsageLogicType'
-import { keyForInsightLogicProps } from './sharedUtils'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 

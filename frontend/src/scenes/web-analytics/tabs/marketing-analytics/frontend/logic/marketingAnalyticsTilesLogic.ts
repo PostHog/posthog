@@ -20,7 +20,7 @@ import {
     MarketingAnalyticsTableQuery,
     NodeKind,
     getEffectiveExcludedColumns,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'

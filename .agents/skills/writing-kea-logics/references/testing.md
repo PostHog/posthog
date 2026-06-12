@@ -114,9 +114,9 @@ For loaders backed by code that isn't an HTTP call (e.g. `performQuery`,
 file — jest hoists these above imports:
 
 ```ts
-jest.mock('~/queries/query', () => ({
+jest.mock('@posthog/query-frontend/query', () => ({
   __esModule: true,
-  ...jest.requireActual('~/queries/query'),
+  ...jest.requireActual('@posthog/query-frontend/query'),
   performQuery: jest.fn().mockResolvedValue({ result: [] }),
 }))
 ```

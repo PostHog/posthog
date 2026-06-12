@@ -6,7 +6,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -23,7 +23,7 @@ import {
     isEventsQuery,
     isGroupsQuery,
     isInsightQueryNode,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { InsightSceneMenuBar } from './SidePanel/InsightSceneMenuBar'

@@ -29,7 +29,7 @@ import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'

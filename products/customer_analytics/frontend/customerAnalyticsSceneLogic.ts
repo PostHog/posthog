@@ -17,7 +17,7 @@ import {
     LifecycleDataWarehouseNode,
     FunnelsDataWarehouseNode,
     NodeKind,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import {
     BaseMathType,

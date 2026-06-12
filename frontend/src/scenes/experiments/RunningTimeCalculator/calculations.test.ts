@@ -5,7 +5,7 @@ import {
     ExperimentMetric,
     ExperimentMetricType,
     NodeKind,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { Experiment, ExperimentMetricMathType, FeatureFlagBasicType } from '~/types'
 
 import { calculateBaselineValue, calculateRecommendedSampleSize, calculateVarianceFromResults } from './calculations'

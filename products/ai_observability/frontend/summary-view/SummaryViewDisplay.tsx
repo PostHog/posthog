@@ -12,7 +12,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EnrichedTraceTreeNode } from '../aiObservabilityTraceDataLogic'

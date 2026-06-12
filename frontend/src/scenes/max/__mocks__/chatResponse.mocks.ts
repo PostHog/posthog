@@ -4,7 +4,7 @@ import {
     AssistantMessage,
     AssistantMessageType,
     HumanMessage,
-} from '~/queries/schema/schema-assistant-messages'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { MaxContextType } from '../maxTypes'
 import failureMessage from './failureMessage.json'

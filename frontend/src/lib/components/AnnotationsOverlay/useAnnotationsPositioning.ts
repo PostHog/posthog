@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { Chart } from 'lib/Chart'
+import { Chart } from '@posthog/visualizations/Chart'
 
 export interface AnnotationsPositioning {
     tickIntervalPx: number

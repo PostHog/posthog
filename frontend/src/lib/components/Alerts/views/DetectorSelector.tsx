@@ -22,7 +22,7 @@ import {
     PreprocessingConfig,
     SingleDetectorConfig,
     ZScoreDetectorConfig,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 /** Default anomaly probability threshold for all detectors. Higher = fewer alerts. */
 const DEFAULT_THRESHOLD = 0.95

@@ -1,8 +1,8 @@
 import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { InsightVizNode, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { insightNewUrl } from './queries'

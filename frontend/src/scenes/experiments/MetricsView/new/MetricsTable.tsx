@@ -7,7 +7,7 @@ import {
     ExperimentMetric,
     ExperimentTrendsQuery,
     NewExperimentQueryResponse,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'

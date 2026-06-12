@@ -50,7 +50,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { copyToClipboard } from '~/lib/utils/copyToClipboard'
 import { stripMarkdown } from '~/lib/utils/stripMarkdown'
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
@@ -61,9 +61,9 @@ import {
     MultiVisualizationMessage,
     PlanningStep,
     PlanningStepStatus,
-} from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { DataVisualizationNode, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { isDataVisualizationNode, isHogQLQuery } from '@posthog/query-frontend/utils'
 import { PendingApproval, Region } from '~/types'
 
 import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'

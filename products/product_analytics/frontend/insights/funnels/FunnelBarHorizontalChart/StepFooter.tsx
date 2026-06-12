@@ -9,11 +9,11 @@ import {
     formatDroppedOffPercentage,
     getTooltipTitleForConverted,
     getTooltipTitleForDroppedOff,
-} from 'scenes/funnels/funnelUtils'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
+} from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
+import { ValueInspectorButton } from '@posthog/query-frontend/nodes/FunnelsQuery/ValueInspectorButton'
 
 import { type Noun } from '~/models/groupsModel'
-import type { FunnelsFilter } from '~/queries/schema/schema-general'
+import type { FunnelsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { type FunnelStepWithConversionMetrics } from '~/types'
 
 interface StepFooterProps {

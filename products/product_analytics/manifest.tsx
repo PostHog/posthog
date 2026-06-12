@@ -4,7 +4,7 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { examples } from '~/queries/examples'
+import { examples } from '@posthog/query-frontend/examples'
 import {
     DashboardFilter,
     HogQLFilters,
@@ -15,8 +15,8 @@ import {
     ProductItemCategory,
     ProductKey,
     TileFilters,
-} from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import {
     DashboardType,

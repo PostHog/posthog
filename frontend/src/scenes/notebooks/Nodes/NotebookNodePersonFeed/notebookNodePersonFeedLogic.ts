@@ -5,9 +5,9 @@ import api from 'lib/api'
 import { pluralize } from 'lib/utils'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 
-import { performQuery } from '~/queries/query'
-import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { performQuery } from '@posthog/query-frontend/query'
+import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 

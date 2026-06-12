@@ -9,8 +9,8 @@ import { objectsEqual } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
-import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { extractDisplayLabel } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { DatabaseSchemaField, DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 import type { DataWarehouseViewLink } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'

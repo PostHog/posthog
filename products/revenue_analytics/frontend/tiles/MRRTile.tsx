@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { Query } from '~/queries/Query/Query'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import {

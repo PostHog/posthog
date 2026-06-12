@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ListVariable, Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
+import { ListVariable, Variable, VariableType } from '@posthog/query-frontend/nodes/DataVisualization/types'
 
 import { VARIABLE_TYPE_OPTIONS, formatVariableReference, getCodeName } from './constants'
 import { VARIABLE_INSIGHT_COLUMNS } from './insightColumns'

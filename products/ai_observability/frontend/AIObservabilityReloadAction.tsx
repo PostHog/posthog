@@ -10,7 +10,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
 import { DashboardPlacement } from '~/types'
 
 import { AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'

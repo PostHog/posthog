@@ -5,7 +5,7 @@ import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import type { serviceFilterLogicType } from './serviceFilterLogicType'
 

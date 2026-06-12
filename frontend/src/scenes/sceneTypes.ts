@@ -1,6 +1,6 @@
 import { LogicWrapper } from 'kea'
 
-import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import type { FileSystemIconType, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
 // The enum here has to match the first and only exported component of the scene.

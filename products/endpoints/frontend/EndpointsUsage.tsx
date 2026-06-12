@@ -5,9 +5,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyDuration, humanFriendlyNumber, humanizeBytes } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 
 import { EndpointsUsageFilters } from './EndpointsUsageFilters'
 import { endpointsUsageLogic } from './endpointsUsageLogic'

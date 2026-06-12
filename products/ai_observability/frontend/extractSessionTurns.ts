@@ -1,4 +1,4 @@
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { normalizeMessage, normalizeMessages } from './messageNormalization'
 import { messageSignature } from './messageSignature'

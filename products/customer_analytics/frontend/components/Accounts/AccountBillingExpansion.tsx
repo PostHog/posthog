@@ -5,7 +5,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { BurningMoneyHog, DetectiveHog } from 'lib/components/hedgehogs'
 
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
 

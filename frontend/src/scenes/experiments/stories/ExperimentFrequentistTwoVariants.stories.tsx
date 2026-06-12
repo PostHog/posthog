@@ -9,7 +9,7 @@ import EXPERIMENT_FREQUENTIST_TWO_VARIANTS from '~/mocks/fixtures/api/experiment
 import FUNNEL_METRIC_RESULT from '~/mocks/fixtures/api/experiments/experiment_frequentist_two_variants_funnel_metric_result.json'
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/experiment_frequentist_two_variants_mean_metric_result.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
-import { NodeKind, isExperimentFunnelMetric, isExperimentMeanMetric } from '~/queries/schema/schema-general'
+import { NodeKind, isExperimentFunnelMetric, isExperimentMeanMetric } from '@posthog/query-frontend/schema/schema-general'
 
 const meta: Meta = {
     component: App,

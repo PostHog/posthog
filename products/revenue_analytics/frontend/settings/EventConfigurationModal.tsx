@@ -18,7 +18,7 @@ import {
     ProductKey,
     RevenueAnalyticsEventItem,
     SubscriptionDropoffMode,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'

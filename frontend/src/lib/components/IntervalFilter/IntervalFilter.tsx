@@ -4,9 +4,9 @@ import { IconPin } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
-import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
 import { IntervalType } from '~/types'
 
 interface IntervalFilterProps {

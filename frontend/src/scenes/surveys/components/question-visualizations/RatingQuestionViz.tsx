@@ -11,7 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 import {
@@ -31,8 +31,8 @@ import {
 } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { InsightVizNode, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     ChartDisplayType,
     ChoiceQuestionProcessedResponses,

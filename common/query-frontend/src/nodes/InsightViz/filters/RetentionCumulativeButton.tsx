@@ -1,0 +1,47 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+
+export function RetentionCumulativeButton(): JSX.Element | null {
+    const { insightProps, canEditInsight } = useValues(insightLogic)
+
+    const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+
+    const cumulativeRetention = retentionFilter?.cumulative || false
+    const is24HourWindow = retentionFilter?.timeWindowMode === '24_hour_windows'
+
+    if (!canEditInsight) {
+        return null
+    }
+
+    return (
+        <LemonSegmentedButton
+            value={!is24HourWindow && cumulativeRetention ? 1 : 0}
+            onChange={(value: number) => {
+                updateInsightFilter({ cumulative: value === 1 })
+            }}
+            options={[
+                {
+                    value: 0,
+                    label: 'on',
+                    tooltip: 'Retention value is the percentage of users who come back on a specific period',
+                },
+                {
+                    value: 1,
+                    label: 'on or after',
+                    disabledReason: is24HourWindow
+                        ? 'Cumulative retention is not supported for 24 hour windows'
+                        : undefined,
+                    tooltip: `
+                    Retention value is the percentage of users who come back on a specific time period or any of the following time periods.
+                    Also known as rolling, or unbounded retention.
+                    For example, if a user comes back on day 7, they are counted in all previous retention periods.`,
+                },
+            ]}
+        />
+    )
+}

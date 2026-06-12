@@ -7,7 +7,7 @@ import { uuid } from 'lib/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
+import { LogMessage, LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 
 import { InspectorListItemLog } from '../playerInspectorLogic'
 import { ItemLog, ItemLogDetail, ItemLogProps } from './ItemLog'

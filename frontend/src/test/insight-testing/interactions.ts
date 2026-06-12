@@ -8,11 +8,11 @@ import {
     waitForHogChartTooltip,
 } from '@posthog/quill-charts/testing'
 
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
-import { TrendsQuery } from '~/queries/schema/schema-general'
+import { TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'

@@ -1,4 +1,4 @@
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
 import { buildAffectedUsersQuery, buildCrashFreeSessionsQuery, buildExceptionVolumeQuery } from './queries'

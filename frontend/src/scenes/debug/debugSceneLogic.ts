@@ -3,7 +3,7 @@ import { actionToUrl, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { stringifiedExamples } from '~/queries/examples'
+import { stringifiedExamples } from '@posthog/query-frontend/examples'
 
 import type { debugSceneLogicType } from './debugSceneLogicType'
 

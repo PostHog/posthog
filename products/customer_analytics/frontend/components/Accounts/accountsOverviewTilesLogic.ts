@@ -4,8 +4,8 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { objectsEqual } from 'lib/utils'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { AccountsQueryResponse, DataNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'

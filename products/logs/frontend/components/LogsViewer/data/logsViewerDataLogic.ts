@@ -20,8 +20,8 @@ import {
     LogsSparklineBreakdownBy,
     ProductIntentContext,
     ProductKey,
-} from '~/queries/schema/schema-general'
-import { integer } from '~/queries/schema/type-utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { integer } from '@posthog/query-frontend/schema/type-utils'
 import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'

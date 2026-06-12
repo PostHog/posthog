@@ -9,13 +9,13 @@ import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { ensureStringIsNotBlank, humanFriendlyNumber, isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { IndexedTrendResult } from 'scenes/trends/types'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
 import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
-import { examples } from '~/queries/examples'
+import { examples } from '@posthog/query-frontend/examples'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -34,7 +34,7 @@ import {
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
     TileFilters,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     containsHogQLQuery,
     isDataTableNode,
@@ -42,7 +42,7 @@ import {
     isEventsNode,
     isGroupNode,
     isInsightVizNode,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {

@@ -7,7 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
-import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
+import { DataWarehouseSavedQueryOrigin } from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseActivityRecord } from '~/types'
 
 import { dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'

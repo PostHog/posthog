@@ -24,7 +24,7 @@ import {
 } from 'lib/components/hedgehogs'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { OnboardingExitAction } from '../../exit'
 import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../../utils'

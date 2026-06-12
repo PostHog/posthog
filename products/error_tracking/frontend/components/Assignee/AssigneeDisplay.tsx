@@ -8,7 +8,7 @@ import { ProfilePicture } from '@posthog/lemon-ui'
 import { UnexpectedNeverError, fullName } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { Assignee, assigneeSelectLogic } from './assigneeSelectLogic'
 

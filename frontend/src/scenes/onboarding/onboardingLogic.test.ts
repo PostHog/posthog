@@ -5,7 +5,7 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { OnboardingStepKey } from '~/types'
 

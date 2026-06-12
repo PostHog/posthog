@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { NodeKind, SessionData } from '~/queries/schema/schema-general'
+import { NodeKind, SessionData } from '@posthog/query-frontend/schema/schema-general'
 import { PersonType } from '~/types'
 
 import type { sampledSessionsModalLogicType } from './sampledSessionsModalLogicType'

@@ -1,8 +1,8 @@
 import { buildYTickFormatter } from '@posthog/quill-charts'
 
-import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { AggregationAxisFormat } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
 
-import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
+import { CurrencyCode, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { buildTrendsYAxisConfig, trendsFilterToYFormatterConfig } from './trendsAxisFormat'
 

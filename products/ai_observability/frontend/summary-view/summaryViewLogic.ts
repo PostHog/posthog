@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from '../aiObservabilityTraceDataLogic'
 import type { summaryViewLogicType } from './summaryViewLogicType'

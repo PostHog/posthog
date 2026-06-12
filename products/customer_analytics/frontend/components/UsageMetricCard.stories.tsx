@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { UsageMetric } from '~/queries/schema/schema-general'
+import { UsageMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { UsageMetricCard, UsageMetricCardSkeleton } from './UsageMetricCard'
 

@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 
 import { PRODUCTS_WITH_SETUP } from 'lib/components/ProductSetup/productSetupRegistry'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { PostOnboardingModal } from './PostOnboardingModal'
 import { postOnboardingModalLogic } from './postOnboardingModalLogic'

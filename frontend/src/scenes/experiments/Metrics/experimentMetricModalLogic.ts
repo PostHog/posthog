@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { getDefaultFunnelMetric } from '../utils'
 import type { experimentMetricModalLogicType } from './experimentMetricModalLogicType'

@@ -4,9 +4,9 @@ import { useActions } from 'kea'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { mswDecorator } from '~/mocks/browser'
-import { examples } from '~/queries/examples'
-import { Query, QueryProps } from '~/queries/Query/Query'
-import { Node, WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
+import { examples } from '@posthog/query-frontend/examples'
+import { Query, QueryProps } from '@posthog/query-frontend/Query/Query'
+import { Node, WebAnalyticsOrderByFields } from '@posthog/query-frontend/schema/schema-general'
 
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
 import browserMock from './__mocks__/Browser.json'

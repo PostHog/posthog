@@ -6,7 +6,7 @@ import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallS
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 export const errorTrackingOnboarding: ProductOnboardingProvider = {

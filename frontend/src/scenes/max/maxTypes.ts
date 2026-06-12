@@ -1,6 +1,6 @@
-import { AgentMode } from '~/queries/schema/schema-assistant-messages'
-import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
-import { integer } from '~/queries/schema/type-utils'
+import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { DashboardFilter, HogQLVariable, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
+import { integer } from '@posthog/query-frontend/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 // eslint-disable-next-line import/no-cycle

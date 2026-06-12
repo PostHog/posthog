@@ -10,7 +10,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 
-import { performQuery } from '~/queries/query'
+import { performQuery } from '@posthog/query-frontend/query'
 import {
     ExperimentMetric,
     ExperimentQueryResponse,
@@ -19,8 +19,8 @@ import {
     ExperimentVariantResultFrequentist,
     NewExperimentQueryResponse,
     NodeKind,
-} from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 
 import { experimentLogic, ExperimentSavedMetric } from '../experimentLogic'
 import { getExperimentRefreshMode } from '../metricQueryUtils'

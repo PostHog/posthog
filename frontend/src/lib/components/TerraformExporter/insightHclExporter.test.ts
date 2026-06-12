@@ -1,6 +1,6 @@
 import { generateInsightHCL } from 'lib/components/TerraformExporter/insightHclExporter'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { InsightModel } from '~/types'
 
 // Helper to create test insights without strict query typing

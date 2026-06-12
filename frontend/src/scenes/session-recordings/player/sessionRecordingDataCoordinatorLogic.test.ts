@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { HogQLQueryResponse } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import {
     RecordingSnapshot,
     SessionRecordingSnapshotSource,

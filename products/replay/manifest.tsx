@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
 

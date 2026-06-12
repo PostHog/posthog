@@ -110,7 +110,7 @@ To use Domain Connect for a new feature:
 1. Submit our templates to [Domain-Connect/Templates](https://github.com/Domain-Connect/Templates).
 2. Contact the provider to register the templates in their store.
 3. Once confirmed, add their `_domainconnect` TXT endpoint to `DOMAIN_CONNECT_PROVIDERS` in `posthog/domain_connect.py`.
-4. Add the provider name to `DomainConnectProviderName` in `frontend/src/queries/schema/schema-general.ts` and run `hogli build:schema`.
+4. Add the provider name to `DomainConnectProviderName` in `common/query-frontend/src/schema/schema-general.ts` and run `hogli build:schema`.
 5. Add their logo SVG to `assets/` and register it in `PROVIDER_LOGOS` in `DomainConnectBanner.tsx`.
 
 ## Templates

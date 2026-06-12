@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import type { generationTagRunsLogicType } from './generationTagRunsLogicType'
 import { TagRun } from './tags/llmTaggerLogic'

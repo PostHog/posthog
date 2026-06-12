@@ -11,7 +11,7 @@ from hogli.manifest import REPO_ROOT
 # command -> file globs that should trigger it
 TRIGGERS: dict[str, tuple[str, ...]] = {
     "build:schema": (
-        "frontend/src/queries/schema/*",
+        "common/query-frontend/src/schema/*",
         "posthog/schema_migrations/*",
     ),
     "build:openapi": (

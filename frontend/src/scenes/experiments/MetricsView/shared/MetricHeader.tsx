@@ -12,8 +12,8 @@ import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { isEventExposureConfig } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
-import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+import type { Breakdown, EventsNode, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { MetricTitle } from './MetricTitle'

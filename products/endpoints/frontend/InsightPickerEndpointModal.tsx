@@ -11,8 +11,8 @@ import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightsTable } from 'scenes/saved-insights/SavedInsightsTable'
 import { urls } from 'scenes/urls'
 
-import { EndpointQueryNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
+import { EndpointQueryNode, HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isNodeWithSource } from '@posthog/query-frontend/utils'
 import { InsightType, QueryBasedInsightModel } from '~/types'
 
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'

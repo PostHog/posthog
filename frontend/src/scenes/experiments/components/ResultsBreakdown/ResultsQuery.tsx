@@ -1,5 +1,5 @@
-import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import type { InsightShortId } from '~/types'
 
 import type { ResultBreakdownRenderProps } from './types'

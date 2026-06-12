@@ -7,7 +7,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import { insightLogic } from './insightLogic'
-import { insightVizDataLogic } from './insightVizDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 export function InsightAIAnalysis(): JSX.Element | null {
     const { insight, insightProps } = useValues(insightLogic)

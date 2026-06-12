@@ -3,7 +3,7 @@ import type { TooltipConfig } from '@posthog/quill-charts'
 
 import { ciRanges } from 'lib/statistics'
 
-import type { GoalLine as SchemaGoalLine, TrendsFilter as SchemaTrendsFilter } from '~/queries/schema/schema-general'
+import type { GoalLine as SchemaGoalLine, TrendsFilter as SchemaTrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 import {

@@ -17,7 +17,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { InsightVizNode, Node, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { InsightVizNode, Node, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'

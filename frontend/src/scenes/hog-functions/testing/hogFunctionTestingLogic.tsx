@@ -9,9 +9,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 
 import { groupsModel } from '~/models/groupsModel'
-import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '~/queries/utils'
+import { removeExpressionComment } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import {
     BaseMathType,
     ChartDisplayType,

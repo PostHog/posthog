@@ -7,9 +7,9 @@ import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
-import { Query } from '~/queries/Query/Query'
-import { HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { HogQLQuery, Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isHogQLQuery } from '@posthog/query-frontend/utils'
 import { ChartDisplayType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'

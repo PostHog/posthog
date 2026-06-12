@@ -6,7 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'

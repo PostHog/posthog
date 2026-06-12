@@ -6,7 +6,7 @@ import { PaginationManual } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { objectClean } from 'lib/utils'
 
-import { AlertState } from '~/queries/schema/schema-general'
+import { AlertState } from '@posthog/query-frontend/schema/schema-general'
 
 import { AlertLogicProps } from './alertLogic'
 import type { alertsLogicType } from './alertsLogicType'

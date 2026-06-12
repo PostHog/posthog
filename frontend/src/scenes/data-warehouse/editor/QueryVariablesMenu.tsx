@@ -16,12 +16,12 @@ import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
-import { NewVariableModal } from '~/queries/nodes/DataVisualization/Components/Variables/NewVariableModal'
-import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
-import { VariableInput } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
-import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { NewVariableModal } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/NewVariableModal'
+import { variableModalLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variableModalLogic'
+import { VariableInput } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/Variables'
+import { variablesLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variablesLogic'
+import { dataVisualizationLogic } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
+import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
 
 import { sqlEditorLogic } from './sqlEditorLogic'
 

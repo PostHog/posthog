@@ -5,7 +5,7 @@ import {
     RevenueAnalyticsConfig,
     RevenueAnalyticsEventItem,
     RevenueAnalyticsGoal,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 export const revenueAnalyticsConfigurationDescriber = (change?: ActivityChange): ChangeMapping | null => {
     if (!change) {

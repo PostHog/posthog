@@ -12,7 +12,7 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'

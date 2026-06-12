@@ -10,7 +10,7 @@ import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
+import { CustomerAnalyticsConfig } from '@posthog/query-frontend/schema/schema-general'
 
 const NO_ACCOUNT_GROUP = -1
 

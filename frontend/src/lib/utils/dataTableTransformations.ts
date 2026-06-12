@@ -1,4 +1,4 @@
-import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { DataTableRow } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
 
 /**
  * Transforms DataTable format back to DataTableRow format for clipboard operations

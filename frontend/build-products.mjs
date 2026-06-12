@@ -22,7 +22,7 @@ function buildProductManifests() {
         .sort()
 
     // Also include the schema file so we can resolve some enum values
-    const enumFile = path.resolve(__dirname, '../frontend/src/queries/schema/schema-general.ts')
+    const enumFile = path.resolve(__dirname, '../common/query-frontend/src/schema/schema-general.ts')
     const allSourceFiles = [...sourceFiles, enumFile]
 
     const outputTsx = path.join(__dirname, 'src/products.tsx')
@@ -270,7 +270,7 @@ function buildProductManifests() {
         addImport('scenes/sceneTypes', 'typeNamed', 'Params')
     }
     if (!globalNames.has('FileSystemImport')) {
-        addImport('~/queries/schema/schema-general', 'typeNamed', 'FileSystemImport')
+        addImport('@posthog/query-frontend/schema/schema-general', 'typeNamed', 'FileSystemImport')
     }
 
     // 5. Serialise gathered imports → valid TypeScript code
@@ -374,7 +374,7 @@ function buildProductManifests() {
     // without any of the AST/TSX code generation logic
     //
     // NOTE: The structure of products.json must match the TypeScript types defined in
-    // frontend/src/queries/schema/schema-general.ts (ProductItem and ProductsData).
+    // common/query-frontend/src/schema/schema-general.ts (ProductItem and ProductsData).
     // These types are used to generate Pydantic models in posthog/schema.py.
     // If you change the keys here (keysToKeep), make sure to update the TypeScript types.
     const keysToKeep = ['path', 'category', 'iconType', 'type']

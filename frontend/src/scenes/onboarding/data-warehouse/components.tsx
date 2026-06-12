@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'

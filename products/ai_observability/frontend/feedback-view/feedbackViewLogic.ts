@@ -5,8 +5,8 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 import { Survey, SurveyEventProperties } from '~/types'
 
 import { aiObservabilityTraceDataLogic } from '../aiObservabilityTraceDataLogic'

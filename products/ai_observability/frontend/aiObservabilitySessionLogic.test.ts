@@ -7,7 +7,7 @@ import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, TracesQuery } from '~/queries/schema/schema-general'
+import { NodeKind, TracesQuery } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType } from '~/types'
 

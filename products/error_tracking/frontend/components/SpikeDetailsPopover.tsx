@@ -8,7 +8,7 @@ import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 
-import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssueAggregations } from '@posthog/query-frontend/schema/schema-general'
 
 import { errorTrackingIssueQuery } from '../queries'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'

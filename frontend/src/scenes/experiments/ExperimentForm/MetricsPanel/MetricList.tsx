@@ -3,7 +3,7 @@ import { clsx } from 'clsx'
 import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
 import type { MetricContext } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { MetricCard } from './MetricCard'
 

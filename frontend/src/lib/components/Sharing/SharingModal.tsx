@@ -30,14 +30,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { AnyResponseType, Node } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
+import { AnyResponseType, Node } from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '@posthog/query-frontend/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

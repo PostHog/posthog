@@ -23,7 +23,7 @@ import {
     AssistantMessageType,
     HumanMessage,
     SlashCommandName,
-} from '~/queries/schema/schema-assistant-messages'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 

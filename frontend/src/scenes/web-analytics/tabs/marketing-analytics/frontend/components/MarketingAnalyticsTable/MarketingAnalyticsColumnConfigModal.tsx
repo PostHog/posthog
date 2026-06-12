@@ -6,8 +6,8 @@ import { LemonButton, LemonCheckbox, LemonModal, LemonSelect } from '@posthog/le
 
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
-import { MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { MarketingAnalyticsTableQuery } from '@posthog/query-frontend/schema/schema-general'
+import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'

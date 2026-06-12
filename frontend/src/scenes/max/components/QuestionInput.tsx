@@ -14,7 +14,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { AgentMode } from '~/queries/schema/schema-assistant-messages'
+import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { ConversationQueueMessage } from '~/types'
 
 import { ContextDisplay } from '../Context'

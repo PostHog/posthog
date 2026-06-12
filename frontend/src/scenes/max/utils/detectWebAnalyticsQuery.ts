@@ -1,4 +1,4 @@
-import { BreakdownFilter, EventsNode, GroupNode, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
+import { BreakdownFilter, EventsNode, GroupNode, QuerySchema, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     isActionsNode,
     isDataVisualizationNode,
@@ -17,7 +17,7 @@ import {
     isWebStatsTableQuery,
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import { AnyPropertyFilter, PropertyGroupFilter, PropertyGroupFilterValue, RetentionEntity } from '~/types'
 
 import { ThreadMessage } from '../maxThreadLogic'

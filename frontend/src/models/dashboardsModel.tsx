@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { tagsModel } from '~/models/tagsModel'
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
+import { getQueryBasedDashboard } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { dashboardsModelType } from './dashboardsModelType'

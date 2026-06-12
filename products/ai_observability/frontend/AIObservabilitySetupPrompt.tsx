@@ -4,7 +4,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 

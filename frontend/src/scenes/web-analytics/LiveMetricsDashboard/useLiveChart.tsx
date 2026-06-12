@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-import { Chart, ChartConfiguration, ChartType } from 'lib/Chart'
+import { Chart, ChartConfiguration, ChartType } from '@posthog/visualizations/Chart'
 
 interface UseLiveChartOptions<T extends ChartType, D> {
     hasData: boolean

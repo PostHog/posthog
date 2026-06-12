@@ -1,4 +1,4 @@
-import { DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
 import { QueryBasedInsightModel } from '~/types'
 
 /**

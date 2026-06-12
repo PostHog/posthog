@@ -58,7 +58,8 @@ jobs:
                         - 'common/**/*.py'
                         - 'products/*/backend/**/*.py'
                         # Query schemas used by MCP analytics tools
-                        - 'frontend/src/queries/schema.json'
+                        - 'common/query-frontend/src/schema.json'
+                        - 'frontend/src/queries/schema.json' # old path, kept for unrebased branches
                         # Shared UI component library (used by MCP UI apps)
                         - 'common/mosaic/**'
                         # Code generation tooling

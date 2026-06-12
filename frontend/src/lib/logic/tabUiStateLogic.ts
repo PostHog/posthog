@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
-import type { Node } from '~/queries/schema/schema-general'
+import type { Node } from '@posthog/query-frontend/schema/schema-general'
 
 import type { tabUiStateLogicType } from './tabUiStateLogicType'
 

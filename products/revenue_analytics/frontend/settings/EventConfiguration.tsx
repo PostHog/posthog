@@ -13,7 +13,7 @@ import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/m
 import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsEventItem } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { deleteRevenueEventModalLogic } from './deleteRevenueEventModalLogic'

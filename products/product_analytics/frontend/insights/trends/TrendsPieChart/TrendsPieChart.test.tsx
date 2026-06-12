@@ -6,7 +6,7 @@ import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { buildTrendsQuery, personsModal, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
 

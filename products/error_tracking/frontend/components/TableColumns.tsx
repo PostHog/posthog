@@ -10,7 +10,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { bulkSelectLogic } from '../logics/bulkSelectLogic'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'

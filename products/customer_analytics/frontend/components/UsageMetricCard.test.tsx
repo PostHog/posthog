@@ -2,7 +2,7 @@ import { IconTrending } from '@posthog/icons'
 
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 
-import { UsageMetric } from '~/queries/schema/schema-general'
+import { UsageMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { getMetricTooltip, getTrendFromPercentageChange } from './UsageMetricCard'
 

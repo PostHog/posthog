@@ -2,8 +2,8 @@ import { LemonTagType } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { DataVisualizationNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier } from '~/queries/utils'
+import { DataVisualizationNode, DatabaseSchemaField, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { escapeDottedHogQLIdentifier } from '@posthog/query-frontend/utils'
 import {
     DataModelingSyncInterval,
     DataWarehouseSyncInterval,

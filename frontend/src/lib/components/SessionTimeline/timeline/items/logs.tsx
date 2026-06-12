@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { hogql } from '~/queries/utils'
+import { hogql } from '@posthog/query-frontend/utils'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 

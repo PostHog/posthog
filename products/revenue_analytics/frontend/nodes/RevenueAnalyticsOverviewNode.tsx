@@ -8,7 +8,7 @@ import { cn } from 'lib/utils/css-classes'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
     CurrencyCode,
@@ -16,8 +16,8 @@ import {
     RevenueAnalyticsOverviewItemKey,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsOverviewQueryResponse,
-} from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 
 const HEIGHT_CLASS = 'h-30'
 

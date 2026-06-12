@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { METRIC_CONTEXTS, type MetricContext } from './experimentMetricModalLogic'
 import type { sharedMetricDetailsModalLogicType } from './sharedMetricDetailsModalLogicType'

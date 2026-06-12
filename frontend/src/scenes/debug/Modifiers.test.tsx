@@ -6,7 +6,7 @@ import { Provider } from 'kea'
 
 import api from 'lib/api'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSource } from '~/types'
 

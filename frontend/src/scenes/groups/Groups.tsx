@@ -17,9 +17,9 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
-import { Query } from '~/queries/Query/Query'
-import { ProductKey } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 

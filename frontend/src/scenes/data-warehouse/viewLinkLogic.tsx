@@ -7,9 +7,9 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { hogqlQuery } from '~/queries/query'
-import { DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { hogqlQuery } from '@posthog/query-frontend/query'
+import { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 import { DataWarehouseViewLink } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'

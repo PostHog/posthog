@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
 import { IntervalType } from '~/types'
 
 export interface DayJSDateRange {

@@ -45,7 +45,7 @@ import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/build
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AnyDataNode } from '~/queries/schema/schema-general'
+import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { UseGroupListInput, UseGroupListResult } from './useGroupList'
 import { useTaxonomicGroupsContext } from './useTaxonomicGroupsContext'
@@ -69,7 +69,7 @@ export interface UseTaxonomicFilterOptions {
 
     // forwarded into useTaxonomicGroupsContext (only fields that affect group config)
     eventNames?: string[]
-    schemaColumns?: import('~/queries/schema/schema-general').DatabaseSchemaField[]
+    schemaColumns?: import('@posthog/query-frontend/schema/schema-general').DatabaseSchemaField[]
     schemaColumnsLoading?: boolean
     metadataSource?: AnyDataNode
     suggestedFiltersLabel?: string

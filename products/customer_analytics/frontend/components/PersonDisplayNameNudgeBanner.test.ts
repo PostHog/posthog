@@ -1,4 +1,4 @@
-import { ActorsQueryResponse } from '~/queries/schema/schema-general'
+import { ActorsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 import { getPersonsFromResponse } from './PersonDisplayNameNudgeBanner'
 

@@ -1,4 +1,4 @@
-import { AnyDataNode, NodeKind } from '~/queries/schema/schema-general'
+import { AnyDataNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 export function getContextSourceQuery(sourceQuery: AnyDataNode | undefined, query: string): AnyDataNode | undefined {
     if (sourceQuery?.kind !== NodeKind.HogQLQuery) {

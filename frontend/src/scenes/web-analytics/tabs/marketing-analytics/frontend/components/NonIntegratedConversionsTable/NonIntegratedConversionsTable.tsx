@@ -10,15 +10,15 @@ import { urls } from 'scenes/urls'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import { LearnMorePopover } from 'scenes/web-analytics/WebAnalyticsDashboard'
 
-import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
-import { Query } from '~/queries/Query/Query'
+import { ColumnFeature } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import {
     DataTableNode,
     NodeKind,
     NonIntegratedConversionsColumnsSchemaNames,
     NonIntegratedConversionsTableQuery,
-} from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumn } from '~/queries/types'
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext, QueryContextColumn } from '@posthog/query-frontend/types'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 

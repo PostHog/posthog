@@ -1,7 +1,7 @@
 import { ActivityChange, ChangeMapping } from 'lib/components/ActivityLog/humanizeActivity'
 import { objectsEqual } from 'lib/utils'
 
-import { MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
+import { MarketingAnalyticsConfig, SourceMap } from '@posthog/query-frontend/schema/schema-general'
 
 import { ClearSourceDescriber } from './ClearSourceDescriber'
 import { ColumnMappedDescriber } from './ColumnMappedDescriber'

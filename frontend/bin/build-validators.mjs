@@ -3,8 +3,8 @@ import Ajv from 'ajv'
 import standaloneCode from 'ajv/dist/standalone/index.js'
 import fs from 'fs'
 
-const inputPath = 'src/queries/schema.json'
-const outputPath = 'src/queries/validators.js'
+const inputPath = '../common/query-frontend/src/schema.json'
+const outputPath = '../common/query-frontend/src/validators.js'
 
 // Load the schema
 const schema = JSON.parse(fs.readFileSync(inputPath, 'utf-8'))

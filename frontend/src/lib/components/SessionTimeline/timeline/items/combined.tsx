@@ -8,7 +8,7 @@ import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Err
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { ItemCategory, ItemLoader, TimelineItem } from '..'
 import { escapeHogQLString, parseIfJSONString } from './parsing'

@@ -18,7 +18,7 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 
 import api, { ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
 import {
     DataTableNode,
     InsightVizNode,
@@ -26,8 +26,8 @@ import {
     ProductIntentContext,
     ProductKey,
     TracesQuery,
-} from '~/queries/schema/schema-general'
-import { isTracesQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { isTracesQuery } from '@posthog/query-frontend/utils'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import {

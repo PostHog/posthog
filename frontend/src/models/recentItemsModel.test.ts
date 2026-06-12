@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import api, { ApiConfig } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { FileSystemEntry } from '~/queries/schema/schema-general'
+import type { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { recentItemsModel } from './recentItemsModel'

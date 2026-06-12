@@ -7,9 +7,9 @@ import type {
     ExperimentFunnelsQueryResponse,
     ExperimentTrendsQueryResponse,
     InsightVizNode,
-} from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
-import type { InsightQueryNode } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import type { InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
 
 /**
  * @deprecated

@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
+import { Sparkline, SparklineTimeSeries } from '@posthog/visualizations/Sparkline/Sparkline'
 
 import { linkMetricSparklineLogic } from './linkMetricSparklineLogic'
 

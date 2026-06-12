@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { quickFiltersLogic } from 'lib/components/QuickFilters'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyOperator, QuickFilterOption } from '~/types'
 
 import { QuickFiltersEvents } from './consts'

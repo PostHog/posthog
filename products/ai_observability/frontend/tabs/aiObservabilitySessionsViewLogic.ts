@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TracesQuery } from '~/queries/schema/schema-general'
+import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TracesQuery } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import sessionsQueryTemplate from '../../backend/queries/sessions.sql?raw'

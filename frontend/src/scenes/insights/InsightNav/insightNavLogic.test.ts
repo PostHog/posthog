@@ -6,8 +6,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { examples } from '~/queries/examples'
-import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { examples } from '@posthog/query-frontend/examples'
+import { nodeKindToDefaultQuery } from '@posthog/query-frontend/nodes/InsightQuery/defaults'
 import {
     EventsQuery,
     FunnelsQuery,
@@ -16,7 +16,7 @@ import {
     Node,
     ProductKey,
     TrendsQuery,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
@@ -33,7 +33,7 @@ import {
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
-import { insightDataLogic } from '../insightDataLogic'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 
 describe('insightNavLogic', () => {
     let logic: ReturnType<typeof insightNavLogic.build>

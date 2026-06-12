@@ -11,14 +11,14 @@ import { NotebookBlockNode, NotebookComponentProps, NotebookPropValue } from 'li
 import { getInlineText, isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
-import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
+import { DocumentBlock, VisualizationBlock } from '@posthog/query-frontend/schema/schema-assistant-artifacts'
 import {
     ArtifactContentType,
     NotebookArtifactContent,
     VisualizationArtifactContent,
-} from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind, QuerySchemaRoot } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { DataVisualizationNode, InsightVizNode, NodeKind, QuerySchemaRoot } from '@posthog/query-frontend/schema/schema-general'
+import { isDataVisualizationNode, isHogQLQuery, isInsightQueryNode } from '@posthog/query-frontend/utils'
 import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeType } from '../types'

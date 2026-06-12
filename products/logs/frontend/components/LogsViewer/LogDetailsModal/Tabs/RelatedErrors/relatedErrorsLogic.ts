@@ -4,8 +4,8 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
-import { ErrorTrackingIssue, ErrorTrackingQuery, NodeKind } from '~/queries/schema/schema-general'
+import { MaxErrorTrackingIssuePreview } from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
+import { ErrorTrackingIssue, ErrorTrackingQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { relatedErrorsLogicType } from './relatedErrorsLogicType'

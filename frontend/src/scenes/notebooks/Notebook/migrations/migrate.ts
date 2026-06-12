@@ -16,7 +16,7 @@ import {
     retentionFilterToQuery,
     stickinessFilterToQuery,
     trendsFilterToQuery,
-} from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+} from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     isLegacyFunnelsExclusion,
     isLegacyFunnelsFilter,
@@ -25,7 +25,7 @@ import {
     isLegacyRetentionFilter,
     isLegacyStickinessFilter,
     isLegacyTrendsFilter,
-} from '~/queries/nodes/InsightQuery/utils/legacy'
+} from '@posthog/query-frontend/nodes/InsightQuery/utils/legacy'
 import {
     InsightVizNode,
     NodeKind,
@@ -35,8 +35,8 @@ import {
     TRENDS_FILTER_PROPERTIES,
     TrendsFilter,
     TrendsFilterLegacy,
-} from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { checkLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import { FunnelExclusionLegacy, LegacyRecordingFilters } from '~/types'
 
 import { convertMarkdownTablesInContent } from './convertMarkdownTablesInContent'

@@ -38,7 +38,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'

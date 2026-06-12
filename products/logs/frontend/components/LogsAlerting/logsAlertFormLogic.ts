@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LogMessage } from '~/queries/schema/schema-general'
+import { LogMessage } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import {

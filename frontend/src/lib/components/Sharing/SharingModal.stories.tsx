@@ -7,7 +7,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import { examples } from '~/queries/examples'
+import { examples } from '@posthog/query-frontend/examples'
 import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { SharingModal, SharingModalProps } from './SharingModal'

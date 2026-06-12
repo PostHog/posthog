@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
-import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
 import {
     CompareFilter,
     ConversionGoalFilter,
@@ -26,8 +26,8 @@ import {
     ProductKey,
     SourceMap,
     VALID_NATIVE_MARKETING_SOURCES,
-} from '~/queries/schema/schema-general'
-import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
+import { MARKETING_ANALYTICS_SCHEMA } from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSchemaStatus, ExternalDataSource, IntervalType } from '~/types'
 import { ChartDisplayType } from '~/types'
 

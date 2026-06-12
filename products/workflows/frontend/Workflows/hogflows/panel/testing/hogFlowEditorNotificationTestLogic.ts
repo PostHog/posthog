@@ -9,8 +9,8 @@ import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 import { CyclotronJobInvocationGlobals, FilterLogicalOperator, PersonType, PropertyFilterType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'

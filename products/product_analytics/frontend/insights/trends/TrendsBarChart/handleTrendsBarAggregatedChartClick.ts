@@ -1,4 +1,4 @@
-import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
+import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
 
 import type { TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 

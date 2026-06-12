@@ -13,7 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 // eslint-disable-next-line import/no-cycle
-import { isRevenueAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { isRevenueAnalyticsPropertyFilters } from '@posthog/query-frontend/schema-guards'
 import {
     DataTableNode,
     NodeKind,
@@ -21,7 +21,7 @@ import {
     RevenueAnalyticsBreakdown,
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb, DataWarehouseSavedQuery, InsightLogicProps, InsightShortId, SimpleIntervalType } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'

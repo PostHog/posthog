@@ -6,7 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
 import { insightsApi } from 'scenes/insights/utils/api'
 
-import { DataVisualizationNode, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLVariable, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { accountBillingLogicType } from './accountBillingLogicType'

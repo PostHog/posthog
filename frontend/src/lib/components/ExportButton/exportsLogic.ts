@@ -13,7 +13,7 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { AnyDataNode } from '~/queries/schema/schema-general'
+import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
 import { APIErrorType, CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'

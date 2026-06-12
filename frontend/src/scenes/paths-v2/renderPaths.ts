@@ -4,7 +4,7 @@ import { Dispatch, RefObject, SetStateAction } from 'react'
 import sankey, { sankeyLeft, sankeyLinkHorizontal, SankeyLink, type SankeyLayout } from 'lib/d3/sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 
-import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
+import { FunnelPathsFilter, PathsFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { PathNodeData, PathTargetLink, isSelectedPathStartOrEnd } from './pathUtils'
 import { Paths } from './types'

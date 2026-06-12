@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getDefaultTreeProducts } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 import { UserShortcutPosition } from '~/types'
 
 import { getCategoryOrder } from '../ProjectTree/utils'

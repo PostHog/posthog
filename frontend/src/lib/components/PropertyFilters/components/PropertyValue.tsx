@@ -37,7 +37,7 @@ import {
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
-import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssueAssignee } from '@posthog/query-frontend/schema/schema-general'
 import { GroupTypeIndex, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {

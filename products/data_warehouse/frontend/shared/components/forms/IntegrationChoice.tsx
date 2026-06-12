@@ -6,7 +6,7 @@ import {
 } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { urls } from 'scenes/urls'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 

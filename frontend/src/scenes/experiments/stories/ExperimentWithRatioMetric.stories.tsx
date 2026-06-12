@@ -8,7 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_WITH_RATIO_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_ratio_metric.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import RATIO_METRIC_RESULT from '~/mocks/fixtures/api/experiments/ratio_metric_result.json'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 const meta: Meta = {
     component: App,

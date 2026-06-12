@@ -15,9 +15,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { performQuery } from '~/queries/query'
-import { ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { performQuery } from '@posthog/query-frontend/query'
+import { ActorsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import {
     Breadcrumb,
     EarlyAccessFeatureStage,

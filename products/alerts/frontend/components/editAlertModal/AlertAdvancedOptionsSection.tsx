@@ -6,7 +6,7 @@ import { LemonCheckbox, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
 
 import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 

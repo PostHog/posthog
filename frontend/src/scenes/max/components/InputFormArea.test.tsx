@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions } from 'kea'
 
-import type { MultiQuestionForm } from '~/queries/schema/schema-assistant-messages'
+import type { MultiQuestionForm } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { MultiQuestionFormInput } from './InputFormArea'
 

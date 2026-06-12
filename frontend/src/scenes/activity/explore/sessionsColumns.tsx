@@ -3,10 +3,10 @@ import { dayjs } from 'lib/dayjs'
 import { colonDelimitedDuration } from 'lib/utils'
 import { SessionDisplay } from 'scenes/sessions/SessionDisplay'
 
-import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { DataTableNode, SessionsQuery } from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
-import { isSessionsQuery } from '~/queries/utils'
+import { DataTableRow } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
+import { DataTableNode, SessionsQuery } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext, QueryContextColumnComponent } from '@posthog/query-frontend/types'
+import { isSessionsQuery } from '@posthog/query-frontend/utils'
 
 function isSessionLive(endTimestamp: unknown): boolean {
     if (!endTimestamp) {

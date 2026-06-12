@@ -40,7 +40,7 @@ import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/Sa
 
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 import { getCoreFilterDefinition, getFilterLabel } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {

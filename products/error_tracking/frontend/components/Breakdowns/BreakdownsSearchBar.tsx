@@ -9,7 +9,7 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { dateMapping } from 'lib/utils'
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter'
 
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
 import { BreakdownsEvents, TAXONOMIC_GROUP_TYPES } from './consts'

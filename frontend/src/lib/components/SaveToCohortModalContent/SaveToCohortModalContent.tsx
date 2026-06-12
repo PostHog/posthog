@@ -6,7 +6,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { ActorsQuery } from '~/queries/schema/schema-general'
+import { ActorsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { CohortType } from '~/types'
 
 import { saveToCohortModalContentLogic } from './saveToCohortModalContentLogic'

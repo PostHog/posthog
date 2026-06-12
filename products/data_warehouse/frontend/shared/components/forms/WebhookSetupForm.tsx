@@ -9,7 +9,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { sourceFieldToElement } from './SourceForm'
 

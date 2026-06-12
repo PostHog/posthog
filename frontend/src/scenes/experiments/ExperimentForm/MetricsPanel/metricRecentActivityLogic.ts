@@ -2,8 +2,8 @@ import equal from 'fast-deep-equal'
 import { afterMount, kea, key, path, props, propsChanged } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { performQuery } from '~/queries/query'
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import { performQuery } from '@posthog/query-frontend/query'
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import { getEventCountQuery } from '~/scenes/experiments/utils'
 
 import type { metricRecentActivityLogicType } from './metricRecentActivityLogicType'

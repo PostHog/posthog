@@ -1,10 +1,10 @@
-import '~/scenes/insights/views/WorldMap/WorldMap.scss'
+import '@posthog/visualizations/WorldMap/WorldMap.scss'
 
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect } from 'react'
 
 import { gradateColor } from 'lib/utils'
-import { countryVectors } from 'scenes/insights/views/WorldMap/countryVectors'
+import { countryVectors } from '@posthog/visualizations/WorldMap/countryVectors'
 
 import { CountryBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { liveWorldMapLogic } from './liveWorldMapLogic'

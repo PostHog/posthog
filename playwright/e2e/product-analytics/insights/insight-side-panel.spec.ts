@@ -1,4 +1,4 @@
-import { NodeKind } from '../../../../frontend/src/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { InsightPage } from '../../../page-models/insightPage'
 import { randomString } from '../../../utils'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'

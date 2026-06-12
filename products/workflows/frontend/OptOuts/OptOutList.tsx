@@ -6,8 +6,8 @@ import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } fr
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
-import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { ActorsQuery, DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import type { MessageCategory } from './optOutCategoriesLogic'
 import { optOutListLogic } from './optOutListLogic'

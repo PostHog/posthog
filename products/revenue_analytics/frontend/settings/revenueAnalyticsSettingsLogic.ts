@@ -20,7 +20,7 @@ import {
     RevenueAnalyticsGoal,
     RevenueCurrencyPropertyConfig,
     SubscriptionDropoffMode,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'

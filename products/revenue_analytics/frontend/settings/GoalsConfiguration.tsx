@@ -17,7 +17,7 @@ import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { CurrencyCode, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
+import { CurrencyCode, RevenueAnalyticsGoal } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'

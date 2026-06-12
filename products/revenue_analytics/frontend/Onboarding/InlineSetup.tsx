@@ -13,7 +13,7 @@ import { DataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
 
 import { NewSourcesWizard } from 'products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'

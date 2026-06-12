@@ -10,7 +10,7 @@ import {
     TrendsFilter,
     WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     BaseMathType,
     BreakdownType,

@@ -5,8 +5,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery, InsightVizNode, NodeKind, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { FunnelsQuery, InsightVizNode, NodeKind, StickinessQuery, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import { FunnelVizType } from '~/types'
 
 import { initKeaTests } from '../init'
@@ -114,7 +114,7 @@ function InsightWrapper({
     // Dynamic require to break a circular-dependency cycle that causes Jest to fail
     // with static imports. Node's module cache means this is only resolved once.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { InsightViz } = require('~/queries/nodes/InsightViz/InsightViz')
+    const { InsightViz } = require('@posthog/query-frontend/nodes/InsightViz/InsightViz')
 
     return (
         <InsightViz

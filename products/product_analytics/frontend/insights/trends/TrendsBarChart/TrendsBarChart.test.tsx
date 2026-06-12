@@ -6,7 +6,7 @@ import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/test
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'

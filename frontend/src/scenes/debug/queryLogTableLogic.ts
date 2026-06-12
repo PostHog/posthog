@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogQLQueryResponse } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 import type { queryLogTableLogicType } from './queryLogTableLogicType'
 

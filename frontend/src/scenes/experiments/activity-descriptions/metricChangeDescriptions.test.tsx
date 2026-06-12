@@ -1,12 +1,12 @@
 import { render } from '@testing-library/react'
 
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric,
     ExperimentRatioMetric,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { ExperimentMetricGoal, FunnelConversionWindowTimeUnit, StepOrderValue } from '~/types'
 
 import { getMetricChanges } from './metricChangeDescriptions'

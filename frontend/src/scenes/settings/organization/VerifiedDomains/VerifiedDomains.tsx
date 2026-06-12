@@ -20,7 +20,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'

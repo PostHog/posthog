@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 
 import { type ChartTheme } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'

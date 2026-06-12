@@ -1,11 +1,11 @@
-import '../../../funnels/FunnelBarVertical/FunnelBarVertical.scss'
+import '@posthog/query-frontend/nodes/FunnelsQuery/FunnelBarVertical/FunnelBarVertical.scss'
 
 import { createContext, useContext, useLayoutEffect, useRef, useState } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
-import { StepBarLabels } from '~/scenes/funnels/FunnelBarVertical/StepBarLabels'
+import { StepBarLabels } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelBarVertical/StepBarLabels'
 import { ChartParams } from '~/types'
 
 import { useFunnelChartData } from './FunnelChart'

@@ -31,7 +31,7 @@ import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext } from '~/queries/schema/schema-general'
+import { ProductIntentContext } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Survey, SurveyType } from '~/types'
 
 export function SurveysTable(): JSX.Element {

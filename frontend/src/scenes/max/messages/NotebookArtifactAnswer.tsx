@@ -22,7 +22,7 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import {
     DocumentBlock,
     ErrorBlock,
@@ -30,10 +30,10 @@ import {
     MarkdownBlock,
     SessionReplayBlock,
     VisualizationBlock,
-} from '~/queries/schema/schema-assistant-artifacts'
-import { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-assistant-artifacts'
+import { NotebookArtifactContent } from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { DataVisualizationNode, InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '@posthog/query-frontend/utils'
 
 import { MarkdownMessage } from '../MarkdownMessage'
 import { MessageStatus } from '../maxLogic'

@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { CoreEvent } from '~/queries/schema/schema-general'
+import { CoreEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import type { coreEventsLogicType } from './coreEventsLogicType'
 

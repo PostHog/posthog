@@ -1,6 +1,6 @@
 import { NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
-import { isFunnelsQuery, isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '@posthog/query-frontend/utils'
 import { ChartDisplayType, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 export type DisplayLabelsToggleMode = 'pie_labels' | 'series_values'

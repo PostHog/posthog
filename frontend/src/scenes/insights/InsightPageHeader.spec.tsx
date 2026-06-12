@@ -6,7 +6,7 @@ import { BindLogic } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { Node } from '~/queries/schema/schema-general'
+import { Node } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, InsightShortId, QueryBasedInsightModel, ItemMode } from '~/types'
 

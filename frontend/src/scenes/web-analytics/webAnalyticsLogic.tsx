@@ -35,10 +35,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
-import { hogqlQuery } from '~/queries/query'
-import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
+import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '@posthog/query-frontend/nodes/WebVitals/definitions'
+import { hogqlQuery } from '@posthog/query-frontend/query'
+import { isCompareFilter, isWebAnalyticsPropertyFilters } from '@posthog/query-frontend/schema-guards'
 import {
     ActionConversionGoal,
     ActionsNode,
@@ -60,8 +60,8 @@ import {
     WebStatsBreakdown,
     WebStatsTableQuery,
     WebVitalsMetric,
-} from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 import {
     AvailableFeature,
     BaseMathType,

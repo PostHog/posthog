@@ -6,7 +6,7 @@ import { getProductSetupConfig } from 'lib/components/ProductSetup/productSetupR
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import type { postOnboardingModalLogicType } from './postOnboardingModalLogicType'
 

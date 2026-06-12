@@ -13,7 +13,7 @@ import { getEventsWithPrimaryProperty } from 'lib/utils/primaryEventProperty'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
-import { HogQLQueryString, hogql } from '~/queries/utils'
+import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
 import { RecordingEventType } from '~/types'
 
 import type { sessionEventsDataLogicType } from './sessionEventsDataLogicType'

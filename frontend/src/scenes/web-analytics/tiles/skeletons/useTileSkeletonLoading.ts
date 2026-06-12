@@ -4,17 +4,17 @@ import { createElement } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { getCachedResults } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import {
     AnyResponseType,
     DashboardFilter,
     DataTableNode,
     HogQLVariable,
     InsightVizNode,
-} from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import { InsightLogicProps } from '~/types'
 
 interface WebAnalyticsTileSkeletonGateProps {

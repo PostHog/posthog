@@ -3,7 +3,7 @@
  */
 import { expect } from '@playwright/test'
 
-import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { test } from '../utils/workspace-test-base'
 
 type InsightCreationPayload = {

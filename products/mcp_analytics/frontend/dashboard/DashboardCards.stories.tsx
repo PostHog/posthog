@@ -2,7 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { type ChartTheme } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
 
 import {
     type DailyActivity,

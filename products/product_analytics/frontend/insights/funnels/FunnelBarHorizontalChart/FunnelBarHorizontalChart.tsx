@@ -4,9 +4,9 @@ import { type ErrorInfo, useMemo } from 'react'
 
 import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
+import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { funnelPersonsModalLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'

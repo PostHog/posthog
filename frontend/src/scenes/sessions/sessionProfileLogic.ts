@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 import { SessionEventType } from '~/types'
 
 import { teamLogic } from '../teamLogic'

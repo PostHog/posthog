@@ -9,7 +9,7 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
+import { Variable, VariableType } from '@posthog/query-frontend/nodes/DataVisualization/types'
 import { QueryBasedInsightModel } from '~/types'
 
 import { fetchInsightsUsingVariable } from './insightsLoader'

@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
 import { logsViewerSettingsLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerSettingsLogic'

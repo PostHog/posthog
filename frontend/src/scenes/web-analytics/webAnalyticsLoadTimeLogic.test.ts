@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
 import { initKeaTests } from '~/test/init'
 
 import { WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'

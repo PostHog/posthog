@@ -1,6 +1,6 @@
 import { ActivityChange, ChangeMapping } from 'lib/components/ActivityLog/humanizeActivity'
 
-import { CoreEvent } from '~/queries/schema/schema-general'
+import { CoreEvent } from '@posthog/query-frontend/schema/schema-general'
 
 interface CoreEventsConfig {
     core_events: CoreEvent[]

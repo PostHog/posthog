@@ -1,7 +1,7 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
-import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import { AssistantMessageType } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 
 import { maxGlobalLogic } from './maxGlobalLogic'

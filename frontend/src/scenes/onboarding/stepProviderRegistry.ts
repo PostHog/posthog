@@ -1,4 +1,4 @@
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { aiObservabilityOnboarding } from 'products/ai_observability/frontend/onboarding/steps'
 import { dataWarehouseOnboarding } from 'products/data_warehouse/frontend/onboarding/steps'

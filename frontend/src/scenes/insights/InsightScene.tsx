@@ -9,7 +9,7 @@ import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ItemMode } from '~/types'
 
 export function InsightScene(): JSX.Element {

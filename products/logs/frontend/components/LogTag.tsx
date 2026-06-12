@@ -1,6 +1,6 @@
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 
-import { LogMessage } from '~/queries/schema/schema-general'
+import { LogMessage } from '@posthog/query-frontend/schema/schema-general'
 
 export const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element => {
     const type =

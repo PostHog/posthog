@@ -8,7 +8,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 import { BehavioralEventType, CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'

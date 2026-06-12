@@ -6,7 +6,7 @@ import { render } from '@testing-library/react'
 
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 jest.mock('lib/colors')

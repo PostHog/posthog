@@ -26,7 +26,7 @@ import { IconLink, IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
-import { DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 export type Mode = 'revenue_analytics'
 export interface ViewLinkModalProps {

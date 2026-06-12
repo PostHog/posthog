@@ -10,8 +10,8 @@ import { objectsEqual } from 'lib/utils'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EndpointRequest } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
+import { EndpointRequest } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightVizNode } from '@posthog/query-frontend/utils'
 import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'

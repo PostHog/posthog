@@ -2,7 +2,7 @@ import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { FUNNEL_STEP_COUNT_LIMIT } from '~/scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { FUNNEL_STEP_COUNT_LIMIT } from '@posthog/query-frontend/nodes/InsightViz/EditorFilters/FunnelsQuerySteps'
 import { BreakdownAttributionType, StepOrderValue } from '~/types'
 
 /**

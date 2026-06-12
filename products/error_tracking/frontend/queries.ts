@@ -11,8 +11,8 @@ import {
     InsightVizNode,
     NodeKind,
     ProductKey,
-} from '~/queries/schema/schema-general'
-import { HogQLQueryString, escapeHogQLString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { HogQLQueryString, escapeHogQLString, hogql, setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,

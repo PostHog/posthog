@@ -3,7 +3,7 @@ import {
     AssistantMessageType,
     AssistantToolCallMessage,
     RootAssistantMessage,
-} from '~/queries/schema/schema-assistant-messages'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { EnhancedToolCall } from './max-constants'
 import { isMultiQuestionFormMessage, threadEndsWithMultiQuestionForm } from './utils'

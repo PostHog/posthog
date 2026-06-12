@@ -2,8 +2,8 @@ import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 import { PersonsTabType } from '~/types'
 
 interface ExceptionsPanelProps {

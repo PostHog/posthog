@@ -2,8 +2,8 @@ import {
     formatVariableReference as sharedFormatVariableReference,
     getCodeName as sharedGetCodeName,
     VARIABLE_TYPE_OPTIONS as sharedVariableTypeOptions,
-} from '~/queries/nodes/DataVisualization/Components/Variables/VariableFields'
-import { VariableType } from '~/queries/nodes/DataVisualization/types'
+} from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/VariableFields'
+import { VariableType } from '@posthog/query-frontend/nodes/DataVisualization/types'
 
 // Re-export from shared location
 export const VARIABLE_TYPE_OPTIONS = sharedVariableTypeOptions

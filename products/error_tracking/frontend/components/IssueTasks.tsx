@@ -11,7 +11,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 import { IntegrationType } from '~/types'
 
 import { OriginProduct, TaskUpsertProps } from 'products/tasks/frontend/types'

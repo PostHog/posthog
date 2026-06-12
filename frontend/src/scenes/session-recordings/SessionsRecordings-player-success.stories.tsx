@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { getAvailableProductFeatures } from '~/mocks/features'
 import { MockSignature } from '~/mocks/utils'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, SessionRecordingPlaylistType } from '~/types'
 
 import { recordingPlaylists } from './__mocks__/recording_playlists'

@@ -5,8 +5,8 @@ import api from 'lib/api'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataTableNode,
@@ -14,7 +14,7 @@ import {
     NodeKind,
     TraceQuery,
     TracesQueryResponse,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import type { aiObservabilitySessionDataLogicType } from './aiObservabilitySessionDataLogicType'

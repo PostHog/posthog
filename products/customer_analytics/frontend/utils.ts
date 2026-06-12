@@ -1,5 +1,5 @@
-import { AnyEntityNode, GroupNode } from '~/queries/schema/schema-general'
-import { isEventsNode } from '~/queries/utils'
+import { AnyEntityNode, GroupNode } from '@posthog/query-frontend/schema/schema-general'
+import { isEventsNode } from '@posthog/query-frontend/utils'
 import { InsightLogicProps } from '~/types'
 
 export const CUSTOMER_ANALYTICS_LOGIC_KEY = 'customerAnalytics'

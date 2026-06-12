@@ -1,11 +1,11 @@
 import { IconTrending } from '@posthog/icons'
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import { Sparkline } from 'lib/components/Sparkline'
+import { Sparkline } from '@posthog/visualizations/Sparkline/Sparkline'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { formatPercentage, humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
 
-import { UsageMetric } from '~/queries/schema/schema-general'
+import { UsageMetric } from '@posthog/query-frontend/schema/schema-general'
 
 export type TrendInfo = {
     icon: React.ComponentType<{ className?: string }>

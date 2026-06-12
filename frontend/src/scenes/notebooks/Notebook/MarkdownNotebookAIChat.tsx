@@ -16,7 +16,7 @@ import type { maxLogicType } from 'scenes/max/maxLogicType'
 import { MaxThreadLogicProps, ThreadMessage, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
-import { ArtifactContentType, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import { ArtifactContentType, AssistantMessageType } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { getNotebookStringProp, getUnknownStringProp, summarizeTitle } from './markdownNotebookRegistry'
 import {

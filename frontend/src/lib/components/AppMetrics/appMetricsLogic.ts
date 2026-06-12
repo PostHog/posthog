@@ -7,7 +7,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQueryString, hogql } from '~/queries/utils'
+import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
 
 import type { appMetricsLogicType } from './appMetricsLogicType'
 

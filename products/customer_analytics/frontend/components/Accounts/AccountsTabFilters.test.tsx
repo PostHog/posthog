@@ -4,7 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { initKeaTests } from '~/test/init'
 
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'

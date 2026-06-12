@@ -30,13 +30,13 @@ import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
+import { mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -46,7 +46,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, Node, TileFilters } from '@posthog/query-frontend/schema/schema-general'
 import {
     convertDataTableNodeToDataVisualizationNode,
     isFunnelsQuery,
@@ -57,7 +57,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
     isValidQueryForExperiment,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -69,7 +69,7 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
+import { insightDataLogic, isInsightSceneInstance } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'

@@ -8,7 +8,7 @@ import { ErrorTrackingSettings } from 'lib/components/Errors/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import type { rateLimitConfigLogicType } from './rateLimitConfigLogicType'
 

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { Chart } from 'lib/Chart'
+import { Chart } from '@posthog/visualizations/Chart'
 import { Dayjs } from 'lib/dayjs'
 
 export interface BillingMarkersPositioning {

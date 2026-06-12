@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { InsightModel, QueryBasedInsightModel } from '~/types'
 
 import { insightUsesVariable } from './utils'

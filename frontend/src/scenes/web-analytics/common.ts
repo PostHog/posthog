@@ -5,7 +5,7 @@ import { LemonMenuItem } from '@posthog/lemon-ui'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
 
-import { hogqlQuery } from '~/queries/query'
+import { hogqlQuery } from '@posthog/query-frontend/query'
 import {
     BreakdownFilter,
     ProductKey,
@@ -14,8 +14,8 @@ import {
     WebAnalyticsConversionGoal,
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
-} from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types'
 
 /** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */

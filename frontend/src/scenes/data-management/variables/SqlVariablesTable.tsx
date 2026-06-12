@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
 
 import { VARIABLE_TYPE_LABELS, formatVariableReference } from './constants'
 import { sqlVariablesLogic } from './sqlVariablesLogic'

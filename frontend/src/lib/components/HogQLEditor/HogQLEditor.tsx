@@ -6,8 +6,8 @@ import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 
-import { AnyDataNode } from '~/queries/schema/schema-general'
-import { isActorsQuery } from '~/queries/utils'
+import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
+import { isActorsQuery } from '@posthog/query-frontend/utils'
 
 export interface HogQLEditorProps {
     onChange: (value: string) => void

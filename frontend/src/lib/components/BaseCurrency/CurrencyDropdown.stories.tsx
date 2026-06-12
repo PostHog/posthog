@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
 
 import { CurrencyDropdown } from './CurrencyDropdown'
 

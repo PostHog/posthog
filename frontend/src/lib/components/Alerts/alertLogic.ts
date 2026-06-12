@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils'
 
-import { AlertState } from '~/queries/schema/schema-general'
+import { AlertState } from '@posthog/query-frontend/schema/schema-general'
 
 import type { alertLogicType } from './alertLogicType'
 import type { AlertCheck, AlertType } from './types'

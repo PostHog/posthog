@@ -4,8 +4,8 @@ import { IconPulse } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 
 import { smoothingOptions } from './smoothings'
 

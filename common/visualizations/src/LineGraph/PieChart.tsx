@@ -1,0 +1,306 @@
+import 'chartjs-adapter-dayjs-3'
+
+import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
+import { useActions, useValues } from 'kea'
+
+import {
+    ActiveElement,
+    Chart,
+    ChartDataset,
+    ChartEvent,
+    ChartOptions,
+    ChartType,
+    Plugin,
+    TooltipModel,
+} from '@posthog/visualizations/Chart'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useChart } from 'lib/hooks/useChart'
+import { isString } from 'lib/utils'
+import {
+    formatAggregationAxisValue,
+    formatAggregationAxisValueWithShareOfTotal,
+} from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
+import { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
+import { useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
+import { LineGraphProps, onChartClick } from '@posthog/visualizations/LineGraph/LineGraph'
+import { createTooltipData } from '@posthog/visualizations/LineGraph/tooltip-data'
+import { teamLogic } from 'scenes/teamLogic'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+
+import { groupsModel } from '~/models/groupsModel'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
+import { GraphType } from '~/types'
+
+function getPercentageForDataPoint(context: Context): number {
+    const total = context.dataset.data.reduce((a, b) => (a as number) + (b as number), 0) as number
+    return ((context.dataset.data[context.dataIndex] as number) / total) * 100
+}
+
+export interface PieChartProps extends LineGraphProps {
+    breakdownFilter?: BreakdownFilter | null | undefined
+    showLabelOnSeries?: boolean | null
+    disableHoverOffset?: boolean | null
+    valueFormatter?: ((value: number) => string) | null
+}
+
+export function PieChart({
+    datasets: _datasets,
+    labels,
+    type,
+    onClick,
+    ['data-attr']: dataAttr,
+    trendsFilter,
+    breakdownFilter,
+    formula,
+    showValuesOnSeries,
+    showLabelOnSeries,
+    supportsPercentStackView,
+    showPercentStackView,
+    tooltip: tooltipConfig,
+    showPersonsModal = true,
+    labelGroupType,
+    disableHoverOffset,
+    valueFormatter,
+}: PieChartProps): JSX.Element {
+    const isPie = type === GraphType.Pie
+    const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
+
+    if (!isPie) {
+        throw new Error('PieChart must be a pie chart')
+    }
+
+    const datasets = _datasets
+
+    const { aggregationLabel } = useValues(groupsModel)
+    const { highlightSeries } = useActions(insightLogic)
+    const { getTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
+    const { baseCurrency } = useValues(teamLogic)
+
+    const { canvasRef } = useChart<'pie'>({
+        getConfig: () => {
+            const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)
+            const onlyOneValue = processedDatasets?.[0]?.data?.length === 1
+
+            return {
+                type: 'pie',
+                plugins: [ChartDataLabels as Plugin<'pie'>],
+                data: {
+                    labels,
+                    datasets: processedDatasets,
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    hover: {
+                        mode: 'point',
+                        intersect: true,
+                    },
+                    layout: {
+                        padding: {
+                            top: 12,
+                            left: 20,
+                            right: 20,
+                            bottom: 20,
+                        },
+                    },
+                    borderWidth: 0,
+                    borderRadius: 0,
+                    hoverOffset: onlyOneValue || disableHoverOffset ? 0 : 16,
+                    onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
+                        const nativeEvent = event.native
+                        if (!nativeEvent) {
+                            return
+                        }
+                        const target = nativeEvent.target as HTMLDivElement
+                        const hitsSlice =
+                            chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true).length > 0
+                        target.style.cursor = onClick && hitsSlice ? 'pointer' : 'default'
+                    },
+                    onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
+                        const nativeEvent = event.native
+                        if (!nativeEvent) {
+                            return
+                        }
+                        const hitsSlice =
+                            chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true).length > 0
+                        if (hitsSlice) {
+                            onChartClick(event, chart, datasets, onClick)
+                        }
+                    },
+                    plugins: {
+                        datalabels: {
+                            color: 'white',
+                            anchor: 'end',
+                            backgroundColor: (context) => {
+                                const { backgroundColor } = context.dataset
+                                if (Array.isArray(backgroundColor)) {
+                                    return backgroundColor[context.dataIndex] || 'black'
+                                }
+                                return isString(backgroundColor) ? backgroundColor : 'black'
+                            },
+                            display: (context) => {
+                                const percentage = getPercentageForDataPoint(context)
+                                const showValueForSeries =
+                                    showValuesOnSeries !== false && context.dataset.data.length > 1
+                                return (showValueForSeries || showLabelOnSeries) && percentage > 5 ? 'auto' : false
+                            },
+                            padding: (context) => {
+                                const value = context.dataset.data[context.dataIndex] as number
+                                const paddingY = value < 10 ? 2 : 4
+                                const paddingX = value < 10 ? 5 : 4
+                                return { top: paddingY, bottom: paddingY, left: paddingX, right: paddingX }
+                            },
+                            formatter: (value: number, context) => {
+                                if (showLabelOnSeries) {
+                                    return (context.dataset as any).labels?.[context.dataIndex]
+                                }
+                                if (isPercentStackView) {
+                                    const percentage = getPercentageForDataPoint(context)
+                                    return `${percentage.toFixed(1)}%`
+                                }
+
+                                if (valueFormatter) {
+                                    return valueFormatter(value)
+                                }
+
+                                return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
+                            },
+                            font: {
+                                weight: 500,
+                            },
+                            borderRadius: 25,
+                            borderWidth: 2,
+                            borderColor: 'white',
+                        },
+                        legend: {
+                            display: false,
+                        },
+                        crosshair: false,
+                        tooltip: {
+                            position: 'cursor',
+                            enabled: false,
+                            intersect: true,
+                            external: function ({
+                                chart,
+                                tooltip,
+                            }: {
+                                chart: Chart
+                                tooltip: TooltipModel<ChartType>
+                            }) {
+                                const [tooltipRoot, tooltipEl] = getTooltip()
+                                if (tooltip.opacity === 0) {
+                                    if (trendsFilter?.showLegend) {
+                                        highlightSeries(null)
+                                    }
+                                    hideTooltip()
+                                    return
+                                }
+
+                                tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
+                                tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
+                                tooltipEl.style.opacity = '1'
+
+                                if (tooltip.body) {
+                                    const referenceDataPoint = tooltip.dataPoints[0]
+                                    const dataset = datasets[referenceDataPoint.datasetIndex]
+                                    const seriesData = createTooltipData(
+                                        tooltip.dataPoints,
+                                        (dp) => dp.datasetIndex >= 0 && dp.datasetIndex < _datasets.length
+                                    )
+
+                                    highlightSeries(seriesData[0] as unknown as IndexedTrendResult)
+
+                                    tooltipRoot.render(
+                                        <InsightTooltip
+                                            seriesData={seriesData}
+                                            breakdownFilter={breakdownFilter}
+                                            hideColorCol={!!tooltipConfig?.hideColorCol}
+                                            showHeader={false}
+                                            renderSeries={(value: React.ReactNode, datum: SeriesDatum) => {
+                                                const hasBreakdown =
+                                                    datum.breakdown_value !== undefined && !!datum.breakdown_value
+                                                return (
+                                                    <div className="datum-label-column">
+                                                        {!formula && (
+                                                            <SeriesLetter
+                                                                className="mr-2"
+                                                                hasBreakdown={hasBreakdown}
+                                                                seriesIndex={datum?.action?.order ?? datum.id}
+                                                            />
+                                                        )}
+                                                        <div className="flex flex-col">
+                                                            {hasBreakdown && !formula && datum.breakdown_value}
+                                                            {value}
+                                                        </div>
+                                                    </div>
+                                                )
+                                            }}
+                                            renderCount={
+                                                tooltipConfig?.renderCount ||
+                                                ((value: number): string => {
+                                                    if (valueFormatter) {
+                                                        return valueFormatter(value)
+                                                    }
+
+                                                    const total = dataset.data.reduce(
+                                                        (a: number, b: number) => a + b,
+                                                        0
+                                                    )
+                                                    return formatAggregationAxisValueWithShareOfTotal(
+                                                        trendsFilter,
+                                                        value,
+                                                        total,
+                                                        baseCurrency
+                                                    )
+                                                })
+                                            }
+                                            hideInspectActorsSection={!onClick || !showPersonsModal}
+                                            groupTypeLabel={
+                                                labelGroupType === 'people'
+                                                    ? 'people'
+                                                    : labelGroupType === 'none'
+                                                      ? ''
+                                                      : aggregationLabel(labelGroupType).plural
+                                            }
+                                            {...tooltipConfig}
+                                        />
+                                    )
+                                }
+
+                                const bounds = chart.canvas.getBoundingClientRect()
+                                positionTooltip(tooltipEl, bounds, tooltip.caretX || 0, tooltip.caretY || 0)
+                            },
+                        },
+                    },
+                } as ChartOptions<'pie'>,
+            }
+        },
+        deps: [
+            datasets,
+            labels,
+            onClick,
+            trendsFilter,
+            breakdownFilter,
+            formula,
+            showValuesOnSeries,
+            showLabelOnSeries,
+            isPercentStackView,
+            tooltipConfig,
+            showPersonsModal,
+            labelGroupType,
+            disableHoverOffset,
+            getTooltip,
+            hideTooltip,
+            highlightSeries,
+            aggregationLabel,
+        ],
+    })
+
+    return (
+        <div className="absolute w-full h-full" data-attr={dataAttr}>
+            <canvas ref={canvasRef} />
+        </div>
+    )
+}

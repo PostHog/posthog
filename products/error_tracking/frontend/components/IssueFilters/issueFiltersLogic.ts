@@ -6,7 +6,7 @@ import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFi
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, QuickFilterContext } from '~/queries/schema/schema-general'
+import { DateRange, QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { updateSearchParams } from '../../utils'

@@ -6,7 +6,7 @@ import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
+import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlLevel, AccessControlResourceType } from '../../../types'
 import {

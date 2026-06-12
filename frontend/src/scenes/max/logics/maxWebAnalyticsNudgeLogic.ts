@@ -10,7 +10,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { recentItemsModel } from '~/models/recentItemsModel'
-import { HumanMessage } from '~/queries/schema/schema-assistant-messages'
+import { HumanMessage } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { ConversationTopic } from '~/types'
 
 import { maxGlobalLogic } from '../maxGlobalLogic'

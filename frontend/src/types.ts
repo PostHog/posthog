@@ -8,7 +8,7 @@ import { LayoutItem } from 'react-grid-layout'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
-import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
+import { ChartDataset, ChartType, InteractionItem } from '@posthog/visualizations/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
@@ -35,12 +35,12 @@ import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
-import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { AggregationAxisFormat } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
 import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
+import { RootAssistantMessage } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import type {
     CoreEvent,
     CurrencyCode,
@@ -76,8 +76,8 @@ import type {
     SharingConfigurationSettings,
     TileFilters,
     UserProductListItem,
-} from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'

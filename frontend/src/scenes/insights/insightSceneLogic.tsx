@@ -22,13 +22,13 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
+import { getDefaultQuery } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '@posthog/query-frontend/schema/schema-general'
 import {
     checkLatestVersionsOnQuery,
     convertDataTableNodeToDataVisualizationNode,
     isInsightVizNode,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -45,8 +45,8 @@ import {
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
-import { insightDataLogic } from './insightDataLogic'
-import { insightDataLogicType } from './insightDataLogicType'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { insightDataLogicType } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
 

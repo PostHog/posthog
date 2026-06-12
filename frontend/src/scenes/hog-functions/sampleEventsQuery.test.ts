@@ -1,10 +1,10 @@
-import { performQuery } from '~/queries/query'
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { performQuery } from '@posthog/query-frontend/query'
+import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType } from '~/types'
 
 import { performWideEventsQueryInTwoPhases } from './sampleEventsQuery'
 
-jest.mock('~/queries/query', () => ({
+jest.mock('@posthog/query-frontend/query', () => ({
     performQuery: jest.fn(),
 }))
 

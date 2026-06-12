@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { hogql } from '~/queries/utils'
+import { hogql } from '@posthog/query-frontend/utils'
 
 import type { reverseProxyCheckerLogicType } from './reverseProxyCheckerLogicType'
 

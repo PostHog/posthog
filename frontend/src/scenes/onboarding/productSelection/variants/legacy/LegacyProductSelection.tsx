@@ -6,7 +6,7 @@ import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect } from '@p
 import { Logomark } from 'lib/brand/Logomark'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { OnboardingExitAction } from '../../../exit'
 import { UseCaseDefinition } from '../../../productRecommendations'

@@ -10,8 +10,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { urls } from 'scenes/urls'
 
-import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { EventsQuery, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'

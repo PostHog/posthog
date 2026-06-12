@@ -19,8 +19,8 @@ import { urls } from 'scenes/urls'
 import {
     MaxErrorTrackingIssuePreview,
     MaxErrorTrackingSearchResponse,
-} from '~/queries/schema/schema-assistant-error-tracking'
-import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
+} from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
+import { AssistantTool } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'

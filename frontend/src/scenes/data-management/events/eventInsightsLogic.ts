@@ -8,7 +8,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightsResult, SavedInsightFilters, cleanFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
 
 import type { eventInsightsLogicType } from './eventInsightsLogicType'
 

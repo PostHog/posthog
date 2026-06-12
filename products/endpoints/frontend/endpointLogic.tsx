@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
-import { EndpointRequest, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { EndpointRequest, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { EndpointType, EndpointVersionType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'

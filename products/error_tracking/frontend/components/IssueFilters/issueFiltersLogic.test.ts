@@ -4,7 +4,7 @@ import { quickFiltersLogic } from 'lib/components/QuickFilters'
 import { quickFiltersSectionLogic } from 'lib/components/QuickFilters/quickFiltersSectionLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     EventPropertyFilter,

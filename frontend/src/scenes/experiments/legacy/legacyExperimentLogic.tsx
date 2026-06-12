@@ -9,14 +9,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import api from '~/lib/api'
-import { performQuery } from '~/queries/query'
+import { performQuery } from '@posthog/query-frontend/query'
 import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
     CachedLegacyExperimentQueryResponse,
     NodeKind,
-} from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import { Experiment } from '~/types'
 
 import { modalsLogic } from '../modalsLogic'

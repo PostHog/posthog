@@ -6,9 +6,9 @@ import type {
     EventsNode,
     ExperimentDataWarehouseNode,
     ExperimentMetric,
-} from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { ExperimentMetricType, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import {
     ChartDisplayType,
     ExperimentMetricMathType,

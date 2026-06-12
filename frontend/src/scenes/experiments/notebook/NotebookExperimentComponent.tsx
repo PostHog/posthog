@@ -12,7 +12,7 @@ import {
     CachedNewExperimentQueryResponse,
     ExperimentExposureQueryResponse,
     ExperimentMetric,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { ResultsTag } from '~/scenes/experiments/components/ResultsTag'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { getExperimentStatus } from '~/scenes/experiments/experimentsLogic'

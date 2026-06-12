@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import type { logsDateRangePickerLogicType } from './logsDateRangePickerLogicType'
 

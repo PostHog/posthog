@@ -10,7 +10,7 @@ import {
 } from 'lib/constants'
 import { clamp } from 'lib/utils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
+import { isURLNormalizeable } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 import {
     isFunnelsFilter,
     isLifecycleFilter,
@@ -18,8 +18,8 @@ import {
     isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
-} from 'scenes/insights/sharedUtils'
-import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
+} from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { DEFAULT_STEP_LIMIT } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
 
 import {
     AnyFilterType,
@@ -41,7 +41,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
+import { LocalFilter, toLocalFilters } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()

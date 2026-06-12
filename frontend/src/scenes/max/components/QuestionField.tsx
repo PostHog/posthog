@@ -5,7 +5,7 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSwitch } from
 
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider/LemonSlider'
 
-import type { MultiQuestionFormField, MultiQuestionFormQuestion } from '~/queries/schema/schema-assistant-messages'
+import type { MultiQuestionFormField, MultiQuestionFormQuestion } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { OptionSelector, type Option } from './OptionSelector'
 

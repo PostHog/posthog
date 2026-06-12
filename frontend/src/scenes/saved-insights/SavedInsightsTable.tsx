@@ -10,7 +10,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { SavedInsightsEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 

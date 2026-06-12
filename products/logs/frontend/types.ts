@@ -1,4 +1,4 @@
-import { LogMessage } from '~/queries/schema/schema-general'
+import { LogMessage } from '@posthog/query-frontend/schema/schema-general'
 import { JsonType } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'

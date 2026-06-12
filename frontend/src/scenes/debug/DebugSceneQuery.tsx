@@ -5,11 +5,11 @@ import { HogQLDebug } from 'scenes/debug/HogQLDebug'
 import { Modifiers } from 'scenes/debug/Modifiers'
 import { QueryTabs } from 'scenes/debug/QueryTabs'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { Node } from '~/queries/schema/schema-general'
-import { isDataTableNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { QueryEditor } from '@posthog/query-frontend/QueryEditor/QueryEditor'
+import { Node } from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '@posthog/query-frontend/utils'
 
 interface DebugSceneQueryProps {
     queryKey: `new-${string}`

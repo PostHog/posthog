@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { Chart } from 'lib/Chart'
+import { Chart } from '@posthog/visualizations/Chart'
 import { useChart } from 'lib/hooks/useChart'
 import { urls } from 'scenes/urls'
 

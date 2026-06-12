@@ -1,0 +1,73 @@
+import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from '@posthog/query-frontend/nodes/RetentionQuery/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+
+import { performQuery } from '@posthog/query-frontend/query'
+import { ActorsQuery, NodeKind, RetentionQuery } from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+export function retentionToActorsQuery(
+    query: RetentionQuery,
+    selectedInterval: number,
+    offset = 0,
+    breakdownValue?: string | number | null
+): ActorsQuery {
+    const group = query.aggregation_group_type_index != null
+    const selectActor = group ? 'group' : 'person'
+    const totalIntervals = query.retentionFilter.totalIntervals || 7
+    const periodName = query.retentionFilter.period?.toLowerCase() ?? 'day'
+    // For custom brackets, we need to use the number of brackets + 1 for column count
+    // Otherwise use totalIntervals
+    const customBrackets = query.retentionFilter.retentionCustomBrackets
+    const columnCount = customBrackets && customBrackets.length > 0 ? customBrackets.length + 1 : totalIntervals
+    const selects = Array.from({ length: columnCount }, (_, intervalNumber) => `${periodName}_${intervalNumber}`)
+    const activeScene = sceneLogic.findMounted()?.values.activeSceneId
+    const tags = {
+        ...query.tags,
+        ...(activeScene && !query.tags?.scene ? { scene: activeScene } : {}),
+    }
+    return setLatestVersionsOnQuery(
+        {
+            kind: NodeKind.ActorsQuery,
+            select: [selectActor, ...selects],
+            orderBy: ['length(appearances) DESC', 'actor_id'],
+            source: setLatestVersionsOnQuery(
+                {
+                    kind: NodeKind.InsightActorsQuery,
+                    interval: selectedInterval,
+                    breakdown:
+                        breakdownValue !== undefined && breakdownValue !== null ? [String(breakdownValue)] : undefined,
+                    source: {
+                        ...query,
+                        retentionFilter: {
+                            ...query.retentionFilter,
+                        },
+                    },
+                },
+                { recursion: false }
+            ),
+            offset,
+            limit: offset ? offset * 2 : undefined,
+            ...(Object.keys(tags).length > 0 ? { tags } : {}),
+        },
+        { recursion: false }
+    )
+}
+
+export async function queryForActors(
+    retentionQuery: RetentionQuery,
+    selectedInterval: number,
+    offset: number = 0,
+    breakdownValue?: string | number | null
+): Promise<RetentionTablePeoplePayload> {
+    const actorsQuery = retentionToActorsQuery(retentionQuery, selectedInterval, offset, breakdownValue)
+    const response = await performQuery(actorsQuery)
+    const results: RetentionTableAppearanceType[] = response.results.map((row) => ({
+        person: row[0],
+        appearances: row.slice(1, row.length),
+    }))
+    return {
+        result: results,
+        offset: response.hasMore ? response.offset + response.limit : undefined,
+        missing_persons: response.missing_actors_count,
+    }
+}

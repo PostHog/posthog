@@ -14,10 +14,10 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { Query } from '~/queries/Query/Query'
-import { isSessionPropertyFilters } from '~/queries/schema-guards'
-import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { isSessionPropertyFilters } from '@posthog/query-frontend/schema-guards'
+import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext, QueryContextColumnComponent } from '@posthog/query-frontend/types'
 
 import { sessionAttributionExplorerLogic } from './sessionAttributionExplorerLogic'
 

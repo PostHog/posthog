@@ -5,7 +5,7 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
+import { StatelessInsightLoadingState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'

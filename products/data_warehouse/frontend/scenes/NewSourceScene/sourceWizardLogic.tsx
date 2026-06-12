@@ -28,7 +28,7 @@ import {
     SuggestedTable,
     VALID_NATIVE_MARKETING_SOURCES,
     externalDataSources,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,

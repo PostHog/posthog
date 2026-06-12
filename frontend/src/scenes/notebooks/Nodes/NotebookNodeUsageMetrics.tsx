@@ -8,8 +8,8 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { UsageMetricsConfig, UsageMetricsModal } from 'scenes/settings/environment/UsageMetricsConfig'
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind, ProductKey, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { NodeKind, ProductKey, UsageMetric, UsageMetricsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     UsageMetricCard,

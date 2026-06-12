@@ -13,7 +13,7 @@ import {
     ExperimentExposureCriteria,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'

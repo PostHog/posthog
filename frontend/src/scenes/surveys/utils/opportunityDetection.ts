@@ -5,7 +5,7 @@ import {
     FunnelsQuery,
     GroupNode,
     InsightVizNode,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { DashboardTile, QueryBasedInsightModel, SurveyEventsWithProperties } from '~/types'
 
 export interface FunnelContext {

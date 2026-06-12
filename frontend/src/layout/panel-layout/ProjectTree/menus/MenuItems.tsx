@@ -35,7 +35,7 @@ import { pluralize } from 'lib/utils'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
 
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import { NewMenu } from '../../menus/NewMenu'
 import { panelLayoutLogic } from '../../panelLayoutLogic'

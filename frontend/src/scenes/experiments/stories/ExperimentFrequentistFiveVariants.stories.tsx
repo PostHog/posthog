@@ -12,7 +12,7 @@ import {
     NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { App } from '~/scenes/App'
 import { urls } from '~/scenes/urls'
 

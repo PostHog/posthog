@@ -7,7 +7,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Dayjs } from 'lib/dayjs'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
 

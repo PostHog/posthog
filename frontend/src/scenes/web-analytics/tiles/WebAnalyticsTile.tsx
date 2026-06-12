@@ -59,7 +59,7 @@ import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilter
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -72,8 +72,8 @@ import {
     WebAnalyticsOrderByFields,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
-} from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '@posthog/query-frontend/types'
 import { ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'

@@ -9,7 +9,7 @@ import {
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     AnyPropertyFilter,

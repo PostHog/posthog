@@ -5,7 +5,7 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
+import { NodeKind, RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, SessionRecordingType } from '~/types'
 
 import type { sessionRecordingsKioskLogicType } from './sessionRecordingsKioskLogicType'

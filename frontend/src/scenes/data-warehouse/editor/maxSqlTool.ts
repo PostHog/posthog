@@ -1,4 +1,4 @@
-import type { DataVisualizationNode, HogQLFilters } from '~/queries/schema/schema-general'
+import type { DataVisualizationNode, HogQLFilters } from '@posthog/query-frontend/schema/schema-general'
 
 type SetSourceQuery = (sourceQuery: DataVisualizationNode) => void
 type SetSuggestedQueryInput = (suggestedQueryInput: string, source?: 'max_ai') => void

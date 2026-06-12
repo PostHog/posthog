@@ -7,8 +7,8 @@ import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { AccountsQuery, DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
 import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'

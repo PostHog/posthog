@@ -12,7 +12,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Error404 } from '~/layout/Error404'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { NewProductTourModal } from './components/NewProductTourModal'
 import { ProductToursTable } from './components/ProductToursTable'

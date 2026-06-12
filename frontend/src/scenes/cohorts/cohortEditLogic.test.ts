@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import {

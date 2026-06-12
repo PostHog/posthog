@@ -6,7 +6,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { FilterType } from '~/types'
 
 import {

@@ -5,7 +5,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { urls } from 'scenes/urls'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { LLMTrace } from '~/queries/schema/schema-general'
+import { LLMTrace } from '@posthog/query-frontend/schema/schema-general'
 
 import fullTrace from './__mocks__/fullTrace.json'
 import traceWithoutContent from './__mocks__/traceWithoutContent.json'

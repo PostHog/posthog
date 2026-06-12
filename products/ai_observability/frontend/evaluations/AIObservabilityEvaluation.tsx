@@ -27,7 +27,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
 

@@ -5,13 +5,13 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { SparklineTimeSeries } from 'lib/components/Sparkline'
+import { SparklineTimeSeries } from '@posthog/visualizations/Sparkline/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { LogSeverityLevel } from '~/queries/schema/schema-general'
+import { LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { logsAlertEventHistoryLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertEventHistoryLogic'

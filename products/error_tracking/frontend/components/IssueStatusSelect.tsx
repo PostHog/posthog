@@ -11,7 +11,7 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { ISSUE_STATUS_OPTIONS } from '../utils'
 import { StatusIndicator } from './Indicators'

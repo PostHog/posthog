@@ -6,17 +6,17 @@ import { LemonButtonProps, LemonMenuItem } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import {
     ProductIntentContext,
     ProductKey,
     QuerySchema,
     TrendsQueryResponse,
     WebStatsTableQueryResponse,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { ExporterFormat, InsightLogicProps } from '~/types'
 
 import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'

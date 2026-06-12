@@ -3,14 +3,14 @@ import { languages } from 'monaco-editor'
 
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 
-import { performQuery } from '~/queries/query'
+import { performQuery } from '@posthog/query-frontend/query'
 import {
     AutocompleteCompletionItemKind,
     HogLanguage,
     HogQLAutocomplete,
     NodeKind,
-} from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 
 import { getContextSourceQuery } from './sourceQueryUtils'
 

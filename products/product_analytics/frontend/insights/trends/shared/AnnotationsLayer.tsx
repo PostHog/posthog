@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 
 import { computeVisibleXLabels, useChartLayout } from '@posthog/quill-charts'
 
-import { Chart } from 'lib/Chart'
+import { Chart } from '@posthog/visualizations/Chart'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 
 interface AnnotationsLayerProps {

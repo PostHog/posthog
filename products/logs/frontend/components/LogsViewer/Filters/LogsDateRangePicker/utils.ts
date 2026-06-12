@@ -1,6 +1,6 @@
 import { dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
 export const DATE_TIME_FORMAT = 'YYYY-MM-DD HH:mm'

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { AssigneeResolver } from './AssigneeDisplay'
 import { AssigneeDropdown } from './AssigneeDropdown'

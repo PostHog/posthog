@@ -7,10 +7,10 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { Timings } from '~/queries/nodes/DataNode/ElapsedTime'
-import { Query } from '~/queries/Query/Query'
-import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema/schema-general'
-import { isDataTableNode, isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
+import { Timings } from '@posthog/query-frontend/nodes/DataNode/ElapsedTime'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode, isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '@posthog/query-frontend/utils'
 
 import { QueryLogTable } from './QueryLogTable'
 

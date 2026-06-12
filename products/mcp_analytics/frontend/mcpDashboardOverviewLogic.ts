@@ -1,8 +1,8 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { hogqlQuery } from '~/queries/query'
-import { hogql } from '~/queries/utils'
+import { hogqlQuery } from '@posthog/query-frontend/query'
+import { hogql } from '@posthog/query-frontend/utils'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'

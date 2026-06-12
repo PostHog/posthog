@@ -1,10 +1,10 @@
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import type {
     ExperimentFunnelsQueryResponse,
     ExperimentTrendsQueryResponse,
     InsightVizNode,
-} from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import type { InsightShortId } from '~/types'
 
 /**

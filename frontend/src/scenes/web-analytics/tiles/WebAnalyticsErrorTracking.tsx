@@ -13,10 +13,10 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingTile } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
+import { QueryFeature } from '@posthog/query-frontend/nodes/DataTable/queryFeatures'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { ErrorTrackingIssue, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext, QueryContextColumnComponent } from '@posthog/query-frontend/types'
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue

@@ -6,7 +6,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import type { MetricContext } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { experimentMetricModalLogic } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { getDefaultMetricTitle, getMetricTag } from '~/scenes/experiments/MetricsView/shared/utils'

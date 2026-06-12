@@ -18,10 +18,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { LocalFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { AnyDataNode, DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 import { taxonomicMenuPreferenceLogic } from './taxonomicMenuPreferenceLogic'
 import { TaxonomicMenuToggle } from './TaxonomicMenuToggle'

@@ -10,7 +10,7 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaBatchExportTable, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { DatabaseSchemaBatchExportTable, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import {
     BatchExportConfiguration,
     BatchExportConfigurationTest,

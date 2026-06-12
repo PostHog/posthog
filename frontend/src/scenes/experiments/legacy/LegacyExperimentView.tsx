@@ -11,7 +11,7 @@ import {
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     ExperimentFunnelsQueryResponse,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     LegacyExperimentHeader,
     LegacyExperimentInfo,

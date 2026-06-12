@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
 
 import type { sqlVariablesLogicType } from './sqlVariablesLogicType'
 

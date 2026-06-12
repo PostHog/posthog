@@ -9,7 +9,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, PropertyOperator, QueryBasedInsightModel, QuickFilterOption } from '~/types'
 

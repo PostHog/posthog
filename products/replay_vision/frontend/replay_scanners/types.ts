@@ -1,6 +1,6 @@
 import { LemonTagType } from '@posthog/lemon-ui'
 
-import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'

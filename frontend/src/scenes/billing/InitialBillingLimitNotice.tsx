@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
 import { billingLogic } from './billingLogic'

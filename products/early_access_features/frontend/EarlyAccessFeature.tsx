@@ -53,10 +53,10 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { Query } from '~/queries/Query/Query'
-import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import {
     CyclotronJobFiltersType,
     EarlyAccessFeatureStage,

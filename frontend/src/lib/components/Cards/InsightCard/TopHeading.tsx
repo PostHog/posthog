@@ -3,7 +3,7 @@ import { dateFilterToText } from 'lib/utils'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
-import { Node, NodeKind, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { Node, NodeKind, ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
 import {
     containsHogQLQuery,
     dateRangeFor,
@@ -11,7 +11,7 @@ import {
     isDataTableNode,
     isInsightQueryNode,
     isInsightVizNode,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 
 import { InsightFreshness } from './InsightFreshness'
 import { TileOverridesWarning } from './TileOverridesWarning'

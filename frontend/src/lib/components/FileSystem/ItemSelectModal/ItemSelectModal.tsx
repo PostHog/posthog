@@ -17,7 +17,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import { itemSelectModalLogic } from './itemSelectModalLogic'
 

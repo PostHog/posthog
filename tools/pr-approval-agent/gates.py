@@ -262,7 +262,7 @@ _DISMISS_TIME_GENERATED_RE = re.compile(
     r"(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
     r"|\.gen\.(ts|tsx|js|jsx)$"
     r"|\.generated\.(ts|tsx|js|jsx)$"
-    r"|^frontend/src/queries/schema/",
+    r"|^frontend/src/queries/schema/|^common/query-frontend/src/schema/",
     re.IGNORECASE,
 )
 

@@ -17,7 +17,7 @@ import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { hogql } from '~/queries/utils'
+import { hogql } from '@posthog/query-frontend/utils'
 
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
 

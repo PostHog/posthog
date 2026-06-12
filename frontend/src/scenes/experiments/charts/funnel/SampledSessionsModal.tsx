@@ -8,7 +8,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SessionData } from '~/queries/schema/schema-general'
+import { SessionData } from '@posthog/query-frontend/schema/schema-general'
 
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 

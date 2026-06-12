@@ -8,7 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Link } from 'lib/lemon-ui/Link'
 import { truncate } from 'lib/utils'
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
+import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter/TestAccountFilter'
 import { urls } from 'scenes/urls'
 
 import { Survey, SurveyEventName, SurveyQuestionType } from '~/types'

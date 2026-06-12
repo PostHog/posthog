@@ -44,8 +44,8 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     ActivityScope,

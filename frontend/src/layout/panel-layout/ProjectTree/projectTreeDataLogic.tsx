@@ -38,7 +38,7 @@ import {
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'

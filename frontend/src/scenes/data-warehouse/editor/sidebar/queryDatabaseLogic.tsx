@@ -24,7 +24,7 @@ import {
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,

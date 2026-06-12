@@ -11,7 +11,7 @@ import {
 } from 'lib/components/UniversalFilters/utils'
 import { isString } from 'lib/utils'
 
-import { NodeKind, RecordingOrder, RecordingsQuery, VALID_RECORDING_ORDERS } from '~/queries/schema/schema-general'
+import { NodeKind, RecordingOrder, RecordingsQuery, VALID_RECORDING_ORDERS } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,

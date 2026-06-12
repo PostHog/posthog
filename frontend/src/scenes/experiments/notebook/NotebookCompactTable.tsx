@@ -5,7 +5,7 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
     NewExperimentQueryResponse,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { VariantTag } from '~/scenes/experiments/ExperimentView/VariantTag'
 import {
     ExperimentVariantResult,

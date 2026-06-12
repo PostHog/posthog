@@ -10,8 +10,8 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { examples } from '~/queries/examples'
-import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { examples } from '@posthog/query-frontend/examples'
+import { InsightVizNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
 

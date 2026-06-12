@@ -9,7 +9,7 @@ import { Root, createRoot } from 'react-dom/client'
 
 import { IconInfo } from '@posthog/icons'
 
-import { Chart, ChartDataset, ChartOptions, TooltipModel } from 'lib/Chart'
+import { Chart, ChartDataset, ChartOptions, TooltipModel } from '@posthog/visualizations/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { getGraphColors } from 'lib/colors'
 import { Dayjs } from 'lib/dayjs'

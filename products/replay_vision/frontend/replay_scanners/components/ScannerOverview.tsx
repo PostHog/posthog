@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { LemonTag } from '@posthog/lemon-ui'
 import { BarChart } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { replayScannerLogic } from '../replayScannerLogic'

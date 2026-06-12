@@ -15,7 +15,7 @@ import {
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { AnyDataNode, DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'

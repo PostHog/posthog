@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '~/queries/query'
+import { performQuery } from '@posthog/query-frontend/query'
 import { initKeaTests } from '~/test/init'
 
 import { TaxonomicFilterHeadless } from '../headless'
@@ -16,7 +16,7 @@ import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
 import { TaxonomicFilterGroupType } from '../types'
 import { MenuFilterCombobox, SEARCH_QUERY_DEBOUNCE_MS } from './Combobox'
 
-jest.mock('~/queries/query', () => ({
+jest.mock('@posthog/query-frontend/query', () => ({
     performQuery: jest.fn(),
 }))
 

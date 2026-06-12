@@ -4,8 +4,8 @@ import { LemonLabel, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils'
 
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
+import { AxisSeries } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
 import { ChartDisplayType } from '~/types'
 
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'

@@ -7,7 +7,7 @@ import { isEmptyObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { InsightType, QueryBasedInsightModel } from '~/types'
 
 import { customerAnalyticsConfigLogic } from '../../customerAnalyticsConfigLogic'

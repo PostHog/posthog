@@ -8,7 +8,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ConversionGoalFilter } from '~/queries/schema/schema-general'
+import { ConversionGoalFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'

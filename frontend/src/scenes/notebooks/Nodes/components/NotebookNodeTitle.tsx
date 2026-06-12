@@ -6,7 +6,7 @@ import { LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
-import { isHogQLQuery } from '~/queries/utils'
+import { isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import { NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'

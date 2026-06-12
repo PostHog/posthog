@@ -6,7 +6,7 @@ import {
     TrendsQueryResponse,
     WebStatsBreakdown,
     WebStatsTableQueryResponse,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 import {
     CalendarHeatmapAdapter,

@@ -4,7 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { quickFiltersModalLogic } from 'lib/components/QuickFilters/quickFiltersModalLogic'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardType } from '~/types'
 
 import { dashboardLogic } from './dashboardLogic'

@@ -33,7 +33,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+import { SubscriptionFreeTierLimit } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import { InsightSelector } from '../InsightSelector'

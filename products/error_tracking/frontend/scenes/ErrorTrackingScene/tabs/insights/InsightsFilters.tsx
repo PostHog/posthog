@@ -3,7 +3,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { QuickFiltersSection } from 'lib/components/QuickFilters/QuickFiltersSection'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'

@@ -4,7 +4,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     type ExperimentVariantResult,

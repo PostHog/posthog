@@ -9,8 +9,8 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
+import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isHogQLQuery, isInsightQueryNode } from '@posthog/query-frontend/utils'
 import { Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'

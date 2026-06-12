@@ -1,4 +1,4 @@
-import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
+import { DashboardFilter, TileFilters } from '@posthog/query-frontend/schema/schema-general'
 
 /** True when the filter carries no meaningful constraint (dashboard / tile override payloads). */
 export function isDashboardFilterEmpty(filter: DashboardFilter | TileFilters | null | undefined): boolean {

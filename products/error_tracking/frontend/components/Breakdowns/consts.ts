@@ -1,6 +1,6 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 export interface BreakdownPreset {
     property: string

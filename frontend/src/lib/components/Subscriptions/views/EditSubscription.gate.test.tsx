@@ -1,4 +1,4 @@
-import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+import { SubscriptionFreeTierLimit } from '@posthog/query-frontend/schema/schema-general'
 
 import { isFreeTierCreateAtLimit } from './EditSubscription'
 

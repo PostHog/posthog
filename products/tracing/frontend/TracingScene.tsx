@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'

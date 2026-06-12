@@ -47,9 +47,9 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { tagsModel } from '~/models/tagsModel'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { Query } from '~/queries/Query/Query'
-import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { NodeKind, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLogicalOperator } from '~/types'
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'

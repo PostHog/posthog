@@ -1,6 +1,6 @@
 import { ActivityChange, ChangeMapping } from 'lib/components/ActivityLog/humanizeActivity'
 
-import { ActionsNode, CustomerAnalyticsConfig, EventsNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActionsNode, CustomerAnalyticsConfig, EventsNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { ConfigurationAddedDescriber } from './ConfigurationAddedDescriber'
 import { ConfigurationRemovedDescriber } from './ConfigurationRemovedDescriber'

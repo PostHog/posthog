@@ -13,7 +13,7 @@ import { MarkerSeverity, editor } from 'monaco-editor'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { performQuery } from '~/queries/query'
+import { performQuery } from '@posthog/query-frontend/query'
 import {
     AnyDataNode,
     HogLanguage,
@@ -22,8 +22,8 @@ import {
     HogQLMetadataResponse,
     HogQLNotice,
     NodeKind,
-} from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
 import { getContextSourceQuery } from './sourceQueryUtils'

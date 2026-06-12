@@ -6,7 +6,7 @@ import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 
 configure({ asyncUtilTimeout: 5000 })

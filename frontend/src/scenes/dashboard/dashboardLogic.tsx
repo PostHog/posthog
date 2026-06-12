@@ -59,9 +59,9 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
-import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { variableDataLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variableDataLogic'
+import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
+import { getQueryBasedDashboard, getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     DashboardFilter,
@@ -70,7 +70,7 @@ import {
     NodeKind,
     QuickFilterContext,
     RefreshType,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,

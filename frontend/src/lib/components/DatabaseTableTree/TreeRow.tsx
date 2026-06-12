@@ -7,7 +7,7 @@ import { LemonButton, LemonMenu, LemonMenuItem, Spinner, Tooltip } from '@postho
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 
 import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf, TreeTableItemLeaf } from './DatabaseTableTree'
 

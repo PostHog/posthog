@@ -1,4 +1,4 @@
-// Diff `frontend/src/queries/schema.json` between base and HEAD, then map the
+// Diff `common/query-frontend/src/schema.json` between base and HEAD, then map the
 // changed definitions to the products that depend on them (resolved from the
 // AST by schema_usage_scan.py). Used by turbo-discover.js to narrow the product
 // matrix on schema-only PRs.
@@ -11,7 +11,7 @@ const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
-const SCHEMA_PATH = 'frontend/src/queries/schema.json'
+const SCHEMA_PATH = 'common/query-frontend/src/schema.json'
 const PRODUCTS_ROOT = 'products'
 const SCAN_SCRIPT = path.join(__dirname, 'schema_usage_scan.py')
 // Sentinel key: products with unresolvable usage, unioned in on any change.

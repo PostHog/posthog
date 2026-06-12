@@ -17,9 +17,9 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { groupsModel } from '~/models/groupsModel'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode } from '~/queries/utils'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { DataTableNode, HogQLQuery, Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode } from '@posthog/query-frontend/utils'
 import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'

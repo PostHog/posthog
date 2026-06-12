@@ -10,14 +10,14 @@ import {
     InsightLoadingState,
     InsightTimeoutState,
     InsightValidationError,
-} from 'scenes/insights/EmptyStates'
-import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
-import { LineGraph, LineGraphProps } from 'scenes/insights/views/LineGraph/LineGraph'
+} from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { InsightsWrapper } from '@posthog/query-frontend/nodes/InsightViz/InsightsWrapper'
+import { LineGraph, LineGraphProps } from '@posthog/visualizations/LineGraph/LineGraph'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { extractValidationError, isTimeoutError } from '~/queries/nodes/InsightViz/utils'
-import { AnyResponseType, GoalLine, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { extractValidationError, isTimeoutError } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { AnyResponseType, GoalLine, RevenueAnalyticsGoal } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import { GraphDataset, GraphType } from '~/types'
 
 import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'

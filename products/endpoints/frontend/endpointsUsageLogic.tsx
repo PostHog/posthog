@@ -12,7 +12,7 @@ import {
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
     NodeKind,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { EndpointType, IntervalType } from '~/types'
 
 import { endpointsLogic } from './endpointsLogic'

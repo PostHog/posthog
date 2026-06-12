@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter'
 
 type EditWidgetModalTestAccountFilterProps = {
     filterTestAccounts: boolean

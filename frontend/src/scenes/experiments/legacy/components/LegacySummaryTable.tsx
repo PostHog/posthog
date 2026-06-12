@@ -9,7 +9,7 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery, isExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, isExperimentTrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,

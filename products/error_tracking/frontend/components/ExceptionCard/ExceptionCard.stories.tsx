@@ -5,7 +5,7 @@ import { useEffect } from 'react'
 import { ErrorEventType } from 'lib/components/Errors/types'
 
 import { mswDecorator } from '~/mocks/browser'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { TEST_EVENTS } from '../../__mocks__/events'
 import { StyleVariables } from '../StyleVariables'

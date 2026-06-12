@@ -10,7 +10,7 @@ import api from 'lib/api'
 import { objectsEqual, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataJob,

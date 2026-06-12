@@ -17,7 +17,7 @@ import {
     DatabaseSerializedFieldType,
     HogQLQuery,
     NodeKind,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSettingsSceneLogicType } from './dataWarehouseSettingsSceneLogicType'

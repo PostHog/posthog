@@ -1,6 +1,6 @@
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { type BillingType, OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
 
 /**

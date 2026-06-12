@@ -7,7 +7,7 @@ import {
     AlertConditionType,
     AlertState,
     InsightThresholdType,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import type { QueryBasedInsightModel } from '~/types'
 import type { UserBasicType } from '~/types'
 

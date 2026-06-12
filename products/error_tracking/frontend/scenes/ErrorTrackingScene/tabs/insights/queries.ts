@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { BaseMathType, ChartDisplayType, IntervalType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 export interface InsightQueryFilters {

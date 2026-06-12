@@ -5,7 +5,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonTable, Spinner } from '@post
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaDataWarehouseTable } from '@posthog/query-frontend/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
 import { sourceManagementLogic } from '../logics/sourceManagementLogic'

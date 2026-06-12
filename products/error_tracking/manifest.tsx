@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { DateRange, FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+import { DateRange, FileSystemIconType, ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest, UniversalFiltersGroup } from '../../frontend/src/types'
 

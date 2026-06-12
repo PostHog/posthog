@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { mswDecorator } from '~/mocks/browser'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductSetupPopover, ProductSetupPopoverProps } from './ProductSetupPopover'
 

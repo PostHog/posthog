@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelContextLogic } from '~/layout/navigation-3000/sidepanel/sidePanelContextLogic'
 import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { hogql } from '~/queries/utils'
+import { hogql } from '@posthog/query-frontend/utils'
 
 import type { metalyticsLogicType } from './metalyticsLogicType'
 

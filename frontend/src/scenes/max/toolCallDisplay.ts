@@ -1,4 +1,4 @@
-import { TaskExecutionStatus } from '~/queries/schema/schema-assistant-messages'
+import { TaskExecutionStatus } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import {
     EnhancedToolCall,

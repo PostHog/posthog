@@ -12,7 +12,7 @@ import { WebAnalyticsSceneMenuBar } from 'scenes/web-analytics/WebAnalyticsScene
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 export function WebAnalyticsScene(): JSX.Element {
     useMaxTool({

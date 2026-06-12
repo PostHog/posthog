@@ -128,8 +128,8 @@ Query types like `TrendsQuery`, `FunnelsQuery`, and HogQL filters are defined in
 
 ### How it works
 
-1. **Source:** `frontend/src/queries/schema.ts` (TypeScript interfaces)
-2. **Intermediate:** `frontend/src/queries/schema.json` (JSON Schema)
+1. **Source:** `common/query-frontend/src/schema.ts` (TypeScript interfaces)
+2. **Intermediate:** `common/query-frontend/src/schema.json` (JSON Schema)
 3. **Output:** `posthog/schema.py` (Pydantic models)
 
 ### Regenerating

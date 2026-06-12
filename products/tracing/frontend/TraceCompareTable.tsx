@@ -4,7 +4,7 @@ import { LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { AggregatedSpanRow } from '~/queries/schema/schema-general'
+import { AggregatedSpanRow } from '@posthog/query-frontend/schema/schema-general'
 
 import { formatDuration } from './TraceWaterfallView'
 

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import type { availableSourcesLogicType } from './availableSourcesLogicType'
 

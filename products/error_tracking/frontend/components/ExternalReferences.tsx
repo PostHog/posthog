@@ -21,7 +21,7 @@ import {
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingExternalReference, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingExternalReference, ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 import { IntegrationKind, IntegrationType } from '~/types'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'

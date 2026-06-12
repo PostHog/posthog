@@ -1,6 +1,6 @@
 import { actions, kea, key, path, props, reducers } from 'kea'
 
-import { BreakdownFilter, TileFilters } from '~/queries/schema/schema-general'
+import { BreakdownFilter, TileFilters } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter } from '~/types'
 
 import type { tileLogicType } from './tileLogicType'

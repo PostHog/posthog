@@ -17,18 +17,18 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { variableModalLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import {
     VariablesLogicProps,
     variablesLogic,
-} from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
+} from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variablesLogic'
 import {
     DataVisualizationLogicProps,
     dataVisualizationLogic,
-} from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
-import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
+} from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
+import { displayLogic } from '@posthog/query-frontend/nodes/DataVisualization/displayLogic'
+import { applyDataVisualizationQueryUpdate } from '@posthog/query-frontend/nodes/DataVisualization/queryUpdateUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'

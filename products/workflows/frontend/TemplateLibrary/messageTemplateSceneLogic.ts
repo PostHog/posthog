@@ -3,7 +3,7 @@ import { kea, path, props, selectors } from 'kea'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import type { messageTemplateSceneLogicType } from './messageTemplateSceneLogicType'

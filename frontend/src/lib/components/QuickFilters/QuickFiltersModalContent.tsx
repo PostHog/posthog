@@ -7,7 +7,7 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonTable, LemonTableColumn, T
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
 
 import { quickFiltersLogic } from './quickFiltersLogic'

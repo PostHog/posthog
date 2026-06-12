@@ -20,7 +20,7 @@ import {
 } from 'lib/utils/product-intents'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
-import { CurrencyCode, CustomerAnalyticsConfig, ProductKey } from '~/queries/schema/schema-general'
+import { CurrencyCode, CustomerAnalyticsConfig, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'

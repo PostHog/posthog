@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 
 import { QuickFilterSelector, quickFiltersLogic } from 'lib/components/QuickFilters'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { QuickFilter } from '~/types'
 
 import { QuickFiltersConfigureButton } from './QuickFiltersConfigureButton'

@@ -10,7 +10,7 @@ import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
-import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import { BreakdownTag } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/BreakdownTag'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import {
@@ -18,8 +18,8 @@ import {
     ExperimentMetric,
     ExperimentStatsBaseValidated,
     NewExperimentQueryResponse,
-} from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { useColumnWidthSync } from '~/scenes/experiments/MetricsView/hooks/useColumnWidthSync'

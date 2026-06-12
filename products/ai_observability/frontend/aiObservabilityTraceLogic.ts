@@ -14,8 +14,8 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { DataNodeLogicProps } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataTableNode,
@@ -25,7 +25,7 @@ import {
     TraceNeighborsQuery,
     TraceNeighborsQueryResponse,
     TraceQuery,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from '~/types'
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'

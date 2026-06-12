@@ -1,8 +1,8 @@
 import { Link } from '@posthog/lemon-ui'
 
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumn } from '~/queries/types'
-import { hogql } from '~/queries/utils'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext, QueryContextColumn } from '@posthog/query-frontend/types'
+import { hogql } from '@posthog/query-frontend/utils'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../constants'
 

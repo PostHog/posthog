@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'

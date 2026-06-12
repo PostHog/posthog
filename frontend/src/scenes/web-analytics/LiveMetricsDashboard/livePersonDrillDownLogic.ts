@@ -6,9 +6,9 @@ import { parsePersonFromHogQLRow } from 'scenes/persons/person-utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 
-import { performQuery } from '~/queries/query'
-import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { performQuery } from '@posthog/query-frontend/query'
+import { HogQLQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 import { PersonType } from '~/types'
 
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'

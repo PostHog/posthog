@@ -42,9 +42,9 @@ import {
     NodeKind,
     ProductIntentContext,
     ProductKey,
-} from '~/queries/schema/schema-general'
-import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
-import { HogQLQueryString } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '@posthog/query-frontend/schema/schema-surveys'
+import { HogQLQueryString } from '@posthog/query-frontend/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,

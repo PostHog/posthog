@@ -7,7 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportDescription, humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
 import { userLogic } from 'scenes/userLogic'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateStatus, HogFunctionTemplateType } from '~/types'
 
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'

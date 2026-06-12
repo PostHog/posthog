@@ -20,15 +20,15 @@ import {
     InsightLoadingState,
     InsightTimeoutState,
     InsightValidationError,
-} from 'scenes/insights/EmptyStates'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+} from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
-import { Query } from '~/queries/Query/Query'
-import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import { extractValidationError } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DashboardFilter, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,

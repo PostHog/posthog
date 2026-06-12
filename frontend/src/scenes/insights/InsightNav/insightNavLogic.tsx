@@ -4,14 +4,14 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
-import { expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { expandGroupNodes } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
+import { nodeKindToInsightType } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getDefaultQuery } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import {
     ActionsNode,
     AnyDataWarehouseNode,
@@ -41,7 +41,7 @@ import {
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     containsHogQLQuery,
     getResultCustomizations,
@@ -64,12 +64,12 @@ import {
     isStickinessQuery,
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import { BaseMathType, InsightLogicProps, InsightType, IntervalType } from '~/types'
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {

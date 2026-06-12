@@ -4,7 +4,7 @@ import {
     MarketingAnalyticsItem,
     NativeMarketingSource,
     VALID_NATIVE_MARKETING_SOURCES,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 /** Parse comma-separated values into a trimmed array */
 export const parseCommaSeparatedValues = (value: string): string[] =>

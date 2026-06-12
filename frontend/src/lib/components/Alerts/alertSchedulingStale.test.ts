@@ -1,4 +1,4 @@
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     isNextPlannedEvaluationStale,

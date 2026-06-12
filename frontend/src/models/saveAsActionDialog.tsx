@@ -15,8 +15,8 @@ import {
 import {
     filterToActionStep,
     generateActionNameFromFilter,
-} from 'scenes/insights/filters/ActionFilter/ActionFilterRow/saveAsActionUtils'
-import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+} from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/saveAsActionUtils'
+import { LocalFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'

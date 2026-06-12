@@ -1,4 +1,4 @@
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { useChartColors } from '../shared/colors'
 import { getMetricColors } from '../shared/utils'

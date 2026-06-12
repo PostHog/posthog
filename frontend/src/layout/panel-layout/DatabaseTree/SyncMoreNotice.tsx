@@ -8,7 +8,7 @@ import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDa
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 

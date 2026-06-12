@@ -1,4 +1,4 @@
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 
 export const FUNNEL_CONVERSION_SERIES_LABEL = 'Conversion'
 

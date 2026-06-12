@@ -9,7 +9,7 @@ import { QuickFiltersModalContent } from 'lib/components/QuickFilters/QuickFilte
 import { ModalView, quickFiltersModalLogic } from 'lib/components/QuickFilters/quickFiltersModalLogic'
 import { Scene } from 'scenes/sceneTypes'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardType } from '~/types'
 
 import { dashboardQuickFiltersSelectionLogic } from './dashboardQuickFiltersSelectionLogic'

@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { DashboardFilter, HogQLVariable } from 'src/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
 
 import { Link } from '@posthog/lemon-ui'
 

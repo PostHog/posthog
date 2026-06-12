@@ -1,4 +1,4 @@
-import { ActionsNode, EventsNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActionsNode, EventsNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 export const ConfigurationRemovedDescriber = ({
     eventType,

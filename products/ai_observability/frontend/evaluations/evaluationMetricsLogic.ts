@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType, HogQLMathType } from '~/types'
 
 // eslint-disable-next-line import/no-cycle

@@ -11,10 +11,10 @@ import {
     isExperimentFunnelMetric,
     NodeKind,
     SessionData,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { getVariantColor } from '~/scenes/experiments/utils'
-import { funnelTitle } from '~/scenes/trends/persons-modal/persons-modal-utils'
-import { openPersonsModal } from '~/scenes/trends/persons-modal/PersonsModal'
+import { funnelTitle } from '@posthog/query-frontend/persons-modal/persons-modal-utils'
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import type { Experiment } from '~/types'
 import { FunnelStepWithConversionMetrics } from '~/types'
 

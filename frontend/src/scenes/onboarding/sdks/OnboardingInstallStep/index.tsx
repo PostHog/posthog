@@ -6,7 +6,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isMobile } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from '~/types'
 
 import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'

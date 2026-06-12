@@ -7,7 +7,7 @@ import {
     ExperimentSignificanceCode,
     NodeKind,
     isExperimentFunnelMetric,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     CountPerActorMathType,
     FunnelExperimentVariant,

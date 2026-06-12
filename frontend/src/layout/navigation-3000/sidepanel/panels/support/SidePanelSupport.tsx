@@ -17,7 +17,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType } from '~/types'
 
 import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'

@@ -18,8 +18,8 @@ import {
     WebGoalsQuery,
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
-} from '~/queries/schema/schema-general'
-import { isTrendsQuery, isWebExternalClicksQuery, isWebGoalsQuery, isWebStatsTableQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { isTrendsQuery, isWebExternalClicksQuery, isWebGoalsQuery, isWebStatsTableQuery } from '@posthog/query-frontend/utils'
 import { getDisplayColumnName } from '~/scenes/web-analytics/common'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 

@@ -1,4 +1,4 @@
-import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NewExperimentQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 import { VariantTag } from '../ExperimentView/VariantTag'
 import {

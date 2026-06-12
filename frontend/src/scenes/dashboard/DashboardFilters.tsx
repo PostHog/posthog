@@ -14,7 +14,7 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'

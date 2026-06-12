@@ -43,7 +43,7 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { tagsModel } from '~/models/tagsModel'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, EndpointVersionType } from '~/types'
 
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'

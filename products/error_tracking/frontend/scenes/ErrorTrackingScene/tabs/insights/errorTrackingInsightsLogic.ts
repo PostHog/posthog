@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
-import { HogQLQueryResponse, InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,

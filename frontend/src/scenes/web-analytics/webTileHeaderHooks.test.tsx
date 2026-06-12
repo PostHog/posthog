@@ -1,9 +1,9 @@
 import { cleanup, renderHook } from '@testing-library/react'
 
-import { examples } from '~/queries/examples'
-import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { QuerySchema } from '~/queries/schema/schema-general'
+import { examples } from '@posthog/query-frontend/examples'
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { QuerySchema } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps } from '~/types'
 

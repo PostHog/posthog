@@ -1,4 +1,4 @@
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 

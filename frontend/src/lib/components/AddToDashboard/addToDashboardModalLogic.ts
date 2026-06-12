@@ -7,7 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 

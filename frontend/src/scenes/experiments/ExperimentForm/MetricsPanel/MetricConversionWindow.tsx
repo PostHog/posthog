@@ -1,6 +1,6 @@
 import { formatUnitByQuantity } from 'scenes/experiments/utils'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import { FunnelConversionWindowTimeUnit } from '~/types'
 
 export type MetricConversionWindowProps = {

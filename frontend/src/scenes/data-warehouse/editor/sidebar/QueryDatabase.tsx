@@ -37,8 +37,8 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { DatabaseSerializedFieldType, externalDataSources } from '@posthog/query-frontend/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier } from '@posthog/query-frontend/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'

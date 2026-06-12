@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
-import { VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
+import { VisualizationBlock } from '@posthog/query-frontend/schema/schema-assistant-artifacts'
 import {
     AgentMode,
     AnyAssistantGeneratedQuery,
@@ -23,7 +23,7 @@ import {
     SubagentUpdateEvent,
     VisualizationArtifactContent,
     VisualizationItem,
-} from '~/queries/schema/schema-assistant-messages'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
 import {
     DashboardFilter,
     DataVisualizationNode,
@@ -32,8 +32,8 @@ import {
     NodeKind,
     QuerySchema,
     QuerySchemaRoot,
-} from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { isHogQLQuery, isInsightQueryNode } from '@posthog/query-frontend/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'

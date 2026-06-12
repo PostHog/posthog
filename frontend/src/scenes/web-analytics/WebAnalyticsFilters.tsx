@@ -31,7 +31,7 @@ import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 
-import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
+import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
 import { PropertyFilterType, PropertyMathType } from '~/types'
 
 import { ProductTab, faviconUrl } from './common'

@@ -1,4 +1,4 @@
-import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import { AssistantMessageType } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { buildSpokenText, stripMarkdown, summariseAssistantThread } from './handsFreeUtils'
 

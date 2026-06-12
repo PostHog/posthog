@@ -2,16 +2,16 @@ import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { OverviewGrid, OverviewItem } from '@posthog/query-frontend/nodes/OverviewGrid/OverviewGrid'
 import {
     AnyResponseType,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsAggregatedQueryResponse,
-} from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {

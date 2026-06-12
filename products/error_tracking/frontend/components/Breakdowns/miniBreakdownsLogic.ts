@@ -9,7 +9,7 @@ import { BREAKDOWN_OTHER_DISPLAY } from 'scenes/insights/utils'
 import {
     CachedErrorTrackingBreakdownsQueryResponse,
     ErrorTrackingBreakdownsQueryResponse,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { errorTrackingBreakdownsQuery } from '../../queries'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'

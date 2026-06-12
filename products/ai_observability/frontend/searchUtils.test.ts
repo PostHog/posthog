@@ -1,4 +1,4 @@
-import { LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { findEventWithParents } from './aiObservabilityTraceDataLogic'
 import { normalizeMessages } from './messageNormalization'

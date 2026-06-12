@@ -9,9 +9,9 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { Query } from '~/queries/Query/Query'
-import { CurrencyCode, InsightVizNode } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { CurrencyCode, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import { InsightLogicProps } from '~/types'
 
 import {

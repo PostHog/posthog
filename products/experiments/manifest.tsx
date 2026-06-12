@@ -1,7 +1,7 @@
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ExperimentMetric, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+import { ExperimentMetric, ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 

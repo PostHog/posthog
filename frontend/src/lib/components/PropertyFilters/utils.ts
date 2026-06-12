@@ -10,8 +10,8 @@ import {
 } from 'lib/utils'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { extractExpressionComment } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AnyFilterLike,

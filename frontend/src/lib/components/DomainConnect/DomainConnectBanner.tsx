@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { DomainConnectProviderName } from '~/queries/schema/schema-general'
+import { DomainConnectProviderName } from '@posthog/query-frontend/schema/schema-general'
 
 import cloudflareLogo from './assets/cloudflare.svg'
 import vercelLogo from './assets/vercel.png'

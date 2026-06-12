@@ -7,7 +7,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { GoalLine } from '~/queries/schema/schema-general'
+import { GoalLine } from '@posthog/query-frontend/schema/schema-general'
 
 interface GoalLinesListProps {
     goalLines: GoalLine[]

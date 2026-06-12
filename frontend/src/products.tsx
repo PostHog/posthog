@@ -10,8 +10,8 @@ import type { Params } from 'scenes/sceneTypes'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
-import { examples } from '~/queries/examples'
-import type { FileSystemImport } from '~/queries/schema/schema-general'
+import { examples } from '@posthog/query-frontend/examples'
+import type { FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 import {
     DashboardFilter,
     DateRange,
@@ -25,8 +25,8 @@ import {
     ProductItemCategory,
     ProductKey,
     TileFilters,
-} from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '@posthog/query-frontend/utils'
 import { ActivityScope } from '~/types'
 
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from '../../products/ai_observability/frontend/clusters/constants'

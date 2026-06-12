@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Error404 } from '~/layout/Error404'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductTourEdit } from './ProductTourEdit'
 import { ProductTourLogicProps, productTourLogic } from './productTourLogic'

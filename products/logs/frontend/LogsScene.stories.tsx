@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
-import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
+import { LogMessage, LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
 const delayIfNotTestRunner = async (): Promise<void> => {

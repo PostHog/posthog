@@ -57,7 +57,7 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import {
     AccessControlLevel,
     AccessControlResourceType,

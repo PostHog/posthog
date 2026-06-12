@@ -6,7 +6,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 

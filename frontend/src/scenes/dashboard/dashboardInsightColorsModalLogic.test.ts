@@ -1,4 +1,4 @@
-import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { InsightQueryNode, InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { extractBreakdownValues } from './dashboardInsightColorsModalLogic'

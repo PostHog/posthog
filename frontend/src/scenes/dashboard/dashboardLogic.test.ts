@@ -22,9 +22,9 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { examples } from '~/queries/examples'
-import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
-import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { examples } from '@posthog/query-frontend/examples'
+import { variableDataLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variableDataLogic'
+import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     DashboardMode,

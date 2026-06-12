@@ -1,5 +1,5 @@
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
-import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import { SharingConfigurationSettings } from '@posthog/query-frontend/schema/schema-general'
 
 import { ExportedData } from '../types'
 

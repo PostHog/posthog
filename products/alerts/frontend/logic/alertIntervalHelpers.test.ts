@@ -2,7 +2,7 @@ import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgrad
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature } from '~/types'
 

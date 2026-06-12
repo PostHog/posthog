@@ -3,9 +3,9 @@ import { router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
+import { DataNodeLogicProps } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb, InsightLogicProps, PropertyFilterType } from '~/types'
 
 import type { aiObservabilitySessionLogicType } from './aiObservabilitySessionLogicType'

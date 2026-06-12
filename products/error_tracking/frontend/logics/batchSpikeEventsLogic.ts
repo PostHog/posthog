@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import { dateRangeToIsoBounds } from '../utils'
 import type { batchSpikeEventsLogicType } from './batchSpikeEventsLogicType'

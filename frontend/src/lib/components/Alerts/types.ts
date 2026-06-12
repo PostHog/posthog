@@ -7,7 +7,7 @@ import {
     DetectorConfig,
     InsightThreshold,
     TrendsAlertConfig,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 export type AlertConfig = TrendsAlertConfig

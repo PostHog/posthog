@@ -5,7 +5,7 @@ import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ErrorTrackingIssueCard } from 'scenes/max/messages/ErrorTrackingIssueCard'
 
-import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
+import { MaxErrorTrackingIssuePreview } from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
 
 import { RelatedErrorsLogicProps, relatedErrorsLogic } from './relatedErrorsLogic'
 

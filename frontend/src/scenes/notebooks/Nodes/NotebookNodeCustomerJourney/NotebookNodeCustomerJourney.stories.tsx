@@ -11,7 +11,7 @@ import {
     someCompletedSteps,
     optionalStepResults,
     noCompletedSteps,
-} from 'scenes/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
+} from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelFlowGraph/__mocks__/journeyMocks'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'

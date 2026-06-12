@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaDataWarehouseTable } from '@posthog/query-frontend/schema/schema-general'
 import {
     DataWarehouseViewLink,
     ExternalDataJobStatus,

@@ -1,10 +1,10 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
-import type { IndexedTrendResult } from 'scenes/trends/types'
-import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
+import type { OpenPersonsModalProps } from '@posthog/query-frontend/persons-modal/PersonsModal'
+import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
 
-import { InsightActorsQuery, InsightVizNode } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { InsightActorsQuery, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import { IntervalType } from '~/types'
 
 export interface StickinessChartClickDeps {

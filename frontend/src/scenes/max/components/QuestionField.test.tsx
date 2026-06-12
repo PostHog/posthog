@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import type { MultiQuestionFormQuestion } from '~/queries/schema/schema-assistant-messages'
+import type { MultiQuestionFormQuestion } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { MultiFieldQuestion, QuestionField } from './QuestionField'
 

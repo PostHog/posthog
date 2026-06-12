@@ -7,7 +7,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import IconPostHog from 'public/posthog-icon.svg'

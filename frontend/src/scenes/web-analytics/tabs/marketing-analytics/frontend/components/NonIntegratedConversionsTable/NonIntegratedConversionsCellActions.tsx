@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 
-import { NativeMarketingSource } from '~/queries/schema/schema-general'
+import { NativeMarketingSource } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {

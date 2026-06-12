@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { NodeKind, TraceQuery } from '~/queries/schema/schema-general'
+import { NodeKind, TraceQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import type { aiObservabilityAIDataLogicType } from './aiObservabilityAIDataLogicType'
 import { readAiInput, readAiOutput } from './utils'

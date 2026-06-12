@@ -13,7 +13,7 @@ import {
     NativeMarketingSource,
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { HogQLMathType, ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'

@@ -31,7 +31,7 @@ import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/p
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
 import { sessionSummaryProgressLogic } from '../player/player-meta/sessionSummaryProgressLogic'

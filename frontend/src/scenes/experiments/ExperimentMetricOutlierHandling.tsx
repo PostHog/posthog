@@ -9,7 +9,7 @@ import {
     ExperimentMetric,
     ExperimentMetricOutlierHandling as ExperimentMetricOutlierHandlingConfig,
     ExperimentRatioMetric,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 const DESCRIPTION = 'Set winsorization lower and upper bounds to cap metric values at the specified percentiles.'
 

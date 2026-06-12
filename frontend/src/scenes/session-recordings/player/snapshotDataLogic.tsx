@@ -1,4 +1,4 @@
-import '~/queries/utils'
+import '@posthog/query-frontend/utils'
 
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'

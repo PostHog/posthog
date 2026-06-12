@@ -23,7 +23,7 @@ import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { inStorybookTestRunner } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
+import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string

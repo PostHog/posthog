@@ -5,7 +5,7 @@ import { useMemo, useRef } from 'react'
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
-import type { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import type { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { ErrorTrackingAssigneeSelectButton } from 'products/error_tracking/frontend/components/Assignee/ErrorTrackingAssigneeSelectButton'
 import {

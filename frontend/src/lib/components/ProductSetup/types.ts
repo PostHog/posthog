@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 import type { AvailableSetupTaskIdsEnumApi } from '~/generated/core/api.schemas'
-import type { ProductKey } from '~/queries/schema/schema-general'
+import type { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 export type SetupTaskId = AvailableSetupTaskIdsEnumApi
 

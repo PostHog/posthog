@@ -8,22 +8,22 @@ import {
     getDisplayNameFromEntityNode,
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
-import { retentionOptions } from 'scenes/retention/constants'
-import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
-import { mathsLogicType } from 'scenes/trends/mathsLogicType'
+import { retentionOptions } from '@posthog/query-frontend/nodes/RetentionQuery/constants'
+import { MathCategory, apiValueToMathType, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
+import { mathsLogicType } from '@posthog/query-frontend/shared/mathsLogicType'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsModelType } from '~/models/groupsModelType'
-import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
+import { extractDisplayLabel } from '@posthog/query-frontend/nodes/DataTable/utils'
 import {
     Breakdown,
     BreakdownFilter,
     InsightQueryNode,
     MultipleBreakdownType,
     Node,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     isDataTableNode,
     isEventsQuery,
@@ -38,7 +38,7 @@ import {
     isTrendsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'

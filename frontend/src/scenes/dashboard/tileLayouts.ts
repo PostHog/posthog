@@ -8,8 +8,8 @@ import {
 
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '@posthog/query-frontend/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
 
 export interface TileLayout {

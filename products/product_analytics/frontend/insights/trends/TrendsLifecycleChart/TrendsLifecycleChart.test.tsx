@@ -6,7 +6,7 @@ import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { LifecycleQuery, LifecycleQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { LifecycleQuery, LifecycleQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { chart, type InsightQuery, type MockResponse, personsModal, renderInsight } from '~/test/insight-testing'
 
 let cleanupJsdom: () => void

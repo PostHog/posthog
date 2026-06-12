@@ -11,9 +11,9 @@ import {
     execAsync as hogExecAsync,
 } from '@posthog/hogvm'
 
-import { performQuery } from '~/queries/query'
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { performQuery } from '@posthog/query-frontend/query'
+import { HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 
 const external = {
     crypto, // TODO: switch to webcrypto and polyfill on the node side

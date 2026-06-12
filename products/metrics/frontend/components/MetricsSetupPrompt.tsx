@@ -9,7 +9,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { useInterval } from 'lib/hooks/useInterval'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { metricsIngestionLogic } from '../metricsIngestionLogic'
 

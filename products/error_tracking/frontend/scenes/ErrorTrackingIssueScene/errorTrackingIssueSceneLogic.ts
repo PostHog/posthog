@@ -26,7 +26,7 @@ import {
     ErrorTrackingIssueAggregations,
     ErrorTrackingRelationalIssue,
     SimilarIssue,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'

@@ -2,12 +2,12 @@ import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
 
-import { performQuery } from '~/queries/query'
+import { performQuery } from '@posthog/query-frontend/query'
 import { initKeaTests } from '~/test/init'
 
 import { databaseTableListLogic } from './databaseTableListLogic'
 
-jest.mock('~/queries/query')
+jest.mock('@posthog/query-frontend/query')
 
 describe('databaseTableListLogic', () => {
     let logic: ReturnType<typeof databaseTableListLogic.build>

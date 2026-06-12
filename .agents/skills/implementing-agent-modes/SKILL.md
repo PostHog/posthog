@@ -13,7 +13,7 @@ Explore the `ee/hogai/core/agent_modes/presets` directory and check if there are
 
 ## (optionally) Create a new mode in schema
 
-Add a new AgentMode to `frontend/src/queries/schema/schema-assistant-messages.ts` and regenerate the schema using:
+Add a new AgentMode to `common/query-frontend/src/schema/schema-assistant-messages.ts` and regenerate the schema using:
 
 ```bash
 hogli build:schema

@@ -1,8 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { ErrorTrackingIssue, ErrorTrackingQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { issueActionsLogic } from '../components/IssueActions/issueActionsLogic'
 import { mergeIssues } from '../utils'

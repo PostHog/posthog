@@ -28,7 +28,7 @@ import {
     AssistantToolCall,
     AssistantToolCallMessage,
     TaskExecutionStatus,
-} from '~/queries/schema/schema-assistant-messages'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'

@@ -7,7 +7,7 @@ import { createFuse } from 'lib/utils/fuseSearch'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { EndpointType } from '~/types'
 
 import type { endpointsLogicType } from './endpointsLogicType'

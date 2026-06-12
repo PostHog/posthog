@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'
 
 import { getBucketOption, RateLimitHistoryBucket } from './rateLimitConfigLogic'

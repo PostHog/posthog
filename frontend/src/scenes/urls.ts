@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { fileSystemTypes, productUrls } from '~/products'
-import { ProductKey, SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import { ProductKey, SharingConfigurationSettings } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } from '~/types'
 
 import type { BillingSectionId } from './billing/types'

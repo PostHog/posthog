@@ -7,7 +7,7 @@ import { AgentPromptButton } from 'lib/components/AgentPromptButton'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { useStacktraceDisplay } from '../../../../hooks/use-stacktrace-display'
 import { GitMetadataParser } from '../../../ReleasesPreview/gitMetadataParser'

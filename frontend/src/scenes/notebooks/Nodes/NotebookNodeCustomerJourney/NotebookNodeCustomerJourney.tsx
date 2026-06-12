@@ -10,7 +10,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { urls } from 'scenes/urls'
 
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { CustomerJourneySelect } from 'products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneySelect'
 import { CustomerJourneysEmptyState } from 'products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneysEmptyState'

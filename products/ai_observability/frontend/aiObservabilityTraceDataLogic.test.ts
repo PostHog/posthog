@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     TraceTreeNode,

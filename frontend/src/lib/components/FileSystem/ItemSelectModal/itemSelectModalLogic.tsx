@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import type { itemSelectModalLogicType } from './itemSelectModalLogicType'
 

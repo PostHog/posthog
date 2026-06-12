@@ -11,7 +11,7 @@ import { dataColorThemesLogic } from 'scenes/settings/environment/dataColorTheme
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardMode } from '~/types'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'

@@ -6,8 +6,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'

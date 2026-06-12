@@ -12,7 +12,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { debounce } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AttributionMode } from '~/queries/schema/schema-general'
+import { AttributionMode } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {

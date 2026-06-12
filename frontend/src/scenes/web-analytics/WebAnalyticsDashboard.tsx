@@ -53,8 +53,8 @@ import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
 import { useWebTileOpenInsight, useWebTileOverflowMenuItems } from 'scenes/web-analytics/webTileHeaderHooks'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
+import { ProductIntentContext, ProductKey, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'

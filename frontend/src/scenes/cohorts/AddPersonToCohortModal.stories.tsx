@@ -3,7 +3,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { PersonSelectList } from './PersonSelectList'
 

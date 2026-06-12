@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { HogQLEditor } from '../HogQLEditor/HogQLEditor'
 

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { DataTableNode, HogQLQueryResponse, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQueryResponse, InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyMathType } from '~/types'
 
 import type { mcpAnalyticsToolDetailLogicType } from './mcpAnalyticsToolDetailLogicType'

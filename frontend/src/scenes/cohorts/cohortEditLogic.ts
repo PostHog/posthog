@@ -45,9 +45,9 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode } from '~/queries/utils'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode } from '@posthog/query-frontend/utils'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,

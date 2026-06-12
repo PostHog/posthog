@@ -1,8 +1,8 @@
 import { render } from '@testing-library/react'
 
-import type { IndexedTrendResult } from 'scenes/trends/types'
+import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { CompareLabelType, EntityTypes } from '~/types'
 
 import { handleStickinessChartClick, type StickinessChartClickDeps } from './handleStickinessChartClick'

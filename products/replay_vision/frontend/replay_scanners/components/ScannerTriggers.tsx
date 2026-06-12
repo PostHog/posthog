@@ -13,7 +13,7 @@ import {
     recordingsQueryToUniversalFilters,
 } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
-import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'

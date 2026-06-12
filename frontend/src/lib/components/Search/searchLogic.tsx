@@ -20,7 +20,7 @@ import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils
 import { groupsModel } from '~/models/groupsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
-import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
+import { FileSystemEntry, GroupsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
 import { Setting, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'

@@ -12,8 +12,8 @@ import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotic
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import type { CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator, Region } from '~/types'
 

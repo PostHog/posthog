@@ -5,7 +5,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
+import { MaxErrorTrackingIssuePreview } from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 

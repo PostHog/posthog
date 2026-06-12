@@ -6,7 +6,7 @@ import { PostHogCaptureOnViewed } from '@posthog/react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 export function ProductAnalyticsOverLimitBanner(): JSX.Element | null {
     const { isProductOverUsageLimit } = useValues(billingLogic)

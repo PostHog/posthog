@@ -6,9 +6,9 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { Query } from '~/queries/Query/Query'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { QueryFeature } from '@posthog/query-frontend/nodes/DataTable/queryFeatures'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { eventsSceneLogic } from './eventsSceneLogic'

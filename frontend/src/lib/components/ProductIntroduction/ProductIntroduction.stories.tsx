@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 
 import { GraphsHog } from 'lib/components/hedgehogs'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductIntroduction, ProductIntroductionProps } from './ProductIntroduction'
 

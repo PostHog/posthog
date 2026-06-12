@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
+import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
 
 import type { dataWarehouseManagedViewsetsLogicType } from './dataWarehouseManagedViewsetsLogicType'
 import {

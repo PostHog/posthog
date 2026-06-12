@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 
-import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
+import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
 
 import { BotPropertyFilters } from './BotPropertyFilters'
 import { webAnalyticsDateMapping } from './constants'

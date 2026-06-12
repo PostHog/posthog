@@ -1,8 +1,8 @@
-import '../../../funnels/Funnel.scss'
+import '@posthog/query-frontend/nodes/FunnelsQuery/Funnel.scss'
 
 import { createContext, useContext, useMemo } from 'react'
 
-import { ExperimentMetric, ExperimentQuery, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentMetric, ExperimentQuery, NewExperimentQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import {
     ChartParams,
     Experiment,

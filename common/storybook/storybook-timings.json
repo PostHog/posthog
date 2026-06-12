@@ -224,7 +224,7 @@
         "chromium": 31.001,
         "webkit": 4.022
     },
-    "frontend/src/lib/components/Sparkline.stories.tsx": {
+    "common/visualizations/src/Sparkline/Sparkline.stories.tsx": {
         "chromium": 9.594,
         "webkit": 3.099
     },
@@ -558,27 +558,27 @@
         "chromium": 44.743,
         "webkit": 5.501
     },
-    "frontend/src/queries/nodes/DataNode/DataNode.stories.tsx": {
+    "common/query-frontend/src/nodes/DataNode/DataNode.stories.tsx": {
         "chromium": 2.514,
         "webkit": 1.922
     },
-    "frontend/src/queries/nodes/DataTable/DataTable.stories.tsx": {
+    "common/query-frontend/src/nodes/DataTable/DataTable.stories.tsx": {
         "chromium": 2.431,
         "webkit": 2.001
     },
-    "frontend/src/queries/nodes/InsightViz/EditorFilters.stories.tsx": {
+    "common/query-frontend/src/nodes/InsightViz/EditorFilters.stories.tsx": {
         "chromium": 12.197,
         "webkit": 2.915
     },
-    "frontend/src/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect.stories.tsx": {
+    "common/query-frontend/src/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect.stories.tsx": {
         "chromium": 6.218,
         "webkit": 2.95
     },
-    "frontend/src/queries/nodes/WebVitals/WebVitals.stories.tsx": {
+    "common/query-frontend/src/nodes/WebVitals/WebVitals.stories.tsx": {
         "chromium": 7.274,
         "webkit": 2.872
     },
-    "frontend/src/queries/nodes/WebVitals/WebVitalsPathBreakdown.stories.tsx": {
+    "common/query-frontend/src/nodes/WebVitals/WebVitalsPathBreakdown.stories.tsx": {
         "chromium": 6.818,
         "webkit": 2.431
     },
@@ -783,30 +783,30 @@
         "chromium": 7.013,
         "webkit": 2.422
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/BuilderPathFlowNode.stories.tsx": {
+    "common/query-frontend/src/nodes/FunnelsQuery/FunnelFlowGraph/BuilderPathFlowNode.stories.tsx": {
         "chromium": 12.861,
         "webkit": 3.337
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/BuilderStepNode.stories.tsx": {
+    "common/query-frontend/src/nodes/FunnelsQuery/FunnelFlowGraph/BuilderStepNode.stories.tsx": {
         "chromium": 20.445,
         "webkit": 3.735
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/FunnelFlowGraph.stories.tsx": {
+    "common/query-frontend/src/nodes/FunnelsQuery/FunnelFlowGraph/FunnelFlowGraph.stories.tsx": {
         "chromium": 24.984,
         "webkit": 4.554
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/JourneyFlowNode.stories.tsx": {
+    "common/query-frontend/src/nodes/FunnelsQuery/FunnelFlowGraph/JourneyFlowNode.stories.tsx": {
         "chromium": 27.25
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/PathFlowNode.stories.tsx": {
+    "common/query-frontend/src/nodes/FunnelsQuery/FunnelFlowGraph/PathFlowNode.stories.tsx": {
         "chromium": 22.951,
         "webkit": 3.734
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/ProfileFlowNode.stories.tsx": {
+    "common/query-frontend/src/nodes/FunnelsQuery/FunnelFlowGraph/ProfileFlowNode.stories.tsx": {
         "chromium": 23.103,
         "webkit": 3.642
     },
-    "frontend/src/scenes/funnels/FunnelTooltip.stories.tsx": {
+    "common/query-frontend/src/nodes/FunnelsQuery/FunnelTooltip.stories.tsx": {
         "chromium": 9.538,
         "webkit": 2.713
     },
@@ -834,11 +834,11 @@
         "chromium": 37.683,
         "webkit": 8.834
     },
-    "frontend/src/scenes/insights/EmptyStates/EmptyStates.stories.tsx": {
+    "common/query-frontend/src/nodes/InsightViz/EmptyStates/EmptyStates.stories.tsx": {
         "chromium": 58.589,
         "webkit": 9.306
     },
-    "frontend/src/scenes/insights/EmptyStates/LoadingMessages.stories.tsx": {
+    "common/query-frontend/src/nodes/InsightViz/EmptyStates/LoadingMessages.stories.tsx": {
         "chromium": 6.69,
         "webkit": 2.599
     },
@@ -850,7 +850,7 @@
         "chromium": 9.0,
         "webkit": 2.495
     },
-    "frontend/src/scenes/insights/InsightTooltip/InsightTooltip.stories.tsx": {
+    "common/visualizations/src/InsightTooltip/InsightTooltip.stories.tsx": {
         "chromium": 2.497,
         "webkit": 1.994
     },
@@ -873,11 +873,11 @@
         "chromium": 43.824,
         "webkit": 11.161
     },
-    "frontend/src/scenes/insights/filters/ActionFilter/ActionFilter.stories.tsx": {
+    "common/query-frontend/src/nodes/InsightViz/filters/ActionFilter/ActionFilter.stories.tsx": {
         "chromium": 23.548,
         "webkit": 4.37
     },
-    "frontend/src/scenes/insights/filters/BreakdownFilter/BreakdownTag.stories.tsx": {
+    "common/query-frontend/src/nodes/InsightViz/filters/BreakdownFilter/BreakdownTag.stories.tsx": {
         "chromium": 6.788,
         "webkit": 2.197
     },
@@ -899,31 +899,31 @@
         "chromium": 146.784,
         "webkit": 22.686
     },
-    "frontend/src/scenes/insights/views/BoldNumber/BoldNumber.stories.tsx": {
+    "common/visualizations/src/BoldNumber/BoldNumber.stories.tsx": {
         "chromium": 19.936,
         "webkit": 6.752
     },
-    "frontend/src/scenes/insights/views/BoldNumber/Textfit.stories.tsx": {
+    "common/visualizations/src/BoldNumber/Textfit.stories.tsx": {
         "chromium": 6.056,
         "webkit": 2.351
     },
-    "frontend/src/scenes/insights/views/Funnels/FunnelCorrelationTable.stories.tsx": {
+    "common/query-frontend/src/nodes/FunnelsQuery/views/FunnelCorrelationTable.stories.tsx": {
         "chromium": 6.703,
         "webkit": 2.518
     },
-    "frontend/src/scenes/insights/views/Funnels/FunnelPropertyCorrelationTable.stories.tsx": {
+    "common/query-frontend/src/nodes/FunnelsQuery/views/FunnelPropertyCorrelationTable.stories.tsx": {
         "chromium": 6.795,
         "webkit": 3.969
     },
-    "frontend/src/scenes/insights/views/InsightsTable/InsightsTable.stories.tsx": {
+    "common/query-frontend/src/nodes/InsightViz/views/InsightsTable/InsightsTable.stories.tsx": {
         "chromium": 24.642,
         "webkit": 4.695
     },
-    "frontend/src/scenes/insights/views/RegionMap/RegionMap.stories.tsx": {
+    "common/visualizations/src/RegionMap/RegionMap.stories.tsx": {
         "chromium": 16.128,
         "webkit": 2.653
     },
-    "frontend/src/scenes/insights/views/WorldMap/WorldMap.stories.tsx": {
+    "common/visualizations/src/WorldMap/WorldMap.stories.tsx": {
         "webkit": 2.271
     },
     "frontend/src/scenes/max/Max.stories.tsx": {
@@ -1132,7 +1132,7 @@
         "chromium": 19.031,
         "webkit": 3.888
     },
-    "frontend/src/scenes/trends/persons-modal/PersonsModal.stories.tsx": {
+    "common/query-frontend/src/persons-modal/PersonsModal.stories.tsx": {
         "chromium": 21.851,
         "webkit": 4.077
     },

@@ -10,7 +10,7 @@ import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTe
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { HogFunctionTypeType } from '~/types'
 
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'

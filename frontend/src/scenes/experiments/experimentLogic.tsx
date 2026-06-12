@@ -23,18 +23,18 @@ import {
     validateFeatureFlagKey,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '~/queries/query'
+import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '@posthog/query-frontend/query'
 import {
     AnyEntityNode,
     Breakdown,
@@ -52,8 +52,8 @@ import {
     ProductIntentContext,
     ProductKey,
     TrendsQuery,
-} from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import {
     AccessControlLevel,
     BreakdownAttributionType,

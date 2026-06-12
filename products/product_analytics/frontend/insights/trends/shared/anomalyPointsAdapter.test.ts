@@ -1,5 +1,5 @@
 import type { AnomalyPoint } from 'lib/components/Alerts/types'
-import type { IndexedTrendResult } from 'scenes/trends/types'
+import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 import { EntityTypes } from '~/types'
 

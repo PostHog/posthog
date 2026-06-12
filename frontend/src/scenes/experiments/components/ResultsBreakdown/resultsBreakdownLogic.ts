@@ -6,15 +6,15 @@ import { FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { performQuery } from '~/queries/query'
+import { performQuery } from '@posthog/query-frontend/query'
 import type {
     ExperimentEventExposureConfig,
     ExperimentMetric,
     FunnelsQuery,
     InsightVizNode,
     TrendsQuery,
-} from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind, isExperimentFunnelMetric } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
+import { ExperimentMetricType, NodeKind, isExperimentFunnelMetric } from '@posthog/query-frontend/schema/schema-general'
 import {
     addExposureToMetric,
     compose,

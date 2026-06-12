@@ -20,7 +20,7 @@ import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQueryString, hogql } from '~/queries/utils'
+import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { logsViewerLogicType } from './logsViewerLogicType'

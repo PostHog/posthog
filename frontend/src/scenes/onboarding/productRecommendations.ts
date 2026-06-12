@@ -1,4 +1,4 @@
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 export type UseCaseOption =
     | 'see_user_behavior'

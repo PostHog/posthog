@@ -2,7 +2,7 @@ import { ExperimentsSDKInstructions } from 'scenes/onboarding/sdks/experiments/E
 import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 // `completeRedirectUrl` intentionally omitted: experiments falls through to

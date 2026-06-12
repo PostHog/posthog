@@ -11,7 +11,7 @@ import { isNotNil } from 'lib/utils'
 import { DEFAULT_CURRENCY, getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { InfinityValue, MarketingAnalyticsItem, WebAnalyticsItemKind } from '~/queries/schema/schema-general'
+import { InfinityValue, MarketingAnalyticsItem, WebAnalyticsItemKind } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 // Simple mapping for the display mode options and their icons

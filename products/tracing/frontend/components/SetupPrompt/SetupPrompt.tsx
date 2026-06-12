@@ -13,7 +13,7 @@ import nodejsImage from 'scenes/onboarding/sdks/logos/nodejs.svg'
 import pythonImage from 'scenes/onboarding/sdks/logos/python.svg'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { tracingIngestionLogic } from './tracingIngestionLogic'
 

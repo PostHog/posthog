@@ -6,7 +6,7 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic as globalTeamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
 import type { globalSetupLogicType } from './globalSetupLogicType'

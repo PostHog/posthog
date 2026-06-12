@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import { syncSearchParams, updateSearchParams } from '../../utils'
 import type { breakdownFiltersLogicType } from './breakdownFiltersLogicType'

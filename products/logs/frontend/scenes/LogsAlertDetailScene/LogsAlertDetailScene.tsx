@@ -11,7 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LogSeverityLevel } from '~/queries/schema/schema-general'
+import { LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { LogsAlertEventHistoryContent } from 'products/logs/frontend/components/LogsAlerting/LogsAlertEventHistory'

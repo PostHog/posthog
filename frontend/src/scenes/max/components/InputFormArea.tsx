@@ -9,7 +9,7 @@ import {
     DangerousOperationResponse,
     MultiQuestionForm,
     MultiQuestionFormQuestion,
-} from '~/queries/schema/schema-assistant-messages'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { MarkdownMessage } from '../MarkdownMessage'
 import { maxThreadLogic } from '../maxThreadLogic'

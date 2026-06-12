@@ -63,7 +63,7 @@ rules:
               - '/frontend/src/lib/readOnlyGuard.ts'
               - '/frontend/src/models/dashboardsModel.tsx'
               - '/frontend/src/models/propertyDefinitionsModel.ts'
-              - '/frontend/src/queries/nodes/DataNode/dataNodeLogic.ts'
+              - '/common/query-frontend/src/nodes/DataNode/dataNodeLogic.ts'
               - '/frontend/src/scenes/approvals/approvalLogic.tsx'
               - '/frontend/src/scenes/approvals/approvalsLogic.tsx'
               - '/frontend/src/scenes/approvals/changeRequestsLogic.ts'

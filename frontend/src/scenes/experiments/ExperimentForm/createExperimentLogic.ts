@@ -12,13 +12,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { isExperimentMetric } from '~/queries/schema-guards'
+import { isExperimentMetric } from '@posthog/query-frontend/schema-guards'
 import {
     ExperimentExposureCriteria,
     ExperimentMetric,
     ProductIntentContext,
     ProductKey,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'

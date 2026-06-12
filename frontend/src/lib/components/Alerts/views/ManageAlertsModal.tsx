@@ -11,7 +11,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertState, InsightThresholdType } from '@posthog/query-frontend/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import { InsightAlertsLogicProps, insightAlertsLogic } from '../insightAlertsLogic'

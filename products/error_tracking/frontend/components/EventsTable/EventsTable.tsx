@@ -15,7 +15,7 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { EventsQuery } from '~/queries/schema/schema-general'
+import { EventsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { cancelEvent } from '../../utils'

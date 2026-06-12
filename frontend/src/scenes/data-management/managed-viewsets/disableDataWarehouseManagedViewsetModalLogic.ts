@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
+import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseManagedViewsetSavedQuery } from '~/types'
 
 import type { disableDataWarehouseManagedViewsetModalLogicType } from './disableDataWarehouseManagedViewsetModalLogicType'

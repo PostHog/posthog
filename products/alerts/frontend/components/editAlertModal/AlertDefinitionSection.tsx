@@ -18,7 +18,7 @@ import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils'
 
-import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertConditionType, InsightThresholdType } from '@posthog/query-frontend/schema/schema-general'
 
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 

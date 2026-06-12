@@ -1,7 +1,7 @@
 import { urls } from 'scenes/urls'
 
 import { AvailableSetupTaskIdsEnumApi as SetupTaskId } from '~/generated/core/api.schemas'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey, ReplayTabs } from '~/types'
 
 import type { ProductSetupConfig, SetupTask } from './types'

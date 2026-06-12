@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MarkdownOutline } from 'products/ai_observability/frontend/components/MarkdownOutline'

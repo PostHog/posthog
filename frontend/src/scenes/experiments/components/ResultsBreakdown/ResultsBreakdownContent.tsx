@@ -7,7 +7,7 @@ import {
     CachedNewExperimentQueryResponse,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { FunnelStep } from '~/types'
 
 import { resultsBreakdownLogic } from './resultsBreakdownLogic'

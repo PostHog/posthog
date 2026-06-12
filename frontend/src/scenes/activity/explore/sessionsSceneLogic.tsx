@@ -14,7 +14,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, Node } from '~/queries/schema/schema-general'
+import { DataTableNode, Node } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { sessionsSceneLogicType } from './sessionsSceneLogicType'

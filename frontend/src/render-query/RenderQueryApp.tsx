@@ -4,9 +4,9 @@ import { useEffect, useState } from 'react'
 
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 
-import { Query } from '~/queries/Query/Query'
-import { AnyResponseType, Node } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { AnyResponseType, Node } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import { DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 interface RenderQueryExternalPayload {

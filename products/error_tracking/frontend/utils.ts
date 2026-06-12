@@ -8,7 +8,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringDateRegex } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { DateRange, ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 export const ERROR_TRACKING_LISTING_RESOLUTION = 20

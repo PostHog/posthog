@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
+import { WebAnalyticsOrderByFields } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductTab } from './common'
 

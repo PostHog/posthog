@@ -2,7 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers } from 
 
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import type { aiObservabilitySessionFeedbackLogicType } from './aiObservabilitySessionFeedbackLogicType'
 

@@ -4,8 +4,8 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 const DATE_RANGE_LABELS: Record<string, string> = {

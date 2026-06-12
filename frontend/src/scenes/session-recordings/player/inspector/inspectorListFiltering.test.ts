@@ -15,7 +15,7 @@ import {
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { LogSeverityLevel } from '~/queries/schema/schema-general'
+import { LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 import { PerformanceEvent } from '~/types'
 
 describe('filtering inspector list items', () => {

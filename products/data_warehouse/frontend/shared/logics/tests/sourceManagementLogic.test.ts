@@ -3,15 +3,15 @@ import { expectLogic } from 'kea-test-utils'
 import api, { PaginatedResponse } from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { performQuery } from '~/queries/query'
-import { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
+import { performQuery } from '@posthog/query-frontend/query'
+import { DatabaseSchemaQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
 import { sourceManagementLogic } from '../sourceManagementLogic'
 
 jest.mock('lib/api')
-jest.mock('~/queries/query')
+jest.mock('@posthog/query-frontend/query')
 
 describe('sourceManagementLogic', () => {
     let logic: ReturnType<typeof sourceManagementLogic.build>

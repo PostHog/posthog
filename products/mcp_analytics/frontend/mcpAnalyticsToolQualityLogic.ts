@@ -3,9 +3,9 @@ import { loaders } from 'kea-loaders'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { hogqlQuery } from '~/queries/query'
-import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { hogqlQuery } from '@posthog/query-frontend/query'
+import { DataTableNode, InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 import {
     type AnyPropertyFilter,
     BaseMathType,

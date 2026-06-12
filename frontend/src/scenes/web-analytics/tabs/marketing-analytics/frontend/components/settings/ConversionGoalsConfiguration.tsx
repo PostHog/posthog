@@ -11,7 +11,7 @@ import { uuid } from 'lib/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
+import { ConversionGoalFilter, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'

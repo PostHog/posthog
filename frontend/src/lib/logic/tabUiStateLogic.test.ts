@@ -1,12 +1,12 @@
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 
-import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { dataTableLogic } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import { initKeaTests } from '~/test/init'
 
-jest.mock('~/queries/query')
+jest.mock('@posthog/query-frontend/query')
 
 const VIZ_KEY = 'tab-ui-state-test'
 const TAB_A = 'tab-a'

@@ -2,7 +2,7 @@ import {
     ErrorTrackingIssueAssignee,
     ErrorTrackingIssueStatus,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 export interface IssueStateDelta {
     status?: ErrorTrackingIssueStatus

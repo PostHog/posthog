@@ -1,13 +1,13 @@
 import { useValues } from 'kea'
 
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
-import { isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DataTableNode, InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
+import { isWebOverviewQuery, isWebStatsTableQuery } from '@posthog/query-frontend/utils'
 
 import { insightLogic } from '../insights/insightLogic'
-import { insightVizDataLogic } from '../insights/insightVizDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { webAnalyticsDataTableQueryContext } from './tiles/WebAnalyticsTile'
 
 export interface WebAnalyticsInsightProps {

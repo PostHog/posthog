@@ -31,8 +31,8 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { Query } from '~/queries/Query/Query'
-import { DateRange, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DateRange, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     ActivityScope,
     FeatureFlagFilters,

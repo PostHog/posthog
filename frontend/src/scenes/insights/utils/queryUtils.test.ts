@@ -1,4 +1,4 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     filterVariablesReferencedInQuery,

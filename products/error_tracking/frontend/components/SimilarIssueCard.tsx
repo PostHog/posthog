@@ -8,8 +8,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { SimilarIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
+import { SimilarIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { StatusIndicator } from './Indicators'
 import { RuntimeIcon } from './RuntimeIcon'

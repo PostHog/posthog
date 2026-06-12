@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 
-import { Chart } from 'lib/Chart'
+import { Chart } from '@posthog/visualizations/Chart'
 
 import { GraphDataset } from '~/types'
 

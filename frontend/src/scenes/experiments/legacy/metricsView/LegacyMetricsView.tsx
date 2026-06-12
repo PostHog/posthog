@@ -5,7 +5,7 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     legacyCredibleIntervalForVariant,
     LegacyDeltaChart,

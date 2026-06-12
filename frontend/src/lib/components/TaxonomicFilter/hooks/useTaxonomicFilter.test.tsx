@@ -5,14 +5,14 @@ import { ReactNode } from 'react'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '~/queries/query'
+import { performQuery } from '@posthog/query-frontend/query'
 import { initKeaTests } from '~/test/init'
 
 import { TaxonomicFilterGroupType } from '../types'
 import { useTaxonomicFilter } from './useTaxonomicFilter'
 import { __clearTaxonomicResourceCache } from './useTaxonomicResource'
 
-jest.mock('~/queries/query', () => ({
+jest.mock('@posthog/query-frontend/query', () => ({
     performQuery: jest.fn(),
 }))
 

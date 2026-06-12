@@ -26,7 +26,7 @@ import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessi
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
+import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,

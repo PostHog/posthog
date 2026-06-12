@@ -7,9 +7,9 @@ import { isUUIDLike } from 'lib/utils'
 import { personsSceneLogic } from 'scenes/persons/personsSceneLogic'
 import { urls } from 'scenes/urls'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { ActorsQueryResponse } from '~/queries/schema/schema-general'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { ActorsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 interface PersonDisplayNameNudgeBannerProps {
     uniqueKey: string

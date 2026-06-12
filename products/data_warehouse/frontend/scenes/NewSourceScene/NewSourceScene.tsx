@@ -26,7 +26,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
+import { ExternalDataSourceType, SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'

@@ -158,7 +158,8 @@ jobs:
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
                         # generates posthog/schema.py
-                        - frontend/src/queries/schema.json
+                        - common/query-frontend/src/schema.json
+                        - frontend/src/queries/schema.json # old path, kept for unrebased branches
                         # Operator parity check
                         - rust/feature-flags/src/properties/property_models.rs
                         - frontend/src/products.json # Loaded at runtime by posthog/products.py
@@ -232,7 +233,8 @@ jobs:
                         # Tracked separately from `legacy` so turbo-discover can
                         # diff schema.json and narrow the product matrix to
                         # products that import the changed types.
-                        - frontend/src/queries/schema.json
+                        - common/query-frontend/src/schema.json
+                        - frontend/src/queries/schema.json # old path, kept for unrebased branches
                       migrations:
                         - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'

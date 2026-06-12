@@ -102,7 +102,7 @@ After making the necessary changes, run these commands to regenerate the auto-ge
 # After updating posthog/taxonomy/taxonomy.py
 pnpm taxonomy:build
 
-# After updating frontend/src/queries/schema/schema-general.ts
+# After updating common/query-frontend/src/schema/schema-general.ts
 pnpm schema:build
 ```
 

@@ -5,8 +5,8 @@ import {
     ArtifactContentType,
     NotebookArtifactContent,
     VisualizationArtifactContent,
-} from '~/queries/schema/schema-assistant-messages'
-import { NodeKind } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { NotebookNodeType } from '../types'
 import {

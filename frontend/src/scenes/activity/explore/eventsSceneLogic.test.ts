@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
 

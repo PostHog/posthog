@@ -6,7 +6,7 @@ import { MaxContextInput } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { Breadcrumb, DashboardBasicType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 export type RecentItem =

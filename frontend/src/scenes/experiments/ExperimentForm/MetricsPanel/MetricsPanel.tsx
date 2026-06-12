@@ -2,8 +2,8 @@ import { useActions } from 'kea'
 
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 
-import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
-import { isExperimentMetric } from '~/queries/utils'
+import type { ExperimentExposureCriteria, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+import { isExperimentMetric } from '@posthog/query-frontend/utils'
 import { ExposureCriteriaModal } from '~/scenes/experiments/ExperimentView/ExposureCriteria'
 import { ExperimentMetricModal } from '~/scenes/experiments/Metrics/ExperimentMetricModal'
 import {

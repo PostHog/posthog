@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, props, selectors } 
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { ChartDataset as ChartJsDataset } from 'lib/Chart'
+import { ChartDataset as ChartJsDataset } from '@posthog/visualizations/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { hexToRGBA, pluralize } from 'lib/utils'
@@ -15,7 +15,7 @@ import {
     ExperimentQueryResponse,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'

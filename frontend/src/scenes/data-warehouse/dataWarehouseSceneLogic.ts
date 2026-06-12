@@ -9,7 +9,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaDataWarehouseTable } from '@posthog/query-frontend/schema/schema-general'
 import {
     BillingProductV2Type,
     DataWarehouseActivityRecord,

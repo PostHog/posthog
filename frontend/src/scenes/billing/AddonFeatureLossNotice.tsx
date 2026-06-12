@@ -6,7 +6,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'

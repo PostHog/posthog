@@ -2,7 +2,7 @@ import { render } from '@testing-library/react'
 
 import { ActivityChange, ChangeMapping, Description } from 'lib/components/ActivityLog/humanizeActivity'
 
-import { ActionsNode, CustomerAnalyticsConfig, EventsNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActionsNode, CustomerAnalyticsConfig, EventsNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { customerAnalyticsConfigurationDescriber } from './customerAnalyticsConfigurationDescriber'

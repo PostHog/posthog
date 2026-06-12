@@ -1,4 +1,4 @@
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { getExecutedQueryTabLabel } from './QueryTabs'
 

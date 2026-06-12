@@ -23,7 +23,7 @@ import {
     CustomChannelOperator,
     CustomChannelRule,
     DefaultChannelTypes,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 const combinerOptions = [

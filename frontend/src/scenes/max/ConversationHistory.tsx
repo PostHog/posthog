@@ -8,7 +8,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 import { openDeleteConversationDialog } from './conversationDialogs'

@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 
 import { TablePreview, TablePreviewProps } from './TablePreview'
 

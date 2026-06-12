@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { rulesLogic } from '../rules/rulesLogic'

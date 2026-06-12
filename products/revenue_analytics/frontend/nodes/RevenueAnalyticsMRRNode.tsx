@@ -7,15 +7,15 @@ import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption } from '@
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMRRQueryResponse,
-} from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'

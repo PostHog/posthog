@@ -10,7 +10,7 @@ import {
     DataWarehouseNode,
     EventsNode,
     GroupNode,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 import type { customerAnalyticsConfigLogicType } from './customerAnalyticsConfigLogicType'
 

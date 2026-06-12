@@ -4,7 +4,7 @@ import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'
 
 import { ExceptionVolumeBucket, getBucketOption } from './rateLimitConfigLogic'

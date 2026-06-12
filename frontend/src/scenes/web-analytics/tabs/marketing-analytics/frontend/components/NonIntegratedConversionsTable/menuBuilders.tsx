@@ -3,7 +3,7 @@ import { IconChevronRight, IconTrash } from '@posthog/icons'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
-import { NativeMarketingSource } from '~/queries/schema/schema-general'
+import { NativeMarketingSource } from '@posthog/query-frontend/schema/schema-general'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 

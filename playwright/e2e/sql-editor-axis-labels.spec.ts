@@ -1,6 +1,6 @@
 import { Page } from '@playwright/test'
 
-import { NodeKind } from '../../frontend/src/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType, InsightShortId } from '../../frontend/src/types'
 import { expect, test, PlaywrightWorkspaceSetupResult } from '../utils/workspace-test-base'
 

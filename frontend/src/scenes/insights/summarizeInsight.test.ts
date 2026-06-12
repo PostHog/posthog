@@ -7,7 +7,7 @@ import {
     MathCategory,
     MathDefinition,
     PROPERTY_MATH_DEFINITIONS,
-} from 'scenes/trends/mathsLogic'
+} from '@posthog/query-frontend/shared/mathsLogic'
 
 import { Noun } from '~/models/groupsModel'
 import {
@@ -20,7 +20,7 @@ import {
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     BaseMathType,
     CohortType,

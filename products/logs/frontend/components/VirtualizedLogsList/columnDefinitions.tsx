@@ -9,7 +9,7 @@ import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
-import { LogMessage } from '~/queries/schema/schema-general'
+import { LogMessage } from '@posthog/query-frontend/schema/schema-general'
 
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'

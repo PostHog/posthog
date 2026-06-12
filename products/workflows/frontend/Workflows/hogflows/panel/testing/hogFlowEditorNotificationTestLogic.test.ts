@@ -7,8 +7,8 @@ import { CyclotronJobInvocationGlobals } from '~/types'
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
 
-jest.mock('~/queries/query', () => {
-    const actual = jest.requireActual('~/queries/query')
+jest.mock('@posthog/query-frontend/query', () => {
+    const actual = jest.requireActual('@posthog/query-frontend/query')
     return {
         ...actual,
         performQuery: jest.fn().mockResolvedValue({ results: [] }),

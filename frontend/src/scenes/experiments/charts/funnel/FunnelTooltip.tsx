@@ -6,10 +6,10 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { ClickToInspectActors } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
+import { useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
-import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
+import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 

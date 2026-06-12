@@ -30,7 +30,7 @@ const shimmedModules = {
 // Modules replaced with an inert proxy that logs access in debug mode
 const deniedPaths = [
     '~/lib/hooks/useUploadFiles',
-    '~/queries/nodes/InsightViz/InsightViz',
+    '@posthog/query-frontend/nodes/InsightViz/InsightViz',
     'lib/hog',
     'lib/api',
     'scenes/activity/explore/EventDetails',
@@ -40,12 +40,12 @@ const deniedPaths = [
 
 const deniedPatterns = [
     /monaco/,
-    /scenes\/insights\/filters\/ActionFilter/,
+    /InsightViz\/filters\/ActionFilter/,
     /lib\/components\/CodeSnippet/,
     /scenes\/session-recordings\/player/,
-    /queries\/schema-guard/,
-    /queries\/schema.json/,
-    /queries\/QueryEditor\/QueryEditor/,
+    /query-frontend\/schema-guard/,
+    /query-frontend\/schema\.json/,
+    /QueryEditor\/QueryEditor/,
     /scenes\/billing/,
     /scenes\/data-warehouse/,
     /LineGraph/,

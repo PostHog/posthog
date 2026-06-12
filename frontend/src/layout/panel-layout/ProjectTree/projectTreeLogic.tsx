@@ -11,7 +11,7 @@ import { LemonTreeSelectMode, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonT
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'

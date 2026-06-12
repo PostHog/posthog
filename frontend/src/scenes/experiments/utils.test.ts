@@ -14,7 +14,7 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
     ProductKey,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     Experiment,

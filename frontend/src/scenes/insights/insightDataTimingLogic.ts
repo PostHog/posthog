@@ -3,12 +3,12 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import { InsightLogicProps } from '~/types'
 
 import type { insightDataTimingLogicType } from './insightDataTimingLogicType'
-import { keyForInsightLogicProps } from './sharedUtils'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 
 export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
     props({} as InsightLogicProps),

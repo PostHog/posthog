@@ -7,7 +7,7 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab, Experiment, InsightType, MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'

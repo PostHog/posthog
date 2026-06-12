@@ -5,15 +5,15 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
-import { retentionModalLogic } from 'scenes/retention/retentionModalLogic'
+import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
+import { retentionGraphLogic } from '@posthog/query-frontend/nodes/RetentionQuery/retentionGraphLogic'
+import { retentionModalLogic } from '@posthog/query-frontend/nodes/RetentionQuery/retentionModalLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import type { GoalLine } from '~/queries/schema/schema-general'
+import type { GoalLine } from '@posthog/query-frontend/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
 import {

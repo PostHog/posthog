@@ -1,11 +1,11 @@
 import annotationPlugin from 'chartjs-plugin-annotation'
 import { useMemo } from 'react'
 
-import { Chart } from 'lib/Chart'
+import { Chart } from '@posthog/visualizations/Chart'
 import { useChart } from 'lib/hooks/useChart'
 import { humanFriendlyNumber, pluralize } from 'lib/utils'
 
-import { InsightThresholdType } from '~/queries/schema/schema-general'
+import { InsightThresholdType } from '@posthog/query-frontend/schema/schema-general'
 
 import type { AlertHistoryChartPoint } from '../alertLogic'
 import type { AlertType } from '../types'

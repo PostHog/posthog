@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, PaginatedResponse } from 'lib/api'
 
-import { HogQLQuery } from '~/queries/schema/schema-general'
+import { HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseSavedQueryDraft } from '~/types'
 
 import type { draftsLogicType } from './draftsLogicType'

@@ -13,8 +13,8 @@ import { addProductIntent, addProductIntentForCrossSell } from 'lib/utils/produc
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import {
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -22,7 +22,7 @@ import {
     ProductIntentContext,
     ProductKey,
     QuerySchema,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from '../constants'

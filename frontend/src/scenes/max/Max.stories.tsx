@@ -20,16 +20,16 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import {
     MaxErrorTrackingIssuePreview,
     MaxErrorTrackingSearchResponse,
-} from '~/queries/schema/schema-assistant-error-tracking'
+} from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
 import {
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
     MultiQuestionFormQuestion,
     MultiVisualizationMessage,
-} from '~/queries/schema/schema-assistant-messages'
-import { ArtifactContentType, NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
-import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { ArtifactContentType, NotebookArtifactContent } from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { FunnelsQuery, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { recordings } from '~/scenes/session-recordings/__mocks__/recordings'
 import { FilterLogicalOperator, InsightShortId, PendingApproval, PropertyFilterType, PropertyOperator } from '~/types'
 

@@ -1,4 +1,4 @@
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaDataWarehouseTable } from '@posthog/query-frontend/schema/schema-general'
 
 export type DataWarehouseTableForInsight = DatabaseSchemaDataWarehouseTable & {
     id_field?: string

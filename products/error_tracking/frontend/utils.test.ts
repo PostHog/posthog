@@ -1,6 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '@posthog/query-frontend/schema/schema-general'
 
 import { generateDateRangeLabel, mergeIssues, sourceDisplay } from './utils'
 

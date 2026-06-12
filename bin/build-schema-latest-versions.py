@@ -12,7 +12,7 @@ from posthog.utils import to_json
 # Ensure migrations are discovered before accessing LATEST_VERSIONS
 _discover_migrations()
 
-filename = "frontend/src/queries/latest-versions.json"
+filename = "common/query-frontend/src/latest-versions.json"
 
 # Make LATEST_VERSIONS accessible frontend-side
 with open(filename, "wb") as f:

@@ -8,7 +8,7 @@ import { FilterBar } from 'lib/components/FilterBar'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
 
-import { EndpointsUsageBreakdown } from '~/queries/schema/schema-general'
+import { EndpointsUsageBreakdown } from '@posthog/query-frontend/schema/schema-general'
 import { IntervalType } from '~/types'
 import { DateMappingOption } from '~/types'
 

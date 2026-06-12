@@ -7,14 +7,14 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 
-import { isSessionPropertyFilters } from '~/queries/schema-guards'
+import { isSessionPropertyFilters } from '@posthog/query-frontend/schema-guards'
 import {
     DataTableNode,
     DateRange,
     NodeKind,
     SessionAttributionExplorerQuery,
     SessionAttributionGroupBy,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb, SessionPropertyFilter } from '~/types'
 
 import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'

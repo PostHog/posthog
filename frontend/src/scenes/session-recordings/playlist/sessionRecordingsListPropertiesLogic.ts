@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
-import { hogql } from '~/queries/utils'
+import { hogql } from '@posthog/query-frontend/utils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
 

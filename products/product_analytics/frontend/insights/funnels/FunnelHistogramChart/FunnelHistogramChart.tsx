@@ -5,11 +5,11 @@ import { useMemo, type ErrorInfo } from 'react'
 import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
 import { humanFriendlyNumber } from 'lib/utils'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 

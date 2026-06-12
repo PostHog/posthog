@@ -4,7 +4,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
 
 import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { CurrencyDropdown } from './CurrencyDropdown'

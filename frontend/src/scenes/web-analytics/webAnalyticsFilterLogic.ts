@@ -4,7 +4,7 @@ import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/Au
 import { isNotNil } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { CompareFilter, WebAnalyticsPropertyFilter, WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
+import { CompareFilter, WebAnalyticsPropertyFilter, WebAnalyticsPropertyFilters } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterBaseValue, PropertyFilterType, PropertyOperator, WebAnalyticsFiltersConfig } from '~/types'
 
 import { DeviceType, INITIAL_WEB_ANALYTICS_FILTER } from './common'

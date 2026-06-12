@@ -23,7 +23,7 @@ jest.mock('../notebookNodeLogic', () => ({
     notebookNodeLogic: { __mock: 'notebookNodeLogic' },
 }))
 
-jest.mock('~/queries/utils', () => ({
+jest.mock('@posthog/query-frontend/utils', () => ({
     isHogQLQuery: jest.fn(() => false),
 }))
 

@@ -12,7 +12,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookListItemType } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'

@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
-import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnyPropertyFilter,
     BaseMathType,

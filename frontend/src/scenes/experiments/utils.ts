@@ -4,7 +4,7 @@ import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
     AnyDataWarehouseNode,
@@ -27,8 +27,8 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
-} from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '@posthog/query-frontend/utils'
 import {
     ChartDisplayType,
     Experiment,

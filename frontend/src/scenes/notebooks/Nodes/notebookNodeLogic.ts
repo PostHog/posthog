@@ -22,7 +22,7 @@ import { hashCodeForString } from 'lib/utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
-import { isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+import { isHogQLQuery, isNodeWithSource } from '@posthog/query-frontend/utils'
 
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {

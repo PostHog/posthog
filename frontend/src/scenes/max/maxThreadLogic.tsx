@@ -53,7 +53,7 @@ import {
     RootAssistantMessage,
     SubagentUpdateEvent,
     TaskExecutionStatus,
-} from '~/queries/schema/schema-assistant-messages'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
 import {
     Conversation,
     ConversationDetail,

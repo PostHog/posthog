@@ -16,7 +16,7 @@ import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogi
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
 
-import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { AndOrFilterSelect } from '@posthog/query-frontend/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element {
     const { cohort } = useValues(cohortEditLogic)

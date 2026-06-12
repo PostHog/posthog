@@ -1,4 +1,4 @@
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import {

@@ -61,7 +61,7 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { SavedInsightsEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { projectLogic } from 'scenes/projectLogic'
@@ -73,8 +73,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
+import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { isNodeWithSource } from '@posthog/query-frontend/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

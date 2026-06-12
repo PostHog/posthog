@@ -33,7 +33,7 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
-import { LogMessage, RecordingsQuery } from '~/queries/schema/schema-general'
+import { LogMessage, RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     CommentType,

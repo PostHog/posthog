@@ -5,7 +5,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '@posthog/query-frontend/schema/schema-general'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './AssigneeDisplay'
 import { Assignee, assigneeSelectLogic } from './assigneeSelectLogic'

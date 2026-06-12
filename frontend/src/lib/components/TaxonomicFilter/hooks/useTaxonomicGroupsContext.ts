@@ -30,7 +30,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyDataNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
+import { AnyDataNode, DatabaseSchemaField, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 

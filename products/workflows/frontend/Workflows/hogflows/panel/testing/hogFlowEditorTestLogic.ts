@@ -12,8 +12,8 @@ import { uuid } from 'lib/utils'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
+import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier, hogql } from '@posthog/query-frontend/utils'
 import {
     AnyPropertyFilter,
     CyclotronJobInvocationGlobals,

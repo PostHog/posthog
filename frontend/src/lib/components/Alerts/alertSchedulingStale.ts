@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
 
 import type { ScheduleRestriction } from './types'
 

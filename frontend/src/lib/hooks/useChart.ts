@@ -1,6 +1,6 @@
 import { DependencyList, useEffect, useRef } from 'react'
 
-import { Chart, ChartConfiguration, ChartType } from 'lib/Chart'
+import { Chart, ChartConfiguration, ChartType } from '@posthog/visualizations/Chart'
 
 interface UseChartOptions<TType extends ChartType> {
     /** Function that builds the chart configuration. Called when deps change. */

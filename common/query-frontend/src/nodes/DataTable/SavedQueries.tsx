@@ -1,0 +1,68 @@
+import equal from 'fast-deep-equal'
+import { useValues } from 'kea'
+
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { getEventsQueriesForTeam } from '@posthog/query-frontend/nodes/DataTable/defaultEventsQuery'
+import { DataTableNode, EventsQuery } from '@posthog/query-frontend/schema/schema-general'
+
+interface SavedQueriesProps {
+    query: DataTableNode
+    setQuery?: (query: DataTableNode) => void
+}
+
+export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+
+    if (!setQuery || !currentTeam) {
+        return null
+    }
+
+    const eventsQueries = getEventsQueriesForTeam(currentTeam)
+    const { filterTestAccounts, ...sourceForComparison } = query.source as EventsQuery
+    let selectedTitle = Object.keys(eventsQueries).find((key) => equal(eventsQueries[key], sourceForComparison))
+
+    if (!selectedTitle) {
+        // is there any query that only changed the dates
+        selectedTitle = Object.keys(eventsQueries).find((key) => {
+            return equal(
+                { ...eventsQueries[key], before: '', after: '' },
+                { ...sourceForComparison, before: '', after: '' }
+            )
+        })
+    }
+    if (!selectedTitle) {
+        selectedTitle = 'Custom query'
+    }
+
+    return (
+        <LemonButtonWithDropdown
+            dropdown={{
+                matchWidth: false,
+                overlay: Object.entries(eventsQueries).map(([title, eventsQuery]) => (
+                    <LemonButton
+                        key={title}
+                        fullWidth
+                        active={title === selectedTitle}
+                        onClick={() =>
+                            setQuery?.({
+                                ...query,
+                                source:
+                                    filterTestAccounts !== undefined
+                                        ? { ...eventsQuery, filterTestAccounts }
+                                        : eventsQuery,
+                            })
+                        }
+                    >
+                        {title}
+                    </LemonButton>
+                )),
+            }}
+            size="small"
+            type="secondary"
+        >
+            {selectedTitle}
+        </LemonButtonWithDropdown>
+    )
+}

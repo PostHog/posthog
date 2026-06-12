@@ -16,7 +16,7 @@
         "common/plugin_transpiler/dist",
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
-        "frontend/src/queries/validators.js",
+        "common/query-frontend/src/validators.js",
         "frontend/src/generated/**",
         "services/mcp/**/generated.ts",
         "services/mcp/schema/tool-inputs.json",
@@ -99,8 +99,8 @@
                         "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
                     },
                     {
-                        "name": "~/queries/schema",
-                        "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                        "name": "@posthog/query-frontend/schema",
+                        "message": "Import from '@posthog/query-frontend/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
                     },
                     {
                         "name": "monaco-editor",
@@ -235,8 +235,8 @@
                                 "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
                             },
                             {
-                                "name": "~/queries/schema",
-                                "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                                "name": "@posthog/query-frontend/schema",
+                                "message": "Import from '@posthog/query-frontend/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
                             }
                         ]
                     }

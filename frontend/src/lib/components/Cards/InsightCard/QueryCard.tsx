@@ -8,9 +8,9 @@ import { urls } from 'scenes/urls'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { Query } from '~/queries/Query/Query'
-import { Node } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { Node } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import { InsightSceneSource } from '~/types'
 
 import { InsightCardProps } from './InsightCard'

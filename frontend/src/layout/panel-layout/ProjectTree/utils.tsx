@@ -5,7 +5,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { getCustomIcon } from './customIconRegistry'

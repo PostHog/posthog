@@ -1,6 +1,6 @@
 import { BindLogic, useValues } from 'kea'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'

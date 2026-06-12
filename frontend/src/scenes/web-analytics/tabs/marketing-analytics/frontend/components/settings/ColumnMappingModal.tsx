@@ -15,8 +15,8 @@ import {
     NativeMarketingSource,
     SourceMap,
     VALID_NATIVE_MARKETING_SOURCES,
-} from '~/queries/schema/schema-general'
-import type { MarketingAnalyticsSchemaFieldTypes } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
+import type { MarketingAnalyticsSchemaFieldTypes } from '@posthog/query-frontend/schema/schema-general'
 
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'

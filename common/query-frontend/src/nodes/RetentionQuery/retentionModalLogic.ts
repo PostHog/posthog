@@ -1,0 +1,182 @@
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { retentionToActorsQuery } from '@posthog/query-frontend/nodes/RetentionQuery/queries'
+import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
+import {
+    ActorsQuery,
+    DataTableNode,
+    InsightActorsQuery,
+    NodeKind,
+    RetentionQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '@posthog/query-frontend/utils'
+import { InsightLogicProps } from '~/types'
+
+import type { retentionModalLogicType } from './retentionModalLogicType'
+import { retentionPeopleLogic } from './retentionPeopleLogic'
+
+const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
+
+export const retentionModalLogic = kea<retentionModalLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
+    path((key) => ['scenes', 'retention', 'retentionModalLogic', key]),
+    connect((props: InsightLogicProps) => ({
+        values: [
+            insightVizDataLogic(props),
+            ['querySource', 'retentionFilter', 'theme'],
+            groupsModel,
+            ['aggregationLabel'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
+        actions: [retentionPeopleLogic(props), ['loadPeople']],
+    })),
+    actions(() => ({
+        openModal: (rowIndex: number, breakdownValue?: string | number | null) => ({ rowIndex, breakdownValue }),
+        closeModal: true,
+        saveAsCohort: (cohortName: string) => ({ cohortName }),
+        setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
+    })),
+    reducers({
+        selectedInterval: [
+            null as number | null,
+            {
+                openModal: (_, { rowIndex }: { rowIndex: number; breakdownValue?: string | number | null }) => rowIndex,
+                closeModal: () => null,
+            },
+        ],
+        selectedBreakdownValue: [
+            null as string | number | null,
+            {
+                openModal: (_, { breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) =>
+                    breakdownValue ?? null,
+                closeModal: () => null,
+            },
+        ],
+        isCohortModalOpen: [
+            false,
+            {
+                setIsCohortModalOpen: (_, { isOpen }) => isOpen,
+                closeModal: () => false,
+            },
+        ],
+    }),
+    selectors({
+        aggregationTargetLabel: [
+            (s) => [s.querySource, s.aggregationLabel],
+            (querySource, aggregationLabel): Noun => {
+                const aggregation_group_type_index =
+                    isLifecycleQuery(querySource) || isStickinessQuery(querySource)
+                        ? undefined
+                        : querySource?.aggregation_group_type_index
+                return aggregationLabel(aggregation_group_type_index)
+            },
+        ],
+        actorsQuery: [
+            (s) => [s.querySource, s.selectedInterval, s.selectedBreakdownValue],
+            (
+                querySource: RetentionQuery,
+                selectedInterval: number | null,
+                selectedBreakdownValue: string | number | null
+            ): ActorsQuery | null => {
+                if (!querySource) {
+                    return null
+                }
+                return retentionToActorsQuery(querySource, selectedInterval ?? 0, 0, selectedBreakdownValue)
+            },
+        ],
+        insightEventsQueryUrl: [
+            (s) => [s.actorsQuery],
+            (actorsQuery): string | null => {
+                if (!actorsQuery) {
+                    return null
+                }
+
+                // Generate insight events query from actors query
+                const { select: _select, ...source } = actorsQuery
+
+                const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
+
+                // Extract event name from the RetentionQuery
+                // interval 0 = targetEntity (initial cohort), interval > 0 = returningEntity
+                const retentionQuery = insightActorsQuery.source as RetentionQuery
+                const interval = insightActorsQuery.interval ?? 0
+                const entity =
+                    interval === 0
+                        ? retentionQuery.retentionFilter?.targetEntity
+                        : retentionQuery.retentionFilter?.returningEntity
+
+                const eventName = entity?.type === 'events' && entity?.id ? String(entity.id) : undefined
+
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        source: insightActorsQuery,
+                        select: ['*', 'event', 'person', 'timestamp'],
+                        // Show all events by default because date range is filtered by the source
+                        after: 'all',
+                        event: eventName,
+                    },
+                    full: true,
+                }
+
+                return urls.insightNew({ query })
+            },
+        ],
+        exploreUrl: [
+            (s) => [s.actorsQuery],
+            (actorsQuery: ActorsQuery): string | null => {
+                if (!actorsQuery) {
+                    return null
+                }
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source: actorsQuery,
+                    full: true,
+                }
+                if (
+                    isInsightActorsQuery(actorsQuery.source) &&
+                    isRetentionQuery(actorsQuery.source.source) &&
+                    actorsQuery.source.source.aggregation_group_type_index != null
+                ) {
+                    query.showPropertyFilter = false
+                }
+
+                return urls.insightNew({ query })
+            },
+        ],
+    }),
+    listeners(({ actions, values }) => ({
+        openModal: ({ rowIndex, breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) => {
+            actions.loadPeople(rowIndex, breakdownValue)
+        },
+        saveAsCohort: async ({ cohortName }) => {
+            const cohortParams = {
+                is_static: true,
+                name: cohortName,
+            }
+            const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
+            cohortsModel.actions.cohortCreated(cohort)
+            lemonToast.success('Cohort saved', {
+                toastId: `cohort-saved-${cohort.id}`,
+                button: {
+                    label: 'View cohort',
+                    action: () => router.actions.push(urls.cohort(cohort.id)),
+                },
+            })
+            actions.setIsCohortModalOpen(false)
+        },
+    })),
+])

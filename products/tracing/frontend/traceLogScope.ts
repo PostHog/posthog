@@ -4,7 +4,7 @@
 
 import { urls } from 'scenes/urls'
 
-import type { DateRange } from '~/queries/schema/schema-general'
+import type { DateRange } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, type LogPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 import type { UniversalFiltersGroup } from '~/types'
 

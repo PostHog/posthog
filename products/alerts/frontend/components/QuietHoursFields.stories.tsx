@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import type { ScheduleRestriction } from 'lib/components/Alerts/types'
 
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
 
 import type { QuietHoursFieldsProps } from './QuietHoursFields'
 import { QuietHoursFields } from './QuietHoursFields'

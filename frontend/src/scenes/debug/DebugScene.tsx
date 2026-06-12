@@ -12,7 +12,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { stringifiedExamples } from '~/queries/examples'
+import { stringifiedExamples } from '@posthog/query-frontend/examples'
 
 import { debugSceneLogic } from './debugSceneLogic'
 

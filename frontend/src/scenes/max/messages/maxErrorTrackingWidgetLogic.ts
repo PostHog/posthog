@@ -1,12 +1,12 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { performQuery } from '~/queries/query'
+import { performQuery } from '@posthog/query-frontend/query'
 import {
     MaxErrorTrackingIssuePreview,
     MaxErrorTrackingSearchResponse,
-} from '~/queries/schema/schema-assistant-error-tracking'
-import { ErrorTrackingQuery, NodeKind } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
+import { ErrorTrackingQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import type { maxErrorTrackingWidgetLogicType } from './maxErrorTrackingWidgetLogicType'
 

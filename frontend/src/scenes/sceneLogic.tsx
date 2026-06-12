@@ -36,7 +36,7 @@ import {
 import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel } from '~/types'
 
 import { handleLoginRedirect } from './authentication/login/loginLogic'

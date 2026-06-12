@@ -8,7 +8,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'

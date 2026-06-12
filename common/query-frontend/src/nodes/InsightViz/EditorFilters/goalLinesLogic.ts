@@ -1,0 +1,100 @@
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+
+import {
+    FunnelsQuery,
+    GoalLine,
+    HogQLQueryModifiers,
+    RetentionQuery,
+    TrendsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '@posthog/query-frontend/utils'
+import { InsightLogicProps } from '~/types'
+
+import { insightVizDataLogic } from '../insightVizDataLogic'
+import type { goalLinesLogicType } from './goalLinesLogicType'
+
+export type PoeModeTypes = HogQLQueryModifiers['personsOnEventsMode'] | null
+
+export const goalLinesLogic = kea<goalLinesLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['scenes', 'insights', 'EditorFilters', 'goalLinesLogic', key]),
+    connect((props: InsightLogicProps) => ({
+        values: [insightVizDataLogic(props), ['querySource']],
+        actions: [insightVizDataLogic(props), ['updateQuerySource']],
+    })),
+    actions(() => ({
+        addGoalLine: true,
+        updateGoalLine: (goalLineIndex: number, key: keyof GoalLine, value: NonNullable<GoalLine[keyof GoalLine]>) => ({
+            goalLineIndex,
+            key,
+            value,
+        }),
+        removeGoalLine: (goalLineIndex: number) => ({ goalLineIndex }),
+        setGoalLines: (goalLines: GoalLine[]) => ({ goalLines }),
+    })),
+    reducers({
+        goalLines: [
+            [] as GoalLine[],
+            {
+                addGoalLine: (state) => [...state, { label: 'Q4 Goal', value: 0, displayLabel: true }],
+                updateGoalLine: (state, { goalLineIndex, key, value }) => {
+                    return state.map((goalLine, index) =>
+                        index === goalLineIndex ? { ...goalLine, [key]: value } : goalLine
+                    )
+                },
+                removeGoalLine: (state, { goalLineIndex }) => state.filter((_, index) => index !== goalLineIndex),
+                setGoalLines: (_, { goalLines }) => goalLines,
+            },
+        ],
+    }),
+    listeners(({ actions, values }) => {
+        const updateQuerySource = (): void => {
+            const querySource = values.querySource
+
+            if (isTrendsQuery(querySource)) {
+                actions.updateQuerySource({
+                    trendsFilter: {
+                        ...querySource?.trendsFilter,
+                        goalLines: values.goalLines,
+                    },
+                } as Partial<TrendsQuery>)
+            } else if (isFunnelsQuery(querySource)) {
+                actions.updateQuerySource({
+                    funnelsFilter: {
+                        ...querySource?.funnelsFilter,
+                        goalLines: values.goalLines,
+                    },
+                } as Partial<FunnelsQuery>)
+            } else if (isRetentionQuery(querySource)) {
+                actions.updateQuerySource({
+                    retentionFilter: {
+                        ...querySource?.retentionFilter,
+                        goalLines: values.goalLines,
+                    },
+                } as Partial<RetentionQuery>)
+            }
+        }
+
+        return {
+            addGoalLine: updateQuerySource,
+            updateGoalLine: updateQuerySource,
+            removeGoalLine: updateQuerySource,
+            setGoalLines: updateQuerySource,
+        }
+    }),
+    subscriptions(({ values, actions }) => ({
+        querySource: (querySource) => {
+            const goalLines =
+                querySource?.trendsFilter?.goalLines ??
+                querySource?.funnelsFilter?.goalLines ??
+                querySource?.retentionFilter?.goalLines
+            if (values.goalLines.length === 0 && goalLines && goalLines.length > 0) {
+                actions.setGoalLines(goalLines)
+            }
+        },
+    })),
+])

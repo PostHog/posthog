@@ -12,7 +12,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { EventsQuery, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { errorTrackingIssueFingerprintsSceneLogic } from './errorTrackingIssueFingerprintsSceneLogic'

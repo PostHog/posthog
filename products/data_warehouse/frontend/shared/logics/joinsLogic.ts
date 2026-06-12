@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+import { DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseViewLink, PropertyDefinition, PropertyType } from '~/types'
 
 import type { joinsLogicType } from './joinsLogicType'

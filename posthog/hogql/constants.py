@@ -23,7 +23,7 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports
-# Sync with frontend/src/queries/nodes/DataTable/DataTableExport.tsx
+# Sync with common/query-frontend/src/nodes/DataTable/DataTableExport.tsx
 MAX_SELECT_RETURNED_ROWS = 50000
 # Max limit for retention queries.
 MAX_SELECT_RETENTION_LIMIT = 100000  # 100k

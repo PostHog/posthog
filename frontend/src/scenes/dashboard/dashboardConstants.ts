@@ -1,4 +1,4 @@
-import { DashboardAutoRefreshInterval } from '~/queries/schema/schema-general'
+import { DashboardAutoRefreshInterval } from '@posthog/query-frontend/schema/schema-general'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = DashboardAutoRefreshInterval.SECONDS
 

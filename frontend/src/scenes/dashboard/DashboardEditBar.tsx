@@ -11,13 +11,13 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
+import { TaxonomicBreakdownFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { groupsModel } from '~/models/groupsModel'
-import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
+import { VariablesForDashboard } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/Variables'
+import { BreakdownFilter, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardMode, InsightLogicProps } from '~/types'
 
 interface DashboardEditBarProps {

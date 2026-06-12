@@ -7,15 +7,15 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { legacyEntityToNode, sanitizeRetentionEntity } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
+import { legacyEntityToNode, sanitizeRetentionEntity } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
+import { getQueryBasedDashboard } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightVizNode } from '@posthog/query-frontend/utils'
 import {
     DashboardTemplateStoredTile,
     DashboardTemplateType,

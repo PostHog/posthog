@@ -5,7 +5,7 @@ import {
     RelevantCommit,
     SignalSourceProduct,
     SignalSourceType,
-} from '~/queries/schema/schema-signals'
+} from '@posthog/query-frontend/schema/schema-signals'
 
 export type { EnrichedReviewer, RelevantCommit }
 export { SignalSourceProduct, SignalSourceType }

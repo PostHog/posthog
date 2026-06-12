@@ -8,7 +8,7 @@ import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { Thread } from 'scenes/max/Thread'
 
-import { AgentMode } from '~/queries/schema/schema-assistant-messages'
+import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { signalSourcesLogic } from './signalSourcesLogic'
 

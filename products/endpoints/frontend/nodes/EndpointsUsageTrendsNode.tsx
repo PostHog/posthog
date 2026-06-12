@@ -5,15 +5,15 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
+import { AxisSeries } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
 import {
     AnyResponseType,
     EndpointsUsageTrendsQuery,
     EndpointsUsageTrendsQueryResponse,
-} from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import { ChartDisplayType } from '~/types'
 
 type TrendsDataPoint = {

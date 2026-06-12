@@ -13,8 +13,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { isAnyPropertyFilters } from '~/queries/schema-guards'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { isAnyPropertyFilters } from '@posthog/query-frontend/schema-guards'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
 import type { aiObservabilitySharedLogicType } from './aiObservabilitySharedLogicType'

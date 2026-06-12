@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -15,7 +15,7 @@ import {
     GoalLine,
     InsightThresholdType,
     InsightsThresholdBounds,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import {

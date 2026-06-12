@@ -1,7 +1,7 @@
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 export function DetailsButton({
     setIsModalOpen,

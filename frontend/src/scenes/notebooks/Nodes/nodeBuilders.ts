@@ -7,8 +7,8 @@
 // `createPostHogWidgetNode is not a function` at module-evaluation time.
 import { JSONContent } from '@tiptap/core'
 
-import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
-import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { NodeKind, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
+import { InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { NotebookNodeType } from '../types'
 

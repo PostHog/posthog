@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 
-import { DateRange, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
+import { DateRange, LogSeverityLevel, LogsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     FilterLogicalOperator,
     PropertyFilterType,

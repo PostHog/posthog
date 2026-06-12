@@ -1,4 +1,4 @@
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from './aiObservabilityTraceDataLogic'
 import { buildMinimalTraceJSON } from './traceExportUtils'

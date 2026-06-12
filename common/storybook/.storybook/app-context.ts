@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { UserProductListReason } from '~/queries/schema/schema-general'
+import { UserProductListReason } from '@posthog/query-frontend/schema/schema-general'
 import { AppContext } from '~/types'
 
 export const getStorybookAppContext = (): AppContext => ({

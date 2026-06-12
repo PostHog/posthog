@@ -19,7 +19,7 @@ import { personLogic } from 'scenes/persons/personLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { PersonType } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'

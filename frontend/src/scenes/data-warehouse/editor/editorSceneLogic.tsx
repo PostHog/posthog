@@ -8,7 +8,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import type { editorSceneLogicType } from './editorSceneLogicType'

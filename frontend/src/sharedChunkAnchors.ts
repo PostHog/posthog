@@ -29,7 +29,7 @@ import * as Zod from 'zod'
 
 import * as PosthogIcons from '@posthog/icons'
 
-import * as Chart from 'lib/Chart'
+import * as Chart from '@posthog/visualizations/Chart'
 
 export const __chunkAnchors = {
     BaseUiReact,

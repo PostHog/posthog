@@ -17,15 +17,15 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import {
     ArtifactMessage,
     ArtifactSource,
     VisualizationArtifactContent,
-} from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
-import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { DataVisualizationNode, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '@posthog/query-frontend/utils'
 import { InsightShortId } from '~/types'
 
 import { MessageStatus } from '../maxLogic'

@@ -5,7 +5,7 @@ import { LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { AnyScaleOptions, Sparkline } from '@posthog/visualizations/Sparkline/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
 

@@ -21,7 +21,7 @@ import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
 import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
 import { DateMappingOption, PropertyOperator } from '~/types'
 
 import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'

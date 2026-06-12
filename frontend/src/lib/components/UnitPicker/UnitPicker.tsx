@@ -9,9 +9,9 @@ import {
     AggregationAxisFormat,
     INSIGHT_UNIT_OPTIONS,
     INSIGHT_UNIT_OPTIONS_SHORT,
-} from 'scenes/insights/aggregationAxisFormat'
+} from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { unitPickerModalLogic } from './unitPickerModalLogic'
 

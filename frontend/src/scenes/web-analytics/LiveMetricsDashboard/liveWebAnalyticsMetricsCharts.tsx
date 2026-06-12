@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react'
 
-import { Chart, ChartConfiguration } from 'lib/Chart'
+import { Chart, ChartConfiguration } from '@posthog/visualizations/Chart'
 
 import { ChartDataPoint } from './LiveWebAnalyticsMetricsTypes'
 import { TOOLTIP_STYLE, useLiveChart } from './useLiveChart'

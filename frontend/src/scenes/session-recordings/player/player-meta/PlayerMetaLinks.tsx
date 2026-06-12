@@ -26,7 +26,7 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
-import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
+import { personsModalLogic } from '@posthog/query-frontend/persons-modal/personsModalLogic'
 
 import { AccessControlResourceType } from '~/types'
 import { AccessControlLevel } from '~/types'

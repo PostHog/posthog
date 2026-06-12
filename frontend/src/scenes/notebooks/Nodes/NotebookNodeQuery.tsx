@@ -4,14 +4,14 @@ import { useEffect, useMemo } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
 
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
 import {
     containsHogQLQuery,
     isDataTableNode,
@@ -21,7 +21,7 @@ import {
     isNodeWithSource,
     isSavedInsightNode,
     isActorsQuery,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'

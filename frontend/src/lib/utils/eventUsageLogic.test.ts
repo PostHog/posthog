@@ -1,4 +1,4 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
     ExperimentFunnelsQuery,
@@ -6,7 +6,7 @@ import type {
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { BaseMathType } from '~/types'
 
 import { getEventPropertiesForMetric } from './eventUsageLogic'

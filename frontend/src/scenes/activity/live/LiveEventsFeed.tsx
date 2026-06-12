@@ -14,7 +14,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
-import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
+import { EventCopyLinkButton } from '@posthog/query-frontend/nodes/DataTable/EventRowActions'
 import { LiveEvent } from '~/types'
 
 export type LiveEventsFeedColumn = 'event' | 'person' | 'url' | 'recording' | 'timestamp' | 'more'

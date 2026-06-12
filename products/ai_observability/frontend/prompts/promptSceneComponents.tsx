@@ -15,8 +15,8 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { Query } from '~/queries/Query/Query'
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt, LLMPromptVersionSummary } from '~/types'
 
 import type { ExperimentApi } from '../../../experiments/frontend/generated/api.schemas'

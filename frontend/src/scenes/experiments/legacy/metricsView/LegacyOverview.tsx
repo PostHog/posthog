@@ -7,7 +7,7 @@ import {
     ExperimentFunnelsQuery,
     ExperimentTrendsQuery,
     ExperimentMetric,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     legacyGetHighestProbabilityVariant,
     legacyGetIndexForVariant,

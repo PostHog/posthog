@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import type { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import type { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import type { TeamType } from '~/types'
 
 export type ProductIntentMetadata = Record<string, unknown>

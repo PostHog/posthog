@@ -1,7 +1,7 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ActorsQuery, ActorsQueryResponse, DataTableNode } from '~/queries/schema/schema-general'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { ActorsQuery, ActorsQueryResponse, DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 import { CohortType } from '~/types'
 
 import type { cohortCountWarningLogicType } from './cohortCountWarningLogicType'

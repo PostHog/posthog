@@ -4,19 +4,19 @@ import { IconArrowRight } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricSource,
     ExperimentRatioMetric,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
-} from '~/queries/schema/schema-general'
-import { isActionsNode, isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { isActionsNode, isDataWarehouseNode, isEventsNode } from '@posthog/query-frontend/utils'
 
 const getSourceName = (source: ExperimentMetricSource): string =>
     match(source)

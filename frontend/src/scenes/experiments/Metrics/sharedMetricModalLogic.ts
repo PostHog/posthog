@@ -6,7 +6,7 @@ import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { METRIC_CONTEXTS, type MetricContext } from './experimentMetricModalLogic'

@@ -15,7 +15,7 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import type { HogQLQueryString } from '~/queries/utils'
+import type { HogQLQueryString } from '@posthog/query-frontend/utils'
 import {
     PropertyDefinitionType,
     PropertyFilterType,

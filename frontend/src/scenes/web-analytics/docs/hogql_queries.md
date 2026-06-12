@@ -337,7 +337,7 @@ LIMIT 100  -- Instead of 50000
 ### Query Schema
 
 The query types and their schemas are defined in TypeScript:
-`frontend/src/queries/schema/schema-general.ts`
+`common/query-frontend/src/schema/schema-general.ts`
 
 These are automatically converted to Python Pydantic models in:
 `posthog/schema.py`

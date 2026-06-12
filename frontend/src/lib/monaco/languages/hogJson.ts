@@ -5,7 +5,7 @@ import { languages } from 'monaco-editor'
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 
-import { HogLanguage } from '~/queries/schema/schema-general'
+import { HogLanguage } from '@posthog/query-frontend/schema/schema-general'
 
 import { conf as _conf, language as _language } from './hog'
 

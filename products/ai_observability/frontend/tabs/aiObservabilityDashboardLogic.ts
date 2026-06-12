@@ -4,11 +4,11 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import {
     AnyPropertyFilter,
     BaseMathType,

@@ -7,13 +7,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmptyObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
-import { funnelPathsExpansionLogic } from 'scenes/funnels/FunnelFlowGraph/funnelPathsExpansionLogic'
-import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { funnelPathsExpansionLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelFlowGraph/funnelPathsExpansionLogic'
+import { PathExpansion } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelFlowGraph/pathFlowUtils'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventNameToEventsNode'
+import { eventNameToEventsNode } from '@posthog/query-frontend/nodes/InsightQuery/utils/eventNameToEventsNode'
 import {
     ActionsNode,
     AnyEntityNode,
@@ -22,7 +22,7 @@ import {
     FunnelsQuery,
     InsightVizNode,
     NodeKind,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import {
     BreakdownAttributionType,

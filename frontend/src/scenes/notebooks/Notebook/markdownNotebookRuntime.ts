@@ -9,7 +9,7 @@ import {
     type ArtifactMessage,
     type NotebookArtifactContent,
     type VisualizationArtifactContent,
-} from '~/queries/schema/schema-assistant-messages'
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 export type InlineNotebookAIRequest = MarkdownNotebookAskAIRequest & {
     panelId: string

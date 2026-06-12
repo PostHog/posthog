@@ -1,8 +1,8 @@
 import type { TooltipContext } from '@posthog/quill-charts'
 
-import { FunnelTooltip } from 'scenes/funnels/FunnelTooltip'
+import { FunnelTooltip } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelTooltip'
 
-import type { BreakdownFilter } from '~/queries/schema/schema-general'
+import type { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
 import type { FunnelBarHorizontalSegmentMeta } from './funnelBarHorizontalTransforms'

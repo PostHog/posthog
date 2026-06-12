@@ -11,7 +11,7 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
+import { WebAnalyticsPropertyFilters } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { botAnalyticsLogic } from './botAnalyticsLogic'

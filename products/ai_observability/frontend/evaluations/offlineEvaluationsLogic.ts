@@ -9,7 +9,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
 import { getCurrentTeamId } from '~/lib/utils/getAppContext'
-import { hogql } from '~/queries/utils'
+import { hogql } from '@posthog/query-frontend/utils'
 
 import { llmAnalyticsOfflineEvaluationsExperimentItemsCreate as aiObservabilityOfflineEvaluationsExperimentItemsCreate } from '../generated/api'
 import type { offlineEvaluationsLogicType } from './offlineEvaluationsLogicType'

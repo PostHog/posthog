@@ -14,7 +14,7 @@ import { createContext, useContext, useState } from 'react'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import type { FileSystemEntry } from '~/queries/schema/schema-general'
+import type { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import { iconForType } from './defaultTree'
 import { projectTreeDataLogic } from './projectTreeDataLogic'

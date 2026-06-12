@@ -3,10 +3,10 @@ import { BindLogic, useActions } from 'kea'
 import { useEffect } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/InsightViz'
 import { InsightLogicProps } from '~/types'
 
 import RevenueAnalyticsMRRQueryMock from '../../__mocks__/RevenueAnalyticsMRRQuery.json'

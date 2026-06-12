@@ -7,8 +7,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
+import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+import { escapeHogQLString } from '@posthog/query-frontend/utils'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'

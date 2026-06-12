@@ -28,8 +28,8 @@ import {
 } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { performQuery } from '~/queries/query'
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { performQuery } from '@posthog/query-frontend/query'
+import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     CyclotronJobInvocationGlobals,
     CyclotronJobTestInvocationResult,

@@ -1,4 +1,4 @@
-import { ProductKey, WebsiteBrowsingHistoryProdInterest } from '~/queries/schema/schema-general'
+import { ProductKey, WebsiteBrowsingHistoryProdInterest } from '@posthog/query-frontend/schema/schema-general'
 
 import { availableOnboardingProducts } from '../utils'
 

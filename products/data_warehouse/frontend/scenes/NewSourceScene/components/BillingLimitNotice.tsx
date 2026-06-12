@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { InitialBillingLimitNotice } from 'scenes/billing/InitialBillingLimitNotice'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { sourceManagementLogic } from '../../../shared/logics/sourceManagementLogic'
 

@@ -1,4 +1,4 @@
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import type { AlertFormType } from './alertFormLogic'

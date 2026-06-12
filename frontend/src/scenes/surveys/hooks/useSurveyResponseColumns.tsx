@@ -8,7 +8,7 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyResponse, isScaleTwoRating } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { QueryContextColumn } from '~/queries/types'
+import { QueryContextColumn } from '@posthog/query-frontend/types'
 import { SurveyQuestionType } from '~/types'
 
 const getTraceIdFromRecord = (record: unknown): string | null => {

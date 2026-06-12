@@ -1,4 +1,4 @@
-import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
+import { ConversionGoalFilter, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { BaseMathType } from '~/types'
 
 export const defaultConversionGoalFilter: ConversionGoalFilter = {

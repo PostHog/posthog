@@ -3,7 +3,7 @@ import './DateDisplay.scss'
 import { dayjs } from 'lib/dayjs'
 import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
 
-import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
 import { IntervalType } from '~/types'
 
 interface DateDisplayProps {

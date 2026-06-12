@@ -9,7 +9,7 @@ import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/Lem
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
-import { SimilarIssue } from '~/queries/schema/schema-general'
+import { SimilarIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { ExceptionCard } from '../../../components/ExceptionCard'
 import { issueActionsLogic } from '../../../components/IssueActions/issueActionsLogic'

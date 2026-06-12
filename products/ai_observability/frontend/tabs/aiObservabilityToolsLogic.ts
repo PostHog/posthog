@@ -11,7 +11,7 @@ import {
     NodeKind,
     PathsQuery,
     TrendsQuery,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, ChartDisplayType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import toolsQueryTemplate from '../../backend/queries/tools.sql?raw'

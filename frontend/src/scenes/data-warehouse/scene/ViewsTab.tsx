@@ -10,7 +10,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { STATUS_TAG_SETTINGS } from 'scenes/models/nodeDetailConstants'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
+import { DataWarehouseSavedQueryOrigin } from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,

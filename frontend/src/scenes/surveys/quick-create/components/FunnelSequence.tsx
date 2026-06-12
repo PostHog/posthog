@@ -5,7 +5,7 @@ import { LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { quickSurveyFormLogic } from 'scenes/surveys/quick-create/quickSurveyFormLogic'
 import { FunnelContext } from 'scenes/surveys/utils/opportunityDetection'
 
-import { EventsNode } from '~/queries/schema/schema-general'
+import { EventsNode } from '@posthog/query-frontend/schema/schema-general'
 
 export function FunnelSequence({ steps }: { steps: FunnelContext['steps'] }): JSX.Element {
     const { selectedEvents, cancelEvents, delaySeconds } = useValues(quickSurveyFormLogic)

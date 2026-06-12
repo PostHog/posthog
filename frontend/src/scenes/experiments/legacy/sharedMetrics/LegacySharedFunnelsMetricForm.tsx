@@ -5,15 +5,15 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
+import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { getHogQLValue } from '@posthog/query-frontend/nodes/InsightViz/filters/AggregationSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { Query } from '~/queries/Query/Query'
-import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { ExperimentFunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     LegacyFunnelAttributionSelect,
     LegacyFunnelConversionWindowFilter,

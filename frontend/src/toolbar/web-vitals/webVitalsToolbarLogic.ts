@@ -5,7 +5,7 @@ import { encodeParams, router, urlToAction } from 'kea-router'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { WebVitalsMetric } from '~/queries/schema/schema-general'
+import { WebVitalsMetric } from '@posthog/query-frontend/schema/schema-general'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 
 import type { webVitalsToolbarLogicType } from './webVitalsToolbarLogicType'

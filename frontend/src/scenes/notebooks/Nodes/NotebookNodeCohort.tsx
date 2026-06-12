@@ -11,8 +11,8 @@ import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
 
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'

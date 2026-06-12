@@ -2,11 +2,11 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { extractLayerIndex, PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
+import { extractLayerIndex, PathExpansion } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelFlowGraph/pathFlowUtils'
 
-import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventNameToEventsNode'
-import { EventsNode, FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
+import { eventNameToEventsNode } from '@posthog/query-frontend/nodes/InsightQuery/utils/eventNameToEventsNode'
+import { EventsNode, FunnelsQuery, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightVizNode } from '@posthog/query-frontend/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { FunnelPathType } from '~/types'
 

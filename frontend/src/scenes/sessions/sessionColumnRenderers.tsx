@@ -1,6 +1,6 @@
 import { SessionDisplay } from 'scenes/sessions/SessionDisplay'
 
-import { QueryContextColumn } from '~/queries/types'
+import { QueryContextColumn } from '@posthog/query-frontend/types'
 
 export const sessionColumnRenderers: Record<string, QueryContextColumn> = {
     'properties.$session_id': {

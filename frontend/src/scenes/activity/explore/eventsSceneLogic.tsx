@@ -15,8 +15,8 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
-import { DataTableNode, Node } from '~/queries/schema/schema-general'
+import { getDefaultEventsQueryForTeam } from '@posthog/query-frontend/nodes/DataTable/defaultEventsQuery'
+import { DataTableNode, Node } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'

@@ -6,7 +6,7 @@ import { LemonBanner, LemonButton, LemonCheckbox, LemonInput } from '@posthog/le
 import { findQuietHoursIssues, MAX_BLOCKED_WINDOWS } from 'lib/components/Alerts/scheduleRestrictionValidation'
 import type { BlockedWindow, ScheduleRestriction } from 'lib/components/Alerts/types'
 
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
 
 import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { estimateCheckSlotsNext24h } from 'products/alerts/frontend/logic/scheduleRestrictionPreview'

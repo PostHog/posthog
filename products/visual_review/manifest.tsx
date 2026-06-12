@@ -6,9 +6,9 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
-import { ProductItemCategory } from '../../frontend/src/queries/schema/schema-general'
+import { ProductItemCategory } from '@posthog/query-frontend/schema/schema-general'
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {

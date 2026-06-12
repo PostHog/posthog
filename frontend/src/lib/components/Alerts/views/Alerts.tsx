@@ -11,9 +11,9 @@ import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
-import { AlertState } from '../../../../queries/schema/schema-general'
+import { AlertState } from '@posthog/query-frontend/schema/schema-general'
 import { alertLogic } from '../alertLogic'
 import { AlertsFiltersBar } from '../AlertsFiltersBar'
 import { alertsLogic } from '../alertsLogic'

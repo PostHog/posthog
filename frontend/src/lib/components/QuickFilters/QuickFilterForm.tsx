@@ -10,7 +10,7 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, QuickFilterOption } from '~/types'
 
 import { allowedOperators, operatorsWithoutValues, quickFilterFormLogic } from './quickFilterFormLogic'

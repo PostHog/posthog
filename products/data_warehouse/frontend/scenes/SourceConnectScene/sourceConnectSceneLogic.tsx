@@ -7,7 +7,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ApiConfig } from '~/lib/api'
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { externalDataSourcesStoreCredentialsCreate } from '../../generated/api'

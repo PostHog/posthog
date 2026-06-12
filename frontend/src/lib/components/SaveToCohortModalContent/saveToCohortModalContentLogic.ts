@@ -10,7 +10,7 @@ import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { ActorsQuery } from '~/queries/schema/schema-general'
+import { ActorsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { CohortType } from '~/types'
 
 import type { saveToCohortModalContentLogicType } from './saveToCohortModalContentLogicType'

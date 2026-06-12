@@ -23,10 +23,10 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
-import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import { BreakdownTag } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
+import { MathCategory, apiValueToMathType, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -47,7 +47,7 @@ import {
     AnyDataWarehouseNode,
     DashboardFilter,
     TileFilters,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     isActionsNode,
     isAnyDataWarehouseNode,
@@ -64,7 +64,7 @@ import {
     isRetentionQuery,
     isTrendsQuery,
     hasBreakdownFilter,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import { AnyPropertyFilter, BaseMathType, FilterLogicalOperator, PropertyGroupFilter, UserBasicType } from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'

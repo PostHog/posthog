@@ -1,6 +1,6 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
-import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { NodeKind, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { botAnalyticsLogic } from './botAnalyticsLogic'

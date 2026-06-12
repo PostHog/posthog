@@ -2,7 +2,7 @@ from typing import Any
 
 from posthog.hogql import ast
 
-## ::NB:: Sync this list with frontend/src/queries/nodes/HogQLX/render.tsx
+## ::NB:: Sync this list with common/query-frontend/src/nodes/HogQLX/render.tsx
 ## Sanitization is done on the client side, as we can never be sure what tuple('__hx_tag', 'tag_name') comes our way.
 HOGQLX_COMPONENTS = ["Sparkline", "RecordingButton", "ExplainCSPReport"]
 HOGQLX_TAGS_SPECIAL = [

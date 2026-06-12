@@ -27,7 +27,7 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { tagsModel } from '~/models/tagsModel'
-import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'

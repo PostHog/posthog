@@ -8,7 +8,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
+import { renderHogQLX } from '@posthog/query-frontend/nodes/HogQLX/render'
 
 import { ReplChunk as ReplChunkType, hogReplLogic } from './hogReplLogic'
 

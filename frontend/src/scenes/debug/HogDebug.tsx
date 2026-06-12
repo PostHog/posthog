@@ -10,10 +10,10 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
-import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { HogQLQueryModifiers, HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { ElapsedTime } from '@posthog/query-frontend/nodes/DataNode/ElapsedTime'
+import { Reload } from '@posthog/query-frontend/nodes/DataNode/Reload'
+import { HogQLQueryModifiers, HogQuery, HogQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 export interface HogQueryEditorProps {
     query: HogQuery

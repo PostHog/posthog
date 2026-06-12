@@ -1,4 +1,4 @@
-import type { SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 import type { ExternalDataSourceSchema } from '~/types'
 
 import {

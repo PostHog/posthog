@@ -2,7 +2,7 @@ import { LemonButton, LemonMenuOverlay } from '@posthog/lemon-ui'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { STATUS_INTENT_LABEL } from './Indicators'
 

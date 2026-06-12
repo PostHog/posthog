@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { dateStringToDayJs } from 'lib/utils'
 
-import { DateRange, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { DateRange, ErrorTrackingIssueAggregations } from '@posthog/query-frontend/schema/schema-general'
 
 import type { SparklineData } from '../components/VolumeSparkline/types'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'

@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
+import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'

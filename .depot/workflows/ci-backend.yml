@@ -170,7 +170,8 @@ jobs:
                         - pytest.ini
                         - .test_durations # Used for pytest-split sharding
                         # generates posthog/schema.py
-                        - frontend/src/queries/schema.json
+                        - common/query-frontend/src/schema.json
+                        - frontend/src/queries/schema.json # old path, kept for unrebased branches
                         # Operator parity check
                         - rust/feature-flags/src/properties/property_models.rs
                         - frontend/src/products.json # Loaded at runtime by posthog/products.py
@@ -217,7 +218,8 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations
-                        - frontend/src/queries/schema.json
+                        - common/query-frontend/src/schema.json
+                        - frontend/src/queries/schema.json # old path, kept for unrebased branches
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs

@@ -6,8 +6,8 @@ import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
-} from '~/queries/schema/schema-general'
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
+import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import { getDefaultMetricTitle } from '~/scenes/experiments/MetricsView/shared/utils'
 
 const getOutlierHandlingChanges = (metricBefore: ExperimentMetric, metricAfter: ExperimentMetric): string | null => {

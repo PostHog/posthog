@@ -331,7 +331,7 @@ see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blo
 
 ## HogQL query schemas (WIP)
 
-[`frontend/src/queries/schema/schema-assistant-queries.ts`](https://github.com/PostHog/posthog/blob/master/frontend/src/queries/schema/schema-assistant-queries.ts) defines structured query types
+[`common/query-frontend/src/schema/schema-assistant-queries.ts`](https://github.com/PostHog/posthog/blob/master/common/query-frontend/src/schema/schema-assistant-queries.ts) defines structured query types
 for the AI assistant (trends, funnels, retention, etc.).
 
 These schemas describe the shape of analytical queries with rich JSDoc comments

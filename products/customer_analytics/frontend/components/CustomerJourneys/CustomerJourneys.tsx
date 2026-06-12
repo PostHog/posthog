@@ -4,7 +4,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { CustomerJourneysEmptyState } from './CustomerJourneysEmptyState'

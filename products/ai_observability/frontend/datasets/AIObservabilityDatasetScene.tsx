@@ -38,7 +38,7 @@ import {
 import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Dataset, DatasetItem } from '~/types'
 
 import { truncateValue } from '../utils'

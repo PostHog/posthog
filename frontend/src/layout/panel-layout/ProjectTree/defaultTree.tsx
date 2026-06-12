@@ -71,7 +71,7 @@ import {
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 import { FileSystemIconColor } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {

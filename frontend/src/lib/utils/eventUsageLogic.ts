@@ -26,7 +26,7 @@ import {
     isExperimentRetentionMetric,
     Node,
     NodeKind,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     getBreakdown,
     getCompareFilter,
@@ -43,7 +43,7 @@ import {
     isNodeWithSource,
     isStickinessQuery,
     isTrendsQuery,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     ChartDisplayType,

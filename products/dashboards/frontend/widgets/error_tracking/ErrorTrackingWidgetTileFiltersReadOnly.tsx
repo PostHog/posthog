@@ -1,4 +1,4 @@
-import type { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import type { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     AssigneeIconDisplay,

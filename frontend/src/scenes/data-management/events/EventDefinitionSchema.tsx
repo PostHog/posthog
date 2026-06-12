@@ -7,7 +7,7 @@ import { LemonButton, LemonCheckbox, LemonTag, Link, Tooltip } from '@posthog/le
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { Query } from '~/queries/Query/Query'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import { urls } from '~/scenes/urls'
 import { EventDefinition, SchemaEnforcementMode } from '~/types'
 

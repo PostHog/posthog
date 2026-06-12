@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { llmTaggersLogic } from './llmTaggersLogic'

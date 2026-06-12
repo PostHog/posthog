@@ -9,7 +9,7 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
-import type { RecordingsQuery } from '~/queries/schema/schema-general'
+import type { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 import type { SessionRecordingType } from '~/types'
 
 import {

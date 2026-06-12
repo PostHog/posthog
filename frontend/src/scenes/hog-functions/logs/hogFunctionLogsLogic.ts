@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { hogql } from '~/queries/utils'
+import { hogql } from '@posthog/query-frontend/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { hogFunctionLogsLogicType } from './hogFunctionLogsLogicType'

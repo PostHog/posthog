@@ -15,7 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
-import { Sparkline } from 'lib/components/Sparkline'
+import { Sparkline } from '@posthog/visualizations/Sparkline/Sparkline'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'

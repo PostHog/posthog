@@ -18,7 +18,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
-import { AgentMode, RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
+import { AgentMode, RootAssistantMessage } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import {
     Breadcrumb,
     Conversation,

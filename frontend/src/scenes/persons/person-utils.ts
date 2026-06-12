@@ -7,7 +7,7 @@ import { isUUIDLike, midEllipsis } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQueryString, hogql } from '~/queries/utils'
+import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
 import { PersonType } from '~/types'
 
 /**

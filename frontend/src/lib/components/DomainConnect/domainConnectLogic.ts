@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { DomainConnectProviderName } from '~/queries/schema/schema-general'
+import { DomainConnectProviderName } from '@posthog/query-frontend/schema/schema-general'
 
 import type { domainConnectLogicType } from './domainConnectLogicType'
 

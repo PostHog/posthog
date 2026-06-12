@@ -4,11 +4,11 @@ import type { TooltipContext } from '@posthog/quill-charts'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { percentage } from 'lib/utils'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
+import { getDatumTitle, SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 
-import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { IntervalType } from '~/types'
 
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'

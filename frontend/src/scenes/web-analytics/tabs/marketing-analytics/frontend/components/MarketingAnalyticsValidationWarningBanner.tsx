@@ -4,7 +4,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 enum ValidationWarningLink {
     MarketingAnalyticsSettings = 'marketing_analytics_settings',

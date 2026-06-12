@@ -9,7 +9,7 @@ import { dataColorVars } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
-import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
+import { AggregatedSpanRow, SpanTreeNode } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
 import {

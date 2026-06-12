@@ -8,7 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_WITH_TRENDS_QUERY from '~/mocks/fixtures/api/experiments/experiment_with_trends_query.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import TRENDS_QUERY_RESULT from '~/mocks/fixtures/api/experiments/trends_query_result.json'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 const meta: Meta = {
     component: App,

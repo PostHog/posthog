@@ -23,7 +23,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import {

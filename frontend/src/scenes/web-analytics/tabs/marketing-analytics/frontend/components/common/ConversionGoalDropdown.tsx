@@ -1,18 +1,18 @@
 import { useState } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ActionFilter as ActionFilterComponent } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { ActionFilter as ActionFilterComponent } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     ActionsNode,
     ConversionGoalFilter,
     DataWarehouseNode,
     EventsNode,
     NodeKind,
-} from '~/queries/schema/schema-general'
-import { isDataWarehouseNode } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { isDataWarehouseNode } from '@posthog/query-frontend/utils'
 import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
 import { ActionFilter, BaseMathType, AnyDataWarehouseFilter, EntityTypes, FilterType, PropertyMathType } from '~/types'
 

@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 
-import type { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
+import type { ExperimentExposureCriteria } from '@posthog/query-frontend/schema/schema-general'
 import { NEW_EXPERIMENT } from '~/scenes/experiments/constants'
 
 import type { exposureCriteriaModalLogicType } from './exposureCriteriaModalLogicType'

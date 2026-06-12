@@ -2,7 +2,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { QuickFiltersSection } from 'lib/components/QuickFilters/QuickFiltersSection'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
 

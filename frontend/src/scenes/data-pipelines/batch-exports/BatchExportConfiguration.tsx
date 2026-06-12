@@ -21,7 +21,7 @@ import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, BatchExportConfigurationTest, BatchExportConfigurationTestStep } from '~/types'
 
 import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'

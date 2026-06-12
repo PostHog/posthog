@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter'
 
 import { issueFiltersLogic } from './issueFiltersLogic'
 

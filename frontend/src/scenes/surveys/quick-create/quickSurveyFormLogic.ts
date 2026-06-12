@@ -11,7 +11,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { EventsNode, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { EventsNode, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import {
     BasicSurveyQuestion,
     LinkSurveyQuestion,

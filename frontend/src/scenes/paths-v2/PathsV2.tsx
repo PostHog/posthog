@@ -5,12 +5,12 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { lightenDarkenColor } from 'lib/utils'
-import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { InsightEmptyState, InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { FunnelPathsFilter } from '~/queries/schema/schema-general'
-import { shouldQueryBeAsync } from '~/queries/utils'
+import { FunnelPathsFilter } from '@posthog/query-frontend/schema/schema-general'
+import { shouldQueryBeAsync } from '@posthog/query-frontend/utils'
 
 import { PathNodeLabel } from './PathNodeLabel'
 import { pathsDataLogic } from './pathsDataLogic'

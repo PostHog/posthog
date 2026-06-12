@@ -1,4 +1,4 @@
-import { ProductKey, QueryLogTags } from '~/queries/schema/schema-general'
+import { ProductKey, QueryLogTags } from '@posthog/query-frontend/schema/schema-general'
 
 export const CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID = 'customer-analytics'
 

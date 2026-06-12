@@ -11,7 +11,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
 import domainConnectJson from '~/mocks/fixtures/_domain_connect_check.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'

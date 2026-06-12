@@ -1,6 +1,6 @@
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
 import {
     getShowLegend,
     hasBreakdownFilter,
@@ -9,7 +9,7 @@ import {
     isLifecycleQuery,
     isStickinessQuery,
     isTrendsQuery,
-} from '~/queries/utils'
+} from '@posthog/query-frontend/utils'
 import { FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 // Eligibility matches insightVizDataLogic `hasLegend` (trends / stickiness / lifecycle, excluding DISPLAY_TYPES_WITHOUT_LEGEND).

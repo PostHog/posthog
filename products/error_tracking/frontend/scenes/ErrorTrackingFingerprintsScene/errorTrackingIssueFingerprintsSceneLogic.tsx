@@ -9,7 +9,7 @@ import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'

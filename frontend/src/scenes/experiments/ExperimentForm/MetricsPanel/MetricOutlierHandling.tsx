@@ -1,8 +1,8 @@
 import type {
     ExperimentMetric,
     ExperimentMetricOutlierHandling as OutlierHandlingConfig,
-} from '~/queries/schema/schema-general'
-import { isExperimentMeanMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
+import { isExperimentMeanMetric, isExperimentRatioMetric } from '@posthog/query-frontend/schema/schema-general'
 
 export type MetricOutlierHandlingProps = {
     metric: ExperimentMetric

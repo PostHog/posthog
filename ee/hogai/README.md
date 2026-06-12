@@ -54,7 +54,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
            return "Tool execution completed", response
    ```
 
-3. Add your tool name to the `AssistantTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
+3. Add your tool name to the `AssistantTool` union in `common/query-frontend/src/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
 
 4. Define tool metadata in `TOOL_DEFINITIONS` in `frontend/src/scenes/max/max-constants.tsx`:
 

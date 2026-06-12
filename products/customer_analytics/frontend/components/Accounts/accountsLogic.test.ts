@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { urls } from 'scenes/urls'
 
-import type { AccountsQuery } from '~/queries/schema/schema-general'
+import type { AccountsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserBasicType } from '~/types'
 

@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 
 import { LemonLabel } from '@posthog/lemon-ui'
 
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
 
 import { FilterType } from '~/types'
 

@@ -7,8 +7,8 @@ import {
     HogQLVariable,
     InsightVizNode,
     NodeKind,
-} from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 import { getAllByDataAttr, getByDataAttr, queryByDataAttr } from '~/test/byDataAttr'
 import { InsightLogicProps } from '~/types'
 

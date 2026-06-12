@@ -7,15 +7,15 @@ import { humanFriendlyLargeNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 import {
     QueryContext,
     QueryContextColumn,
     QueryContextColumnComponent,
     QueryContextColumnTitleComponent,
-} from '~/queries/types'
+} from '@posthog/query-frontend/types'
 import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'

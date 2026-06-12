@@ -27,8 +27,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { performQuery } from '~/queries/query'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { performQuery } from '@posthog/query-frontend/query'
 import {
     DataTableNode,
     EventsNode,
@@ -37,8 +37,8 @@ import {
     ProductIntentContext,
     ProductKey,
     TrendsQuery,
-} from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+} from '@posthog/query-frontend/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,

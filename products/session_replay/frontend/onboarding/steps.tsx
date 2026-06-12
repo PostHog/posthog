@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, OnboardingStepKey, type SessionRecordingMaskingLevel } from '~/types'
 
 const SessionReplayConfigStep = (): JSX.Element => {

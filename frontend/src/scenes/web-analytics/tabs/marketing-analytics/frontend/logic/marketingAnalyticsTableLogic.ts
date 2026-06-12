@@ -15,7 +15,7 @@ import {
     MarketingAnalyticsTableQuery,
     SourceMap,
     getEffectiveExcludedColumns,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'

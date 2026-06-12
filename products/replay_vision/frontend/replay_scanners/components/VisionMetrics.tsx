@@ -4,8 +4,8 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
-import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'

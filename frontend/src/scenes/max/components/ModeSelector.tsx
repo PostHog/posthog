@@ -9,7 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { AgentMode } from '~/queries/schema/schema-assistant-messages'
+import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { ConversationType } from '~/types'
 
 import {

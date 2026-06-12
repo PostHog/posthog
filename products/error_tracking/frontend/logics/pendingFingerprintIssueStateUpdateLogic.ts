@@ -7,7 +7,7 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingRelationalIssue,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { issuesDataNodeLogic } from './issuesDataNodeLogic'

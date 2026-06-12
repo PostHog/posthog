@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 import fs from 'fs'
-// replaces ts-json-schema-generator -f tsconfig.json --path 'frontend/src/queries/schema.ts' --no-type-check > frontend/src/queries/schema.json
+// replaces ts-json-schema-generator -f tsconfig.json --path 'common/query-frontend/src/schema/index.ts' --no-type-check > common/query-frontend/src/schema.json
 import stableStringify from 'safe-stable-stringify'
 import tsj from 'ts-json-schema-generator'
 
 /** @type {import('ts-json-schema-generator/dist/src/Config').Config} */
 const config = {
     ...tsj.DEFAULT_CONFIG,
-    path: './src/queries/schema/index.ts',
+    path: '../common/query-frontend/src/schema/index.ts',
     tsconfig: 'tsconfig.json',
     discriminatorType: 'open-api',
     skipTypeCheck: true,
 }
 
-const output_path = 'src/queries/schema.json'
+const output_path = '../common/query-frontend/src/schema.json'
 
 const schema = tsj.createGenerator(config).createSchema(config.type)
 const stringify = config.sortProps ? stableStringify : JSON.stringify

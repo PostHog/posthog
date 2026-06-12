@@ -10,7 +10,7 @@ import type {
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     NewExperimentQueryResponse,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     ExperimentDataWarehouseNode,
     ExperimentMetricType,
@@ -18,7 +18,7 @@ import {
     NodeKind,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 import { ExperimentMetricGoal } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian

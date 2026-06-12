@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import type { UserProductListItem } from '~/queries/schema/schema-general'
+import type { UserProductListItem } from '@posthog/query-frontend/schema/schema-general'
 
 import type { customProductsLogicType } from './customProductsLogicType'
 

@@ -21,7 +21,7 @@ import {
     MARKETING_INTEGRATION_CONFIGS,
     NativeMarketingSource,
     VALID_NATIVE_MARKETING_SOURCES,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import type { AggregatedUtmSource, CampaignAuditResult, HealthTab, UtmEvent } from '../../logic/utmAuditLogic'

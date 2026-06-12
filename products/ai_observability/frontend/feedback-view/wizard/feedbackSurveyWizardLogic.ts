@@ -13,7 +13,7 @@ import { isThumbQuestion } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { Survey, SurveyAppearance, SurveyQuestionBranchingType, SurveyQuestionType, SurveyType } from '~/types'
 
 import type { feedbackSurveyWizardLogicType } from './feedbackSurveyWizardLogicType'

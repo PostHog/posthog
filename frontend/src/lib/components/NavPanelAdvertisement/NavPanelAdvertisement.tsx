@@ -18,7 +18,7 @@ import {
     ProductKey,
     UserProductListItem,
     UserProductListReason,
-} from '~/queries/schema/schema-general'
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 import { navPanelAdvertisementRecommendedLogic } from './navPanelAdvertisementRecommendedLogic'

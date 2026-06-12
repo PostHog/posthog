@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { RevenueAnalyticsMRRQueryResultItem } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsMRRQueryResultItem } from '@posthog/query-frontend/schema/schema-general'
 import { LifecycleToggle } from '~/types'
 
 import { LemonTagType } from './lemon-ui/LemonTag'

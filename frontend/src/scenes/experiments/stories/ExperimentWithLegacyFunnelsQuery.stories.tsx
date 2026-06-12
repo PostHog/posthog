@@ -8,7 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_WITH_FUNNELS_QUERY from '~/mocks/fixtures/api/experiments/experiment_with_funnels_query.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import FUNNELS_QUERY_RESULT from '~/mocks/fixtures/api/experiments/funnels_query_result.json'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 const meta: Meta = {
     component: App,

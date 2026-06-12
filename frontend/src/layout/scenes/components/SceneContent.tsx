@@ -4,7 +4,7 @@ import { createContext } from 'react'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { cn } from 'lib/utils/css-classes'
 
-import type { ProductKey } from '~/queries/schema/schema-general'
+import type { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 /**
  * Context to provide the sceneProductKey to child components (like SceneTitleSection)

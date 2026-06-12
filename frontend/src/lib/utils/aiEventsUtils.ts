@@ -1,7 +1,7 @@
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { HogQLQuery, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 import { EventDefinitionType } from '~/types'
 
 import { isDefinitionStale } from './definitions'
