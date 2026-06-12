@@ -76,6 +76,17 @@ describe('deriveSpanSummary', () => {
         expect(s.pod).toBe('web-abc12')
     })
 
+    it('prefers resource-attribute k8s chips over span attributes when both are set', () => {
+        const s = deriveSpanSummary(
+            makeSpan({
+                attributes: { 'k8s.cluster.name': 'span-cluster', 'k8s.pod.name': 'span-pod' },
+                resource_attributes: { 'k8s.cluster.name': 'resource-cluster', 'k8s.pod.name': 'resource-pod' },
+            })
+        )
+        expect(s.cluster).toBe('resource-cluster')
+        expect(s.pod).toBe('resource-pod')
+    })
+
     it.each([
         ['500', 'danger'],
         ['404', 'warning'],
