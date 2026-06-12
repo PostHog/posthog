@@ -10,6 +10,7 @@ from products.replay_vision.backend.temporal.activities.embed_summarizer_observa
 )
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
+from products.replay_vision.backend.temporal.activities.emit_observation_signal import emit_observation_signal_activity
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
@@ -43,6 +44,7 @@ __all__ = [
     "embed_summarizer_observation_activity",
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
+    "emit_observation_signal_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
     "find_scanner_candidates_activity",

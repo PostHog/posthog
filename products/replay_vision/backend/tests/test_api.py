@@ -30,6 +30,7 @@ from products.replay_vision.backend.temporal.constants import (
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.signals.backend.models import SignalSourceConfig
 
 
 class _VisionAPITestCase(APIBaseTest):
@@ -665,6 +666,46 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200, resp.json())
         self.mock_refresh_estimate.assert_called_once()
+
+
+class TestScannerSignalSourceEnablement(_VisionAPITestCase):
+    def _payload(self, **overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": "signal-enablement",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_FLASH,
+        }
+        payload.update(overrides)
+        return payload
+
+    def _source_config(self) -> SignalSourceConfig | None:
+        return SignalSourceConfig.objects.filter(
+            team=self.team, source_product="replay_vision", source_type="scanner_finding"
+        ).first()
+
+    def test_saving_with_emits_signals_enables_the_source(self) -> None:
+        resp = self.client.post(self.scanners_url, data=self._payload(emits_signals=True), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        config = self._source_config()
+        assert config is not None and config.enabled
+
+    def test_saving_without_emits_signals_creates_no_source_config(self) -> None:
+        resp = self.client.post(self.scanners_url, data=self._payload(), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        assert self._source_config() is None
+
+    def test_does_not_override_an_explicit_disable(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="replay_vision", source_type="scanner_finding", enabled=False
+        )
+        scanner = self._create_scanner()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"emits_signals": True}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        config = self._source_config()
+        assert config is not None and not config.enabled
 
 
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):

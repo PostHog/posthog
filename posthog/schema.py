@@ -2194,6 +2194,28 @@ class ReplayInactivityPeriod(BaseModel):
     ts_to_s: float | None = None
 
 
+class ReplayVisionScannerFindingSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence: float = Field(
+        ...,
+        description=("The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`."),
+    )
+    observation_id: str
+    scanner_id: str
+    scanner_name: str
+    scanner_type: str = Field(
+        ...,
+        description=(
+            "Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' /"
+            " 'summarizer'. Kept open so new scanner types don't fail signal"
+            " validation."
+        ),
+    )
+    session_id: str
+
+
 class ResolvedDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5765,6 +5787,19 @@ class QueryStatusResponse(BaseModel):
     query_status: QueryStatus
 
 
+class ReplayVisionScannerFindingSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ReplayVisionScannerFindingSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["replay_vision"] = "replay_vision"
+    source_type: Literal["scanner_finding"] = "scanner_finding"
+    weight: float
+
+
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 
@@ -6553,6 +6588,7 @@ class SignalInput(
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
+        | ReplayVisionScannerFindingSignalInput
     ]
 ):
     root: (
@@ -6568,6 +6604,7 @@ class SignalInput(
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
+        | ReplayVisionScannerFindingSignalInput
     )
 
 

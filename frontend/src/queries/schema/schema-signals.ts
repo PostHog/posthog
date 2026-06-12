@@ -14,6 +14,7 @@ export enum SignalSourceProduct {
     PGANALYZE = 'pganalyze',
     SIGNALS_SCOUT = 'signals_scout',
     LOGS = 'logs',
+    REPLAY_VISION = 'replay_vision',
 }
 
 export enum SignalSourceType {
@@ -29,6 +30,7 @@ export enum SignalSourceType {
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
     CROSS_SOURCE_ISSUE = 'cross_source_issue',
     ALERT_STATE_CHANGE = 'alert_state_change',
+    SCANNER_FINDING = 'scanner_finding',
 }
 
 // ── Shared optional remediation ──────────────────────────────────────────────────
@@ -363,6 +365,26 @@ export interface LogsAlertStateChangeSignalInput extends SignalInputBase {
     extra: LogsAlertStateChangeSignalExtra
 }
 
+// Replay Vision scanner finding — the optional "side mission" finding a scanner's LLM pass
+// may attach to an observation when the scanner has `emits_signals` enabled.
+
+export interface ReplayVisionScannerFindingSignalExtra extends SignalExtraBase {
+    scanner_id: string
+    scanner_name: string
+    /** Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' / 'summarizer'. Kept open so new scanner types don't fail signal validation. */
+    scanner_type: string
+    observation_id: string
+    session_id: string
+    /** The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`. */
+    confidence: number
+}
+
+export interface ReplayVisionScannerFindingSignalInput extends SignalInputBase {
+    source_type: 'scanner_finding'
+    source_product: 'replay_vision'
+    extra: ReplayVisionScannerFindingSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -404,3 +426,4 @@ export type SignalInput =
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
+    | ReplayVisionScannerFindingSignalInput

@@ -2505,6 +2505,7 @@ class SignalSourceProduct(StrEnum):
     PGANALYZE = "pganalyze"
     SIGNALS_SCOUT = "signals_scout"
     LOGS = "logs"
+    REPLAY_VISION = "replay_vision"
 
 
 class SignalSourceType(StrEnum):
@@ -2520,6 +2521,7 @@ class SignalSourceType(StrEnum):
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
     CROSS_SOURCE_ISSUE = "cross_source_issue"
     ALERT_STATE_CHANGE = "alert_state_change"
+    SCANNER_FINDING = "scanner_finding"
 
 
 class Severity(StrEnum):
