@@ -143,7 +143,7 @@ def default_is_ai_training_opted_in():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
 
 
-class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manager-missing]
+class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(

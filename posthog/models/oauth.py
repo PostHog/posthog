@@ -52,7 +52,7 @@ def is_loopback_host(hostname: str | None) -> bool:
     return False
 
 
-class OAuthApplication(ModelActivityMixin, AbstractApplication):
+class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
     # NOTE: By default an application should be linked to the organization that created it.
