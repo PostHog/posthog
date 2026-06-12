@@ -371,7 +371,7 @@ class InCohortResolver(TraversingVisitor):
         negative: bool,
     ):
         from posthog.hogql.functions.cohort import inline_cohort_query
-        from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+        from posthog.hogql.transforms.lazy_expansion import expand_lazy_references
 
         assert self.context is not None
 
@@ -431,9 +431,16 @@ class InCohortResolver(TraversingVisitor):
                 ),
             )
             if inline_ast is not None:
-                resolve_lazy_tables(
+                # Expansion re-resolves the join from scratch, which re-registers its alias on the scope;
+                # drop the registration first so re-resolution doesn't see it as a duplicate.
+                registered_type = current_scope.tables.pop(f"in_cohort__{cohort_id}", None)
+                new_join = expand_lazy_references(
                     new_join, self.dialect, [self.stack[-1]], self.context, resolver_factory=self.resolver_factory
                 )
+                if new_join.type is not None:
+                    current_scope.tables[f"in_cohort__{cohort_id}"] = new_join.type
+                elif registered_type is not None:
+                    current_scope.tables[f"in_cohort__{cohort_id}"] = registered_type
                 if self.context.property_swapper:
                     new_join = cast(
                         ast.JoinExpr,

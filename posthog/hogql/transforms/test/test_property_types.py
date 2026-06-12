@@ -756,10 +756,12 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             "WHERE e.timestamp >= '2024-03-01' AND e.timestamp < '2024-04-01'",
             timezone="America/New_York",
         )
-        # The JOIN ON greaterOrEquals should still have toTimeZone wrapping
-        assert re.search(r"greaterOrEquals\(toTimeZone\(", sql), (
-            f"Expected toTimeZone preserved in JOIN ON greaterOrEquals, got:\n{sql}"
-        )
+        # The JOIN ON greaterOrEquals should still compare timezone-converted values. The conversion sits at the
+        # use site, or inside the joined subquery's projection when the table got wrapped for lazy-join resolution.
+        assert re.search(r"greaterOrEquals\(toTimeZone\(", sql) or (
+            re.search(r"toTimeZone\(e2\.timestamp, %\(\w+\)s\) AS timestamp", sql)
+            and re.search(r"greaterOrEquals\(e2\.timestamp, toTimeZone\(", sql)
+        ), f"Expected toTimeZone preserved in JOIN ON greaterOrEquals, got:\n{sql}"
         # The WHERE comparisons should have toTimeZone stripped (bare e.timestamp)
         assert re.search(r"greaterOrEquals\(e\.timestamp,", sql), (
             f"Expected bare e.timestamp in WHERE greaterOrEquals, got:\n{sql}"

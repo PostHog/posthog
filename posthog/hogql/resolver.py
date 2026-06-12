@@ -1252,11 +1252,13 @@ class Resolver(CloningVisitor):
 
                         next_join = next_join.next_join
 
-                    # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
+                    # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join.
+                    # Idempotent: re-resolution (lazy table expansion) must not stack the prefix.
                     if is_global:
                         next_join = node.next_join
                         while next_join:
-                            next_join.join_type = f"GLOBAL {next_join.join_type}"
+                            if next_join.join_type and not next_join.join_type.startswith("GLOBAL "):
+                                next_join.join_type = f"GLOBAL {next_join.join_type}"
                             next_join = next_join.next_join
 
             if node.constraint and node.constraint.constraint_type == "ON":
@@ -1993,7 +1995,18 @@ class Resolver(CloningVisitor):
                 next_chain = chain_to_parse.pop(0)
 
             try:
-                loop_type = loop_type.get_child(str(next_chain), self.context)
+                # JSON property chains distinguish array/tuple indexes (int, from collapsed `a[1]` / `a.1` access)
+                # from object keys (str). Re-resolving a collapsed chain must not stringify the index.
+                if isinstance(next_chain, int) and (
+                    isinstance(loop_type, ast.PropertyType)
+                    or (
+                        isinstance(loop_type, ast.FieldType)
+                        and isinstance(loop_type.resolve_database_field(self.context), StringJSONDatabaseField)
+                    )
+                ):
+                    loop_type = loop_type.get_child(next_chain, self.context)
+                else:
+                    loop_type = loop_type.get_child(str(next_chain), self.context)
             except NotImplementedError:
                 raise QueryError(
                     f"Cannot access property '{next_chain}' on '{'.'.join(resolved_chain)}'. "

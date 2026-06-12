@@ -31,7 +31,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.transforms.lazy_tables import find_field_chains
+from posthog.hogql.transforms.lazy_expansion import find_field_chains
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.constants import UNIQUE_GROUPS
