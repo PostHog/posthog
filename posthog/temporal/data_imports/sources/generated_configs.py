@@ -604,7 +604,8 @@ class GladlySourceConfig(config.Config):
 
 @config.config
 class GoCardlessSourceConfig(config.Config):
-    pass
+    access_token: str
+    environment: Literal["live", "sandbox"] = config.value(default="live")
 
 
 @config.config
@@ -740,7 +741,8 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class KustomerSourceConfig(config.Config):
-    pass
+    org_name: str
+    api_key: str
 
 
 @config.config
