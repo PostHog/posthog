@@ -1,7 +1,5 @@
 from uuid import UUID
 
-from django.db import transaction
-
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.folder_context_generation import FileSystemFolderContextGeneration
 
@@ -17,11 +15,10 @@ def set_context_generation_task_id(folder: FileSystem, *, task_id: UUID | None) 
 
     Overwrites any previous value. Idempotent per folder via the OneToOne relationship.
     """
-    with transaction.atomic():
-        FileSystemFolderContextGeneration.objects.update_or_create(
-            folder=folder,
-            defaults={"team": folder.team, "task_id": task_id},
-        )
+    FileSystemFolderContextGeneration.objects.update_or_create(
+        folder=folder,
+        defaults={"team": folder.team, "task_id": task_id},
+    )
 
 
 def clear_context_generation(folder: FileSystem) -> None:

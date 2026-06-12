@@ -2,6 +2,7 @@ from typing import cast
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
@@ -85,23 +86,33 @@ class TestDesktopFolderContextGenerationAPI(APIBaseTest):
 
         self.assertEqual(self.client.get(self._context_url(folder_id)).json(), {"task_id": None})
 
-    def test_setting_task_from_another_team_is_rejected(self):
+    @parameterized.expand(
+        [
+            ("from_another_team", "foreign_task"),
+            ("malformed", "not-a-uuid"),
+        ]
+    )
+    def test_setting_invalid_task_id_is_rejected(self, _name: str, task_id: str):
         folder_id = self._create_desktop_folder()
-        other_org = Organization.objects.create(name="Other Org")
-        other_team = Team.objects.create(organization=other_org, name="Other Team")
-        foreign_task = self._create_task(team=other_team)
+        if task_id == "foreign_task":
+            other_org = Organization.objects.create(name="Other Org")
+            other_team = Team.objects.create(organization=other_org, name="Other Team")
+            task_id = str(self._create_task(team=other_team).id)
 
-        response = self.client.put(
-            self._context_url(folder_id), {"task_id": str(foreign_task.id)}, content_type="application/json"
-        )
+        response = self.client.put(self._context_url(folder_id), {"task_id": task_id}, content_type="application/json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
-    def test_setting_malformed_task_id_is_rejected(self):
+    def test_deleting_instructions_clears_association(self):
         folder_id = self._create_desktop_folder()
-        response = self.client.put(
-            self._context_url(folder_id), {"task_id": "not-a-uuid"}, content_type="application/json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        # Publish instructions so DELETE has something to soft-delete, then mark a generation in progress.
+        self.client.patch(self._instructions_url(folder_id), {"content": "# Generated"})
+        task = self._create_task()
+        self.client.put(self._context_url(folder_id), {"task_id": str(task.id)}, content_type="application/json")
+
+        delete = self.client.delete(self._instructions_url(folder_id))
+        self.assertEqual(delete.status_code, status.HTTP_204_NO_CONTENT, delete.content)
+
+        self.assertEqual(self.client.get(self._context_url(folder_id)).json(), {"task_id": None})
 
     def test_cannot_access_folder_from_another_team(self):
         other_org = Organization.objects.create(name="Other Org")

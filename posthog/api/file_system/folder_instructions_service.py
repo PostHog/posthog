@@ -126,4 +126,6 @@ def delete_folder_instructions(folder: FileSystem) -> int:
             .filter(folder=folder, deleted=False)
             .update(deleted=True, is_latest=False)
         )
+        # No instructions remain, so the folder can't have a generation in progress.
+        clear_context_generation(folder)
     return count
