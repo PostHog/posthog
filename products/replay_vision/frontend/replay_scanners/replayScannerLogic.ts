@@ -752,7 +752,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     await visionScannersObserveCreate(String(teamId), props.id, { session_id: trimmed })
                     lemonToast.success('Scanning session — new observation will appear below shortly.')
                     actions.triggerOnDemandObservationSuccess()
-                    // Surface the pending observation immediately rather than waiting for the next poll.
                     actions.loadObservations()
                     actions.loadObservationStats()
                 } catch (error: any) {

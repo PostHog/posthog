@@ -282,8 +282,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                // `observationsLoading` flashes every poll while in-flight observations are pending; only show
-                // the loading bar for the initial empty load and for explicit user-initiated triggers.
                 loading={(observationsLoading && observations.length === 0) || triggeringOnDemandObservation}
                 rowKey="id"
                 pagination={{
