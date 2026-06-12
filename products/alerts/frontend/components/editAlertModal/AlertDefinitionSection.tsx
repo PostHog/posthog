@@ -82,10 +82,15 @@ function HogQLAlertPreviewRowsTable({
 
     return (
         <div className="deprecated-space-y-1">
-            {hiddenCount > 0 && !isAnyRow && (
-                // In last-row mode the trimmed rows are the older ones before the visible window,
-                // so the indicator sits above the table — below would read as newer data.
-                <div className="text-muted text-xs">+{pluralize(hiddenCount, 'older row', 'older rows')}</div>
+            {hiddenCount > 0 && (
+                // The note sits above the table in both modes: in last-row mode the trimmed rows
+                // are older ones (below would read as newer data), and any-row matches for consistency.
+                <div className="text-muted text-xs">
+                    +
+                    {isAnyRow
+                        ? pluralize(hiddenCount, 'more row', 'more rows')
+                        : pluralize(hiddenCount, 'older row', 'older rows')}
+                </div>
             )}
             <LemonTable
                 size="small"
@@ -106,7 +111,7 @@ function HogQLAlertPreviewRowsTable({
                                   title: '',
                                   // In last-row mode only the final row is evaluated, so only it gets a
                                   // tag — historical rows stay untagged (the banner carries the
-                                  // would-have-breached count) instead of reading as live breaches.
+                                  // outside-threshold count) instead of reading as live breaches.
                                   render: (_: unknown, row: HogQLAlertPreviewRow, index: number) =>
                                       isAnyRow || index === rows.length - 1 ? (
                                           row.breaching ? (
@@ -120,9 +125,6 @@ function HogQLAlertPreviewRowsTable({
                         : []),
                 ]}
             />
-            {hiddenCount > 0 && isAnyRow && (
-                <div className="text-muted text-xs">+{pluralize(hiddenCount, 'more row', 'more rows')}</div>
-            )}
         </div>
     )
 }
@@ -240,8 +242,9 @@ function HogQLAlertPreviewBanner({
                     {!isRelative && preview.breachingRows !== null ? (
                         <>
                             {' '}
-                            With the current threshold, <strong>{preview.breachingRows}</strong> of {preview.rowCount}{' '}
-                            rows would have breached.
+                            Of the {pluralize(preview.rowCount, 'row')} in the result,{' '}
+                            <strong>{preview.breachingRows}</strong> {preview.breachingRows === 1 ? 'is' : 'are'}{' '}
+                            currently outside the threshold.
                         </>
                     ) : null}
                 </LemonBanner>
