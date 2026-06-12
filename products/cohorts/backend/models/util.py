@@ -15,8 +15,6 @@ from dateutil import parser
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, ProductKey
-
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.hogql import HogQLContext
@@ -44,6 +42,7 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
+from posthog.schema_enums import PersonsOnEventsMode, ProductKey
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.util import format_action_filter
@@ -59,6 +58,8 @@ from products.cohorts.backend.models.sql import (
 )
 
 if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
+
     from posthog.personhog_client import ReadConsistency
 from posthog.queries.util import PersonPropertiesMode
 
@@ -587,13 +588,21 @@ def _cohort_distinct_ids_sql(cohort: Cohort, index: int, *, team: Team) -> tuple
     sql, context = HogQLQueryExecutor(
         query_type="CohortFilterDistinctIds",
         query=query,
-        modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        modifiers=_cohort_calculation_modifiers(),
         team=team,
         limit_context=LimitContext.COHORT_CALCULATION,
         settings=HogQLGlobalSettings(),
     ).generate_clickhouse_sql()
     sql = _trim_trailing_settings(sql)
     return _prefix_cohort_hogql_params(sql, context.values, cohort=cohort, index=index)
+
+
+def _cohort_calculation_modifiers() -> HogQLQueryModifiers:
+    # Deferred: posthog.schema (the pydantic models) stays off django.setup(), where this
+    # module loads in every process via the cohort model.
+    from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
+
+    return HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
 
 
 def format_filter_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]]:

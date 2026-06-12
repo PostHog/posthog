@@ -48,6 +48,7 @@ from .constants import (
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
+    EMBEDDING_STABLE_TS_MAX_AGE,
     EMBEDDING_TTL_REFRESH_WINDOW,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
@@ -718,7 +719,7 @@ def _fetch_and_parse(url: str, *, etag: str | None) -> tuple[url_fetch.FetchResu
     if not url_fetch.is_html_content_type(result.content_type):
         raise UrlFetchFailedError("Unsupported content type.")
 
-    title, text = html_parse.parse_html(result.body, result.final_url)
+    title, text = html_parse.parse_html(result.body, result.final_url, content_type=result.content_type)
     if not text.strip():
         raise EmptyContentError("Could not extract any text from the URL.")
     if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
@@ -1262,10 +1263,11 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
         return _mark_error(str(exc))
 
     try:
-        candidate_urls = discover.discover(source.crawl_mode, normalized, config)
+        discovery = discover.discover(source.crawl_mode, normalized, config)
     except discover.DiscoverError as exc:
         return _mark_error(str(exc))
 
+    candidate_urls = discovery.urls
     if not candidate_urls:
         return _mark_error("Crawl discovered no URLs. Check the entry URL and globs.")
 
@@ -1280,7 +1282,7 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
     if not safe_urls:
         return _mark_error("Crawl discovered no safe URLs to fetch.")
 
-    outcomes = crawl.fetch_many(safe_urls)
+    outcomes = crawl.fetch_many(safe_urls, prefetched=discovery.prefetched)
     ok_outcomes = [o for o in outcomes if o.status == "ok"]
 
     if not ok_outcomes:
@@ -1347,7 +1349,8 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         config = _resolve_crawl_config(source.crawl_config)
         normalized = _validate_url(source.source_url)
         try:
-            discovered = discover.discover(source.crawl_mode, normalized, config)
+            discovery = discover.discover(source.crawl_mode, normalized, config)
+            discovered = discovery.urls
         except discover.DiscoverError as exc:
             raise UrlFetchFailedError(str(exc)) from exc
     except (InvalidUrlError, UrlFetchFailedError) as exc:
@@ -1390,7 +1393,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         existing = existing_by_url.get(u)
         return existing.etag if existing and existing.etag else None
 
-    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for)
+    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
     # `discovered_set` is built by normalizing the raw discovered URLs (lowercased
     # scheme+host, no fragment) so keys match `existing_by_url` (which uses the
     # normalized stable_id). We do NOT use `safe_urls` here — that would tombstone
@@ -2028,12 +2031,13 @@ class DocumentToEmbed:
 
     team_id: int
     document_id: UUID
-    # The embedding row `timestamp`. The first-emission path passes the
-    # document's stable `created_at` so a re-emit of the same chunk_id collapses
-    # onto one ClickHouse sort key / partition instead of duplicating under a
-    # later `toDate(timestamp)`. The TTL-refresh path instead passes `now()` so
-    # the re-emit resets the 3-month TTL clock (the table TTLs on `timestamp`);
-    # the extra row is correctness-safe via the read-path re-join.
+    # The embedding row `timestamp`. Young docs use the stable `created_at` so
+    # a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
+    # partition instead of duplicating under a later `toDate(timestamp)`.
+    # Old docs (created_at older than EMBEDDING_STABLE_TS_MAX_AGE) and the
+    # TTL-refresh path use `now()` so the row survives until the refresh cron
+    # fires, instead of expiring under `TTL timestamp + 3 MONTH` first. The
+    # extra row is correctness-safe via the read-path re-join.
     timestamp: datetime.datetime
     chunks: list[ChunkToEmbed]
 
@@ -2106,7 +2110,18 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
     backfills every existing SAFE doc across all teams, so the cap is what lets
     the hourly coordinator drain that over many passes. Cross-team — coordinator
     only.
+
+    Timestamp strategy: young docs use the stable ``created_at`` so a re-emit
+    collapses onto one ClickHouse sort key. Old docs (``created_at`` older than
+    ``EMBEDDING_STABLE_TS_MAX_AGE``) use ``now()``: a stable timestamp is only
+    safe if the row survives until the TTL-refresh cron re-emits the doc at
+    ``emitted_at + EMBEDDING_TTL_REFRESH_WINDOW`` — beyond the max age the row
+    would expire first (in the worst case it lands already expired,
+    reconciliation re-nulls it, and the next pass re-emits with ``created_at``
+    again: a token-burning loop while the doc silently serves FTS-only forever).
     """
+    now = timezone.now()
+    ttl_cutoff = now - EMBEDDING_STABLE_TS_MAX_AGE
     rows = list(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=True)
@@ -2117,7 +2132,7 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
-            timestamp=created_at,
+            timestamp=now if created_at < ttl_cutoff else created_at,
             chunks=chunks_by_doc.get(document_id, []),
         )
         for team_id, document_id, created_at in rows

@@ -757,6 +757,44 @@ class TestDashboardWidgets(APIBaseTest):
         assert widget_added_calls[0][0][2]["feature_enabled"] is expected
 
     @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_delete_widget_tile_fires_tile_removed_and_widget_removed_events(self, mock_report_user_action) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/delete_tile",
+            {"tile_id": tile_id},
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile removed",
+            {
+                "tile_type": "widget",
+                "insight_type": None,
+                "dashboard_id": dashboard_id,
+                "widget_type": "error_tracking_list",
+            },
+            team=ANY,
+            request=ANY,
+        )
+        widget_removed_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget removed"
+        ]
+        assert len(widget_removed_calls) == 1
+        assert widget_removed_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_removed_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_removed_calls[0][0][2]["tile_id"] == tile_id
+        assert "widget_id" in widget_removed_calls[0][0][2]
+
+    @override_settings(IN_UNIT_TESTING=True)
     def test_can_batch_create_widget_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 

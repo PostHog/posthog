@@ -22,13 +22,13 @@ from django.db.models import Q, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
-from posthog.hogql import ast
-
 from posthog.constants import MAX_SLUG_LENGTH
 from posthog.person_db_router import PERSONS_DB_MODELS
 
 if TYPE_CHECKING:
     from random import Random
+
+    from posthog.hogql import ast
 
 T = TypeVar("T")
 
@@ -243,7 +243,7 @@ class BytecodeModelMixin(models.Model):
                 self.bytecode = None
                 self.bytecode_error = str(e)
 
-    def get_expr(self) -> ast.Expr:
+    def get_expr(self) -> "ast.Expr":
         raise NotImplementedError()
 
 
