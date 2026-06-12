@@ -51,8 +51,52 @@ TDD; commit locally as you go (don't push unless asked); conventional commits en
 or `npx vitest run`. Lint: `npx --prefix services/agent-runner oxlint --quiet <files>`. Inference
 proxies through sibling `ai-gateway` repo. Local seeded example agent: `agent-coder`.
 
-## Backlog after continuity
+## State assessment (2026-06-12)
 
-- #2 MCP broker (native + custom tools) + skills file-delivery
-- #3 approval gating end-to-end + stop/cancel
-- #4 sandbox_instance persistence, snapshot/resume, Modal pool
+Architecture validated, dev vertical slice works end-to-end (real image, real model via local
+gateway, full observability, multi-turn + continuity). Pre-v0 on the `agent-sandbox-tiers.md` §10
+ladder. Deployability blockers, ranked:
+
+1. **Real gateway key in tier 2** — `index.ts` injects `posthogAiGatewayKey` into the container
+   as `POSTHOG_PERSONAL_API_KEY`. §8 inference proxy doesn't exist. Breaks the core security
+   property; also no budget choke point / kill switch.
+2. **Docker-only pool** — runner pod would need a Docker socket; Modal pool is the prod substrate.
+3. **No egress containment** — docker args have no network restrictions; agentsh allowlist not
+   driven. With (1), full exfil path is open.
+4. **Approvals auto-allow** — `coding-driver.ts` answers every `permission_request` with allow.
+   Stop/cancel half-wired (`cancel` in `runCodingSession` only; no client-stop path, no hard-kill
+   backstop).
+5. **No sandbox_instance persistence** — worker crash orphans a running container; janitor can't
+   reap.
+6. **Capability gaps** — no tier-3 custom-tool MCP broker, skills not delivered as files, no repo
+   clone/workspace provisioning in the driver path, no workspace snapshot/resume (continuity
+   replays conversation only; files vanish between invocations).
+
+## Sequenced backlog → v0 cut-line
+
+v0 = read-only internal coding agents, deployable. Order:
+
+1. **Inference proxy (§8)** — session-bound capability token in the sandbox; proxy holds the real
+   gateway key, meters cost, rejects stopped/over-budget sessions. Standalone thin proxy owned by
+   the platform (open q #6 lean). Removes blocker (1), gives the cost kill switch. Decide hosting:
+   endpoint on the runner vs tiny separate deploy.
+2. **Egress containment** — drive agentsh allowlist (proxy host + declared spec egress only) +
+   docker network hardening. Pin model traffic to the proxy so a leaked token is useless.
+3. **sandbox_instance persistence + janitor reaping** — record tier-2 containers (`tier`/`kind`),
+   reap orphans on worker crash. Existing `PgSandboxInstanceStore` + janitor sweep pattern.
+4. **Stop/cancel end-to-end** — client stop → supervisor `cancel` → verify in-flight model call
+   halts → hard-kill backstop (`docker rm -f` / Modal terminate). Proxy rejects further inference
+   for stopped sessions (ties into 1).
+5. **Modal pool** — `ModalCodingSandboxPool` behind the same `CodingSandboxPool` interface.
+   Gates fleet deploy; until then v0 can run on a Docker-capable VM if we accept that interim.
+
+——— v0 cut-line ———
+
+6. **Approval gating end-to-end** (#3) — `permission_request` → existing approval queue/resume
+   machinery; human principal only. Gates any write-capable profile (v1).
+7. **Tier-3 custom-tool MCP broker + skills file-delivery** (#2) — broker endpoint on the
+   supervisor fronting the existing `SecretBroker`/tier-3 sandbox; skills written into the
+   workspace at boot.
+8. **Workspace provisioning + snapshot/resume** (#4 rest) — repo clone at pinned ref in the
+   driver path; sandbox snapshot on suspend/complete, restore on re-claim (replaces the interim
+   conversation-replay preamble's "fresh environment" caveat).
