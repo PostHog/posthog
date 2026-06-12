@@ -201,6 +201,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     if (isWebAnalyticsInsightQuery(query.source)) {
                         return true
                     }
+                    // Source kinds without a product analytics default (e.g. a TracesQuery from an
+                    // AI-generated link) have no default to compare against, so treat as changed
+                    if (!(query.source.kind in nodeKindToInsightType)) {
+                        return true
+                    }
                     const insightType = nodeKindToInsightType[query.source.kind]
                     savedOrDefaultQuery = getDefaultQuery(insightType, filterTestAccountsDefault)
                 } else if (isDataVisualizationNode(query)) {
