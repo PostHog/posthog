@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT
 from products.dashboards.backend.widget_specs.common import WidgetLimit, WidgetListConfigBase, WidgetOrderDirection
 
+ACTIVITY_EVENTS_LIST_WIDGET_TYPE = "activity_events_list"
 ERROR_TRACKING_LIST_WIDGET_TYPE = "error_tracking_list"
 SESSION_REPLAY_LIST_WIDGET_TYPE = "session_replay_list"
 
@@ -40,3 +41,7 @@ class SessionReplayListWidgetConfig(WidgetListConfigBase):
     limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of recordings to return.")
     orderBy: SessionReplayOrderBy = Field(default="start_time", description="Recording ranking column.")
     orderDirection: WidgetOrderDirection = Field(default="DESC", description="Sort direction for orderBy.")
+
+
+class ActivityEventsListWidgetConfig(WidgetListConfigBase):
+    limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of events to return.")

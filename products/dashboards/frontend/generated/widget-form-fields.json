@@ -1,5 +1,11 @@
 {
     "widgets": {
+        "activity_events_list": {
+            "configSchemaExport": "activityEventsWidgetConfigSchema",
+            "configTypeExport": "ActivityEventsWidgetConfig",
+            "formSchemaExport": "activityEventsWidgetFormSchema",
+            "formFields": ["limit", "dateRange", "filterTestAccounts"]
+        },
         "error_tracking_list": {
             "configSchemaExport": "errorTrackingWidgetConfigSchema",
             "configTypeExport": "ErrorTrackingWidgetConfig",
