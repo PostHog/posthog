@@ -35,8 +35,7 @@ export default defineConfig({
                     environment: 'node',
                     testTimeout: 10000,
                     setupFiles: ['tests/setup.ts'],
-                    // Pure-logic suites may live next to their source (e.g. ui-apps components).
-                    include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+                    include: ['tests/**/*.test.ts'],
                     exclude: [
                         'node_modules/**',
                         'dist/**',

@@ -8,8 +8,7 @@ import {
     isPathsResult,
     isRetentionResult,
     isTrendsResult,
-} from './infer-visualization'
-import { insightResults, queryPayload } from './insightFixtures'
+} from '@/ui-apps/components/infer-visualization'
 import {
     formatDate,
     formatDuration,
@@ -19,7 +18,9 @@ import {
     getSeriesLabel,
     isBarChart,
     normalizeFunnelSteps,
-} from './utils'
+} from '@/ui-apps/components/utils'
+
+import { insightResults, queryPayload } from '../fixtures/insight-fixtures'
 
 describe('insight visualizations', () => {
     describe('inferVisualizationType', () => {
