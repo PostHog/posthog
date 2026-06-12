@@ -89,6 +89,12 @@ import { getRandomThinkingMessage } from './utils/thinkingMessages'
 /** Key for persisting pending AI prompts across page reloads (e.g., OAuth redirects) */
 export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
 
+// On a dashboard, the first message can fire before the dashboard has loaded, when
+// dashboardLogic.maxContext still returns []. askMax waits (bounded) for the load so the
+// dashboard context is included. Bounded so a stuck/failed load never blocks sending.
+const MAX_DASHBOARD_CONTEXT_WAIT_MS = 8000
+const DASHBOARD_CONTEXT_POLL_INTERVAL_MS = 100
+
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
@@ -996,10 +1002,28 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext }) => {
+        askMax: async ({ prompt, addToThread = true, uiContext }, breakpoint) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
+            }
+            // Wait for the open dashboard to finish loading before collecting context (see the
+            // constants above for why). Re-reads `dashboard` each tick so it releases as soon as
+            // the dashboard's metadata lands.
+            const activeSceneLogic = sceneLogic.values.activeSceneLogic
+            const isDashboardContextLoaded = (): boolean =>
+                !!(activeSceneLogic?.values as { dashboard?: unknown } | undefined)?.dashboard
+            if (
+                sceneLogic.values.activeSceneId === Scene.Dashboard &&
+                activeSceneLogic &&
+                'maxContext' in activeSceneLogic.selectors &&
+                !isDashboardContextLoaded()
+            ) {
+                let waited = 0
+                while (!isDashboardContextLoaded() && waited < MAX_DASHBOARD_CONTEXT_WAIT_MS) {
+                    await breakpoint(DASHBOARD_CONTEXT_POLL_INTERVAL_MS)
+                    waited += DASHBOARD_CONTEXT_POLL_INTERVAL_MS
+                }
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
             // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,

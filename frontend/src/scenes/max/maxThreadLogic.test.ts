@@ -11,6 +11,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -31,6 +33,7 @@ import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { MaxContextType } from './maxTypes'
 import {
     MOCK_CONVERSATION,
     MOCK_CONVERSATION_ID,
@@ -447,6 +450,54 @@ describe('maxThreadLogic', () => {
                 expect.objectContaining({
                     content: 'test prompt',
                     ui_context: undefined,
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('waits for the open dashboard to load before sending the first message (regression for #61414)', async () => {
+            const streamSpy = mockStream()
+
+            // Simulate being on a dashboard scene whose data has not loaded yet: dashboardLogic.dashboard
+            // is null, so its maxContext returns []. The first message must wait for the load, otherwise
+            // it ships with no dashboard context and Max can't see the open dashboard.
+            const fakeDashboardLogic: any = {
+                selectors: {
+                    maxContext: () =>
+                        fakeDashboardLogic.values.dashboard
+                            ? [{ type: MaxContextType.DASHBOARD, data: fakeDashboardLogic.values.dashboard }]
+                            : [],
+                },
+                values: { dashboard: null as any },
+            }
+            jest.spyOn(sceneLogic.selectors, 'activeSceneId').mockReturnValue(Scene.Dashboard)
+            jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue(fakeDashboardLogic)
+            jest.spyOn(sceneLogic.selectors, 'activeLoadedScene').mockReturnValue({
+                paramsToProps: () => ({ id: 1 }),
+                sceneParams: {},
+            } as any)
+
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+            logic.mount()
+
+            // Fire the first message while the dashboard is still loading.
+            logic.actions.askMax('what am I seeing on this dashboard?')
+
+            // The gate holds the send while the dashboard is loading.
+            await new Promise((resolve) => setTimeout(resolve, 300))
+            expect(streamSpy).toHaveBeenCalledTimes(0)
+
+            // Dashboard finishes loading → gate releases → the message sends WITH the dashboard context.
+            fakeDashboardLogic.values.dashboard = { id: 1, name: 'Test Dashboard', tiles: [] }
+            await new Promise((resolve) => setTimeout(resolve, 500))
+
+            expect(streamSpy).toHaveBeenCalledTimes(1)
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    ui_context: expect.objectContaining({
+                        dashboards: expect.arrayContaining([expect.objectContaining({ id: 1 })]),
+                    }),
                 }),
                 expect.any(Object)
             )
