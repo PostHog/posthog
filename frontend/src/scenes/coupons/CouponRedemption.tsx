@@ -281,7 +281,13 @@ export function CouponRedemption({
                                         type="primary"
                                         htmlType="submit"
                                         loading={isCouponSubmitting}
-                                        disabledReason={isCouponSubmitting ? 'Redeeming coupon...' : undefined}
+                                        disabledReason={
+                                            requiresBilling && !billingLoading && !billing?.has_active_subscription
+                                                ? 'Complete Step 1: add a paid plan before redeeming your coupon'
+                                                : isCouponSubmitting
+                                                  ? 'Redeeming coupon...'
+                                                  : undefined
+                                        }
                                     >
                                         Redeem coupon
                                     </LemonButton>

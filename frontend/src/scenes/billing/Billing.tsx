@@ -18,6 +18,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
+import { CouponRedeemEntry } from 'scenes/coupons/CouponRedeemEntry'
 import { couponLogic } from 'scenes/coupons/couponLogic'
 import { getProductIcon } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -221,6 +222,8 @@ export function Billing(): JSX.Element {
                     </LemonBanner>
                 </div>
             )}
+
+            <CouponRedeemEntry />
 
             <LemonDivider className="mt-6 mb-8" />
 
