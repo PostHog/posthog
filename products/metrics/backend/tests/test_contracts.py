@@ -3,6 +3,7 @@ import datetime as dt
 import pytest
 
 from products.metrics.backend.facade.contracts import (
+    MAX_CLAUSES_PER_QUERY,
     MetricFilter,
     MetricGroupBy,
     MetricPoint,
@@ -70,6 +71,11 @@ class TestMetricQueryRequest:
     def test_rejects_duplicate_clause_names(self):
         with pytest.raises(ValueError):
             self._req(clauses=(_clause(name="a"), _clause(name="a", metric_name="other")))
+
+    def test_rejects_too_many_clauses(self):
+        clauses = tuple(_clause(name=f"c{i}") for i in range(MAX_CLAUSES_PER_QUERY + 1))
+        with pytest.raises(ValueError):
+            self._req(clauses=clauses)
 
     def test_allows_distinct_clause_names_for_formula(self):
         req = self._req(

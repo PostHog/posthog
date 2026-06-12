@@ -1,7 +1,7 @@
 """DRF views for the alpha metrics product.
 
 Mirrors the shape of `products/logs/backend/api.py` so the two surfaces stay
-recognisable.
+recognizable.
 """
 
 import datetime as dt
@@ -21,6 +21,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
@@ -28,7 +29,13 @@ from products.metrics.backend.facade.api import (
     run_metric_query,
     team_has_metrics,
 )
-from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
+from products.metrics.backend.facade.contracts import (
+    MAX_CLAUSES_PER_QUERY,
+    MetricFilter,
+    MetricGroupBy,
+    MetricQueryClause,
+    MetricQueryRequest,
+)
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
 
 __all__ = ["MetricsViewSet"]
@@ -46,6 +53,7 @@ class _MetricFilterSerializer(serializers.Serializer):
     )
     value = serializers.CharField(
         allow_blank=True,
+        max_length=1024,
         help_text="Value to compare against. For regex operators this is the pattern.",
     )
     scope = serializers.ChoiceField(
@@ -141,7 +149,8 @@ class _MetricQueryBodySerializer(serializers.Serializer):
     clauses = _MetricClauseSerializer(
         many=True,
         required=False,
-        help_text="Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'.",
+        max_length=MAX_CLAUSES_PER_QUERY,
+        help_text=f"Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum {MAX_CLAUSES_PER_QUERY}). Mutually exclusive with 'metricName'.",
     )
     formula = serializers.CharField(
         required=False,
@@ -366,12 +375,17 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "limit",
                 OpenApiTypes.INT,
                 OpenApiParameter.QUERY,
-                description="Max number of names to return. Defaults to 100, capped at 1000.",
+                description="Max number of names to return. Defaults to 100; maximum 1000.",
             ),
         ],
         responses={200: _MetricNamesResponseSerializer},
     )
-    @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def values(self, request: Request, *args, **kwargs) -> Response:
         """Distinct metric names for the team. Backs the picker UI."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
@@ -391,7 +405,12 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"results": results}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_MetricQueryRequestSerializer, responses={200: _MetricQueryResponseSerializer})
-    @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def query(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
@@ -433,7 +452,12 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"results": [asdict(s) for s in series]}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_MetricAnomalyRequestSerializer, responses={200: _MetricAnomalyReportSerializer})
-    @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def characterize(self, request: Request, *args, **kwargs) -> Response:
         """Characterize a metric anomaly: compare an anomaly window against a
         baseline, find the onset, and rank which label values moved."""
