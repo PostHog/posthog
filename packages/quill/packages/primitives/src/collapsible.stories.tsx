@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { FolderOpenIcon, GlobeIcon, PaperclipIcon } from 'lucide-react'
+import { DatabaseZapIcon, FolderOpenIcon, GlobeIcon, PaperclipIcon } from 'lucide-react'
 
 import { Button } from './button'
 import { Collapsible, CollapsibleContent, CollapsibleHeader, CollapsibleTrigger } from './collapsible'
@@ -34,10 +34,13 @@ export const IconTrigger: Story = {
     render: () => (
         <Collapsible className="max-w-60" variant="folder" defaultOpen>
             <CollapsibleHeader>
-                <CollapsibleTrigger iconOnly>Toggle sources</CollapsibleTrigger>
+                {/* Rest icon swaps to the chevron when the row is hovered. */}
+                <CollapsibleTrigger iconOnly icon={<DatabaseZapIcon />}>
+                    Toggle sources
+                </CollapsibleTrigger>
                 {/* Full-row surface under the overlaid chevron — ps-6 clears it,
                     so hovering anywhere highlights the whole row. */}
-                <Button variant="default" size="sm" left className="w-full ps-6">
+                <Button variant="default" size="sm" left className="w-full ps-8">
                     Sources
                     <Text size="xs" variant="muted" render={<span />} className="ms-auto">
                         2
@@ -45,7 +48,7 @@ export const IconTrigger: Story = {
                 </Button>
             </CollapsibleHeader>
             {/* ps-4 lines the child icons up under the header label text. */}
-            <CollapsibleContent className="ps-4">
+            <CollapsibleContent className="ps-6">
                 <ul className="flex flex-col gap-px">
                     {[
                         { icon: <GlobeIcon />, label: 'APIs', count: 1 },
@@ -75,14 +78,16 @@ export const Folder: Story = {
                 <p>Collapsible Trigger</p>
             </CollapsibleTrigger>
             <CollapsibleContent>
+                <Button left size="sm" className="w-full">A button here</Button>
                 <Collapsible variant="folder">
                     <CollapsibleTrigger>
                         <p>Collapsible Trigger</p>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
-                        <p>Collapsible Content</p>
+                        <Button left size="sm" className="w-full">A button here</Button>
                     </CollapsibleContent>
                 </Collapsible>
+                <Button left size="sm" className="w-full">A button here</Button>
             </CollapsibleContent>
         </Collapsible>
     ),

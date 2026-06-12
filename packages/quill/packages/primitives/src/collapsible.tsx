@@ -52,6 +52,7 @@ function CollapsibleTrigger({
     children,
     className,
     iconOnly = false,
+    icon,
     ...props
 }: CollapsiblePrimitive.Trigger.Props & {
     /**
@@ -61,6 +62,12 @@ function CollapsibleTrigger({
      * trigger's screen-reader-only label.
      */
     iconOnly?: boolean
+    /**
+     * Optional rest icon for `iconOnly` mode: shown instead of the chevron
+     * until the surrounding `CollapsibleHeader` row is hovered or the trigger
+     * is focused, then swaps to the chevron (Finder/VS Code tree pattern).
+     */
+    icon?: React.ReactNode
 }): React.ReactElement {
     const variant = React.useContext(CollapsibleVariantContext)
     if (iconOnly) {
@@ -70,11 +77,20 @@ function CollapsibleTrigger({
                 data-variant={variant}
                 className={cn(
                     'quill-collapsible__trigger quill-collapsible__trigger--icon group/collapsible-trigger',
+                    icon != null && 'quill-collapsible__trigger--swap',
                     className
                 )}
                 render={<Button size="icon-sm" />}
                 {...props}
             >
+                {/* Rest-icon display is owned by collapsible.css (hover/focus
+                    swap) — a Tailwind display utility here would win the layer
+                    war and break the hide-on-hover. */}
+                {icon != null && (
+                    <span data-slot="collapsible-trigger-rest-icon" className="pointer-events-none shrink-0">
+                        {icon}
+                    </span>
+                )}
                 {/* Single chevron rotated via CSS: points into reading direction
                     when closed (mirrored in RTL), down when open. */}
                 <ChevronRightIcon
