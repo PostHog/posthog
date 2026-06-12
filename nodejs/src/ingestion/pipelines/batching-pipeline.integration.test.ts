@@ -13,6 +13,7 @@ import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stor
 import { BatchingPipeline, BeforeBatchInput, FeedResult } from './batching-pipeline'
 import { newBatchingPipeline } from './builders'
 import { createOkContext } from './helpers'
+import { OkResultWithContext } from './pipeline.interface'
 import { PipelineResult, drop, ok } from './results'
 
 /**
@@ -35,7 +36,12 @@ import { PipelineResult, drop, ok } from './results'
  *                 (same mechanism: a batchId-bound store view enters batchContext,
  *                 which BatchingPipeline.feed spreads into element values)
  *   parse:        sequentially(parseStep) → the header/body parse + team resolution
- *                 stages (collapsed to one representative async sequential step)
+ *                 stages (collapsed to one representative async sequential step
+ *                 that also resolves a team, like createResolveTeamStep)
+ *   filterMap:    filterMap(addTeamToContext, fb => fb.teamAware(...)
+ *                 .handleIngestionWarnings(...)) — same structure as production,
+ *                 which means groupBy lives INSIDE filterMap's sub-pipeline and
+ *                 new batches are only admitted into it when it drains
  *   grouping:     groupBy(event.key).concurrently(g => g.sequentially(processEventStep))
  *                 → groupBy(token:distinctId).concurrently(... perDistinctIdPipeline)
  *                 — identical primitives; `key` plays the role of token:distinct_id
@@ -70,11 +76,9 @@ import { PipelineResult, drop, ok } from './results'
  * instead of relying on timing. Stress tests use small random delays and assert
  * order-independent invariants instead (see assertOrderingInvariants).
  *
- * Intentionally not simulated: team resolution, filterMap/teamAware, ingestion
- * warnings, overflow, cookieless, hog transforms — context plumbing that doesn't
- * change batching/grouping/flush semantics. Their one structural effect (more
- * async stages before groupBy, i.e. wider race windows) is represented by the
- * single parse stage.
+ * Intentionally not simulated: overflow, cookieless, hog transforms, the gather
+ * step — routing/enrichment concerns that don't change batching/grouping/flush
+ * semantics.
  *
  * ## Guarantees under test (with concurrentBatches > 1)
  *
@@ -99,7 +103,20 @@ interface StoreBatchContext {
     storeForBatch: FakeStoreForBatch
 }
 
-type ProcessedEvent = In & StoreBatchContext & EventSpec
+type ProcessedEvent = In & StoreBatchContext & EventSpec & { team: { id: number } }
+
+/** Mirrors addTeamToContext in joined-ingestion-pipeline.ts. */
+function addTeamToContext<T extends { team: { id: number } }, C>(
+    element: OkResultWithContext<T, C>
+): OkResultWithContext<T, C & { team: { id: number } }> {
+    return {
+        result: element.result,
+        context: {
+            ...element.context,
+            team: element.result.value.team,
+        },
+    }
+}
 
 type LogEntry =
     | { type: 'start'; key: string; seq: number; batchId: number }
@@ -271,12 +288,12 @@ class Harness {
             )
         }
 
-        // Mirrors createParseKafkaMessageStep: parse the message body. The batch
-        // context (storeForBatch) was already spread into the element value by
-        // BatchingPipeline.feed.
+        // Mirrors createParseKafkaMessageStep + createResolveTeamStep: parse the
+        // message body and resolve a team. The batch context (storeForBatch) was
+        // already spread into the element value by BatchingPipeline.feed.
         function parseStep(input: In & StoreBatchContext): Promise<PipelineResult<ProcessedEvent>> {
             const spec = parseJSON(input.message.value!.toString()) as EventSpec
-            return Promise.resolve(ok({ ...input, ...spec }))
+            return Promise.resolve(ok({ ...input, ...spec, team: { id: 1 } }))
         }
 
         // Mirrors the per-distinct-id pipeline: per-key sequential processing that
@@ -308,6 +325,10 @@ class Harness {
             return Promise.resolve(ok(input))
         }
 
+        // Mirrors the joined ingestion pipeline topology: groupBy lives INSIDE
+        // filterMap(teamAware(...)).handleIngestionWarnings(...), so new batches
+        // are only admitted into the grouping stage when filterMap's
+        // sub-pipeline drains.
         this.pipeline = newBatchingPipeline<In, ProcessedEvent, Ctx, StoreBatchContext, Ctx>(
             (before) => before.pipe(bindStoresBeforeBatchStep),
             (batch) =>
@@ -315,8 +336,17 @@ class Harness {
                     .messageAware((b) =>
                         b
                             .sequentially((s) => s.pipe(parseStep))
-                            .groupBy((event) => event.key)
-                            .concurrently((group) => group.sequentially((s) => s.pipe(processEventStep)))
+                            .filterMap(addTeamToContext, (fb) =>
+                                fb
+                                    .teamAware((tb) =>
+                                        tb
+                                            .groupBy((event) => event.key)
+                                            .concurrently((group) =>
+                                                group.sequentially((s) => s.pipe(processEventStep))
+                                            )
+                                    )
+                                    .handleIngestionWarnings(this.outputs)
+                            )
                     )
                     .handleResults({ outputs: this.outputs, promiseScheduler: this.scheduler })
                     .handleSideEffects(this.scheduler, { await: false }),
