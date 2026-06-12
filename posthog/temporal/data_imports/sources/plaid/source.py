@@ -36,8 +36,8 @@ class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://production.plaid.com": "Plaid authentication failed. Please check your client ID, secret, and access token.",
             "401 Client Error: Unauthorized for url: https://sandbox.plaid.com": "Plaid authentication failed. Please check your client ID, secret, and access token (and that they match the selected environment).",
-            "400 Client Error: Bad Request for url: https://production.plaid.com": "Plaid rejected the request. Your access token may be invalid, expired, or for a different environment.",
-            "400 Client Error: Bad Request for url: https://sandbox.plaid.com": "Plaid rejected the request. Your access token may be invalid, expired, or for a different environment.",
+            "400 Client Error: Bad Request for url: https://production.plaid.com": "Plaid rejected the request. Your access token may be invalid, expired, or for a different environment, or the request may have been rejected for another reason (e.g. the product isn't enabled on your plan or the Item needs re-linking).",
+            "400 Client Error: Bad Request for url: https://sandbox.plaid.com": "Plaid rejected the request. Your access token may be invalid, expired, or for a different environment, or the request may have been rejected for another reason (e.g. the product isn't enabled on your plan or the Item needs re-linking).",
         }
 
     @property
