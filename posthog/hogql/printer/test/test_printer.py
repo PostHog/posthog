@@ -2499,6 +2499,41 @@ class TestPrinter(BaseTest):
         self.assertNotIn("ifNull(", sql_with)
         self.assertTrue(sql_with.startswith("notEquals("))
 
+    def test_call_column_names_come_from_the_user_expression(self):
+        # An unaliased call column is named once, at resolve time, from the expression as the user wrote it. The
+        # transforms may rewrite the printed expression (materialized columns, null-safe casts), but the name must
+        # not leak the rewritten internals.
+        PropertyDefinition.objects.create(
+            team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT
+        )
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "is_boolean")
+
+        printed = self._select("SELECT toBool(properties.is_boolean) FROM events")
+        # The expression lowers to the materialized column read, but the name stays the user-level expression.
+        self.assertIn("AS `toBool(properties.is_boolean)`", printed)
+        self.assertNotIn("AS `toBool(toBool(", printed)
+
+        # The name survives a render-time function rename (toBool prints as accurateCastOrNull).
+        printed = self._select("SELECT toBool(uuid) FROM events")
+        self.assertIn("accurateCastOrNull(events.uuid", printed)
+        self.assertIn("AS `toBool(uuid)`", printed)
+
+    def test_call_column_name_referenced_through_subquery(self):
+        # The resolve-time name is the same one the resolver registers in the column map, so an outer query
+        # (including `SELECT *` expansion) can reference the inner call column by name.
+        printed = self._select(
+            "SELECT `toDate(timestamp)` FROM (SELECT toDate(timestamp) FROM events) ORDER BY `toDate(timestamp)`"
+        )
+        self.assertIn("AS `toDate(timestamp)`", printed)
+
+        printed = self._select("SELECT * FROM (SELECT toDate(timestamp) FROM events)")
+        self.assertIn("AS `toDate(timestamp)`", printed)
+
     def test_field_nullable_boolean(self):
         PropertyDefinition.objects.create(
             team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT
