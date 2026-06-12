@@ -85,6 +85,7 @@ the row lists both.
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog          | HTTP                        | requests                                                        | ✅                          |
 | delighted        | HTTP                        | requests                                                        | ✅                          |
+| dixa             | HTTP                        | requests                                                        | ✅                          |
 | doit             | HTTP                        | requests                                                        | ✅                          |
 | drip             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk        | HTTP                        | requests                                                        | ✅                          |
@@ -252,7 +253,6 @@ doesn't conflict with concurrent PRs.
 - db2
 - deel
 - display_video_360
-- dixa
 - docusign
 - dropbox
 - dynamics365

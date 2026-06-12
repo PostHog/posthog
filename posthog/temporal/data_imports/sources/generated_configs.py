@@ -533,7 +533,7 @@ class DisplayVideo360SourceConfig(config.Config):
 
 @config.config
 class DixaSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
