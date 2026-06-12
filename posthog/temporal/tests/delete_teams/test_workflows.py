@@ -188,7 +188,7 @@ async def test_protected_error_fails_fast_without_retry():
 
     async def raises_protected(inputs: TeamDataActivityInputs) -> None:
         attempts.append("attempt")
-        raise ProtectedError("blocked by a PROTECT foreign key", [])
+        raise ProtectedError("blocked by a PROTECT foreign key", set())
 
     activities = _core_activities_with("delete_misc_small_tables_activity", raises_protected)
     with pytest.raises(WorkflowFailureError):
