@@ -536,6 +536,14 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     placeholder = serializers.CharField(required=False)
     shuffleQuestions = serializers.BooleanField(required=False)
     surveyPopupDelaySeconds = serializers.IntegerField(required=False)
+    allowGoBack = serializers.BooleanField(
+        required=False,
+        help_text="Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false.",
+    )
+    backButtonText = serializers.CharField(
+        required=False,
+        help_text="Optional override for the back button label. Defaults to 'Back'.",
+    )
     widgetType = serializers.ChoiceField(choices=["button", "tab", "selector"], required=False)
     widgetSelector = serializers.CharField(required=False)
     widgetLabel = serializers.CharField(required=False)

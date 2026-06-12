@@ -104,7 +104,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -14797,6 +14797,15 @@ export namespace Schemas {
       design?: EmailTemplateDesign;
     }
 
+    export type EmbeddingStatusEnum = typeof EmbeddingStatusEnum[keyof typeof EmbeddingStatusEnum];
+
+
+    export const EmbeddingStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Disabled: 'disabled',
+    } as const;
+
     /**
      * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
      */
@@ -22240,6 +22249,8 @@ export namespace Schemas {
       readonly next_refresh_at: string | null;
       /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
       readonly has_unsafe_documents: boolean;
+      /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
+      readonly embedding_status: EmbeddingStatusEnum;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -24144,6 +24155,7 @@ export namespace Schemas {
      * * `survey` - SURVEY
      * * `experiment` - EXPERIMENT
      * * `error_tracking` - ERROR_TRACKING
+     * * `customer_analytics` - CUSTOMER_ANALYTICS
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -24157,6 +24169,7 @@ export namespace Schemas {
       Survey: 'survey',
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
+      CustomerAnalytics: 'customer_analytics',
     } as const;
 
     export interface NotificationEvent {
@@ -29104,7 +29117,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -34113,6 +34126,10 @@ export namespace Schemas {
       placeholder?: string;
       shuffleQuestions?: boolean;
       surveyPopupDelaySeconds?: number;
+      /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
+      allowGoBack?: boolean;
+      /** Optional override for the back button label. Defaults to 'Back'. */
+      backButtonText?: string;
       widgetType?: WidgetTypeEnum;
       widgetSelector?: string;
       widgetLabel?: string;
@@ -43891,7 +43908,7 @@ export namespace Schemas {
     } as const;
 
     export interface _SpanPropertyFilter {
-      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
       key: string;
       /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
        *

@@ -55,6 +55,8 @@ export type UsageStats = {
     recordsReceived: number
     bytesAllowed: number
     recordsAllowed: number
+    /** Sum of per-record content sizes for allowed batches — billing comparison candidate for bytesAllowed. */
+    bytesAllowedRecords: number
     bytesDropped: number
     recordsDropped: number
     piiReplacements: number
@@ -66,6 +68,7 @@ const DEFAULT_USAGE_STATS: UsageStats = {
     recordsReceived: 0,
     bytesAllowed: 0,
     recordsAllowed: 0,
+    bytesAllowedRecords: 0,
     bytesDropped: 0,
     recordsDropped: 0,
     piiReplacements: 0,
@@ -97,6 +100,17 @@ export const logsBytesReceivedCounter = new Counter({
 export const logsBytesAllowedCounter = new Counter({
     name: 'logs_ingestion_bytes_allowed_total',
     help: 'Total uncompressed bytes allowed through quota and rate limiting',
+})
+
+export const logsBytesAllowedRecordsCounter = new Counter({
+    name: 'logs_ingestion_bytes_allowed_records_total',
+    help: 'Records-based uncompressed bytes (sum of per-record sizes) allowed through quota and rate limiting',
+})
+
+export const logsRecordsBytesExceedPayloadCounter = new Counter({
+    name: 'logs_ingestion_records_bytes_exceed_payload_total',
+    help: 'Batches where the records-based bytes sum exceeded the payload-based bytes_uncompressed header',
+    labelNames: ['team_id'],
 })
 
 export const logsBytesDroppedCounter = new Counter({
@@ -349,18 +363,22 @@ export class LogsIngestionConsumer {
         let totalRecordsAllowed = 0
         const usageStats: UsageStatsByTeam = new Map()
 
+        let totalBytesAllowedRecords = 0
         for (const message of allowedMessages) {
             const stats = usageStats.get(message.teamId) || { ...DEFAULT_USAGE_STATS }
             stats.bytesReceived += message.bytesUncompressed
             stats.recordsReceived += message.recordCount
             stats.bytesAllowed += message.bytesUncompressed
             stats.recordsAllowed += message.recordCount
+            stats.bytesAllowedRecords += message.bytesUncompressedRecords
             usageStats.set(message.teamId, stats)
 
             totalBytesAllowed += message.bytesUncompressed
+            totalBytesAllowedRecords += message.bytesUncompressedRecords
             totalRecordsAllowed += message.recordCount
         }
 
+        logsBytesAllowedRecordsCounter.inc(totalBytesAllowedRecords)
         logsBytesAllowedCounter.inc(totalBytesAllowed)
         logsRecordsAllowedCounter.inc(totalRecordsAllowed)
 
@@ -568,6 +586,10 @@ export class LogsIngestionConsumer {
             this.queueUsageMetric(teamId, 'bytes_received', stats.bytesReceived)
             this.queueUsageMetric(teamId, 'records_received', stats.recordsReceived)
             this.queueUsageMetric(teamId, 'bytes_ingested', stats.bytesAllowed)
+            // Records-based counterpart to `bytes_ingested` (sum of per-record sizes instead of
+            // payload size). Emitted in parallel so the two can be compared before billing
+            // switches to the records-based value; not yet read by usage reports.
+            this.queueUsageMetric(teamId, 'bytes_ingested_records', stats.bytesAllowedRecords)
             this.queueUsageMetric(teamId, 'records_ingested', stats.recordsAllowed)
             this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
             this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
@@ -681,14 +703,22 @@ export class LogsIngestionConsumer {
                     }
 
                     const bytesUncompressed = parseInt(headers.bytes_uncompressed ?? '0', 10)
+                    const bytesUncompressedRecords = parseInt(headers.bytes_uncompressed_records ?? '0', 10)
                     const bytesCompressed = parseInt(headers.bytes_compressed ?? '0', 10)
                     const recordCount = parseInt(headers.record_count ?? '0', 10)
+
+                    if (bytesUncompressedRecords > bytesUncompressed) {
+                        // Billing can only switch from payload-based to records-based bytes if the
+                        // records sum never exceeds the payload size — flag any violation.
+                        logsRecordsBytesExceedPayloadCounter.inc({ team_id: team.id.toString() })
+                    }
 
                     events.push({
                         token,
                         message,
                         teamId: team.id,
                         bytesUncompressed,
+                        bytesUncompressedRecords,
                         bytesCompressed,
                         recordCount,
                     })

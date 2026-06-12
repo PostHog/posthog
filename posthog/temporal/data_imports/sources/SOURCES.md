@@ -49,9 +49,11 @@ the row lists both.
 | airtable         | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads       | HTTP                        | requests                                                        | ✅                          |
 | amplitude        | HTTP                        | requests                                                        | ✅                          |
+| apollo           | HTTP                        | requests                                                        | ✅                          |
 | appsflyer        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
+| attentive        | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | azure_devops     | HTTP                        | requests                                                        | ✅                          |
 | bamboohr         | HTTP                        | requests                                                        | ✅                          |
@@ -78,6 +80,7 @@ the row lists both.
 | convex           | HTTP                        | requests                                                        | ✅                          |
 | copper           | HTTP                        | requests                                                        | ✅                          |
 | crunchbase       | HTTP                        | requests                                                        | ✅                          |
+| culture_amp      | HTTP                        | requests                                                        | ✅                          |
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog          | HTTP                        | requests                                                        | ✅                          |
 | delighted        | HTTP                        | requests                                                        | ✅                          |
@@ -115,6 +118,7 @@ the row lists both.
 | mailerlite       | HTTP                        | requests                                                        | ✅                          |
 | mailgun          | HTTP                        | requests                                                        | ✅                          |
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
+| matomo           | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
 | mollie           | HTTP                        | requests                                                        | ✅                          |
@@ -125,6 +129,7 @@ the row lists both.
 | okta             | HTTP                        | requests                                                        | ✅                          |
 | notion           | HTTP                        | requests                                                        | ✅                          |
 | omnisend         | HTTP                        | requests                                                        | ✅                          |
+| ortto            | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
 | optimizely       | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
@@ -165,6 +170,7 @@ the row lists both.
 | stripe           | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | supabase         | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey     | HTTP                        | requests                                                        | ✅                          |
+| taboola          | HTTP                        | requests                                                        | ✅                          |
 | temporalio       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | trello           | HTTP                        | requests                                                        | ✅                          |
@@ -223,9 +229,7 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
-- apollo
 - apple_search_ads
-- attentive
 - auth0
 - azure_blob
 - bigcommerce
@@ -242,7 +246,6 @@ doesn't conflict with concurrent PRs.
 - cosmosdb
 - coupa
 - criteo
-- culture_amp
 - databricks
 - db2
 - deel
@@ -272,7 +275,6 @@ doesn't conflict with concurrent PRs.
 - lever
 - lightspeed_retail
 - marketo
-- matomo
 - microsoft_teams
 - netsuite
 - onedrive
@@ -280,7 +282,6 @@ doesn't conflict with concurrent PRs.
 - oracle
 - oracle_ebs
 - oracle_fusion
-- ortto
 - outbrain
 - outreach
 - pagerduty
@@ -303,7 +304,6 @@ doesn't conflict with concurrent PRs.
 - sftp
 - sharepoint
 - surveymonkey
-- taboola
 - twitter_ads
 - workday
 - xero
