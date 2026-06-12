@@ -66,8 +66,7 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
 
             if (storeCalls.length > 0) {
                 const totalMisses = storeCalls.reduce((sum, [, { entries }]) => sum + entries.length, 0)
-                personlessDistinctIdCacheOperationsCounter.inc(
-                    { operation: 'miss', source: 'batch' }, totalMisses)
+                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss', source: 'batch' }, totalMisses)
 
                 await Promise.all(
                     storeCalls.map(async ([store, { entries }]) => {
