@@ -139,7 +139,7 @@ class BoundedResolver(Resolver):
 
     `deadline_anchor` is an optional monotonic timestamp that lets multiple
     BoundedResolver instances share a deadline clock. `prepare_ast_for_printing`
-    invokes nested resolve_types/resolve_lazy_tables calls each of which builds
+    invokes nested resolve_types/expand_lazy_references calls each of which builds
     a fresh BoundedResolver via the factory — without a shared anchor, each
     instance would get its own deadline_seconds budget and the bound would
     compound. The factory in `bounded_resolver_factory_for_view` seeds one
@@ -259,7 +259,7 @@ def bounded_resolver_factory_for_view(
     and `resolve_types`: it accepts (context, dialect, scopes) and returns a
     BoundedResolver pre-seeded with the view name so cycle detection works.
 
-    `prepare_ast_for_printing` forwards the factory through `resolve_lazy_tables`,
+    `prepare_ast_for_printing` forwards the factory through `expand_lazy_references`,
     `resolve_in_cohorts`, and `resolve_in_cohorts_conjoined`, so subqueries built
     mid-transform also resolve through BoundedResolver. All resolvers produced
     by one factory call share a `deadline_anchor`, so `deadline_seconds` is the

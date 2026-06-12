@@ -15,16 +15,13 @@ re-discovering the lazy join. Types are never patched by hand: the resolver is t
 A recipe's output may itself contain lazy references (chained joins, join constraints against other lazy tables);
 those are ordinary lazy references in the next iteration.
 
-Column naming inside built subqueries keeps the historical conventions — property chains joined with `___`
-(`properties___$browser`) and join-key projections prefixed with the table name (`events__pdi___person_id`) — so the
-printed SQL is identical to what the previous implementation (`lazy_tables.py`) produced.
+Column naming inside built subqueries follows fixed conventions the printed SQL depends on: property chains are
+joined with `___` (`properties___$browser`) and join-key projections are prefixed with the table name
+(`events__pdi___person_id`).
 """
 
 import dataclasses
-from typing import TYPE_CHECKING, Optional, cast
-
-if TYPE_CHECKING:
-    from posthog.hogql.transforms.property_types import PropertySwapper
+from typing import Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
@@ -507,7 +504,6 @@ def _expand_scope(
     """
     node = demand.select
     select_type = demand.select_type
-    group_swapper = _group_property_swapper(context)
 
     # The ClickHouse printer derives an alias for an unaliased Call select item from its HogQL rendering, which
     # prints field chains as written. Rewriting (or qualifying) chains would change that derivation, so freeze the
@@ -533,14 +529,12 @@ def _expand_scope(
         demand.joins_to_add = {
             k: v for k, v in demand.joins_to_add.items() if v.from_table not in demand.tables_to_wrap
         }
-        rewritten_tables = {r.table_name for r in demand.field_rewrites}
         # Rewrites targeting joins dropped in favor of a wrap were handled by the wrap's constraint rewriting.
         demand.field_rewrites = [
             r
             for r in demand.field_rewrites
             if r.table_name in demand.joins_to_add or r.table_name in demand.tables_to_add
         ]
-        del rewritten_tables
 
     # Build and splice lazy table subqueries (the FROM side).
     for table_name, table_to_add in demand.tables_to_add.items():
@@ -549,8 +543,6 @@ def _expand_scope(
         subquery = cast(
             ast.SelectQuery, resolve_types(subquery, context, dialect, [select_type], resolver_factory=resolver_factory)
         )
-        if group_swapper is not None:
-            subquery = group_swapper.visit(subquery)
         assert subquery.type is not None
         old_table_type = select_type.tables.get(table_name)
         select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
@@ -583,8 +575,6 @@ def _expand_scope(
         join_to_add = cast(
             ast.JoinExpr, resolve_types(join_to_add, context, dialect, [select_type], resolver_factory=resolver_factory)
         )
-        if group_swapper is not None:
-            join_to_add = group_swapper.visit(join_to_add)
         if join_to_add.type is not None:
             select_type.tables[to_table] = join_to_add.type
 
@@ -778,11 +768,12 @@ def _wrap_table(demand: ScopeDemand, table_alias: str) -> None:
         )
 
 
-def _group_property_swapper(context: HogQLContext) -> Optional["PropertySwapper"]:
-    """Group/S3 property casts must be applied to recipe-built subtrees before their lazy references are rewritten
-    away — group identity only exists pre-expansion. Mirrors the pipeline's pre-expansion group swap pass."""
+def _apply_group_property_swap(node: _T_AST, context: HogQLContext) -> _T_AST:
+    """Apply group and S3-join property casts. Their identity (group index, warehouse table) lives on the lazy join
+    types that expansion consumes, so the cast must wrap each reference before it is rewritten away. Runs once per
+    expansion iteration: round one covers the query's own reads, later rounds cover reads introduced by recipes."""
     if context.property_swapper is None:
-        return None
+        return node
     from posthog.hogql.transforms.property_types import PropertySwapper  # noqa: PLC0415 — circular import
 
     return PropertySwapper(
@@ -792,7 +783,7 @@ def _group_property_swapper(context: HogQLContext) -> Optional["PropertySwapper"
         person_properties={},
         context=context,
         setTimeZones=False,
-    )
+    ).visit(node)
 
 
 def expand_lazy_references(
@@ -809,6 +800,11 @@ def expand_lazy_references(
         demands = collect_lazy_demand(node, context, stack)
         if not demands:
             return node
+
+        if context.property_swapper is not None:
+            # The swapper clones the tree, invalidating the collected node references — re-collect after.
+            node = _apply_group_property_swap(node, context)
+            demands = collect_lazy_demand(node, context, stack)
 
         for demand in demands:
             _expand_scope(demand, context, dialect, resolver_factory)

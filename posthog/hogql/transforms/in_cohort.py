@@ -296,7 +296,7 @@ class InCohortResolver(TraversingVisitor):
         self.stack: list[ast.SelectQuery] = stack or []
         self.context = context
         self.dialect = dialect
-        # forwarded to nested resolve_types/resolve_lazy_tables calls so a caller-supplied
+        # forwarded to nested resolve_types/expand_lazy_references calls so a caller-supplied
         # factory (e.g. BoundedResolver) applies to cohort-join subqueries built mid-transform
         self.resolver_factory = resolver_factory
 

@@ -179,20 +179,9 @@ def prepare_ast_for_printing(
             if context.property_swapper is None:
                 return None
 
-            # It would be nice to be able to run property swapping after we resolve lazy tables, so that logic added onto the lazy tables
-            # could pass through the swapper. However, in the PropertySwapper, the group_properties and the S3 Table join
-            # rely on the existence of lazy tables in the AST. They must be run before we resolve lazy tables. Because groups are
-            # not currently used in any sort of where clause optimization (WhereClauseExtractor or PersonsTable), this is okay.
-            # We also have to call the group property swapper manually in `lazy_tables.py` after we do a join
-            node = PropertySwapper(
-                timezone=context.property_swapper.timezone,
-                group_properties=context.property_swapper.group_properties,
-                event_properties={},
-                person_properties={},
-                context=context,
-                setTimeZones=False,
-            ).visit(node)
-
+        # Group and S3-join property casts are applied inside the expansion loop: their identity (which group index,
+        # which warehouse table) lives on the lazy join types that expansion consumes, so the cast has to land before
+        # each reference is rewritten away.
         with context.timings.measure("resolve_lazy_tables"):
             node = expand_lazy_references(node, dialect, stack, context, resolver_factory=resolver_factory)
 

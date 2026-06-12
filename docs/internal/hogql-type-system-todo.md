@@ -297,7 +297,7 @@ Types are already used in several non-trivial ways:
 - `BasePrinter._is_nullable()` uses type metadata to decide when comparisons need `ifNull(...)` wrappers.
 - `ClickHousePrinter` chooses function overloads based on the first argument type for selected functions.
 - `PropertySwapper` uses field types to identify timestamp fields, JSON fields, lazy join fields, and typed property wrappers.
-- `resolve_lazy_tables` uses `FieldType` and `PropertyType` to decide which lazy joins and lazy table fields need to be selected.
+- `expand_lazy_references` (lazy table expansion) uses `FieldType` and `PropertyType` to decide which lazy joins and lazy table fields need to be selected.
 - Projection pushdown uses `FieldType`, `ExpressionFieldType`, `SelectQueryType`, `SelectSetQueryType`, and CTE types to track column demand.
 - Web analytics prefiltering uses resolved events-table field and property types to build a smaller events subquery.
 - Workload detection uses table types.
