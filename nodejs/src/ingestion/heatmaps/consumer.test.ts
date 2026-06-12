@@ -4,18 +4,19 @@ import { TeamManagerComponent } from '../../utils/team-manager'
 import { ProducerName } from '../common/outputs'
 import { newScope } from '../common/scopes'
 import { IngestionOutputsConfig } from '../config'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import { KafkaProducerRegistry } from '../outputs/kafka-producer-registry'
-import { ClientWarningsConsumerConfig, ClientWarningsSharedScope, createClientWarningsConsumer } from './consumer'
+import { HeatmapsConsumerConfig, HeatmapsSharedScope, createHeatmapsConsumer } from './consumer'
 import * as pipelineModule from './pipeline'
 
 jest.mock('./pipeline')
 
-describe('createClientWarningsConsumer', () => {
-    function makeConfig(): ClientWarningsConsumerConfig {
+describe('createHeatmapsConsumer', () => {
+    function makeConfig(): HeatmapsConsumerConfig {
         return {
             INGESTION_CONSUMER_GROUP_ID: 'g',
             INGESTION_CONSUMER_CONSUME_TOPIC: 't',
-            INGESTION_PIPELINE: 'clientwarnings',
+            INGESTION_PIPELINE: 'heatmaps',
             INGESTION_LANE: 'main',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
             DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
@@ -23,7 +24,7 @@ describe('createClientWarningsConsumer', () => {
         }
     }
 
-    function makeSharedScope(): ClientWarningsSharedScope {
+    function makeSharedScope(): HeatmapsSharedScope {
         // The consumer factory extends this scope but doesn't start it
         // (start happens at the caller), so the shape only has to be
         // type-correct — the components' bodies don't run.
@@ -36,6 +37,9 @@ describe('createClientWarningsConsumer', () => {
                     start: () => Promise.resolve({ value: {} as RedisPool, stop: () => Promise.resolve() }),
                 })
                 .add('teamManager', new TeamManagerComponent({} as PostgresRouter))
+                .add('cookielessManager', {
+                    start: () => Promise.resolve({ value: {} as CookielessManager, stop: () => Promise.resolve() }),
+                })
                 .add('producerRegistry', {
                     start: () =>
                         Promise.resolve({
@@ -47,18 +51,18 @@ describe('createClientWarningsConsumer', () => {
     }
 
     beforeEach(() => {
-        ;(pipelineModule.createClientWarningsPipeline as jest.Mock) = jest.fn().mockReturnValue({
+        ;(pipelineModule.createHeatmapsPipeline as jest.Mock) = jest.fn().mockReturnValue({
             feed: jest.fn(),
             next: jest.fn(),
         })
     })
 
     it('defers pipeline construction until scope.start()', () => {
-        createClientWarningsConsumer(makeConfig(), makeSharedScope())
+        createHeatmapsConsumer(makeConfig(), makeSharedScope())
 
         // The pipeline factory runs inside the extend callback at start
         // time, after the scope's services come up — not at consumer
         // construction time.
-        expect(pipelineModule.createClientWarningsPipeline).not.toHaveBeenCalled()
+        expect(pipelineModule.createHeatmapsPipeline).not.toHaveBeenCalled()
     })
 })
