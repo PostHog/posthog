@@ -41,7 +41,7 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
-from products.notebooks.backend import collab
+from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
@@ -213,12 +213,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
         with transaction.atomic():
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
+            should_publish_update = False
 
             if validated_data.keys():
                 locked_instance.last_modified_at = now()
                 locked_instance.last_modified_by = self.context["request"].user
 
-                if validated_data.get("content"):
+                update_diff: markdown_collab.MarkdownDiff | None = None
+                if "content" in validated_data:
                     if validated_data.get("version") != locked_instance.version:
                         raise Conflict("Someone else edited the Notebook")
 
@@ -226,8 +228,21 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     content = validated_data.get("content")
                     if isinstance(content, dict):
                         validated_data["content"] = annotate_python_nodes(content)
+                    update_diff = markdown_collab.build_markdown_update_diff(
+                        locked_instance.content, validated_data.get("content")
+                    )
+                    should_publish_update = True
 
                 updated_notebook = super().update(locked_instance, validated_data)
+                if should_publish_update:
+                    notify_team_id = updated_notebook.team_id
+                    notify_notebook_id = str(updated_notebook.short_id)
+                    notify_version = updated_notebook.version
+                    transaction.on_commit(
+                        lambda: markdown_collab.publish_notebook_update(
+                            notify_team_id, notify_notebook_id, notify_version, diff=update_diff
+                        )
+                    )
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 
@@ -335,6 +350,74 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
             raise serializers.ValidationError(str(err))
+
+
+class NotebookCollabCursorSerializer(serializers.Serializer):
+    head = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="ProseMirror selection head position (rich v1 notebooks).",
+    )
+    node_index = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Index of the caret's block node in the markdown notebook document (markdown notebooks).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Caret offset in the plain text of the focused editable element, in UTF-16 code units.",
+    )
+    list_item_index = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Index of the focused list item when the caret is inside a list block.",
+    )
+
+
+class NotebookMarkdownSaveSerializer(serializers.Serializer):
+    client_id = serializers.CharField(
+        help_text="Unique identifier for the client session, used to skip self-echo on the update stream."
+    )
+    version = serializers.IntegerField(
+        help_text="The notebook version the submitted content is based on (optimistic concurrency baseline)."
+    )
+    content = serializers.JSONField(
+        help_text="The full markdown notebook document: a ProseMirror doc wrapping a single markdown node."
+    )
+    text_content = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Plain text for search indexing."
+    )
+    # No default: omitted title should preserve the existing notebook title, while "" clears it.
+    title = serializers.CharField(required=False, allow_blank=True, help_text="Updated notebook title.")
+    cursor = NotebookCollabCursorSerializer(
+        required=False,
+        help_text="The author's caret in the saved markdown, broadcast with the update so other "
+        "clients can move the author's remote caret together with the text change.",
+    )
+
+    def validate_content(self, value: Any) -> Any:
+        if markdown_collab.get_markdown_notebook_markdown(value) is None:
+            raise serializers.ValidationError("Content must be a markdown notebook document.")
+        return value
+
+
+class NotebookCollabPresenceSerializer(serializers.Serializer):
+    client_id = serializers.CharField(
+        max_length=200,
+        help_text="Unique identifier for the client session, used to skip self-echo on the update stream.",
+    )
+    version = serializers.IntegerField(
+        min_value=0,
+        help_text="The notebook version the cursor position is relative to.",
+    )
+    cursor = NotebookCollabCursorSerializer(
+        help_text="The caller's caret position, broadcast to other clients on this notebook's collab stream."
+    )
+
+
+def _collab_user_name(user: User) -> str:
+    return user.get_full_name() or "Wandering Hog"
 
 
 def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
@@ -786,7 +869,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self.get_object()
 
         user = cast(User, request.user)
-        user_name = user.get_full_name() or "Wandering Hog"
+        user_name = _collab_user_name(user)
 
         result = submit_steps(
             team_id=notebook.team_id,
@@ -863,6 +946,140 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             status=409,
         )
 
+    @extend_schema(request=NotebookMarkdownSaveSerializer)
+    @action(methods=["POST"], url_path="collab/markdown_save", detail=True, required_scopes=["notebook:write"])
+    def collab_markdown_save(self, request: Request, **kwargs):
+        """Versioned save for markdown notebooks: persists the full document and streams a diff to other clients."""
+        serializer = NotebookMarkdownSaveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        notebook = self.get_object()
+        user = cast(User, request.user)
+        submitted_content = data["content"]
+
+        notebook_before: Notebook | None = None
+        with transaction.atomic():
+            # The row lock serializes the Postgres version check with the Redis stream append, so
+            # stream entry N is always the transition from the persisted version N-1.
+            locked_notebook = Notebook.objects.select_for_update().get(pk=notebook.pk)
+
+            if locked_notebook.version != data["version"]:
+                result = markdown_collab.fetch_missed_markdown_updates(
+                    locked_notebook.team_id,
+                    str(locked_notebook.short_id),
+                    last_seen_version=data["version"],
+                    current_version=locked_notebook.version,
+                )
+            else:
+                annotated_content = annotate_python_nodes(submitted_content)
+                diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, annotated_content)
+                result = markdown_collab.submit_markdown_update(
+                    locked_notebook.team_id,
+                    str(locked_notebook.short_id),
+                    client_id=data["client_id"],
+                    diff=diff,
+                    last_seen_version=locked_notebook.version,
+                    last_saved_version=locked_notebook.version,
+                    user_id=user.pk,
+                    user_name=_collab_user_name(user),
+                    cursor=data.get("cursor"),
+                )
+                if result.status == "accepted":
+                    notebook_before = Notebook.objects.get(pk=notebook.pk)
+                    locked_notebook.content = annotated_content
+                    locked_notebook.text_content = data.get("text_content", "")
+                    if "title" in data:
+                        locked_notebook.title = data["title"]
+                    locked_notebook.version = result.version
+                    locked_notebook.last_modified_at = now()
+                    locked_notebook.last_modified_by = user
+                    locked_notebook.save(
+                        update_fields=[
+                            "content",
+                            "text_content",
+                            "title",
+                            "version",
+                            "last_modified_at",
+                            "last_modified_by",
+                        ]
+                    )
+
+        if result.status == "accepted":
+            changes = changes_between("Notebook", previous=notebook_before, current=locked_notebook)
+            log_notebook_activity(
+                activity="updated",
+                notebook=locked_notebook,
+                organization_id=cast(UUIDT, user.current_organization_id),
+                team_id=locked_notebook.team_id,
+                user=user,
+                was_impersonated=is_impersonated_session(request),
+                changes=changes,
+            )
+            return Response(NotebookSerializer(locked_notebook, context=self.get_serializer_context()).data)
+
+        # Snapshot the rejected save attempt so user has a recovery path
+        log_notebook_activity(
+            activity=f"save_rejected_{result.status}",  # save_rejected_conflict | save_rejected_stale
+            notebook=locked_notebook,
+            organization_id=cast(UUIDT, user.current_organization_id),
+            team_id=locked_notebook.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            changes=[
+                Change(
+                    type="Notebook",
+                    field="content",
+                    action="changed",
+                    before=locked_notebook.content,
+                    after=submitted_content,
+                ),
+            ],
+        )
+
+        if result.status == "stale":
+            return Response({"code": "conflict_stale"}, status=410)
+
+        assert result.updates is not None  # status == "conflict" guarantees this
+        return Response(
+            {
+                "code": "conflict",
+                "updates": [
+                    {
+                        "version": entry.version,
+                        "diff": entry.diff,
+                        "base_crc": entry.base_crc,
+                        "client_id": entry.client_id,
+                    }
+                    for entry in result.updates
+                ],
+                "version": result.version,
+            },
+            status=409,
+        )
+
+    @extend_schema(request=NotebookCollabPresenceSerializer, responses={204: None})
+    @action(methods=["POST"], url_path="collab/presence", detail=True, required_scopes=["notebook:write"])
+    def collab_presence(self, request: Request, **kwargs):
+        """Broadcast the caller's caret position to other clients on this notebook's collab stream."""
+        serializer = NotebookCollabPresenceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        notebook = self.get_object()
+        user = cast(User, request.user)
+
+        presence.publish_presence(
+            notebook.team_id,
+            str(notebook.short_id),
+            client_id=data["client_id"],
+            user_id=user.pk,
+            user_name=_collab_user_name(user),
+            version=data["version"],
+            cursor=data["cursor"],
+        )
+        return Response(status=204)
+
     @action(
         methods=["GET"],
         url_path="collab/stream",
@@ -881,9 +1098,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # On WSGI (tests, fallback) async_to_sync bridges it via a worker thread + queue.
         response = StreamingHttpResponse(
             streaming_content=(
-                collab.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
+                collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
                 if SERVER_GATEWAY_INTERFACE == "ASGI"
-                else async_to_sync(lambda: collab.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id))
+                else async_to_sync(
+                    lambda: collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
+                )
             ),
             content_type=ServerSentEventRenderer.media_type,
         )

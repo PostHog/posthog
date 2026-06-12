@@ -1924,6 +1924,9 @@ class MaxNotebookContext(BaseModel):
         extra="forbid",
     )
     id: str
+    insertion_placeholder_block_id: str | None = None
+    insertion_placeholder_marker: str | None = None
+    markdown_with_insertion_placeholder: str | None = None
     name: str | None = None
     type: Literal["notebook"] = "notebook"
 
@@ -7962,9 +7965,10 @@ class AssistantDataVisualizationNode(BaseModel):
             "Visualization type. Defaults to `ActionsTable` when"
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
             " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or"
-            " `ActionsStackedBar`.\n- Two-dimensional aggregation →"
-            " `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
+            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
+            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise →"
+            " `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
