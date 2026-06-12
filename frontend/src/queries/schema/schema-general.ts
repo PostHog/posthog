@@ -53,6 +53,8 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SimpleIntervalType,
+    SlackIntegrationScope,
+    SlackIntegrationScopeInReview,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -61,6 +63,10 @@ import {
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
+// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
+// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` (always-on) and
+// `SLACK_INTEGRATION_SCOPES_IN_REVIEW` (DEV-instance only until Slack approves them).
+export { SlackIntegrationScope, SlackIntegrationScopeInReview }
 
 /**
  * PostHog Query Schema definition.
@@ -1676,6 +1682,12 @@ export type FunnelsFilter = {
     goalLines?: GoalLine[]
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean
+    /**
+     * Whether to show a legend describing the series. The legend only renders when the funnel has
+     * multiple series. Only applies to historical-trends funnels.
+     * @default false
+     */
+    showLegend?: boolean
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */

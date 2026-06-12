@@ -691,7 +691,7 @@
                   "name": "person_id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "$group_0": {
                   "chain": null,
@@ -966,7 +966,7 @@
                   "name": "event_issue_id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "exception_issue_override": {
                   "chain": null,
@@ -990,7 +990,7 @@
                   "name": "issue_id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "fingerprint_issue_state": {
                   "chain": null,
@@ -1101,7 +1101,7 @@
                   "name": "$virt_traffic_type",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "$virt_traffic_category": {
                   "chain": null,
@@ -1111,7 +1111,7 @@
                   "name": "$virt_traffic_category",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "$virt_bot_name": {
                   "chain": null,
@@ -1121,7 +1121,7 @@
                   "name": "$virt_bot_name",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "$virt_bot_operator": {
                   "chain": null,
@@ -1131,7 +1131,7 @@
                   "name": "$virt_bot_operator",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               }
           },
           "id": "events",
@@ -2597,7 +2597,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -2853,7 +2853,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "dashboard_item_id": {
                   "chain": null,
@@ -3059,7 +3059,7 @@
                   "name": "paused",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
@@ -3069,7 +3069,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "destination_id": {
                   "chain": null,
@@ -3569,7 +3569,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "filters": {
                   "chain": null,
@@ -3649,7 +3649,7 @@
                   "name": "is_static",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               }
           },
           "id": "system.cohorts",
@@ -3707,7 +3707,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "filters": {
                   "chain": null,
@@ -3845,7 +3845,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "boolean"
               }
           },
           "id": "system.dashboard_tiles",
@@ -4031,7 +4031,7 @@
                   "name": "is_materialized",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
@@ -4041,7 +4041,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -4159,7 +4159,7 @@
                   "name": "is_active",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "columns": {
                   "chain": null,
@@ -4207,7 +4207,7 @@
                   "name": "is_active",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "current_version": {
                   "chain": null,
@@ -4267,7 +4267,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               }
           },
           "id": "system.data_modeling_endpoints",
@@ -4335,7 +4335,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -4433,7 +4433,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -5105,7 +5105,7 @@
                   "name": "archived",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "feature_flag_id": {
                   "chain": null,
@@ -5241,7 +5241,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               }
           },
           "id": "system.feature_flags",
@@ -5523,7 +5523,7 @@
                   "name": "enabled",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
@@ -5533,7 +5533,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "icon_url": {
                   "chain": null,
@@ -5993,7 +5993,7 @@
                   "name": "enabled",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "filters": {
                   "chain": null,
@@ -6211,7 +6211,7 @@
                   "name": "pinned",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -6319,7 +6319,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "saved": {
                   "chain": null,
@@ -6329,7 +6329,7 @@
                   "name": "saved",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "favorited": {
                   "chain": null,
@@ -6339,7 +6339,7 @@
                   "name": "favorited",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -6457,7 +6457,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "visibility": {
                   "chain": null,
@@ -6565,7 +6565,7 @@
                   "name": "include_default_domains",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "repositories": {
                   "chain": null,
@@ -6585,7 +6585,7 @@
                   "name": "private",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "internal": {
                   "chain": null,
@@ -6595,7 +6595,7 @@
                   "name": "internal",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -6693,7 +6693,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -6771,7 +6771,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -6947,7 +6947,7 @@
                   "name": "pinned",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
@@ -6957,7 +6957,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "filters": {
                   "chain": null,
@@ -7185,7 +7185,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -7343,7 +7343,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -7559,7 +7559,7 @@
                   "name": "ai_resolved",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "escalation_reason": {
                   "chain": null,
@@ -8001,7 +8001,7 @@
                   "name": "title_manually_set",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "description": {
                   "chain": null,
@@ -8051,7 +8051,7 @@
                   "name": "internal",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
@@ -8061,7 +8061,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -8375,7 +8375,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -8973,7 +8973,7 @@
                   "name": "event_issue_id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "exception_issue_override": {
                   "chain": null,
@@ -8997,7 +8997,7 @@
                   "name": "issue_id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "fingerprint_issue_state": {
                   "chain": null,
@@ -9108,7 +9108,7 @@
                   "name": "$virt_traffic_type",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "$virt_traffic_category": {
                   "chain": null,
@@ -9118,7 +9118,7 @@
                   "name": "$virt_traffic_category",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "$virt_bot_name": {
                   "chain": null,
@@ -9128,7 +9128,7 @@
                   "name": "$virt_bot_name",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               },
               "$virt_bot_operator": {
                   "chain": null,
@@ -9138,7 +9138,7 @@
                   "name": "$virt_bot_operator",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "string"
               }
           },
           "id": "events",
@@ -10604,7 +10604,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -10860,7 +10860,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "dashboard_item_id": {
                   "chain": null,
@@ -11066,7 +11066,7 @@
                   "name": "paused",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
@@ -11076,7 +11076,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "destination_id": {
                   "chain": null,
@@ -11576,7 +11576,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "filters": {
                   "chain": null,
@@ -11656,7 +11656,7 @@
                   "name": "is_static",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               }
           },
           "id": "system.cohorts",
@@ -11714,7 +11714,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "filters": {
                   "chain": null,
@@ -11852,7 +11852,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "boolean"
               }
           },
           "id": "system.dashboard_tiles",
@@ -12038,7 +12038,7 @@
                   "name": "is_materialized",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
@@ -12048,7 +12048,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -12166,7 +12166,7 @@
                   "name": "is_active",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "columns": {
                   "chain": null,
@@ -12214,7 +12214,7 @@
                   "name": "is_active",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "current_version": {
                   "chain": null,
@@ -12274,7 +12274,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               }
           },
           "id": "system.data_modeling_endpoints",
@@ -12342,7 +12342,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -12440,7 +12440,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -13112,7 +13112,7 @@
                   "name": "archived",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "feature_flag_id": {
                   "chain": null,
@@ -13248,7 +13248,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               }
           },
           "id": "system.feature_flags",
@@ -13530,7 +13530,7 @@
                   "name": "enabled",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
@@ -13540,7 +13540,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "icon_url": {
                   "chain": null,
@@ -14000,7 +14000,7 @@
                   "name": "enabled",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "filters": {
                   "chain": null,
@@ -14218,7 +14218,7 @@
                   "name": "pinned",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -14326,7 +14326,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "saved": {
                   "chain": null,
@@ -14336,7 +14336,7 @@
                   "name": "saved",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "favorited": {
                   "chain": null,
@@ -14346,7 +14346,7 @@
                   "name": "favorited",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -14464,7 +14464,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "visibility": {
                   "chain": null,
@@ -14572,7 +14572,7 @@
                   "name": "include_default_domains",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "repositories": {
                   "chain": null,
@@ -14592,7 +14592,7 @@
                   "name": "private",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "internal": {
                   "chain": null,
@@ -14602,7 +14602,7 @@
                   "name": "internal",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -14700,7 +14700,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -14778,7 +14778,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -14954,7 +14954,7 @@
                   "name": "pinned",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
@@ -14964,7 +14964,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "filters": {
                   "chain": null,
@@ -15192,7 +15192,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -15350,7 +15350,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -15566,7 +15566,7 @@
                   "name": "ai_resolved",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "escalation_reason": {
                   "chain": null,
@@ -16008,7 +16008,7 @@
                   "name": "title_manually_set",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "description": {
                   "chain": null,
@@ -16058,7 +16058,7 @@
                   "name": "internal",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
@@ -16068,7 +16068,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,
@@ -16382,7 +16382,7 @@
                   "name": "deleted",
                   "schema_valid": true,
                   "table": null,
-                  "type": "expression"
+                  "type": "integer"
               },
               "deleted_at": {
                   "chain": null,

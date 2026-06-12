@@ -15,6 +15,7 @@ export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
 export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
 export const FEATURE_FLAG_TESTING_RESOURCE_URI = 'ui://posthog/feature-flag-testing.html'
 export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
+export const INVITE_EMAIL_PREVIEW_RESOURCE_URI = 'ui://posthog/invite-email-preview.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 export const RENDER_UI_RESOURCE_URI = 'ui://posthog/render-ui.html'
@@ -46,6 +47,7 @@ export type UiAppKey =
     | 'feature-flag-list'
     | 'feature-flag-testing'
     | 'insight-actors'
+    | 'invite-email-preview'
     | 'llm-costs'
     | 'query-results'
     | 'render-ui'
@@ -77,6 +79,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'feature-flag-list': FEATURE_FLAG_LIST_RESOURCE_URI,
     'feature-flag-testing': FEATURE_FLAG_TESTING_RESOURCE_URI,
     'insight-actors': INSIGHT_ACTORS_RESOURCE_URI,
+    'invite-email-preview': INVITE_EMAIL_PREVIEW_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
     'render-ui': RENDER_UI_RESOURCE_URI,
@@ -112,6 +115,7 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'feature-flag-list',
     'feature-flag-testing',
     'insight-actors',
+    'invite-email-preview',
     'llm-costs',
     'session-recording',
     'session-summary',
@@ -220,6 +224,12 @@ export const UI_APPS: Array<{
         uri: INSIGHT_ACTORS_RESOURCE_URI,
         description: 'Insight Actors detail view',
         appDir: 'generated/insight-actors',
+    },
+    {
+        name: 'PostHog Invite Email Preview',
+        uri: INVITE_EMAIL_PREVIEW_RESOURCE_URI,
+        description: 'Invite Email Preview detail view',
+        appDir: 'generated/invite-email-preview',
     },
     {
         name: 'PostHog Llm Costs',

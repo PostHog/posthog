@@ -9,18 +9,6 @@ feature: notebooks
 url_prefix: /notebooks
 ui_apps: {}
 tools:
-    accounts-notebooks-create:
-        operation: accounts_notebooks_create
-        enabled: false
-    accounts-notebooks-destroy:
-        operation: accounts_notebooks_destroy
-        enabled: false
-    accounts-notebooks-list:
-        operation: accounts_notebooks_list
-        enabled: false
-    accounts-notebooks-retrieve:
-        operation: accounts_notebooks_retrieve
-        enabled: false
     notebooks-activity-retrieve:
         operation: notebooks_activity_retrieve
         enabled: false
@@ -29,6 +17,12 @@ tools:
         enabled: false
     notebooks-all-activity-retrieve:
         operation: notebooks_all_activity_retrieve
+        enabled: false
+    notebooks-collab-markdown-save-create:
+        operation: notebooks_collab_markdown_save_create
+        enabled: false
+    notebooks-collab-presence-create:
+        operation: notebooks_collab_presence_create
         enabled: false
     notebooks-collab-save-create:
         operation: notebooks_collab_save_create
@@ -128,7 +122,9 @@ tools:
         description: >
             Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when
             updating the content field, you must provide the current version number for optimistic concurrency control.
-            Retrieve the notebook first to get the latest version.
+            Retrieve the notebook first to get the latest version. If the notebook content is a single
+            ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of
+            replacing it with legacy rich-text blocks.
         exclude_params:
             - _create_in_folder
         feature_flag: notebooks-collaboration
@@ -150,18 +146,6 @@ tools:
         description: >
             Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and
             creation/modification metadata.
-    notebooks-sharing-list:
-        operation: notebooks_sharing_list
-        enabled: false
-    notebooks-sharing-passwords-create:
-        operation: notebooks_sharing_passwords_create
-        enabled: false
-    notebooks-sharing-passwords-destroy:
-        operation: notebooks_sharing_passwords_destroy
-        enabled: false
-    notebooks-sharing-refresh-create:
-        operation: notebooks_sharing_refresh_create
-        enabled: false
     notebooks-update:
         operation: notebooks_update
         enabled: false

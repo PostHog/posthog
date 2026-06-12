@@ -11,7 +11,7 @@ use axum::{
     error_handling::HandleErrorLayer,
     extract::DefaultBodyLimit,
     http::{Method, StatusCode},
-    routing::{any, get},
+    routing::{any, get, post},
     Router,
 };
 use common_cache::{NegativeCache, ReadThroughCacheWithMetrics};
@@ -34,6 +34,7 @@ use tower_http::{
 
 use crate::{
     api::{
+        batch_flag_evaluation,
         body_read_metrics::{record_body_read, MAX_FLAGS_BODY_BYTES},
         concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
@@ -299,6 +300,40 @@ pub fn router(
             .layer(DefaultBodyLimit::max(MAX_FLAGS_BODY_BYTES));
     }
 
+    // Internal-only batch flag evaluation for static cohort generation. Kept outside
+    // `flags_router` on purpose: it must not share the live path's concurrency limit or
+    // request timeout (a page evaluates up to BATCH_FLAG_EVAL_MAX_LIMIT persons), and it
+    // bypasses the /flags pipeline (no billing, no flag analytics). Auth is enforced in
+    // the handler before the body is read: the handler accepts a raw `Body` (not `Bytes`)
+    // so unauthenticated requests are rejected without buffering the payload.
+    let mut internal_endpoints: Router<State> = Router::new();
+    if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
+        internal_endpoints = internal_endpoints
+            .route(
+                "/internal/batch_flag_evaluation",
+                post(batch_flag_evaluation::batch_flag_evaluation),
+            )
+            .layer(DefaultBodyLimit::max(
+                batch_flag_evaluation::MAX_BATCH_BODY_BYTES,
+            ))
+            .layer(
+                ServiceBuilder::new()
+                    .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {
+                        let is_timeout = err.is::<tower::timeout::error::Elapsed>();
+                        tracing::warn!(error = %err, timeout = is_timeout, "Batch flag evaluation request aborted by tower layer");
+                        let body = if is_timeout {
+                            "Request timed out"
+                        } else {
+                            "Service unavailable"
+                        };
+                        (StatusCode::SERVICE_UNAVAILABLE, body)
+                    }))
+                    .layer(TimeoutLayer::new(Duration::from_millis(
+                        config.batch_flag_eval_timeout_ms,
+                    ))),
+            );
+    }
+
     let mut definitions_endpoints: Router<State> = Router::new();
     if matches!(
         config.service_mode,
@@ -357,6 +392,7 @@ pub fn router(
     let router = Router::new()
         .merge(status_router)
         .merge(flags_router)
+        .merge(internal_endpoints)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state);
