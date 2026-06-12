@@ -134,6 +134,33 @@ class TestDesktopFolderContextGenerationAPI(APIBaseTest):
         )
         self.assertEqual(put.status_code, status.HTTP_404_NOT_FOUND, put.json())
 
+    def test_personal_api_key_can_read_and_set_context_generation(self):
+        folder_id = self._create_desktop_folder()
+        task = self._create_task()
+        key = self.create_personal_api_key_with_scopes(["file_system:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        get = self.client.get(self._context_url(folder_id))
+        self.assertEqual(get.status_code, status.HTTP_200_OK, get.json())
+
+        put = self.client.put(self._context_url(folder_id), {"task_id": str(task.id)}, content_type="application/json")
+        self.assertEqual(put.status_code, status.HTTP_200_OK, put.json())
+        self.assertEqual(put.json(), {"task_id": str(task.id)})
+
+    def test_personal_api_key_with_read_only_scope_cannot_set(self):
+        folder_id = self._create_desktop_folder()
+        task = self._create_task()
+        key = self.create_personal_api_key_with_scopes(["file_system:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        get = self.client.get(self._context_url(folder_id))
+        self.assertEqual(get.status_code, status.HTTP_200_OK, get.json())
+
+        put = self.client.put(self._context_url(folder_id), {"task_id": str(task.id)}, content_type="application/json")
+        self.assertEqual(put.status_code, status.HTTP_403_FORBIDDEN, put.json())
+
     def test_must_be_a_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/desktop_file_system/",

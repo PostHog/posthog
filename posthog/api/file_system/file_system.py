@@ -202,6 +202,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "unfiled",
         "count",
         "count_by_path",
+        "context_generation",
     ]
     scope_object_write_actions = [
         "create",
@@ -215,6 +216,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "link",
         "log_view",
         "undo_delete",
+        "set_context_generation",
     ]
 
     def _basename_regex(self, value: str) -> str:
