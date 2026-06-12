@@ -186,6 +186,32 @@ def streamlit_apps_flag_enabled(distinct_id: str, organization_id: str) -> bool:
     )
 
 
+class StreamlitAppVersionsResponseSerializer(serializers.Serializer):
+    results = StreamlitAppVersionSerializer(
+        many=True,
+        help_text="The app's versions, most recent first (capped at 50).",
+    )
+
+
+class StreamlitAppSourceVersionSerializer(serializers.Serializer):
+    source = serializers.CharField(
+        help_text=(
+            "Full Python source for the Streamlit app's root app.py file, as free text. "
+            "Becomes a new version and is set as the active version."
+        ),
+        trim_whitespace=False,
+    )
+    requirements = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text=(
+            "Optional requirements.txt contents (one pip requirement per line). "
+            "Currently informational — the sandbox base image ships the common data stack."
+        ),
+    )
+
+
 class StreamlitAppsAccessPermission(BasePermission):
     message = "Streamlit apps is not available."
 

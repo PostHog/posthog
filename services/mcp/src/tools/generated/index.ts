@@ -36,6 +36,7 @@ import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
 import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as replay_vision } from './replay_vision'
 import { GENERATED_TOOLS as signals } from './signals'
+import { GENERATED_TOOLS as streamlit_apps } from './streamlit_apps'
 import { GENERATED_TOOLS as subscriptions } from './subscriptions'
 import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as tasks } from './tasks'
@@ -81,6 +82,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...replay,
     ...replay_vision,
     ...signals,
+    ...streamlit_apps,
     ...subscriptions,
     ...surveys,
     ...tasks,

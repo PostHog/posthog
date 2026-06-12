@@ -1,0 +1,167 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Streamlit apps
+feature: streamlit_apps
+url_prefix: /streamlit-apps
+ui_apps: {}
+tools:
+    streamlit-apps-list:
+        operation: streamlit_apps_list
+        enabled: true
+        scopes:
+            - streamlit_app:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{short_id}'
+        list: true
+        title: List Streamlit apps
+        description: >
+            List all Streamlit apps in the current project. Each app is a Python data app that runs in an isolated
+            sandbox. Returns short_id, name, description, resource config, and current sandbox status.
+    streamlit-apps-get:
+        operation: streamlit_apps_retrieve
+        enabled: true
+        scopes:
+            - streamlit_app:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{short_id}'
+        title: Get Streamlit app
+        description: >
+            Get a single Streamlit app by its short_id, including its active version and live sandbox status.
+    streamlit-apps-create:
+        operation: streamlit_apps_create
+        enabled: true
+        scopes:
+            - streamlit_app:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{short_id}'
+        title: Create Streamlit app
+        description: >
+            Create a new Streamlit app (metadata only — it has no code until you call streamlit-apps-set-source).
+            Typical flow: create the app, set its source, then start it. cpu_cores (0.25–8) and memory_gb (0.5–16)
+            control the sandbox size and default to 0.5 / 1.
+        include_params:
+            - name
+            - description
+            - cpu_cores
+            - memory_gb
+    streamlit-apps-set-source:
+        operation: streamlit_apps_create_version_from_source_create
+        enabled: true
+        scopes:
+            - streamlit_app:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Set Streamlit app source
+        description: >
+            Create a new version of a Streamlit app from a single free-text app.py source string, and set it as the
+            active version. This is the simplest way to ship code — no zip upload required. If the app is running, the
+            running sandbox is stopped so the next view boots the new code. Optionally pass requirements.txt contents.
+        param_overrides:
+            source:
+                description: >
+                    The complete Python source for the app's root app.py (a Streamlit script, e.g. starting with
+                    `import streamlit as st`). Sent as plain text.
+            requirements:
+                description: >
+                    Optional requirements.txt contents, one pip requirement per line. Currently informational — the
+                    sandbox base image already ships the common data stack (pandas, numpy, etc.).
+    streamlit-apps-status:
+        operation: streamlit_apps_status_retrieve
+        enabled: true
+        scopes:
+            - streamlit_app:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get Streamlit app status
+        description: >
+            Get the live sandbox status for a Streamlit app: one of starting, running, stopping, stopped, or error,
+            plus restart_count and last_error. Use this to poll after starting an app.
+    streamlit-apps-start:
+        operation: streamlit_apps_start_create
+        enabled: true
+        scopes:
+            - streamlit_app:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{short_id}'
+        title: Start Streamlit app
+        description: >
+            Start the app's sandbox (boots the active version). Returns immediately while the sandbox boots
+            asynchronously — poll streamlit-apps-status until it reports running. Requires an active version
+            (set one first with streamlit-apps-set-source). Idempotent: a no-op if already running or starting.
+    streamlit-apps-stop:
+        operation: streamlit_apps_stop_create
+        enabled: true
+        scopes:
+            - streamlit_app:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{short_id}'
+        title: Stop Streamlit app
+        description: >
+            Stop the app's running sandbox. Idempotent: a no-op if the app is not running. The app's code and versions
+            are unaffected — it can be started again later.
+    streamlit-apps-versions:
+        operation: streamlit_apps_versions_retrieve
+        enabled: true
+        scopes:
+            - streamlit_app:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List Streamlit app versions
+        description: >
+            List a Streamlit app's versions (latest first). Each version is an immutable snapshot of the app's code.
+    streamlit-apps-delete:
+        operation: streamlit_apps_destroy
+        enabled: true
+        scopes:
+            - streamlit_app:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete Streamlit app
+        description: |
+            Delete a Streamlit app by short_id. Stops any running sandbox and soft-deletes the app.
+    streamlit-apps-update:
+        operation: streamlit_apps_update
+        enabled: false
+    streamlit-apps-partial-update:
+        operation: streamlit_apps_partial_update
+        enabled: false
+    streamlit-apps-upload-version:
+        operation: streamlit_apps_upload_version_create
+        enabled: false
+    streamlit-apps-activate-version:
+        operation: streamlit_apps_activate_version_create
+        enabled: false
+    streamlit-apps-connect-info:
+        operation: streamlit_apps_connect_info_retrieve
+        enabled: false
+    streamlit-apps-restart:
+        operation: streamlit_apps_restart_create
+        enabled: false
