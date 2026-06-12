@@ -14,7 +14,7 @@ from products.dashboards.backend.widget_specs.configs import ERROR_TRACKING_LIST
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
 from products.dashboards.backend.widgets.widget_filters import build_property_group_filter_from_widget_filters
-from products.error_tracking.backend.api.query import is_error_tracking_query_v3_enabled, query_v3_volume_resolution
+from products.error_tracking.backend.api.query import normalize_volume_resolution
 from products.error_tracking.backend.api.query_utils import (
     ERROR_TRACKING_LISTING_VOLUME_RESOLUTION,
     LIST_ISSUE_FIELDS,
@@ -43,14 +43,11 @@ def _build_error_tracking_list_query(
     *,
     team: Team,
     config: ValidatedErrorTrackingListWidgetConfig,
-    user: User | None,
     limit: int,
     offset: int,
     with_aggregations: bool,
 ) -> ErrorTrackingQuery:
     date_range_raw = config.get("dateRange")
-    use_query_v3 = is_error_tracking_query_v3_enabled(user, team) if user is not None else False
-    volume_resolution = ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
     filter_group = build_property_group_filter_from_widget_filters(config.get("widgetFilters"))
     return ErrorTrackingQuery(
         kind="ErrorTrackingQuery",
@@ -63,8 +60,7 @@ def _build_error_tracking_list_query(
         orderDirection=config["orderDirection"],
         limit=limit,
         offset=offset,
-        volumeResolution=query_v3_volume_resolution(volume_resolution) if use_query_v3 else volume_resolution,
-        useQueryV3=use_query_v3 or None,
+        volumeResolution=normalize_volume_resolution(ERROR_TRACKING_LISTING_VOLUME_RESOLUTION),
         withAggregations=with_aggregations,
         withFirstEvent=False,
         withLastEvent=False,
@@ -87,7 +83,6 @@ def _count_matching_error_tracking_issues(
     count_query = _build_error_tracking_list_query(
         team=team,
         config=config,
-        user=user,
         limit=cap,
         offset=0,
         with_aggregations=True,
@@ -114,7 +109,6 @@ def run_error_tracking_list_widget(
         _build_error_tracking_list_query(
             team=team,
             config=typed_config,
-            user=user,
             limit=limit,
             offset=offset,
             with_aggregations=True,

@@ -66,6 +66,9 @@ const CURSOR_TYPE_LABELS: Record<CursorType, string> = {
 }
 const CURSOR_TYPE_OPTIONS = CURSOR_TYPES.map((value) => ({ value, label: CURSOR_TYPE_LABELS[value] }))
 
+// The only cursor types `datetime_format` applies to — the backend ignores it for any other type.
+const DATE_LIKE_CURSOR_TYPES: readonly CursorType[] = ['datetime', 'date', 'timestamp']
+
 const SORT_MODE_LABELS: Record<SortMode, string> = {
     asc: 'Ascending (oldest first)',
     desc: 'Descending (newest first)',
@@ -668,6 +671,19 @@ function IncrementalSection({
                         Pick "Descending" when the API returns newest rows first — otherwise a resumed sync may skip
                         rows.
                     </p>
+                    {DATE_LIKE_CURSOR_TYPES.includes(stream.cursor_type) && (
+                        <LemonField.Pure label="Datetime format">
+                            <LemonInput
+                                placeholder="%Y-%m-%dT%H:%M:%SZ"
+                                value={stream.datetime_format}
+                                onChange={(value) => onUpdate({ datetime_format: value })}
+                            />
+                            <p className="m-0 mt-1 text-xs text-secondary">
+                                strftime pattern for the watermark sent to the API (e.g. <code>%Y-%m-%dT%H:%M:%SZ</code>
+                                , <code>%s</code> for unix). Leave blank for ISO-8601.
+                            </p>
+                        </LemonField.Pure>
+                    )}
                 </>
             )}
         </div>

@@ -13,6 +13,7 @@ from operator import or_
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import (
     connection as db_connection,
@@ -23,6 +24,7 @@ from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.helpers.full_text_search import process_query
@@ -1493,6 +1495,25 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 def has_ready_sources(team_id: int) -> bool:
     """True when the team has at least one READY source (READY implies chunks exist)."""
     return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
+
+
+def has_feature_flag(team: Team) -> bool:
+    """The `product-business-knowledge` flag check, org-keyed. Canonical home for the
+    check — `ee/hogai/utils/feature_flags.py` delegates here."""
+    if settings.DEBUG:
+        return True
+    return posthoganalytics.feature_enabled(
+        "product-business-knowledge",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+def is_available_for_team(team: Team) -> bool:
+    """Feature flag + ready sources — the full "should agents use BK?" predicate."""
+    return has_feature_flag(team) and has_ready_sources(team.id)
 
 
 _SEARCH_LIMIT_CAP = 20
