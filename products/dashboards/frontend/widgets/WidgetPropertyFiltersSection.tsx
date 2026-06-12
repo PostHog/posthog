@@ -2,7 +2,7 @@ import { QuickFilterSelector } from 'lib/components/QuickFilters/QuickFilterSele
 
 import type { QuickFilter } from '~/types'
 
-import type { WidgetFilterConfigEntry, WidgetFilterConfigRecord } from '../widget_types/configSchemas'
+import type { WidgetFilterConfigEntry, WidgetFilterConfigRecord } from '../generated/widget-configs.zod'
 
 export type WidgetPropertyFiltersSectionProps = {
     filterDefinitions: QuickFilter[]

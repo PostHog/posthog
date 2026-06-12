@@ -35,22 +35,7 @@ from posthog.models.oauth import (
     revoke_application_sessions,
 )
 from posthog.models.team.team import Team
-
-
-def generate_rsa_key() -> str:
-    # Generate a new RSA private key
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=4096,
-    )
-    # Serialize the private key to PEM format
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-
-    return pem.decode("utf-8")
+from posthog.settings.utils import generate_rsa_private_key_pem
 
 
 def jwks_entry_to_public_key(key_data: dict):
@@ -73,12 +58,6 @@ def private_pem_to_public_pem(private_key_pem: str) -> str:
     return public_pem(private_key.public_key())
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestOAuthAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -904,8 +883,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(public_pem(jwks_entry_to_public_key(jwks["keys"][0])), self.public_key)
 
     def test_jwks_endpoint_publishes_active_and_inactive_keys(self):
-        inactive_key_1 = generate_rsa_key()
-        inactive_key_2 = generate_rsa_key()
+        inactive_key_1 = generate_rsa_private_key_pem()
+        inactive_key_2 = generate_rsa_private_key_pem()
 
         with override_settings(
             OAUTH2_PROVIDER={
@@ -940,7 +919,7 @@ class TestOAuthAPI(APIBaseTest):
     def test_token_signed_with_inactive_key_still_verifies_via_jwks(self):
         # Simulates a rotation: a token signed by the previous active key keeps verifying
         # because that key is still published as an inactive key in the JWKS.
-        previous_key = generate_rsa_key()
+        previous_key = generate_rsa_private_key_pem()
         previous_kid = jwk_from_pem(previous_key).thumbprint()
 
         token = jwt.encode(
@@ -3470,12 +3449,6 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["scoped_teams"], [self.team.pk])
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestLocalhostLoopbackRedirectUri(APIBaseTest):
     """
     Tests for RFC 8252 Section 7.3 — loopback redirect URIs must allow any port.
@@ -3702,4 +3675,21 @@ class TestOIDCInactiveKeysSetting(SimpleTestCase):
         finally:
             # Restore module attributes to the real environment (patch.dict has already
             # restored os.environ by this point, so this reload sees the original vars).
+            importlib.reload(web_settings)
+
+    def test_generates_ephemeral_key_when_env_key_missing(self):
+        # Internal CI injects OIDC_RSA_PRIVATE_KEY, so the TEST-mode fallback in web.py
+        # only ever runs where the env key is absent (fork PRs, bare local runs). Pin it
+        # here so a settings refactor can't silently drop the fallback or reorder it
+        # below the OAUTH2_PROVIDER dict that must inherit the generated key.
+        web_settings = importlib.import_module("posthog.settings.web")
+        try:
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("OIDC_RSA_PRIVATE_KEY", None)
+                importlib.reload(web_settings)
+                self.assertIn("-----BEGIN RSA PRIVATE KEY-----", web_settings.OIDC_RSA_PRIVATE_KEY)
+                self.assertEqual(
+                    web_settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEY"], web_settings.OIDC_RSA_PRIVATE_KEY
+                )
+        finally:
             importlib.reload(web_settings)

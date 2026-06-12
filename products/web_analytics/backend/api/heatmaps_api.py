@@ -134,6 +134,22 @@ WHERE {predicates}
 """
 
 
+def parse_fold_summary_row(row: Any) -> dict[str, Any]:
+    """Shape a single FOLD_SUMMARY_QUERY result row (or None for an empty result) into the
+    fold-summary payload. Shared so every caller applies the same NaN coercion and pct math."""
+    total = int(row[0]) if row else 0
+    below = int(row[1]) if row else 0
+    # quantile over an empty set returns NaN (which is != itself); coerce to None.
+    raw_median = row[2] if row else None
+    median = int(raw_median) if raw_median is not None and raw_median == raw_median else None
+    return {
+        "total_count": total,
+        "below_fold_count": below,
+        "pct_below_fold": round(100 * below / total, 1) if total else 0.0,
+        "median_viewport_height": median,
+    }
+
+
 class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_min = serializers.IntegerField(
         required=False,
@@ -430,17 +446,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
         result = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
         row = result.results[0] if result.results else None
-        total = int(row[0]) if row else 0
-        below = int(row[1]) if row else 0
-        # quantile over an empty set returns NaN (which is != itself); coerce to None.
-        raw_median = row[2] if row else None
-        median = int(raw_median) if raw_median is not None and raw_median == raw_median else None
-        return {
-            "total_count": total,
-            "below_fold_count": below,
-            "pct_below_fold": round(100 * below / total, 1) if total else 0.0,
-            "median_viewport_height": median,
-        }
+        return parse_fold_summary_row(row)
 
     def _choose_aggregation(self, aggregation, is_scrolldepth_query):
         aggregation_value = "count(*) as cnt" if aggregation == "total_count" else "count(distinct distinct_id) as cnt"

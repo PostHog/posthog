@@ -19,7 +19,7 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
         case ReplayTabs.Playlists:
             return 'Collections'
         case ReplayTabs.Templates:
-            return 'What to watch'
+            return 'Filter templates'
         case ReplayTabs.Settings:
             return 'Settings'
         default:

@@ -14,6 +14,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -66,6 +67,28 @@ logger = structlog.get_logger(__name__)
 # Delay durations are strings like "30m", "2h", "1.5d". Must match the regex in the Node.js executor
 # (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
+
+
+def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
+    # Non-draft saves always validate fully. Drafts stay lenient for the web UI builder (which saves
+    # incomplete graphs mid-edit) and for internal re-saves (e.g. the refresh management command), which
+    # only re-persist already-accepted data. Programmatic authoring clients (MCP, posthog-code, raw API)
+    # validate drafts fully too, so an unsupported config is rejected at create rather than silently stored
+    # and surfacing only at enable. The viewset sets event_source; absent it (internal/no request), drafts
+    # stay lenient.
+    if not is_draft:
+        return True
+    source = context.get("event_source")
+    return source is not None and source != EventSource.WEB
+
+
+def _event_config_has_event_or_action(event_config: dict) -> bool:
+    # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
+    # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
+    # actions set) are real and kept. Shared by the wait_until_condition and conversion strips so the
+    # rule lives in one place (mirrors hasEventOrActionTarget in the matcher consumer).
+    filters = event_config.get("filters") or {}
+    return bool(filters.get("events") or filters.get("actions"))
 
 
 class BlastRadiusRequestSerializer(serializers.Serializer):
@@ -178,15 +201,6 @@ class HogFlowActionSerializer(serializers.Serializer):
         self.initial_data = data
         return super().to_internal_value(data)
 
-    def _should_enforce_audience_guard(self, is_draft) -> bool:
-        # Non-draft saves always validate. Drafts stay lenient only for the web UI builder (users save
-        # incomplete graphs while building); programmatic callers (MCP, posthog-code, API) send complete
-        # graphs, so enforce even on their drafts and fail fast at create time.
-        if not is_draft:
-            return True
-        request = self.context.get("request")
-        return request is None or get_event_source(request) != EventSource.WEB
-
     def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
@@ -220,6 +234,10 @@ class HogFlowActionSerializer(serializers.Serializer):
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")
+        # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
+        # (MCP/API) get full validation even on drafts so a broken or unsupported config fails at create
+        # time rather than being silently stored and surfacing only at enable.
+        strict = _should_validate_strictly(self.context, is_draft)
 
         trigger_is_function = False
         if data.get("type") == "trigger":
@@ -232,7 +250,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
                 if filters:
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                    if is_draft:
+                    if not strict:
                         if serializer.is_valid():
                             data["config"]["filters"] = serializer.validated_data
                     else:
@@ -240,7 +258,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         data["config"]["filters"] = serializer.validated_data
             elif data.get("config", {}).get("type") == "batch":
                 filters = data.get("config", {}).get("filters", {})
-                if not is_draft:
+                if strict:
                     if not filters:
                         raise serializers.ValidationError({"filters": "Filters are required for batch triggers."})
                     if not isinstance(filters, dict):
@@ -248,11 +266,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                     properties = filters.get("properties", None)
                     if properties is not None and not isinstance(properties, list):
                         raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
-                if self._should_enforce_audience_guard(is_draft) and isinstance(filters, dict):
+                if strict and isinstance(filters, dict):
                     # The audience targets who a person is (properties / cohort membership), not what they did.
                     # Event/action filters are silently dropped by the person-based blast radius (resolving to
-                    # "everyone"), so reject them outright — same rejection as a behavioral cohort below, and
-                    # enforced together so MCP/API drafts can't slip an event-behavior audience through.
+                    # "everyone"), so reject them outright — same rejection as a behavioral cohort below.
                     if filters.get("events") or filters.get("actions"):
                         raise serializers.ValidationError(
                             {
@@ -267,19 +284,19 @@ class HogFlowActionSerializer(serializers.Serializer):
             elif data.get("config", {}).get("type") == "schedule":
                 # The schedule definition lives on a separate HogFlowSchedule row, but a schedule trigger
                 # resolves the same offline audience as batch — guard its cohort refs the same way.
-                if self._should_enforce_audience_guard(is_draft):
+                if strict:
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
                         self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
             else:
-                if not is_draft:
+                if strict:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
 
         if "function" in data.get("type", "") or trigger_is_function:
             template_id = data.get("config", {}).get("template_id", "")
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
-                if not is_draft:
+                if strict:
                     raise serializers.ValidationError({"template_id": "Template not found"})
             else:
                 input_schema = template.inputs_schema
@@ -293,7 +310,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     context={"function_type": template.type},
                 )
 
-                if is_draft:
+                if not strict:
                     if function_config_serializer.is_valid():
                         data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
                 else:
@@ -304,7 +321,7 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         single_condition = data.get("config", {}).get("condition", None)
         if conditions and single_condition:
-            if not is_draft:
+            if strict:
                 raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
         if single_condition:
             conditions = [single_condition]
@@ -314,11 +331,11 @@ class HogFlowActionSerializer(serializers.Serializer):
                 filters = condition.get("filters")
                 if filters is not None:
                     if "events" in filters:
-                        if not is_draft:
+                        if strict:
                             raise serializers.ValidationError("Event filters are not allowed in conditionals")
                     else:
                         serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                        if is_draft:
+                        if not strict:
                             if serializer.is_valid():
                                 condition["filters"] = serializer.validated_data
                         else:
@@ -327,11 +344,18 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         if data.get("type") == "wait_until_condition":
             wait_events = data.get("config", {}).get("events") or []
+            # Drop "events to wait for" entries that target neither events nor actions. An empty
+            # event filter compiles to always-true bytecode, which would wake the job on every
+            # incoming event and bypass the property condition. The UI can leave such an entry
+            # behind when the last event is removed; "nothing targeted" must mean "nothing wakes
+            # this", not "everything". Action-based entries (events empty, actions set) are kept.
+            wait_events = [ec for ec in wait_events if _event_config_has_event_or_action(ec)]
+            data["config"]["events"] = wait_events
             for event_config in wait_events:
                 filters = event_config.get("filters")
                 if filters is not None:
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                    if is_draft:
+                    if not strict:
                         if serializer.is_valid():
                             event_config["filters"] = serializer.validated_data
                     else:
@@ -341,7 +365,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         if data.get("type") == "delay":
             delay_duration = data.get("config", {}).get("delay_duration")
             if not isinstance(delay_duration, str) or not DELAY_DURATION_REGEX.match(delay_duration):
-                if not is_draft:
+                if strict:
                     raise serializers.ValidationError(
                         {
                             "config": (
@@ -383,12 +407,17 @@ class HogFlowMaskingSerializer(serializers.Serializer):
         min_value=60,
         max_value=60 * 60 * 24 * 365 * 3,
         allow_null=True,
-        help_text="Hash TTL in seconds (60 to ~94M / 3y).",
+        help_text="Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.",
     )
     threshold = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Min matching events before triggering (k-anonymity)."
+        required=False,
+        allow_null=True,
+        help_text="Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.",
     )
-    hash = serializers.CharField(required=True, help_text="HogQL template, e.g. '{person.properties.email}'.")
+    hash = serializers.CharField(
+        required=True,
+        help_text="HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl.",
+    )
     bytecode = serializers.JSONField(required=False, allow_null=True, help_text="Auto-compiled from hash. Do not set.")
 
     def validate(self, attrs):
@@ -508,8 +537,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. "
-            "Server compiles bytecode from hash. Omit to disable."
+            "Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, "
+            "ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then "
+            "suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire "
+            "once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an "
+            "already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; "
+            "omit to disable."
         ),
     )
     conversion = serializers.JSONField(
@@ -625,12 +658,27 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         )
         data["billable_action_types"] = billable_action_types
 
+        # Web-builder drafts stay lenient; programmatic (MCP/API) callers get full validation even on
+        # drafts — same posture as HogFlowActionSerializer, so a conversion filter that can't compile
+        # (e.g. a cohort reference) fails at create rather than being silently stored.
+        strict = _should_validate_strictly(self.context, self.context.get("is_draft"))
+
         conversion = data.get("conversion")
         if conversion is not None:
             filters = conversion.get("filters")
+            # Forward guard for the legacy bad shape (see migration 0009): an event-based conversion
+            # goal stored as an object in `conversion.filters` (e.g. {"events": [...], "source": "events"})
+            # belongs in `conversion.events`. `conversion.filters` is an array of property filters, so the
+            # object both crashes the property picker and is invisible to the matcher. Relocate it here so
+            # no client (web UI, API, MCP) can persist the malformed shape; it then compiles through the
+            # conversion.events path below.
+            if isinstance(filters, dict) and filters.get("events"):
+                data["conversion"]["events"] = [*(conversion.get("events") or []), {"filters": filters}]
+                data["conversion"]["filters"] = []
+                filters = []
             if filters:
                 serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
-                if self.context.get("is_draft"):
+                if not strict:
                     if serializer.is_valid():
                         compiled_filters = serializer.validated_data
                         data["conversion"]["filters"] = compiled_filters.get("properties", [])
@@ -643,11 +691,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if "bytecode" not in data["conversion"]:
                 data["conversion"]["bytecode"] = []
 
-            for event_config in conversion.get("events") or []:
+            # Drop conversion "events" entries that target neither events nor actions, for the same
+            # always-true reason as the wait_until_condition guard above: an empty entry would mark
+            # every incoming event as a conversion. Action-based entries (events empty, actions set)
+            # are kept.
+            conversion_events = [ec for ec in (conversion.get("events") or []) if _event_config_has_event_or_action(ec)]
+            data["conversion"]["events"] = conversion_events
+            for event_config in conversion_events:
                 event_filters = event_config.get("filters")
                 if event_filters is not None:
                     event_serializer = HogFunctionFiltersSerializer(data=event_filters, context=self.context)
-                    if self.context.get("is_draft"):
+                    if not strict:
                         if event_serializer.is_valid():
                             event_config["filters"] = event_serializer.validated_data
                         elif isinstance(event_filters, dict):
@@ -701,6 +755,13 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_by", "created_at", "updated_at", "status"]
 
 
+class HogFlowPagination(LimitOffsetPagination):
+    # Bumped from the global default of 100 so the workflows list page loads all flows in one
+    # request — the frontend list/search runs client-side over a single page (no pagination UI yet).
+    default_limit = 200
+    max_limit = 500
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
@@ -723,6 +784,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "bulk_delete",
     ]
     queryset = HogFlow.objects.all()
+    pagination_class = HogFlowPagination
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
     log_source = "hog_flow"
@@ -757,6 +819,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFlowMinimalSerializer if self.action == "list" else HogFlowSerializer
+
+    def get_serializer_context(self) -> dict:
+        # Drives draft strictness in the serializers: web-builder drafts stay lenient, programmatic
+        # (MCP/API) drafts validate fully. Set here so the decision is tied to the request entry point,
+        # not inferred deep in the serializer (which would also catch internal re-saves like the refresh
+        # command). See _should_validate_strictly.
+        context = super().get_serializer_context()
+        context["event_source"] = get_event_source(self.request)
+        return context
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":

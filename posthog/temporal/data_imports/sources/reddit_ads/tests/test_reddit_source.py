@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldOauthConfig
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
@@ -44,7 +44,7 @@ class TestRedditAdsSource:
 
         assert config.name.value == "RedditAds"
         assert config.label == "Reddit Ads"
-        assert config.releaseStatus == "beta"
+        assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
         # Check account_id field

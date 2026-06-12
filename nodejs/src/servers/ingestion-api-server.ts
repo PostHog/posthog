@@ -25,16 +25,14 @@ import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import {
-    KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
-    KafkaWarpstreamProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
 import { ProducerName } from '../ingestion/common/outputs'
-import { createProducerRegistry } from '../ingestion/common/outputs/registry'
+import { createIngestionProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -78,9 +76,8 @@ export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
     IngestionOutputsConfig &
     HogTransformerServiceConfig &
-    KafkaProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
+    KafkaUpstreamProducerEnvConfig &
+    KafkaDownstreamProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -148,6 +145,8 @@ export class IngestionApiServer implements NodeServer {
     private cookielessRedisPool?: RedisPool
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
+    private personsStore?: BatchWritingPersonsStore
+    private groupStore?: BatchWritingGroupStore
 
     private joinedPipeline!: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
@@ -159,9 +158,8 @@ export class IngestionApiServer implements NodeServer {
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
             ...config,
         }
@@ -244,7 +242,9 @@ export class IngestionApiServer implements NodeServer {
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
-        this.ingestionProducerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
+            this.config
+        )
         const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
@@ -300,7 +300,7 @@ export class IngestionApiServer implements NodeServer {
                     this.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
             }).start()
 
-        const personsStore: PersonsStore = new BatchWritingPersonsStore(personRepository, ingestionOutputs, {
+        this.personsStore = new BatchWritingPersonsStore(personRepository, ingestionOutputs, {
             dbWriteMode: this.config.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             useBatchUpdates: this.config.PERSON_BATCH_WRITING_USE_BATCH_UPDATES,
             maxConcurrentUpdates: this.config.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -308,12 +308,14 @@ export class IngestionApiServer implements NodeServer {
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
         })
+        const personsStore: PersonsStore = this.personsStore
 
-        const groupStore = new BatchWritingGroupStore(ingestionOutputs, groupRepository, clickhouseGroupRepository, {
+        this.groupStore = new BatchWritingGroupStore(ingestionOutputs, groupRepository, clickhouseGroupRepository, {
             maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
+        const groupStore = this.groupStore
 
         this.topHog = new TopHog({
             outputs: ingestionOutputs,
@@ -478,8 +480,18 @@ export class IngestionApiServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
-                await this.ingestionProducerRegistry?.disconnectAll()
+                // No Kafka offsets in this server — drain buffered writes before
+                // shutdown so shutdown() can assert a clean cache.
+                if (this.personsStore) {
+                    await this.personsStore.flushAndProduceMessages()
+                    await this.personsStore.shutdown()
+                }
+                if (this.groupStore) {
+                    await this.groupStore.flush()
+                    await this.groupStore.shutdown()
+                }
                 this.cookielessManager?.shutdown()
+                await this.ingestionProducerRegistry?.disconnectAll()
             },
         }
     }

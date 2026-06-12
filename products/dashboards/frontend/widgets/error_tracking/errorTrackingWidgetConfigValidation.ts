@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { ApiError } from 'lib/api-error'
+
 import type { ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import {
@@ -7,15 +9,14 @@ import {
     errorTrackingWidgetFormSchema,
     type ErrorTrackingWidgetConfig,
     type StoredWidgetFilter,
-} from '../../widget_types/configSchemas'
+} from '../../generated/widget-configs.zod'
+import { fieldErrorsFromZodError, parseWidgetConfig, type WidgetListFormInput } from '../widgetConfigValidation'
 
 export type ErrorTrackingWidgetFormStatus = NonNullable<ErrorTrackingQuery['status']> | 'all'
-import {
-    fieldErrorsFromZodError,
-    parseWidgetConfig,
-    parseWidgetConfigApiError,
-    type WidgetListFormInput,
-} from '../widgetConfigValidation'
+
+export const ERROR_TRACKING_WIDGET_FORM_FIELD_NAMES = Object.keys(
+    errorTrackingWidgetFormSchema.shape
+) as (keyof typeof errorTrackingWidgetFormSchema.shape)[]
 
 type ErrorTrackingWidgetFormField = keyof z.infer<typeof errorTrackingWidgetFormSchema>
 
@@ -57,10 +58,7 @@ export function buildErrorTrackingWidgetConfig(
 ): ErrorTrackingWidgetConfig {
     return errorTrackingWidgetConfigSchema.parse({
         ...baseConfig,
-        limit: formInput.limit,
-        orderBy: formInput.orderBy,
-        orderDirection: formInput.orderDirection,
-        filterTestAccounts: formInput.filterTestAccounts,
+        ...formInput,
     })
 }
 
@@ -76,23 +74,27 @@ export function validateErrorTrackingWidgetConfigInput(input: {
     const parsed = errorTrackingWidgetFormSchema.safeParse({
         limit: input.limit,
         orderBy: input.orderBy,
-        dateFrom: input.baseConfig.dateRange?.date_from ?? '-7d',
+        orderDirection: input.orderDirection,
+        dateRange: { date_from: input.baseConfig.dateRange?.date_from ?? '-7d' },
         filterTestAccounts: input.filterTestAccounts,
+        status: (input.baseConfig.status ?? errorTrackingConfigDefaults.status) as ErrorTrackingWidgetFormStatus,
     })
 
     if (!parsed.success) {
         return { success: false, fieldErrors: fieldErrorsFromZodError(parsed.error) }
     }
 
+    const formInput: ErrorTrackingWidgetFormInput = {
+        limit: parsed.data.limit,
+        orderBy: parsed.data.orderBy,
+        orderDirection: parsed.data.orderDirection,
+        dateRange: parsed.data.dateRange ?? null,
+        filterTestAccounts: parsed.data.filterTestAccounts ?? null,
+    }
+
     return {
         success: true,
-        config: buildErrorTrackingWidgetConfig(
-            {
-                ...parsed.data,
-                orderDirection: input.orderDirection as ErrorTrackingWidgetConfig['orderDirection'],
-            },
-            input.baseConfig
-        ),
+        config: buildErrorTrackingWidgetConfig(formInput, input.baseConfig),
     }
 }
 
@@ -100,11 +102,26 @@ export function parseErrorTrackingWidgetConfigApiError(
     error: unknown,
     config: Record<string, unknown>
 ): ErrorTrackingWidgetFieldErrors | null {
-    return parseWidgetConfigApiError({
-        error,
-        config,
-        configSchema: errorTrackingWidgetConfigSchema,
-        formSchema: errorTrackingWidgetFormSchema,
-        defaultOrderBy: errorTrackingConfigDefaults.orderBy,
+    if (!(error instanceof ApiError)) {
+        return null
+    }
+
+    const parsedConfig = errorTrackingWidgetConfigSchema.safeParse(config)
+    if (parsedConfig.success) {
+        return null
+    }
+
+    const parsedForm = errorTrackingWidgetFormSchema.safeParse({
+        limit: (config.limit as number) ?? errorTrackingConfigDefaults.limit ?? 0,
+        orderBy: (config.orderBy as string) ?? errorTrackingConfigDefaults.orderBy ?? '',
+        orderDirection: (config.orderDirection as string) ?? errorTrackingConfigDefaults.orderDirection ?? 'DESC',
+        dateRange: (config.dateRange as { date_from?: string | null } | undefined) ?? { date_from: '-7d' },
+        filterTestAccounts: (config.filterTestAccounts as boolean) ?? false,
+        status: (config.status as ErrorTrackingWidgetFormStatus) ?? errorTrackingConfigDefaults.status ?? 'active',
     })
+    if (!parsedForm.success) {
+        return fieldErrorsFromZodError(parsedForm.error)
+    }
+
+    return fieldErrorsFromZodError(parsedConfig.error)
 }

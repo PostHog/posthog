@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -87,7 +88,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                     ),
                 ],
             ),
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

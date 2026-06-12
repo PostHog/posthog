@@ -139,13 +139,13 @@ export interface _ErrorResponseApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -314,8 +314,8 @@ export interface EvaluationRunRequestApi {
 
 /**
  * * `active` - Active
- * `paused` - Paused
- * `error` - Error
+ * * `paused` - Paused
+ * * `error` - Error
  */
 export type EvaluationStatusEnumApi = (typeof EvaluationStatusEnumApi)[keyof typeof EvaluationStatusEnumApi]
 
@@ -327,8 +327,8 @@ export const EvaluationStatusEnumApi = {
 
 /**
  * * `trial_limit_reached` - Trial evaluation limit reached
- * `model_not_allowed` - Model not available on the trial plan
- * `provider_key_deleted` - Provider API key was deleted
+ * * `model_not_allowed` - Model not available on the trial plan
+ * * `provider_key_deleted` - Provider API key was deleted
  */
 export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
 
@@ -340,7 +340,7 @@ export const StatusReasonEnumApi = {
 
 /**
  * * `llm_judge` - LLM as a judge
- * `hog` - Hog
+ * * `hog` - Hog
  */
 export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
 
@@ -381,12 +381,12 @@ export interface EvaluationConditionApi {
 
 /**
  * * `openai` - Openai
- * `anthropic` - Anthropic
- * `gemini` - Gemini
- * `openrouter` - Openrouter
- * `fireworks` - Fireworks
- * `azure_openai` - Azure OpenAI
- * `together_ai` - Together AI
+ * * `anthropic` - Anthropic
+ * * `gemini` - Gemini
+ * * `openrouter` - Openrouter
+ * * `fireworks` - Fireworks
+ * * `azure_openai` - Azure OpenAI
+ * * `together_ai` - Together AI
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -454,15 +454,15 @@ export interface EvaluationApi {
     readonly status: EvaluationStatusEnumApi
     readonly status_reason: StatusReasonEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
-
-  * `llm_judge` - LLM as a judge
-  * `hog` - Hog */
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog */
     evaluation_type: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
     evaluation_config?: EvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
-
-  * `boolean` - Boolean (Pass/Fail) */
+     *
+     * * `boolean` - Boolean (Pass/Fail) */
     output_type: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: EvaluationApiOutputConfig
@@ -526,15 +526,15 @@ export interface PatchedEvaluationApi {
     readonly status?: EvaluationStatusEnumApi
     readonly status_reason?: StatusReasonEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
-
-  * `llm_judge` - LLM as a judge
-  * `hog` - Hog */
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog */
     evaluation_type?: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
     evaluation_config?: PatchedEvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
-
-  * `boolean` - Boolean (Pass/Fail) */
+     *
+     * * `boolean` - Boolean (Pass/Fail) */
     output_type?: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: PatchedEvaluationApiOutputConfig
@@ -605,8 +605,8 @@ export interface TestHogResponseApi {
 
 /**
  * * `trace` - trace
- * `generation` - generation
- * `evaluation` - evaluation
+ * * `generation` - generation
+ * * `evaluation` - evaluation
  */
 export type ClusteringJobAnalysisLevelEnumApi =
     (typeof ClusteringJobAnalysisLevelEnumApi)[keyof typeof ClusteringJobAnalysisLevelEnumApi]
@@ -652,7 +652,7 @@ export type ClusteringRunRequestApiEventFiltersItem = { [key: string]: unknown }
 
 /**
  * * `none` - none
- * `l2` - l2
+ * * `l2` - l2
  */
 export type EmbeddingNormalizationEnumApi =
     (typeof EmbeddingNormalizationEnumApi)[keyof typeof EmbeddingNormalizationEnumApi]
@@ -664,8 +664,8 @@ export const EmbeddingNormalizationEnumApi = {
 
 /**
  * * `none` - none
- * `umap` - umap
- * `pca` - pca
+ * * `umap` - umap
+ * * `pca` - pca
  */
 export type DimensionalityReductionMethodEnumApi =
     (typeof DimensionalityReductionMethodEnumApi)[keyof typeof DimensionalityReductionMethodEnumApi]
@@ -678,7 +678,7 @@ export const DimensionalityReductionMethodEnumApi = {
 
 /**
  * * `hdbscan` - hdbscan
- * `kmeans` - kmeans
+ * * `kmeans` - kmeans
  */
 export type ClusteringMethodEnumApi = (typeof ClusteringMethodEnumApi)[keyof typeof ClusteringMethodEnumApi]
 
@@ -689,8 +689,8 @@ export const ClusteringMethodEnumApi = {
 
 /**
  * * `umap` - umap
- * `pca` - pca
- * `tsne` - tsne
+ * * `pca` - pca
+ * * `tsne` - tsne
  */
 export type VisualizationMethodEnumApi = (typeof VisualizationMethodEnumApi)[keyof typeof VisualizationMethodEnumApi]
 
@@ -717,15 +717,15 @@ export interface ClusteringRunRequestApi {
      */
     max_samples?: number
     /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
-
-  * `none` - none
-  * `l2` - l2 */
+     *
+     * * `none` - none
+     * * `l2` - l2 */
     embedding_normalization?: EmbeddingNormalizationEnumApi
     /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
-
-  * `none` - none
-  * `umap` - umap
-  * `pca` - pca */
+     *
+     * * `none` - none
+     * * `umap` - umap
+     * * `pca` - pca */
     dimensionality_reduction_method?: DimensionalityReductionMethodEnumApi
     /**
      * Target dimensions for dimensionality reduction (ignored if method is 'none')
@@ -734,9 +734,9 @@ export interface ClusteringRunRequestApi {
      */
     dimensionality_reduction_ndims?: number
     /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
-
-  * `hdbscan` - hdbscan
-  * `kmeans` - kmeans */
+     *
+     * * `hdbscan` - hdbscan
+     * * `kmeans` - kmeans */
     clustering_method?: ClusteringMethodEnumApi
     /**
      * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
@@ -768,10 +768,10 @@ export interface ClusteringRunRequestApi {
      */
     run_label?: string
     /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
-
-  * `umap` - umap
-  * `pca` - pca
-  * `tsne` - tsne */
+     *
+     * * `umap` - umap
+     * * `pca` - pca
+     * * `tsne` - tsne */
     visualization_method?: VisualizationMethodEnumApi
     /** Property filters to scope which traces are included in clustering (PostHog standard format) */
     event_filters?: ClusteringRunRequestApiEventFiltersItem[]
@@ -784,9 +784,9 @@ export interface ClusteringRunRequestApi {
 
 /**
  * * `unknown` - Unknown
- * `ok` - Ok
- * `invalid` - Invalid
- * `error` - Error
+ * * `ok` - Ok
+ * * `invalid` - Invalid
+ * * `error` - Error
  */
 export type LLMProviderKeyStateEnumApi = (typeof LLMProviderKeyStateEnumApi)[keyof typeof LLMProviderKeyStateEnumApi]
 
@@ -853,7 +853,7 @@ export interface EvaluationConfigSetActiveKeyRequestApi {
 
 /**
  * * `scheduled` - Scheduled
- * `every_n` - Every N
+ * * `every_n` - Every N
  */
 export type EvaluationReportFrequencyEnumApi =
     (typeof EvaluationReportFrequencyEnumApi)[keyof typeof EvaluationReportFrequencyEnumApi]
@@ -868,9 +868,9 @@ export interface EvaluationReportApi {
     /** UUID of the evaluation this report config belongs to. */
     evaluation: string
     /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
-
-  * `scheduled` - Scheduled
-  * `every_n` - Every N */
+     *
+     * * `scheduled` - Scheduled
+     * * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
@@ -940,9 +940,9 @@ export interface PatchedEvaluationReportApi {
     /** UUID of the evaluation this report config belongs to. */
     evaluation?: string
     /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
-
-  * `scheduled` - Scheduled
-  * `every_n` - Every N */
+     *
+     * * `scheduled` - Scheduled
+     * * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
@@ -1000,9 +1000,9 @@ export interface PatchedEvaluationReportApi {
 
 /**
  * * `pending` - Pending
- * `delivered` - Delivered
- * `partial_failure` - Partial Failure
- * `failed` - Failed
+ * * `delivered` - Delivered
+ * * `partial_failure` - Partial Failure
+ * * `failed` - Failed
  */
 export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof DeliveryStatusEnumApi]
 
@@ -1027,11 +1027,11 @@ export interface EvaluationReportRunApi {
     /** End of the evaluation window covered by this report. */
     readonly period_end: string
     /** 'pending', 'delivered', or 'failed'.
-
-  * `pending` - Pending
-  * `delivered` - Delivered
-  * `partial_failure` - Partial Failure
-  * `failed` - Failed */
+     *
+     * * `pending` - Pending
+     * * `delivered` - Delivered
+     * * `partial_failure` - Partial Failure
+     * * `failed` - Failed */
     readonly delivery_status: DeliveryStatusEnumApi
     /** List of delivery error messages if delivery failed. */
     readonly delivery_errors: unknown
@@ -1049,9 +1049,9 @@ export interface PaginatedEvaluationReportRunListApi {
 
 /**
  * * `all` - all
- * `pass` - pass
- * `fail` - fail
- * `na` - na
+ * * `pass` - pass
+ * * `fail` - fail
+ * * `na` - na
  */
 export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
 
@@ -1069,11 +1069,11 @@ export interface EvaluationSummaryRequestApi {
     /** UUID of the evaluation config to summarize */
     evaluation_id: string
     /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-
-  * `all` - all
-  * `pass` - pass
-  * `fail` - fail
-  * `na` - na */
+     *
+     * * `all` - all
+     * * `pass` - pass
+     * * `fail` - fail
+     * * `na` - na */
     filter?: FilterEnumApi
     /**
      * Optional: specific generation IDs to include in summary (max 250)
@@ -1304,8 +1304,8 @@ export interface PatchedReviewQueueUpdateApi {
 
 /**
  * * `categorical` - categorical
- * `numeric` - numeric
- * `boolean` - boolean
+ * * `numeric` - numeric
+ * * `boolean` - boolean
  */
 export type ExperimentMetricKindEnumApi = (typeof ExperimentMetricKindEnumApi)[keyof typeof ExperimentMetricKindEnumApi]
 
@@ -1330,7 +1330,7 @@ export interface CategoricalScoreOptionApi {
 
 /**
  * * `single` - single
- * `multiple` - multiple
+ * * `multiple` - multiple
  */
 export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
 
@@ -1343,9 +1343,9 @@ export interface CategoricalScoreDefinitionConfigApi {
     /** Ordered categorical options available to the scorer. */
     options: CategoricalScoreOptionApi[]
     /** Whether reviewers can select one option or multiple options. Defaults to `single`.
-
-  * `single` - single
-  * `multiple` - multiple */
+     *
+     * * `single` - single
+     * * `multiple` - multiple */
     selection_mode?: SelectionModeEnumApi
     /**
      * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
@@ -1435,10 +1435,10 @@ export interface ScoreDefinitionCreateApi {
      */
     description?: string | null
     /** Scorer kind. This cannot be changed after creation.
-
-  * `categorical` - categorical
-  * `numeric` - numeric
-  * `boolean` - boolean */
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
     kind: ExperimentMetricKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
@@ -1473,7 +1473,7 @@ export interface ScoreDefinitionNewVersionApi {
 
 /**
  * * `trace` - trace
- * `generation` - generation
+ * * `generation` - generation
  */
 export type SentimentRequestAnalysisLevelEnumApi =
     (typeof SentimentRequestAnalysisLevelEnumApi)[keyof typeof SentimentRequestAnalysisLevelEnumApi]
@@ -1491,9 +1491,9 @@ export interface SentimentRequestApi {
      */
     ids: string[]
     /** Whether the IDs are 'trace' IDs or 'generation' IDs.
-
-  * `trace` - trace
-  * `generation` - generation */
+     *
+     * * `trace` - trace
+     * * `generation` - generation */
     analysis_level?: SentimentRequestAnalysisLevelEnumApi
     /** If true, bypass cache and reclassify. */
     force_refresh?: boolean
@@ -1537,10 +1537,10 @@ export interface SentimentBatchResponseApi {
 
 /**
  * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
-
-`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
-path used (dateRange, filterTestAccounts, properties), so the migration is
-behaviour-preserving for callers that pass a request unchanged.
+ *
+ * `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+ * path used (dateRange, filterTestAccounts, properties), so the migration is
+ * behaviour-preserving for callers that pass a request unchanged.
  */
 export interface SentimentGenerationsRequestApi {
     filters?: unknown
@@ -1552,7 +1552,7 @@ export interface SentimentGenerationsResponseApi {
 
 /**
  * * `trace` - trace
- * `event` - event
+ * * `event` - event
  */
 export type SummarizeTypeEnumApi = (typeof SummarizeTypeEnumApi)[keyof typeof SummarizeTypeEnumApi]
 
@@ -1563,7 +1563,7 @@ export const SummarizeTypeEnumApi = {
 
 /**
  * * `minimal` - minimal
- * `detailed` - detailed
+ * * `detailed` - detailed
  */
 export type DetailModeValueEnumApi = (typeof DetailModeValueEnumApi)[keyof typeof DetailModeValueEnumApi]
 
@@ -1574,14 +1574,14 @@ export const DetailModeValueEnumApi = {
 
 export interface SummarizeRequestApi {
     /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
-
-  * `trace` - trace
-  * `event` - event */
+     *
+     * * `trace` - trace
+     * * `event` - event */
     summarize_type?: SummarizeTypeEnumApi
     /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
-
-  * `minimal` - minimal
-  * `detailed` - detailed */
+     *
+     * * `minimal` - minimal
+     * * `detailed` - detailed */
     mode?: DetailModeValueEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
@@ -1645,9 +1645,9 @@ export interface BatchCheckRequestApi {
      */
     trace_ids: string[]
     /** Summary detail level to check for
-
-  * `minimal` - minimal
-  * `detailed` - detailed */
+     *
+     * * `minimal` - minimal
+     * * `detailed` - detailed */
     mode?: DetailModeValueEnumApi
     /**
      * LLM model used for cached summaries
@@ -1668,9 +1668,9 @@ export interface BatchCheckResponseApi {
 
 /**
  * * `$ai_generation` - $ai_generation
- * `$ai_span` - $ai_span
- * `$ai_embedding` - $ai_embedding
- * `$ai_trace` - $ai_trace
+ * * `$ai_span` - $ai_span
+ * * `$ai_embedding` - $ai_embedding
+ * * `$ai_trace` - $ai_trace
  */
 export type EventTypeEnumApi = (typeof EventTypeEnumApi)[keyof typeof EventTypeEnumApi]
 
@@ -1706,11 +1706,11 @@ export interface TextReprOptionsApi {
 
 export interface TextReprRequestApi {
     /** Type of LLM event to stringify
-
-  * `$ai_generation` - $ai_generation
-  * `$ai_span` - $ai_span
-  * `$ai_embedding` - $ai_embedding
-  * `$ai_trace` - $ai_trace */
+     *
+     * * `$ai_generation` - $ai_generation
+     * * `$ai_span` - $ai_span
+     * * `$ai_embedding` - $ai_embedding
+     * * `$ai_trace` - $ai_trace */
     event_type: EventTypeEnumApi
     /** Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields. */
     data: unknown
@@ -1811,6 +1811,7 @@ export interface TraceReviewScoreWriteApi {
      * Categorical option keys selected for this score.
      * @minItems 1
      * @nullable
+     * @items.maxLength 128
      */
     categorical_values?: string[] | null
     /**
@@ -2315,7 +2316,7 @@ export interface LLMSkillResolveResponseApi {
 
 /**
  * * `llm` - LLM
- * `hog` - Hog
+ * * `hog` - Hog
  */
 export type TaggerTypeEnumApi = (typeof TaggerTypeEnumApi)[keyof typeof TaggerTypeEnumApi]
 
@@ -2393,14 +2394,14 @@ export interface TaggerConditionApi {
  */
 export interface TaggerModelConfigurationApi {
     /** LLM provider to use for this tagger.
-
-  * `openai` - Openai
-  * `anthropic` - Anthropic
-  * `gemini` - Gemini
-  * `openrouter` - Openrouter
-  * `fireworks` - Fireworks
-  * `azure_openai` - Azure OpenAI
-  * `together_ai` - Together AI */
+     *
+     * * `openai` - Openai
+     * * `anthropic` - Anthropic
+     * * `gemini` - Gemini
+     * * `openrouter` - Openrouter
+     * * `fireworks` - Fireworks
+     * * `azure_openai` - Azure OpenAI
+     * * `together_ai` - Together AI */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2445,14 +2446,14 @@ export interface PaginatedTaggerListApi {
 
 export interface TaggerModelConfigurationWriteApi {
     /** LLM provider to use for this tagger.
-
-  * `openai` - Openai
-  * `anthropic` - Anthropic
-  * `gemini` - Gemini
-  * `openrouter` - Openrouter
-  * `fireworks` - Fireworks
-  * `azure_openai` - Azure OpenAI
-  * `together_ai` - Together AI */
+     *
+     * * `openai` - Openai
+     * * `anthropic` - Anthropic
+     * * `gemini` - Gemini
+     * * `openrouter` - Openrouter
+     * * `fireworks` - Fireworks
+     * * `azure_openai` - Azure OpenAI
+     * * `together_ai` - Together AI */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2626,13 +2627,13 @@ export type DatasetsListParams = {
      */
     offset?: number
     /**
- * Ordering
-
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
- */
+     * Ordering
+     *
+     * * `created_at` - Created At
+     * * `-created_at` - Created At (descending)
+     * * `updated_at` - Updated At
+     * * `-updated_at` - Updated At (descending)
+     */
     order_by?: string[]
     /**
      * Search in name, description, or metadata
@@ -2660,15 +2661,15 @@ export type EvaluationsListParams = {
      */
     offset?: number
     /**
- * Ordering
-
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
-* `name` - Name
-* `-name` - Name (descending)
- */
+     * Ordering
+     *
+     * * `created_at` - Created At
+     * * `-created_at` - Created At (descending)
+     * * `updated_at` - Updated At
+     * * `-updated_at` - Updated At (descending)
+     * * `name` - Name
+     * * `-name` - Name (descending)
+     */
     order_by?: string[]
     /**
      * Search in name or description
@@ -2914,13 +2915,13 @@ export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown }
 
 export type LlmPromptsListParams = {
     /**
- * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
-
-* `full` - full
-* `preview` - preview
-* `none` - none
- * @minLength 1
- */
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     *
+     * * `full` - full
+     * * `preview` - preview
+     * * `none` - none
+     * @minLength 1
+     */
     content?: LlmPromptsListContent
     /**
      * Filter prompts by the ID of the user who created them.
@@ -2950,13 +2951,13 @@ export const LlmPromptsListContent = {
 
 export type LlmPromptsNameRetrieveParams = {
     /**
- * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
-
-* `full` - full
-* `preview` - preview
-* `none` - none
- * @minLength 1
- */
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     *
+     * * `full` - full
+     * * `preview` - preview
+     * * `none` - none
+     * @minLength 1
+     */
     content?: LlmPromptsNameRetrieveContent
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
@@ -3091,15 +3092,15 @@ export type TaggersListParams = {
      */
     offset?: number
     /**
- * Ordering
-
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
-* `name` - Name
-* `-name` - Name (descending)
- */
+     * Ordering
+     *
+     * * `created_at` - Created At
+     * * `-created_at` - Created At (descending)
+     * * `updated_at` - Updated At
+     * * `-updated_at` - Updated At (descending)
+     * * `name` - Name
+     * * `-name` - Name (descending)
+     */
     order_by?: string[]
     /**
      * Search in name or description

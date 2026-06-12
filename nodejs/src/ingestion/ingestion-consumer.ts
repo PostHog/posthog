@@ -40,7 +40,6 @@ import {
     AiEventOutput,
     AsyncOutput,
     EventOutput,
-    HeatmapsOutput,
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
@@ -74,7 +73,6 @@ export interface IngestionConsumerDeps {
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
-        | HeatmapsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -320,6 +318,9 @@ export class IngestionConsumer {
     }
 
     public async stop(): Promise<void> {
+        if (this.isStopping) {
+            return
+        }
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
@@ -332,6 +333,21 @@ export class IngestionConsumer {
         await this.hogTransformer.stop()
         await this.stopEventFilterManager?.()
         await this.stopEventIngestionRestrictionManager?.()
+        // Stores must be clean by now — flushBatchStoresStep runs after every
+        // batch as part of the pipeline. After disconnect, we cannot commit
+        // offsets, so writing dirty data here would produce duplicates on
+        // partition rebalance. shutdown() will throw if anything is dirty,
+        // which surfaces the drain-ordering bug without masking it.
+        try {
+            await this.personsStore.shutdown()
+        } catch (error) {
+            logger.error('🚨', `${this.name} - personsStore.shutdown() failed`, { error })
+        }
+        try {
+            await this.groupStore.shutdown()
+        } catch (error) {
+            logger.error('🚨', `${this.name} - groupStore.shutdown() failed`, { error })
+        }
         logger.info('👍', `${this.name} - stopped!`)
     }
 

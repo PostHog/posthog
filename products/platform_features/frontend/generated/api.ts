@@ -70,7 +70,7 @@ export const getListUrl = (params?: ListParams) => {
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -163,7 +163,7 @@ export const getMembersListUrl = (organizationId: string, params?: MembersListPa
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -256,7 +256,7 @@ export const getPersonalApiKeysListUrl = (organizationId: string, params?: Perso
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -283,7 +283,7 @@ export const getRolesListUrl = (organizationId: string, params?: RolesListParams
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -389,7 +389,7 @@ export const getRolesRoleMembershipsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -484,7 +484,7 @@ export const getActivityLogListUrl = (projectId: string, params?: ActivityLogLis
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -511,7 +511,7 @@ export const getAdvancedActivityLogsListUrl = (projectId: string, params?: Advan
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -569,7 +569,7 @@ export const getApprovalPoliciesListUrl = (projectId: string, params?: ApprovalP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -675,7 +675,7 @@ export const getChangeRequestsListUrl = (projectId: string, params?: ChangeReque
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -718,7 +718,7 @@ export const getChangeRequestsApproveCreateUrl = (projectId: string, id: string)
 
 /**
  * Approve a change request.
-If quorum is reached, automatically applies the change immediately.
+ * If quorum is reached, automatically applies the change immediately.
  */
 export const changeRequestsApproveCreate = async (
     projectId: string,
@@ -740,7 +740,7 @@ export const getChangeRequestsCancelCreateUrl = (projectId: string, id: string) 
 
 /**
  * Cancel a change request.
-Only the requester can cancel their own pending change request.
+ * Only the requester can cancel their own pending change request.
  */
 export const changeRequestsCancelCreate = async (
     projectId: string,
@@ -782,7 +782,7 @@ export const getCommentsListUrl = (projectId: string, params?: CommentsListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

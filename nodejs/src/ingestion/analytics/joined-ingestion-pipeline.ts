@@ -17,6 +17,8 @@ import {
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
+import { GroupStoreBatchContext, createGroupStoreBeforeBatchStep } from '../common/steps/group-store-batch-step'
+import { PersonsStoreBatchContext, createPersonsStoreBeforeBatchStep } from '../common/steps/persons-store-batch-step'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyEventRestrictionsStep,
@@ -41,7 +43,6 @@ import {
     AiEventOutput,
     AsyncOutput,
     EventOutput,
-    HeatmapsOutput,
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
@@ -66,7 +67,6 @@ export interface JoinedIngestionPipelineConfig {
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
-        | HeatmapsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -104,6 +104,8 @@ export interface JoinedIngestionPipelineDeps {
     groupTypeManager: GroupTypeManager
     topHog: TopHogRegistry
 }
+
+type IngestionBatchContext = EventFiltersBatchContext & PersonsStoreBatchContext & GroupStoreBatchContext
 
 export interface JoinedIngestionPipelineInput {
     message: Message
@@ -180,7 +182,6 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-        personsStore,
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
@@ -193,21 +194,16 @@ export function createJoinedIngestionPipeline<
         teamManager,
         groupTypeManager,
         hogTransformer,
-        personsStore,
-        groupStore,
         groupId,
         topHog: topHogWrapper,
     }
 
-    return newBatchingPipeline<
-        TInput,
-        void,
-        TContext,
-        EventFiltersBatchContext,
-        TContext,
-        OverflowOutput | AsyncOutput
-    >(
-        (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
+    return newBatchingPipeline<TInput, void, TContext, IngestionBatchContext, TContext, OverflowOutput | AsyncOutput>(
+        (beforeBatch) =>
+            beforeBatch
+                .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))
+                .pipe(createPersonsStoreBeforeBatchStep(personsStore))
+                .pipe(createGroupStoreBeforeBatchStep(groupStore)),
         (batch) =>
             batch
                 .messageAware((b) =>
@@ -217,7 +213,7 @@ export function createJoinedIngestionPipeline<
                         .sequentially((b) =>
                             b
                                 .pipe(createParseHeadersStep())
-                                .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning']))
+                                .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning', '$$heatmap']))
                                 .pipe(
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                         overflowEnabled,
@@ -266,11 +262,12 @@ export function createJoinedIngestionPipeline<
             afterBatch
                 .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
                 .pipe(createFlushEventFiltersBatchAppMetricsStep()),
-        // Batch stores (personsStore, groupStore) are singletons that don't support
-        // concurrent batches yet — they accumulate state across events and flush once.
-        // The Rust consumer's per-worker Semaphore caps in-flight batches at the
-        // same value (INGESTION_WORKER_CONCURRENT_BATCHES); divergence shows up as
-        // HTTP 503s in `ingestion_api_batch_capacity_rejections_total`.
+        // Batch stores are singleton persistent caches, but each batch receives a
+        // batch-bound view so entries can be reference-counted and released after
+        // that batch's flush lifecycle completes. The Rust consumer's per-worker
+        // Semaphore caps in-flight batches at the same value
+        // (INGESTION_WORKER_CONCURRENT_BATCHES); divergence shows up as HTTP 503s
+        // in `ingestion_api_batch_capacity_rejections_total`.
         { concurrentBatches }
     )
 }

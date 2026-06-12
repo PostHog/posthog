@@ -4,8 +4,6 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { AI_EVENT_TYPES } from '../ai'
 import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
 import { IngestionWarningsOutput } from '../common/outputs'
@@ -15,25 +13,22 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import { EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
-import { HeatmapSubpipelineInput, createHeatmapSubpipeline } from './heatmap-subpipeline'
 import {
     AiEventOutput,
     AsyncOutput,
     EventOutput,
-    HeatmapsOutput,
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
 } from './outputs'
 
-export type PerDistinctIdPipelineInput = EventSubpipelineInput & HeatmapSubpipelineInput & AiEventSubpipelineInput
+export type PerDistinctIdPipelineInput = EventSubpipelineInput & AiEventSubpipelineInput
 
 export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
-        | HeatmapsOutput
         | IngestionWarningsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
@@ -43,8 +38,6 @@ export interface PerDistinctIdPipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    personsStore: PersonsStore
-    groupStore: BatchWritingGroupStore
     groupId: string
     topHog: TopHogWrapper
 }
@@ -54,10 +47,9 @@ export interface PerDistinctIdPipelineContext {
     team: Team
 }
 
-type EventBranch = 'heatmap' | 'ai' | 'event'
+type EventBranch = 'ai' | 'event'
 
 const EVENT_BRANCH_MAP = new Map<string, EventBranch>([
-    ['$$heatmap', 'heatmap'],
     ...[...AI_EVENT_TYPES].map((t): [string, EventBranch] => [t, 'ai']),
 ])
 
@@ -69,32 +61,13 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
-    const {
-        options,
-        outputs,
-        splitAiEventsConfig,
-        teamManager,
-        groupTypeManager,
-        hogTransformer,
-        personsStore,
-        groupStore,
-        groupId,
-        topHog,
-    } = config
+    const { options, outputs, splitAiEventsConfig, teamManager, groupTypeManager, hogTransformer, groupId, topHog } =
+        config
 
     return builder.retry(
         (e) =>
             e.branching(classifyEvent, (branches) =>
                 branches
-                    .branch('heatmap', (b) =>
-                        createHeatmapSubpipeline(b, {
-                            options,
-                            outputs,
-                            teamManager,
-                            groupTypeManager,
-                            groupStore,
-                        })
-                    )
                     .branch('ai', (b) =>
                         createAiEventSubpipeline(b, {
                             options,
@@ -102,8 +75,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             teamManager,
                             groupTypeManager,
                             hogTransformer,
-                            personsStore,
-                            groupStore,
                             splitAiEventsConfig,
                             groupId,
                             topHog,
@@ -116,8 +87,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             teamManager,
                             groupTypeManager,
                             hogTransformer,
-                            personsStore,
-                            groupStore,
                             groupId,
                             topHog,
                         })

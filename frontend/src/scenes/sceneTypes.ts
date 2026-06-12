@@ -39,6 +39,7 @@ export enum Scene {
     DataOps = 'DataOps',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     DataWarehouseSource = 'DataWarehouseSource',
+    DataWarehouseSourceConnect = 'DataWarehouseSourceConnect',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
     DataWarehouseSourceSchema = 'DataWarehouseSourceSchema',
     DeadLetterQueue = 'DeadLetterQueue',
@@ -347,6 +348,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
+
+    // Endpoints
+    [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,

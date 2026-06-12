@@ -39,10 +39,11 @@ import {
     PopoverTrigger,
 } from '@posthog/quill'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { EventDefinition } from '~/types'
+import { AnyPropertyFilter, EventDefinition } from '~/types'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
@@ -150,7 +151,8 @@ export function TaxonomicFilterMenu({
     defaultOpen = false,
     triggerAccessory,
 }: TaxonomicFilterMenuProps): JSX.Element {
-    const { groups, selectItem, inputProps, searchQuery } = useTaxonomicFilterContext()
+    const { groups, selectItem, inputProps, searchQuery, selectingKeyOnly, excludedOperators } =
+        useTaxonomicFilterContext()
     const [state, setState] = useState<MenuFilterState>({ kind: 'closed' })
 
     // Telemetry — track open dwell + commit funnel so we can compare
@@ -281,11 +283,13 @@ export function TaxonomicFilterMenu({
             mapShortcutItems(
                 filterRecentsForContext(
                     recentFilterItems as TaxonomicDefinitionTypes[],
-                    taxonomicGroupTypes
+                    taxonomicGroupTypes,
+                    excludedOperators,
+                    selectingKeyOnly
                 ) as ShortcutItem[],
                 groups
             ),
-        [recentFilterItems, taxonomicGroupTypes, groups]
+        [recentFilterItems, taxonomicGroupTypes, groups, excludedOperators, selectingKeyOnly]
     )
     const pinnedEntries = useMemo<MenuFilterEntry[]>(
         () =>
@@ -347,6 +351,9 @@ export function TaxonomicFilterMenu({
                 position: selection?.position,
                 query: searchQuery || undefined,
                 wasStale: eventSelectionWasStale(entry.group.type, entry.item),
+                // True when the row is the synthetic "URL contains <query>" shortcut
+                // rather than a real picked item — lets us measure its adoption.
+                wasUrlContainsShortcut: (entry.item as { isContainsShortcut?: boolean }).isContainsShortcut === true,
             })
             selectItem(entry.group, itemValue, mergedItem)
             onCommit?.({ ...entry, item: mergedItem }, extra)
@@ -661,7 +668,11 @@ interface ShortcutItem {
     // shape exists. See `taxonomicFilterPinnedPropertiesLogic` /
     // `recentTaxonomicFiltersLogic`.
     _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: unknown }
-    _recentContext?: { sourceGroupType?: TaxonomicFilterGroupType; sourceValue?: unknown }
+    _recentContext?: {
+        sourceGroupType?: TaxonomicFilterGroupType
+        sourceValue?: unknown
+        propertyFilter?: AnyPropertyFilter
+    }
 }
 
 /**
@@ -721,11 +732,15 @@ function mapShortcutItems(items: ShortcutItem[], groups: TaxonomicFilterGroup[])
                 return null
             }
             const name = (item.name as string) ?? group.getName?.(item as TaxonomicDefinitionTypes) ?? ''
+            const recentPropertyFilter = item._recentContext?.propertyFilter
             return {
                 item: item as TaxonomicDefinitionTypes,
                 group,
                 name,
                 friendlyLabel: getCoreFilterDefinition(name, group.type)?.label,
+                ...(recentPropertyFilter
+                    ? { recentPropertyFilter, recentLabel: formatPropertyLabel(recentPropertyFilter, {}) }
+                    : {}),
             } as MenuFilterEntry
         })
         .filter((e): e is MenuFilterEntry => e != null)

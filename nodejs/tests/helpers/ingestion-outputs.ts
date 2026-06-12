@@ -18,7 +18,6 @@ import {
     AI_EVENTS_OUTPUT,
     ASYNC_OUTPUT,
     EVENTS_OUTPUT,
-    HEATMAPS_OUTPUT,
     PERSONS_OUTPUT,
     PERSON_DISTINCT_IDS_OUTPUT,
     PERSON_MERGE_EVENTS_OUTPUT,
@@ -32,6 +31,7 @@ import {
     OVERFLOW_OUTPUT,
     TOPHOG_OUTPUT,
 } from '../../src/ingestion/common/outputs'
+import { HEATMAPS_OUTPUT } from '../../src/ingestion/heatmaps/outputs'
 import { IngestionOutputs } from '../../src/ingestion/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../../src/ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'

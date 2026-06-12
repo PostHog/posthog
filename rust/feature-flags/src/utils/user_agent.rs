@@ -98,6 +98,7 @@ impl UserAgentInfo {
             "node" => ("posthog-node", RuntimeType::Server),
             "dotnet" => ("posthog-dotnet", RuntimeType::Server),
             "elixir" => ("posthog-elixir", RuntimeType::Server),
+            "rs" => ("posthog-rs", RuntimeType::Server),
             // Deprecated: posthog-server users are migrating to posthog-java
             "server" => ("posthog-server", RuntimeType::Server),
             // Client-side SDKs (mobile and browser)
@@ -234,6 +235,12 @@ mod tests {
         RuntimeType::Server
     )]
     #[case(
+        "posthog-rs/0.10.0",
+        Some("posthog-rs"),
+        Some("0.10.0"),
+        RuntimeType::Server
+    )]
+    #[case(
         "posthog-server/1.0.0",
         Some("posthog-server"),
         Some("1.0.0"),
@@ -355,6 +362,7 @@ mod tests {
     #[case(Some("posthog-node/2.2.0"), "posthog-node")]
     #[case(Some("posthog-dotnet/1.0.0"), "posthog-dotnet")]
     #[case(Some("posthog-elixir/0.2.0"), "posthog-elixir")]
+    #[case(Some("posthog-rs/0.10.0"), "posthog-rs")]
     #[case(Some("posthog-server/1.0.0"), "posthog-server")]
     #[case(
         Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
@@ -380,6 +388,7 @@ mod tests {
     #[rstest]
     #[case("posthog-python/3.0.0", Some("posthog-python"))]
     #[case("posthog-node/1.2.3", Some("posthog-node"))]
+    #[case("posthog-rs/0.10.0", Some("posthog-rs"))]
     #[case("posthog-android/3.0.0", Some("posthog-android"))]
     #[case("posthog-server/1.0.0", Some("posthog-server"))]
     #[case("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Some("web"))]

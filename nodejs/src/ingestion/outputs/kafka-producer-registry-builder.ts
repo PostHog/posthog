@@ -27,9 +27,9 @@ function redactConfig(config: ProducerGlobalConfig): Record<string, unknown> {
  * @example
  * ```ts
  * const registry = await new KafkaProducerRegistryBuilder(config.KAFKA_CLIENT_RACK)
- *     .register('DEFAULT', DEFAULT_PRODUCER_CONFIG_MAP)
+ *     .register('INGESTION_UPSTREAM', INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP)
  *     .build(config)
- * // registry is KafkaProducerRegistry<'DEFAULT'>
+ * // registry is KafkaProducerRegistry<'INGESTION_UPSTREAM'>
  * ```
  */
 export class KafkaProducerRegistryBuilder<P extends string = never, CK extends string = never> {

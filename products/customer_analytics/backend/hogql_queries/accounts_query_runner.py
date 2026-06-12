@@ -164,19 +164,25 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         return parse_expr("id IN {subquery}", {"subquery": subquery})
 
     def _role_filter_expr(self, json_key: str, value: object) -> ast.Expr | None:
-        if value is None:
+        if not value:
             return None
-        if value == "unassigned":
-            return self._role_id_isnull(json_key)
-        try:
-            user_id = int(value)  # type: ignore[call-overload]
-        except (TypeError, ValueError):
+        raw_values = value if isinstance(value, list) else [value]
+        user_ids: list[int] = []
+        for raw in raw_values:
+            if isinstance(raw, int):
+                user_ids.append(raw)
+            elif isinstance(raw, str):
+                try:
+                    user_ids.append(int(raw))
+                except ValueError:
+                    continue
+        if not user_ids:
             return None
         return parse_expr(
-            "JSONExtract(properties, {role_key}, 'id', 'Nullable(Int64)') = {user_id}",
+            "JSONExtract(properties, {role_key}, 'id', 'Nullable(Int64)') IN {user_ids}",
             {
                 "role_key": ast.Constant(value=json_key),
-                "user_id": ast.Constant(value=user_id),
+                "user_ids": ast.Constant(value=user_ids),
             },
         )
 

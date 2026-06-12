@@ -22,6 +22,7 @@ import {
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { dateFilterToText } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
@@ -59,6 +60,19 @@ async function parseHeatmapErrorMessage(response: Response): Promise<string> {
 export interface HeatmapDataLogicProps {
     context: 'in-app' | 'toolbar'
     exportToken?: string | null
+}
+
+export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoint: '' | 'events/'): string {
+    if (context === 'in-app') {
+        // The unscoped /api/heatmap/ route resolves the team from the user's *global* current
+        // project, which any other tab can change, so pin the team this page was loaded for
+        // instead. The app context team is also set on export renders (team_for_public_context).
+        const teamId = getAppContext()?.current_team?.id
+        if (teamId != null) {
+            return `/api/projects/${teamId}/heatmaps/${endpoint}`
+        }
+    }
+    return `/api/heatmap/${endpoint}`
 }
 
 export type HrefMatchType = 'exact' | 'pattern'
@@ -197,7 +211,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     const { type, aggregation } = values.heatmapFilters
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
-                    const apiURL = `/api/heatmap/${encodeParams(
+                    const apiURL = `${heatmapApiPath(props.context, '')}${encodeParams(
                         {
                             type,
                             date_from,
@@ -249,7 +263,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
                     const { type } = values.heatmapFilters
 
-                    const apiURL = `/api/heatmap/events/${encodeParams(
+                    const apiURL = `${heatmapApiPath(props.context, 'events/')}${encodeParams(
                         {
                             type,
                             date_from,
@@ -440,7 +454,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             const { type } = values.heatmapFilters
             const nextOffset = currentEvents.results.length
 
-            const apiURL = `/api/heatmap/events/${encodeParams(
+            const apiURL = `${heatmapApiPath(props.context, 'events/')}${encodeParams(
                 {
                     type,
                     date_from,

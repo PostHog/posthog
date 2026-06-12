@@ -601,6 +601,8 @@ export function createDefaultPropertyFilter(
     const propertyValueType = describeProperty(propertyKey, apiType, taxonomicGroup.groupTypeIndex)
     const property_name_to_default_operator_override: Partial<Record<string | number, PropertyOperator>> = {
         $active_feature_flags: PropertyOperator.IContains,
+        $current_url: PropertyOperator.IContains,
+        $pathname: PropertyOperator.IContains,
     }
     const propValueTypeToDefaultOpOverride = {
         [PropertyType.Duration]: PropertyOperator.GreaterThan,

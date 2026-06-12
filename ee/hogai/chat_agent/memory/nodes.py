@@ -39,7 +39,7 @@ from posthog.utils import human_list
 from products.posthog_ai.backend.models.assistant import CoreMemory
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
-from ee.hogai.core.agent_modes import SlashCommandName
+from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI

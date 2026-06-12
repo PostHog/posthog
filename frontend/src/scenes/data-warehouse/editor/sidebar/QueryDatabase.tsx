@@ -1,6 +1,7 @@
 import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
 import {
@@ -36,7 +37,7 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -834,6 +835,14 @@ export const QueryDatabase = ({
                     return null
                 }
 
+                // Render the custom "add source of type" button (no dropdown) for external source folders
+                if (
+                    item.record?.type === 'source-folder' &&
+                    externalDataSources.includes(item.record?.sourceType as (typeof externalDataSources)[number])
+                ) {
+                    return null
+                }
+
                 return undefined
             }}
             itemSideActionButton={(item) => {
@@ -845,9 +854,40 @@ export const QueryDatabase = ({
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
+                                posthog.capture('sql-editor-add-source-clicked', {
+                                    source_type: null,
+                                    location: 'sources_header',
+                                })
                                 newInternalTab(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
+                        >
+                            <IconPlusSmall className="text-tertiary" />
+                        </ButtonPrimitive>
+                    )
+                }
+
+                // Only external source kinds have a dedicated creation page; PostHog/System/Self-managed don't
+                const sourceType = item.record?.sourceType
+                if (
+                    item.record?.type === 'source-folder' &&
+                    externalDataSources.includes(sourceType as (typeof externalDataSources)[number])
+                ) {
+                    return (
+                        <ButtonPrimitive
+                            iconOnly
+                            isSideActionRight
+                            className="absolute right-0 opacity-0 group-hover/lemon-tree-button-group:opacity-100 z-10 data-[state=open]:opacity-100 -outline-offset-2 focus-visible:opacity-100"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                posthog.capture('sql-editor-add-source-clicked', {
+                                    source_type: sourceType,
+                                    location: 'source_type_row',
+                                })
+                                newInternalTab(urls.dataWarehouseSourceNew(sourceType))
+                            }}
+                            data-attr="sql-editor-add-source-of-type"
+                            tooltip="Add new source of this type"
                         >
                             <IconPlusSmall className="text-tertiary" />
                         </ButtonPrimitive>

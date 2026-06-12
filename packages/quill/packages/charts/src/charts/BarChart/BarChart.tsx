@@ -26,6 +26,7 @@ import type {
     ResolvedSeries,
     Series,
     TooltipContext,
+    YAxisScale,
 } from '../../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { BarTooltip } from './BarTooltip'
@@ -71,13 +72,14 @@ function BarChartInner<Meta = unknown>({
     const {
         yScaleType = 'linear',
         showGrid = false,
+        showAxisLines = false,
         barLayout = 'stacked',
         axisOrientation = 'vertical',
         xTickFormatter,
     } = config ?? {}
     const {
         cornerRadius: barCornerRadius = 0,
-        track: barTrack = false,
+        track: trackConfig = false,
         shadow: barShadow,
         divergingStack = false,
         maxBandRange,
@@ -85,10 +87,13 @@ function BarChartInner<Meta = unknown>({
         minBandSize,
         fitToHeight = false,
         valueDomain,
+        valuePadding,
         roundStackEnds = false,
         fillStyle: barFillStyle = 'flat',
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
+    const barTrack = trackConfig !== false
+    const barTrackHover = trackConfig === true || (typeof trackConfig === 'object' && trackConfig.hover !== false)
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
     const wrapperMinHeight = useMemo(
@@ -169,10 +174,25 @@ function BarChartInner<Meta = unknown>({
                 fitToHeight,
                 minBandSize: resolvedMinBandSize,
                 valueDomain,
+                valuePadding,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
             const yTickCount = yTickCountForHeight(tickAxisLength)
+
+            // Expose per-axis scales so AxisLabels renders the right-hand axis and the tooltip /
+            // value-label overlays resolve each series against its own axis.
+            let yAxes: Record<string, YAxisScale> | undefined
+            if (d3Scales.yAxes) {
+                yAxes = {}
+                for (const [axisId, { scale, position }] of Object.entries(d3Scales.yAxes)) {
+                    yAxes[axisId] = {
+                        scale: (value: number) => scale(value),
+                        ticks: () => scale.ticks?.(yTickCount) ?? [],
+                        position,
+                    }
+                }
+            }
 
             // Stash the raw d3 scales in the private slot so drawStatic/drawHover/click routing
             // can read them from the committed ChartScales — every render gets a self-contained
@@ -194,6 +214,7 @@ function BarChartInner<Meta = unknown>({
                 },
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
+                yAxes,
                 // Width of the rendered bar content within the band. In grouped mode the
                 // bars sit inside group outer padding, so `band.bandwidth()` overshoots
                 // the rightmost bar's right edge and anchors the tooltip in empty space.
@@ -236,6 +257,7 @@ function BarChartInner<Meta = unknown>({
             fitToHeight,
             resolvedMinBandSize,
             valueDomain,
+            valuePadding,
         ]
     )
 
@@ -245,6 +267,7 @@ function BarChartInner<Meta = unknown>({
                 barLayout,
                 isHorizontal,
                 showGrid,
+                showAxisLines,
                 xTickFormatter,
                 stackedData,
                 topStackedKeyByAxis,
@@ -256,6 +279,7 @@ function BarChartInner<Meta = unknown>({
             }),
         [
             showGrid,
+            showAxisLines,
             stackedData,
             barLayout,
             isHorizontal,
@@ -286,7 +310,7 @@ function BarChartInner<Meta = unknown>({
                 stackedData,
                 topStackedKeyByAxis,
                 roundStackEnds,
-                barTrack,
+                barTrackHover,
             })
             if (!resolved) {
                 lastHoverKeyRef.current = null
@@ -303,7 +327,16 @@ function BarChartInner<Meta = unknown>({
             drawBarHoverItems(ctx, d3Scales, resolved, { alpha, barCornerRadius, barTrack, isHorizontal })
             return true
         },
-        [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, roundStackEnds, barCornerRadius, barTrack]
+        [
+            stackedData,
+            barLayout,
+            isHorizontal,
+            topStackedKeyByAxis,
+            roundStackEnds,
+            barCornerRadius,
+            barTrack,
+            barTrackHover,
+        ]
     )
 
     // Show each series's own segment value (resolveValue) but anchor the tooltip/value labels

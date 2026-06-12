@@ -18,12 +18,17 @@ import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
+    let observeSpy: jest.Mock
 
     beforeEach(() => {
+        observeSpy = jest.fn(() => [202, { workflow_id: 'wf-test' }])
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
                 '/api/projects/:team/vision/scanners/:id/observations/': { results: [] },
+            },
+            post: {
+                '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
             },
         })
         initKeaTests()
@@ -83,6 +88,27 @@ describe('replayScannerLogic', () => {
                     scanner_config: { prompt: '', length: 'medium' },
                 }),
             })
+        })
+
+        it('clears the showScannerErrors flag so stale validation does not bleed into the new type', async () => {
+            logic.actions.submitScanner()
+            await expectLogic(logic).toMatchValues({ showScannerErrors: true })
+            logic.actions.setScannerType('summarizer')
+            await expectLogic(logic).toMatchValues({ showScannerErrors: false })
+        })
+    })
+
+    describe('submit intent', () => {
+        it('advance intent routes to /triggers without calling the API', async () => {
+            router.actions.push('/replay-vision/new/configure')
+            logic.actions.setScannerValues({
+                name: 'Test scanner',
+                scanner_config: { prompt: 'Q?' },
+            })
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+            expect(logic.values.submitIntent).toBe('save')
         })
     })
 
@@ -406,6 +432,33 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.setScannerValues({ name: 'Edited' })).toMatchValues({
                 hasUnsavedChanges: true,
             })
+        })
+    })
+
+    describe('triggerOnDemandObservation', () => {
+        it.each([
+            { name: 'empty string', input: '' },
+            { name: 'whitespace only', input: '   ' },
+        ])('bails on $name session ID without calling the API', async ({ input }) => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                await expectLogic(persisted, () =>
+                    persisted.actions.triggerOnDemandObservation(input)
+                ).toDispatchActions(['triggerOnDemandObservationFailure'])
+                expect(persisted.values.triggeringOnDemandObservation).toBe(false)
+                expect(observeSpy).not.toHaveBeenCalled()
+            } finally {
+                persisted.unmount()
+            }
+        })
+
+        it('bails when scanner ID is new (unsaved scanner)', async () => {
+            await expectLogic(logic, () => logic.actions.triggerOnDemandObservation('019a3f47-8c2d')).toDispatchActions(
+                ['triggerOnDemandObservationFailure']
+            )
+            expect(logic.values.triggeringOnDemandObservation).toBe(false)
+            expect(observeSpy).not.toHaveBeenCalled()
         })
     })
 })

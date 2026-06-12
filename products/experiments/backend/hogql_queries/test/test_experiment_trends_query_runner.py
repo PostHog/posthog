@@ -22,6 +22,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
+    EventPropertyFilter,
     EventsNode,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
@@ -105,6 +106,40 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.holdout = holdout
         experiment.save()
         return holdout
+
+    def test_deleted_feature_flag_tombstone_uses_original_key_in_prepared_queries(self):
+        feature_flag = self.create_feature_flag(key="deleted-trends-flag")
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        original_key = feature_flag.key
+        feature_flag.key = f"{original_key}:deleted:{feature_flag.id}"
+        feature_flag.deleted = True
+        feature_flag.save(update_fields=["key", "deleted"])
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentTrendsQuery",
+                count_query=TrendsQuery(series=[EventsNode(event="$pageview")]),
+                exposure_query=None,
+            ),
+            team=self.team,
+        )
+
+        self.assertEqual(query_runner.breakdown_key, f"$feature/{original_key}")
+        assert query_runner.prepared_count_query.breakdownFilter is not None
+        self.assertEqual(query_runner.prepared_count_query.breakdownFilter.breakdown, f"$feature/{original_key}")
+
+        exposure_properties = query_runner.prepared_exposure_query.properties
+        assert exposure_properties is not None
+        feature_flag_filter = cast(
+            EventPropertyFilter,
+            next(
+                prop
+                for prop in exposure_properties
+                if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
+            ),
+        )
+        self.assertEqual(feature_flag_filter.value, [original_key])
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):

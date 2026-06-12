@@ -12,7 +12,7 @@ from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
 
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
@@ -380,6 +380,46 @@ class PersonalApiKeyOrUserRateThrottle(PersonalApiKeyRateThrottle):
 
     def allow_request(self, request, view):
         return self._allow_request_internal(request, view, personal_api_key_only=False)
+
+
+class PersonalOrProjectSecretApiKeyRateThrottle(PersonalApiKeyRateThrottle):
+    """
+    Rate limit personal API key and project secret API key (PSAK) requests, keyed per key.
+
+    PSAK requests carry no personal API key, so they slip past PersonalApiKeyRateThrottle's
+    personal_api_key_only gate; this also throttles them. Session/web users still bypass.
+    """
+
+    def allow_request(self, request, view):
+        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+            return self._allow_request_internal(request, view, personal_api_key_only=False)
+        return super().allow_request(request, view)
+
+    def get_cache_key(self, request, view):
+        auth = request.successful_authenticator
+        if isinstance(auth, ProjectSecretAPIKeyAuthentication):
+            return self.cache_format % {"scope": self.scope, "ident": f"psak:{auth.project_secret_api_key.id}"}
+        return super().get_cache_key(request, view)
+
+
+class ProjectSecretApiKeyTeamRateThrottle(PersonalApiKeyRateThrottle):
+    """
+    Per-team aggregate throttle for project secret API key (PSAK) requests.
+
+    Stack alongside a per-key throttle (PersonalOrProjectSecretApiKeyRateThrottle) so a project's
+    total PSAK load is capped regardless of how many keys it mints — the per-key throttle gives
+    each credential a fair budget, this caps the sum. Only PSAK requests count; any other auth
+    (personal key, OAuth, session) bypasses and is left to its own throttles.
+    """
+
+    def allow_request(self, request, view):
+        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+            return self._allow_request_internal(request, view, personal_api_key_only=False)
+        return True
+
+    def get_cache_key(self, request, view):
+        team_id = request.successful_authenticator.project_secret_api_key.team_id
+        return self.cache_format % {"scope": self.scope, "ident": f"psak-team:{team_id}"}
 
 
 class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):

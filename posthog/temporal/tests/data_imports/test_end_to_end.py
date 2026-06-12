@@ -3536,7 +3536,11 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     if pipeline_mode == "non_dlt":
         expected_properties["_ph_partition_key"] = "2023-w14"
 
-    assert call_kwargs["data"] == {
+    # The producer derives a deterministic event id per row per job. Its value depends on the
+    # dynamic job id, so assert it is a valid UUID and compare the rest of the payload.
+    data = call_kwargs["data"]
+    assert str(uuid.UUID(data["event_id"])) == data["event_id"]
+    assert {key: value for key, value in data.items() if key != "event_id"} == {
         "team_id": team.id,
         "properties": expected_properties,
     }

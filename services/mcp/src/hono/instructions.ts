@@ -1,3 +1,4 @@
+import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScope } from '@/lib/api'
@@ -5,10 +6,19 @@ import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatPrompt } from '@/lib/utils'
+import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
+import {
+    getRenderableToolNames,
+    makeRenderUiSchema,
+    RENDER_UI_TOOL_DESCRIPTION,
+    RENDER_UI_TOOL_NAME,
+    RENDER_UI_TOOL_TITLE,
+} from '@/tools/render-ui'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
 import type { ResolvedState } from './request-state-resolver'
+import { toMcpInputSchema } from './tool-catalog'
 
 export class InstructionsBuilder {
     private readonly formatter: InstructionsFormatter
@@ -64,6 +74,7 @@ export class InstructionsBuilder {
                     } as QueryToolInfo
                 }),
             featureFlags: state.toolFeatureFlags,
+            renderUiEnabled: state.renderUiEnabled,
         }
     }
 
@@ -80,6 +91,28 @@ export class InstructionsBuilder {
             title: 'Execute PostHog command',
             description: this.formatter.buildExecToolDescription(),
             inputSchema: { type: 'object', properties: ExecSchema, required: ['command'] },
+        }
+    }
+
+    buildRenderUiToolEntry(state: ResolvedState): McpTool | null {
+        const toolNames = getRenderableToolNames(state.allTools)
+        if (toolNames.length === 0) {
+            return null
+        }
+        return {
+            name: RENDER_UI_TOOL_NAME,
+            title: RENDER_UI_TOOL_TITLE,
+            description: RENDER_UI_TOOL_DESCRIPTION,
+            // Derived from the same zod schema the executor validates with, so the
+            // advertised contract (enum, descriptions, required) cannot drift from it.
+            inputSchema: toMcpInputSchema(makeRenderUiSchema(toolNames as [string, ...string[]])),
+            // Advertise the umbrella UI resource so MCP Apps hosts (e.g. Claude) discover
+            // render-ui as renderable from `tools/list` and mount its iframe. Both the
+            // modern and legacy keys are emitted since this entry isn't normalized downstream.
+            _meta: {
+                ui: { resourceUri: RENDER_UI_RESOURCE_URI },
+                [RESOURCE_URI_META_KEY]: RENDER_UI_RESOURCE_URI,
+            },
         }
     }
 
