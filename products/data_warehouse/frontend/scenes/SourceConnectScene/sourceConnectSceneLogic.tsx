@@ -16,20 +16,6 @@ import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
 import { getErrorsForFields } from '../NewSourceScene/sourceWizardLogic'
 import type { sourceConnectSceneLogicType } from './sourceConnectSceneLogicType'
 
-const containsOauthField = (fields: SourceFieldConfig[]): boolean =>
-    fields.some((field) => {
-        if (field.type === 'oauth') {
-            return true
-        }
-        if (field.type === 'switch-group') {
-            return containsOauthField(field.fields)
-        }
-        if (field.type === 'select') {
-            return field.options.some((option) => containsOauthField(option.fields ?? []))
-        }
-        return false
-    })
-
 const buildCredentialsPayload = async (
     fields: SourceFieldConfig[],
     formPayload: Record<string, any>
@@ -91,10 +77,6 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                     ) ?? null
                 )
             },
-        ],
-        isOauthSource: [
-            (s) => [s.sourceConfig],
-            (sourceConfig): boolean => (sourceConfig ? containsOauthField(sourceConfig.fields) : false),
         ],
         breadcrumbs: [
             (s) => [s.sourceConfig],

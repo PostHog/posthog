@@ -15,6 +15,7 @@ import {
     visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
+    visionScannersObserveCreate,
     visionScannersPartialUpdate,
     visionScannersRetrieve,
 } from '../generated/api'
@@ -41,6 +42,8 @@ export type ObservationTriggeredByValue = ReplayObservationApi['triggered_by']
 export type ObservationVerdictValue = 'yes' | 'no' | 'inconclusive'
 
 export const OBSERVATIONS_PAGE_SIZE = 50
+
+const OBSERVE_POLL_GRACE_MS = 30_000
 
 function currentTemplateKey(): string | null {
     const value = router.values.searchParams.template
@@ -230,6 +233,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerEstimate: true,
         loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => ({ estimate }),
         loadScannerEstimateFailure: (error: string | null = null) => ({ error }),
+        triggerOnDemandObservation: (sessionId: string) => ({ sessionId }),
+        triggerOnDemandObservationSuccess: true,
+        triggerOnDemandObservationFailure: true,
+        refreshObservations: true,
     }),
 
     forms(({ props, values, actions }) => ({
@@ -316,6 +323,34 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 toggleEnabled: () => true,
                 toggleEnabledSuccess: () => false,
                 toggleEnabledFailure: () => false,
+            },
+        ],
+        triggeringOnDemandObservation: [
+            false,
+            {
+                triggerOnDemandObservation: () => true,
+                triggerOnDemandObservationSuccess: () => false,
+                triggerOnDemandObservationFailure: () => false,
+            },
+        ],
+        onDemandObservationSuccessCount: [
+            0,
+            {
+                triggerOnDemandObservationSuccess: (state: number) => state + 1,
+            },
+        ],
+        pollUntil: [
+            0,
+            {
+                triggerOnDemandObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+            },
+        ],
+        refreshing: [
+            false,
+            {
+                refreshObservations: () => true,
+                loadObservationsSuccess: () => false,
+                loadObservationsFailure: () => false,
             },
         ],
         scannerLoading: [
@@ -721,6 +756,34 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
+            triggerOnDemandObservation: async ({ sessionId }) => {
+                if (props.id === 'new') {
+                    actions.triggerOnDemandObservationFailure()
+                    return
+                }
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    actions.triggerOnDemandObservationFailure()
+                    return
+                }
+                const trimmed = sessionId.trim()
+                if (!trimmed) {
+                    actions.triggerOnDemandObservationFailure()
+                    return
+                }
+                try {
+                    await visionScannersObserveCreate(String(teamId), props.id, { session_id: trimmed })
+                    lemonToast.success('Scanning session — new observation will appear below shortly.')
+                    actions.triggerOnDemandObservationSuccess()
+                    actions.refreshObservations()
+                } catch (error: any) {
+                    lemonToast.error(`Failed to scan session${error.detail ? `: ${error.detail}` : ''}`)
+                    actions.triggerOnDemandObservationFailure()
+                }
+            },
+
+            refreshObservations: () => reloadObservationsAndStats(),
+
             loadObservations: async () => {
                 if (props.id === 'new') {
                     actions.loadObservationsSuccess([], 0)
@@ -778,11 +841,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             loadObservationStatsSuccess: () => {
-                scheduleObservationPoll(cache.disposables, values.hasObservationsInFlight, reloadObservationsAndStats)
+                scheduleObservationPoll(
+                    cache.disposables,
+                    values.hasObservationsInFlight || Date.now() < values.pollUntil,
+                    reloadObservationsAndStats
+                )
             },
             // Reschedule on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
             loadObservationStatsFailure: () => {
-                scheduleObservationPoll(cache.disposables, values.hasObservationsInFlight, reloadObservationsAndStats)
+                scheduleObservationPoll(
+                    cache.disposables,
+                    values.hasObservationsInFlight || Date.now() < values.pollUntil,
+                    reloadObservationsAndStats
+                )
             },
         }
     }),

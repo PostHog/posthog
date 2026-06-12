@@ -88,6 +88,7 @@ export function getQueryText(span: Span): string | null {
 
 export function deriveSpanSummary(span: Span): SpanSummary {
     const attrs = span.attributes ?? {}
+    const resourceAttrs = span.resource_attributes ?? {}
 
     const method = firstAttr(attrs, METHOD_KEYS)
     const route = firstAttr(attrs, ROUTE_KEYS)
@@ -115,9 +116,9 @@ export function deriveSpanSummary(span: Span): SpanSummary {
         timestamp: span.timestamp,
         endTimestamp: span.end_time,
         type: deriveType(attrs),
-        // k8s.* are OTel *resource* attributes; these only resolve when the collector flattens them
-        // into span attributes (our Span type carries no separate resource attributes). Absent → no chip.
-        cluster: attrs['k8s.cluster.name'] || null,
-        pod: attrs['k8s.pod.name'] || null,
+        // k8s.* are OTel *resource* attributes, so read the resource map first; fall back to span
+        // attributes for collectors that flatten them in. Absent in both → no chip.
+        cluster: resourceAttrs['k8s.cluster.name'] || attrs['k8s.cluster.name'] || null,
+        pod: resourceAttrs['k8s.pod.name'] || attrs['k8s.pod.name'] || null,
     }
 }

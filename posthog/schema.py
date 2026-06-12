@@ -22392,8 +22392,8 @@ class ErrorTrackingQuery(BaseModel):
         default=None,
         description=(
             "Pending fingerprint issue state updates UNIONed into the fingerprint issue"
-            " state subquery (V3 only). The backend caps the list at 50 entries; extras"
-            " are dropped silently."
+            " state subquery. The backend caps the list at 50 entries; extras are"
+            " dropped silently."
         ),
     )
     personId: str | None = None
@@ -22408,14 +22408,6 @@ class ErrorTrackingQuery(BaseModel):
         title="ErrorTrackingQueryStatus",
     )
     tags: QueryLogTags | None = None
-    useQueryV2: bool | None = Field(
-        default=None,
-        description=("Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)"),
-    )
-    useQueryV3: bool | None = Field(
-        default=None,
-        description=("Use V3 query path (denormalized ClickHouse table, no Postgres joins)"),
-    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
     withAggregations: bool | None = None
