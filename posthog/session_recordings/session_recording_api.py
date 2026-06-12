@@ -890,6 +890,9 @@ class SessionRecordingViewSet(
                         cast(User, request.user),
                         team=self.team,
                         allow_event_property_expansion=allow_event_property_expansion,
+                        # show explicitly selected sessions (e.g. a funnel drop-off handoff)
+                        # even outside the date range
+                        bypass_date_window_for_session_ids=True,
                     )
 
                 with tracer.start_as_current_span("make_response"):
@@ -1987,7 +1990,11 @@ def _load_selected_recording_ignoring_filters(session_id: str, team: Team) -> Se
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
-    query: RecordingsQuery, user: User | None, team: Team, allow_event_property_expansion: bool = False
+    query: RecordingsQuery,
+    user: User | None,
+    team: Team,
+    allow_event_property_expansion: bool = False,
+    bypass_date_window_for_session_ids: bool = False,
 ) -> tuple[list[SessionRecording], bool, str, str | None]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
@@ -2082,6 +2089,7 @@ def list_recordings_from_query(
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
                 session_ids_to_exclude=session_ids_to_exclude,
+                bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
             ).run()
             ch_session_recordings = query_result.results
 

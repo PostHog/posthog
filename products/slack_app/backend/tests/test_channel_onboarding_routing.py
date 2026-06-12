@@ -19,7 +19,7 @@ from products.slack_app.backend.api import (
 )
 
 
-@override_settings(DEBUG=False)
+@override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
 class TestMemberJoinedChannelRouting(TestCase):
     """Routing-level coverage for the channel onboarding flow.
 
