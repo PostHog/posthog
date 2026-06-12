@@ -223,10 +223,10 @@ class ErrorTrackingQueryV2Builder:
             )
 
         if self.query.withFirstEvent:
-            exprs.append(ast.Alias(alias="first_event", expr=from_agg("first_event")))
+            exprs.append(ast.Alias(alias="first_event_uuid", expr=from_agg("first_event_uuid")))
 
         if self.query.withLastEvent:
-            exprs.append(ast.Alias(alias="last_event", expr=from_agg("last_event")))
+            exprs.append(ast.Alias(alias="last_event_uuid", expr=from_agg("last_event_uuid")))
 
         exprs.append(ast.Alias(alias="library", expr=from_agg("library")))
 
