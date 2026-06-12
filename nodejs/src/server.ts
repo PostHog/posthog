@@ -230,6 +230,9 @@ export class PluginServer implements NodeServer {
                     stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
                     maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
                     cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
+                    fleetStallRatioThreshold: this.config.CYCLOTRON_NODE_JANITOR_FLEET_STALL_RATIO_THRESHOLD,
+                    fleetHealthWindowMs: this.config.CYCLOTRON_NODE_JANITOR_FLEET_HEALTH_WINDOW_MS,
+                    fleetMinStalledCount: this.config.CYCLOTRON_NODE_JANITOR_FLEET_MIN_STALLED_COUNT,
                 })
                 await janitor.start()
                 return janitor.service

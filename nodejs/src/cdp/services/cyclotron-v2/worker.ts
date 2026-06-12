@@ -163,7 +163,8 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1
+                         last_transition = NOW(), transition_count = transition_count + 1,
+                         janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
@@ -174,7 +175,8 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1
+                         last_transition = NOW(), transition_count = transition_count + 1,
+                         janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
@@ -191,6 +193,10 @@ export class CyclotronV2Worker {
                     `last_heartbeat = NULL`,
                     `last_transition = NOW()`,
                     `transition_count = transition_count + 1`,
+                    // A deliberate release means the worker is healthy, so the
+                    // poison budget becomes "N consecutive stalls" — long-lived
+                    // jobs (waits) don't accumulate touches for life.
+                    `janitor_touch_count = 0`,
                     `scheduled = $3`,
                 ]
                 const params: any[] = [row.id, lockId, scheduled]
@@ -228,7 +234,8 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1
+                         last_transition = NOW(), transition_count = transition_count + 1,
+                         janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )

@@ -38,8 +38,8 @@ Responsibilities:
 
 - **Cleanup** — bounded `DELETE` of terminal jobs older than a grace period
 - **Stalled job recovery** — reset jobs with stale heartbeats back to `available`
-- **Poison pill detection** — fail jobs that have been reset too many times (`janitor_touch_count`)
-- **Queue depth metrics** — Prometheus gauges per queue
+- **Poison pill detection** — dead-letter jobs that have been reset too many times (`janitor_touch_count`)
+- **Queue depth metrics** — Prometheus gauges per queue (plus dead-letter depth)
 
 ## Integration
 
@@ -48,12 +48,23 @@ The `CyclotronJobQueuePostgresV2` wrapper in `job-queue/` bridges this SDK with 
 It's enabled via `CDP_CYCLOTRON_NODE_ENABLED=true` and routed alongside the existing backends
 (kafka, delay) in `CyclotronJobQueue`.
 
-## No DLQ
+## Dead-letter queue (poison pills only)
 
-Failed jobs are deleted by the janitor along with completed and canceled jobs.
-There is no dead-letter queue — a DLQ would fill the database exponentially
-since failed jobs often produce more failed jobs on retry.
-Errors are captured via logs and metrics before the job reaches terminal status.
+Jobs that *fail* are deleted by the janitor along with completed and canceled jobs —
+there is no failure DLQ, since failed jobs often produce more failed jobs on retry,
+and errors are captured via logs and metrics before the job reaches terminal status.
+
+Jobs the janitor gives up on (poison pills: stale heartbeat, reset more than
+`maxTouchCount` times) are different: they are moved — full row, state, and a `reason` —
+into `cyclotron_jobs_dead_letter` instead of being deleted, mirroring the V1 Rust
+cyclotron's dead-letter queue. `CyclotronV2Manager.replayDeadLetterJobs()` re-inserts
+them onto their original queue.
+
+Dead-lettering is additionally gated on fleet health: if the share of stalled jobs
+relative to recent completions spikes (a fleet-wide outage, not an isolated bad job),
+the janitor pauses dead-lettering and only resets/retries until stalls return to
+baseline. Workers reset `janitor_touch_count` on every deliberate release, so the
+poison budget means "N consecutive stalls", not "N stalls over the job's lifetime".
 
 ## Future work
 

@@ -251,6 +251,38 @@ export class CyclotronV2Manager {
         return ids
     }
 
+    /**
+     * Re-insert dead-lettered jobs into cyclotron_jobs on their original queue
+     * so they run again. Pass explicit ids, or omit to replay everything in
+     * the dead-letter table. The DELETE + INSERT runs as one statement, so a
+     * conflicting live row aborts the whole replay and the DLQ row survives.
+     */
+    async replayDeadLetterJobs(ids?: string[]): Promise<string[]> {
+        const result = await this.pool.query<{ id: string }>(
+            `WITH to_replay AS (
+                DELETE FROM cyclotron_jobs_dead_letter
+                WHERE $1::uuid[] IS NULL OR id = ANY($1)
+                RETURNING *
+            )
+            INSERT INTO cyclotron_jobs
+                (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+                 lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
+                 parent_run_id, state, distinct_id, person_id, action_id)
+            SELECT id, team_id, function_id, original_queue_name, 'available', priority, NOW(), created,
+                   NULL, NULL, 0, transition_count, NOW(),
+                   parent_run_id, state, distinct_id, person_id, action_id
+            FROM to_replay
+            RETURNING id`,
+            [ids ?? null]
+        )
+
+        const replayedIds = result.rows.map((r) => r.id)
+        if (replayedIds.length > 0) {
+            logger.info('Cyclotron V2 replayed dead-lettered jobs', { count: replayedIds.length, ids: replayedIds })
+        }
+        return replayedIds
+    }
+
     async disconnect(): Promise<void> {
         await this.pool.end()
     }

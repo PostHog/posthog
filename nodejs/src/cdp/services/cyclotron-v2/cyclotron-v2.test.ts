@@ -70,6 +70,21 @@ async function queryJob(id: string): Promise<RawJobRow> {
     return res.rows[0]
 }
 
+interface DeadLetterRow {
+    id: string
+    team_id: number
+    original_queue_name: string
+    state: Buffer | null
+    reason: string
+    dlq_time: string | Date
+}
+
+async function queryDeadLetterJob(id: string): Promise<DeadLetterRow> {
+    const res = await assertPool.query<DeadLetterRow>('SELECT * FROM cyclotron_jobs_dead_letter WHERE id = $1', [id])
+    expect(res.rows).toHaveLength(1)
+    return res.rows[0]
+}
+
 async function countByStatus(status: string): Promise<number> {
     const res = await assertPool.query('SELECT COUNT(*)::int AS c FROM cyclotron_jobs WHERE status = $1', [status])
     return res.rows[0].c
@@ -130,6 +145,7 @@ describe('Cyclotron V2', () => {
 
     beforeEach(async () => {
         await assertPool.query('DELETE FROM cyclotron_jobs')
+        await assertPool.query('DELETE FROM cyclotron_jobs_dead_letter')
     })
 
     async function seedAndDequeue(
@@ -677,6 +693,22 @@ describe('Cyclotron V2', () => {
             const row = await queryJob(id)
             expect(row.transition_count).toBe(1)
         })
+
+        it.each(['reschedule', 'ack'] as const)(
+            'janitor_touch_count resets to 0 on %s (poison budget counts consecutive stalls)',
+            async (method) => {
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [id])
+
+                const worker = createWorker()
+                const [job] = await dequeueOneBatch(worker)
+                await job[method]()
+                await worker.disconnect()
+
+                const row = await queryJob(id)
+                expect(row.janitor_touch_count).toBe(0)
+            }
+        )
     })
 
     // ── Janitor ──────────────────────────────────────────────────────
@@ -778,7 +810,7 @@ describe('Cyclotron V2', () => {
             expect(row.janitor_touch_count).toBe(1)
         })
 
-        it('failPoisonPills fails jobs exceeding maxTouchCount', async () => {
+        it('dead-letters jobs exceeding maxTouchCount, preserving row + state with a reason', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
             const jobId = uuidv7()
             await insertRawJob({
@@ -787,6 +819,7 @@ describe('Cyclotron V2', () => {
                 lock_id: uuidv7(),
                 last_heartbeat: staleHeartbeat,
                 janitor_touch_count: 3,
+                state: Buffer.from('precious-state'),
             })
 
             const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 })
@@ -794,11 +827,119 @@ describe('Cyclotron V2', () => {
             await janitor.stop()
 
             expect(result.poisoned).toBe(1)
-            const row = await queryJob(jobId)
-            expect(row.status).toBe('failed')
+            expect(result.poisonedIds).toEqual([jobId])
+            expect(result.poisoningPaused).toBe(false)
+            expect(result.dlqDepth).toBe(1)
+            expect(await totalJobCount()).toBe(0)
+
+            const dlqRow = await queryDeadLetterJob(jobId)
+            expect(dlqRow.original_queue_name).toBe(QUEUE)
+            expect(dlqRow.reason).toContain('poison pill')
+            expect(dlqRow.state?.toString()).toBe('precious-state')
         })
 
-        it('poison pills are failed before stalled jobs are reset', async () => {
+        it('pauses dead-lettering when stalls are fleet-wide, resetting jobs instead', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const ids = [uuidv7(), uuidv7(), uuidv7()]
+            for (const id of ids) {
+                await insertRawJob({
+                    id,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: staleHeartbeat,
+                    janitor_touch_count: 5,
+                })
+            }
+
+            // No completions in the window, 3 stalls >= min count → fleet unhealthy
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2, fleetMinStalledCount: 3 })
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.poisoningPaused).toBe(true)
+            expect(result.poisoned).toBe(0)
+            expect(result.stalled).toBe(3)
+            expect(result.dlqDepth).toBe(0)
+            for (const id of ids) {
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+            }
+        })
+
+        it('resumes dead-lettering once completions dominate stalls again', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const poisonId = uuidv7()
+            await insertRawJob({
+                id: poisonId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 5,
+            })
+
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2, fleetMinStalledCount: 1 })
+
+            // Run 1: one stall, zero completions → paused, job reset
+            const paused = await janitor.runOnce()
+            expect(paused.poisoningPaused).toBe(true)
+            expect((await queryJob(poisonId)).status).toBe('available')
+
+            // The fleet recovers: completions flow again while the bad job stalls anew
+            const old = new Date(Date.now() - 60_000)
+            for (let i = 0; i < 10; i++) {
+                await insertRawJob({ id: uuidv7(), status: 'completed', last_transition: old })
+            }
+            await assertPool.query(
+                `UPDATE cyclotron_jobs SET status = 'running', lock_id = $2, last_heartbeat = $3 WHERE id = $1`,
+                [poisonId, uuidv7(), staleHeartbeat]
+            )
+
+            // Run 2: 1 stall vs 10 completions in window → healthy, dead-letter proceeds
+            const resumed = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(resumed.poisoningPaused).toBe(false)
+            expect(resumed.poisonedIds).toEqual([poisonId])
+            await queryDeadLetterJob(poisonId)
+        })
+
+        it('replayDeadLetterJobs re-inserts a dead-lettered job onto its original queue', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 5,
+                state: Buffer.from('replay-me'),
+            })
+
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 })
+            await janitor.runOnce()
+            await janitor.stop()
+            expect(await totalJobCount()).toBe(0)
+
+            const replayed = await manager.replayDeadLetterJobs([jobId])
+            expect(replayed).toEqual([jobId])
+
+            const row = await queryJob(jobId)
+            expect(row.status).toBe('available')
+            expect(row.queue_name).toBe(QUEUE)
+            expect(row.janitor_touch_count).toBe(0)
+            expect(row.state?.toString()).toBe('replay-me')
+
+            const dlqCount = await assertPool.query('SELECT COUNT(*)::int AS c FROM cyclotron_jobs_dead_letter')
+            expect(dlqCount.rows[0].c).toBe(0)
+
+            // A worker can drain the replayed job
+            const worker = createWorker()
+            const jobs = await dequeueOneBatch(worker)
+            await worker.disconnect()
+            expect(jobs.map((j) => j.id)).toEqual([jobId])
+        })
+
+        it('poison pills are dead-lettered before stalled jobs are reset', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
 
             // This job has been touched enough times to be a poison pill
@@ -828,8 +969,8 @@ describe('Cyclotron V2', () => {
             expect(result.poisoned).toBe(1)
             expect(result.stalled).toBe(1)
 
-            const poison = await queryJob(poisonId)
-            expect(poison.status).toBe('failed')
+            // The poison job is moved to the DLQ, not reset alongside the stalled one
+            await queryDeadLetterJob(poisonId)
 
             const stalled = await queryJob(stalledId)
             expect(stalled.status).toBe('available')

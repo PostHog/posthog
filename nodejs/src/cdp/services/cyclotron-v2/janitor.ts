@@ -17,7 +17,7 @@ const janitorStalledCounter = new Counter({
 
 const janitorPoisonedCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_poisoned',
-    help: 'Number of poison pill jobs failed by the janitor',
+    help: 'Number of poison pill jobs dead-lettered by the janitor',
 })
 
 const janitorRunCounter = new Counter({
@@ -31,6 +31,16 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
+const deadLetterDepthGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_dead_letter_depth',
+    help: 'Number of jobs parked in the dead-letter table',
+})
+
+const poisoningPausedGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_janitor_poisoning_paused',
+    help: 'Whether dead-lettering is paused because stalls look fleet-wide (1) or active (0)',
+})
+
 export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
@@ -40,6 +50,11 @@ export class CyclotronV2Janitor {
     private readonly stallTimeoutMs: number
     private readonly maxTouchCount: number
     private readonly cleanupGraceMs: number
+    private readonly fleetStallRatioThreshold: number
+    private readonly fleetHealthWindowMs: number
+    private readonly fleetMinStalledCount: number
+
+    private completionSamples: { ts: number; completed: number }[] = []
 
     constructor(config: CyclotronV2JanitorConfig) {
         this.pool = new Pool({
@@ -52,6 +67,9 @@ export class CyclotronV2Janitor {
         this.stallTimeoutMs = config.stallTimeoutMs ?? 30000
         this.maxTouchCount = config.maxTouchCount ?? 3
         this.cleanupGraceMs = config.cleanupGraceMs ?? 10000
+        this.fleetStallRatioThreshold = config.fleetStallRatioThreshold ?? 0.5
+        this.fleetHealthWindowMs = config.fleetHealthWindowMs ?? 300000
+        this.fleetMinStalledCount = config.fleetMinStalledCount ?? 5
     }
 
     async start(): Promise<void> {
@@ -69,17 +87,39 @@ export class CyclotronV2Janitor {
     }
 
     async runOnce(): Promise<CyclotronV2CleanupResult> {
-        const deleted = await this.cleanupTerminalJobs()
-        const poisoned = await this.failPoisonPills()
+        const deletedCounts = await this.cleanupTerminalJobs()
+        const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
+
+        this.recordCompletionSample(deletedCounts['completed'] ?? 0)
+
+        // Gate dead-lettering on fleet health: during an outage every in-flight
+        // job stalls at once, and giving up on them would drop work that a
+        // recovered fleet could still run. Only reset/retry in that state.
+        const stalledNow = await this.countStalledRunningJobs()
+        const poisoningPaused = this.isFleetUnhealthy(stalledNow)
+        poisoningPausedGauge.set(poisoningPaused ? 1 : 0)
+
+        let poisonedIds: string[] = []
+        if (poisoningPaused) {
+            logger.warn('CyclotronV2Janitor poisoning paused, fleet unhealthy', {
+                stalledNow,
+                completedInWindow: this.completedInWindow(),
+                fleetStallRatioThreshold: this.fleetStallRatioThreshold,
+            })
+        } else {
+            poisonedIds = await this.deadLetterPoisonPills()
+        }
+
         const stalled = await this.resetStalledJobs()
         const depths = await this.measureQueueDepths()
+        const dlqDepth = await this.measureDeadLetterDepth()
 
         janitorRunCounter.inc()
 
-        return { deleted, stalled, poisoned, depths }
+        return { deleted, stalled, poisoned: poisonedIds.length, poisonedIds, poisoningPaused, depths, dlqDepth }
     }
 
-    private async cleanupTerminalJobs(): Promise<number> {
+    private async cleanupTerminalJobs(): Promise<Record<string, number>> {
         const cutoff = new Date(Date.now() - this.cleanupGraceMs)
 
         const result = await this.pool.query<{ status: string; count: string }>(
@@ -114,35 +154,82 @@ export class CyclotronV2Janitor {
             logger.info('CyclotronV2Janitor cleaned up terminal jobs', { counts, total })
         }
 
-        return total
+        return counts
     }
 
-    private async failPoisonPills(): Promise<number> {
-        // Poison pills: running jobs with stale heartbeats that have been reset too many times
-        const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
+    private recordCompletionSample(completed: number): void {
+        const now = Date.now()
+        this.completionSamples.push({ ts: now, completed })
+        this.completionSamples = this.completionSamples.filter((s) => s.ts > now - this.fleetHealthWindowMs)
+    }
 
-        const result = await this.pool.query(
-            `UPDATE cyclotron_jobs
-             SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                 last_transition = NOW(), transition_count = transition_count + 1
-             WHERE id IN (
-                 SELECT id
-                 FROM cyclotron_jobs
-                 WHERE status = 'running'
-                   AND COALESCE(last_heartbeat, $1) <= $1
-                   AND janitor_touch_count >= $2
-                 FOR UPDATE SKIP LOCKED
-             )`,
-            [heartbeatCutoff, this.maxTouchCount]
+    private completedInWindow(): number {
+        return this.completionSamples.reduce((acc, s) => acc + s.completed, 0)
+    }
+
+    private async countStalledRunningJobs(): Promise<number> {
+        const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
+        const result = await this.pool.query<{ count: string }>(
+            `SELECT COUNT(*) AS count FROM cyclotron_jobs
+             WHERE status = 'running' AND COALESCE(last_heartbeat, $1) <= $1`,
+            [heartbeatCutoff]
+        )
+        return parseInt(result.rows[0].count, 10)
+    }
+
+    // Stalls are fleet-wide when many jobs are stalled at once AND stalls
+    // dominate completions over the rolling window. Steady-state stalls are
+    // ~0, so a healthy fleet with one bad job stays well below both bars.
+    private isFleetUnhealthy(stalledNow: number): boolean {
+        if (stalledNow < this.fleetMinStalledCount) {
+            return false
+        }
+        const completed = this.completedInWindow()
+        return stalledNow / (stalledNow + completed) > this.fleetStallRatioThreshold
+    }
+
+    // Poison pills: running jobs with stale heartbeats that have been reset
+    // too many times. Move the full row into the dead-letter table (preserved
+    // and replay-ready) rather than failing it, which the cleanup pass would
+    // permanently delete.
+    private async deadLetterPoisonPills(): Promise<string[]> {
+        const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
+        const reason = `poison pill detected based on a stall timeout of ${this.stallTimeoutMs}ms and max touch count of ${this.maxTouchCount}`
+
+        const result = await this.pool.query<{ id: string }>(
+            `WITH poison AS (
+                SELECT id
+                FROM cyclotron_jobs
+                WHERE status = 'running'
+                  AND COALESCE(last_heartbeat, $1) <= $1
+                  AND janitor_touch_count >= $2
+                FOR UPDATE SKIP LOCKED
+            ),
+            moved AS (
+                DELETE FROM cyclotron_jobs
+                USING poison
+                WHERE cyclotron_jobs.id = poison.id
+                RETURNING cyclotron_jobs.*
+            )
+            INSERT INTO cyclotron_jobs_dead_letter
+                (id, team_id, function_id, original_queue_name, priority, scheduled, created,
+                 janitor_touch_count, transition_count, last_transition, parent_run_id, state,
+                 distinct_id, person_id, action_id, reason, dlq_time)
+            SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
+                   janitor_touch_count, transition_count, last_transition, parent_run_id, state,
+                   distinct_id, person_id, action_id, $3, NOW()
+            FROM moved
+            RETURNING id`,
+            [heartbeatCutoff, this.maxTouchCount, reason]
         )
 
-        const count = result.rowCount ?? 0
-        if (count > 0) {
-            janitorPoisonedCounter.inc(count)
-            logger.warn('CyclotronV2Janitor failed poison pill jobs', { count })
+        const ids = result.rows.map((r) => r.id)
+        if (ids.length > 0) {
+            janitorPoisonedCounter.inc(ids.length)
+            logger.warn('CyclotronV2Janitor dead-lettered poison pill jobs', { count: ids.length, ids })
         }
 
-        return count
+        return ids
     }
 
     private async resetStalledJobs(): Promise<number> {
@@ -189,6 +276,15 @@ export class CyclotronV2Janitor {
         }
 
         return depths
+    }
+
+    async measureDeadLetterDepth(): Promise<number> {
+        const result = await this.pool.query<{ count: string }>(
+            `SELECT COUNT(*) AS count FROM cyclotron_jobs_dead_letter`
+        )
+        const depth = parseInt(result.rows[0].count, 10)
+        deadLetterDepthGauge.set(depth)
+        return depth
     }
 
     isRunning(): boolean {

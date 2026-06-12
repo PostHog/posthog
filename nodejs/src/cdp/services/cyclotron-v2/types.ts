@@ -86,11 +86,19 @@ export type CyclotronV2JanitorConfig = {
     stallTimeoutMs?: number
     maxTouchCount?: number
     cleanupGraceMs?: number
+    // Fleet-health gate: dead-lettering is paused while stalls look fleet-wide
+    // (an outage) rather than isolated (a genuinely bad job).
+    fleetStallRatioThreshold?: number
+    fleetHealthWindowMs?: number
+    fleetMinStalledCount?: number
 }
 
 export type CyclotronV2CleanupResult = {
     deleted: number
     stalled: number
     poisoned: number
+    poisonedIds: string[]
+    poisoningPaused: boolean
     depths: Map<string, number>
+    dlqDepth: number
 }

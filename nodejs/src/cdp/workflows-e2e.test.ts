@@ -42,6 +42,9 @@ import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
+import { CyclotronV2Janitor } from './services/cyclotron-v2/janitor'
+import { CyclotronV2Manager } from './services/cyclotron-v2/manager'
+import { CyclotronV2JanitorConfig } from './services/cyclotron-v2/types'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
@@ -622,6 +625,160 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 10000)
 
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-wait-timeout', expect.anything())
+        })
+    })
+
+    // The V2 janitor and dead-letter table only exist in the postgres-v2 backend.
+    const describeJanitor = mode === 'postgres-v2' ? describe : describe.skip
+    describeJanitor('poison: a stalling wait_until_condition run is preserved, never silently dropped', () => {
+        let janitor: CyclotronV2Janitor | null = null
+
+        const createV2Janitor = (overrides: Partial<CyclotronV2JanitorConfig> = {}): CyclotronV2Janitor =>
+            new CyclotronV2Janitor({
+                pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+                stallTimeoutMs: 1000,
+                maxTouchCount: 3,
+                ...overrides,
+            })
+
+        beforeEach(async () => {
+            janitor = null
+            await cyclotronPool.query('DELETE FROM cyclotron_jobs_dead_letter')
+            // Condition never matches, so the run parks mid-wait — the shape of a
+            // long-running lifecycle workflow whose poll lands during an outage.
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                            max_wait_duration: '5s',
+                        },
+                    },
+                    function_1: fetchAction('https://example.com/after-poison-recovery'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'exit', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            globals = createGlobals()
+        })
+
+        afterEach(async () => {
+            await janitor?.stop()
+        })
+
+        /**
+         * Park the run mid-wait, stop the worker fleet, and doctor the row so it
+         * looks like a worker crashed while holding it and the janitor has
+         * already burned the whole touch budget.
+         */
+        async function simulateCrashedWorkerHoldingJob(): Promise<string> {
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs).toHaveLength(1)
+                expect(jobs[0].status).toBe('available')
+                expect(new Date(jobs[0].scheduled) > new Date()).toBe(true)
+            }, 5000)
+
+            await hogflowWorker.stop()
+
+            const jobs = await queryCyclotronJobs()
+            const jobId = jobs[0].id
+            await cyclotronPool.query(
+                `UPDATE cyclotron_jobs
+                 SET status = 'running', lock_id = $2,
+                     last_heartbeat = NOW() - INTERVAL '60 seconds', janitor_touch_count = 3
+                 WHERE id = $1`,
+                [jobId, new UUIDT().toString()]
+            )
+            return jobId
+        }
+
+        async function restartWorkerFleet(): Promise<void> {
+            hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
+            await hogflowWorker.start()
+        }
+
+        it('fleet-wide outage: the run is never deleted and fires its action once a healthy worker drains it', async () => {
+            await triggerWorkflow(globals)
+            const jobId = await simulateCrashedWorkerHoldingJob()
+
+            // Every in-flight job is stalled and nothing is completing → fleet unhealthy
+            janitor = createV2Janitor({ fleetMinStalledCount: 1 })
+            const result = await janitor.runOnce()
+
+            expect(result.poisoningPaused).toBe(true)
+            expect(result.poisoned).toBe(0)
+            expect(result.stalled).toBe(1)
+            expect(result.dlqDepth).toBe(0)
+
+            // The run is recoverable: still in cyclotron_jobs, not deleted, not fired
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.map((j: any) => j.id)).toEqual([jobId])
+            expect(jobs[0].status).toBe('available')
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            // Sustained outage: further janitor cycles still don't drop the run
+            const again = await janitor.runOnce()
+            expect(again.poisoned).toBe(0)
+            expect((await queryCyclotronJobs()).map((j: any) => j.id)).toEqual([jobId])
+
+            // Outage ends — a healthy worker drains the run and the action fires
+            await restartWorkerFleet()
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 15000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-poison-recovery', expect.anything())
+        })
+
+        it('isolated bad job on a healthy fleet: dead-lettered with its reason, then replayable', async () => {
+            await triggerWorkflow(globals)
+            const jobId = await simulateCrashedWorkerHoldingJob()
+
+            // The fleet is otherwise healthy: completions flow in the same cycle
+            const old = new Date(Date.now() - 60_000)
+            for (let i = 0; i < 10; i++) {
+                await cyclotronPool.query(
+                    `INSERT INTO cyclotron_jobs
+                     (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                     VALUES ($1, $2, 'hogflow', 'completed', 0, NOW(), NOW(), $3)`,
+                    [new UUIDT().toString(), team.id, old]
+                )
+            }
+
+            janitor = createV2Janitor({ fleetMinStalledCount: 1, cleanupGraceMs: 0 })
+            const result = await janitor.runOnce()
+
+            expect(result.poisoningPaused).toBe(false)
+            expect(result.poisonedIds).toEqual([jobId])
+
+            // Preserved in the dead-letter table with its reason — not deleted
+            const dlq = await cyclotronPool.query('SELECT * FROM cyclotron_jobs_dead_letter')
+            expect(dlq.rows.map((r: any) => r.id)).toEqual([jobId])
+            expect(dlq.rows[0].reason).toContain('poison pill')
+            expect(dlq.rows[0].original_queue_name).toBe('hogflow')
+            expect(await queryCyclotronJobs()).toEqual([])
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            // Replay puts the run back onto its original queue and a worker drains it
+            const v2Manager = new CyclotronV2Manager({ pool: { dbUrl: CYCLOTRON_NODE_DB_URL } })
+            try {
+                expect(await v2Manager.replayDeadLetterJobs([jobId])).toEqual([jobId])
+            } finally {
+                await v2Manager.disconnect()
+            }
+
+            await restartWorkerFleet()
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 15000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-poison-recovery', expect.anything())
         })
     })
 
