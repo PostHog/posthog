@@ -824,20 +824,6 @@ from = [
 ]
 
 [[modules]]
-path = "products.agent_stack"
-depends_on = ["posthog"]
-layer = "modules"
-
-[[interfaces]]
-expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
-]
-from = [
-    "products.agent_stack",
-]
-
-[[modules]]
 path = "products.wizard"
 depends_on = ["posthog"]
 layer = "modules"
