@@ -40,6 +40,24 @@ class InsightVariableInfo:
 
 
 @dataclass(frozen=True)
+class MaterializedColumnInfo:
+    """A physical ClickHouse column backing a property read, as the engine consumes it.
+
+    ``type`` is the ClickHouse type string (e.g. ``"Nullable(Float64)"``); the ``has_*``
+    flags say which skip indexes exist on the column, which gates the engine's
+    bare-column comparison rewrites.
+    """
+
+    name: str
+    type: str
+    is_nullable: bool
+    has_minmax_index: bool = False
+    has_bloom_filter_index: bool = False
+    has_ngram_lower_index: bool = False
+    has_bloom_filter_lower_index: bool = False
+
+
+@dataclass(frozen=True)
 class PropertyTypes:
     """Property-type maps for the properties a query references.
 
@@ -100,6 +118,17 @@ class DataProvider(Protocol):
         group_properties: dict[int, list[str]],
     ) -> PropertyTypes:
         """Batched property-type lookup for everything a query references."""
+        ...
+
+    def materialized_column(self, table: str, column: str, property_name: str) -> Optional[MaterializedColumnInfo]:
+        """The enabled materialized column backing ``<table>.<column>.<property_name>``, or ``None``.
+
+        ``table`` and ``column`` are ClickHouse names (``"events"``, ``"properties"``).
+        ``None`` means the property stays a JSON read — whether because nothing is
+        materialized or because the deployment has materialization disabled is the
+        provider's concern (on the Django side, the ``MATERIALIZED_COLUMNS_ENABLED``
+        instance setting).
+        """
         ...
 
     def actions(self, ref: int | str, scope: ActionScope) -> list[ActionRef]:
@@ -175,6 +204,9 @@ class StaticDataProvider:
     # Full property-type catalog; lookups return the subset a query asks for. A property
     # absent from the catalog is simply untyped — a legitimate state, not an error.
     property_type_catalog: PropertyTypes = field(default_factory=PropertyTypes)
+    # Keyed by (table, column, property name); a property absent here is simply not
+    # materialized — also a legitimate state.
+    materialized_columns: dict[tuple[str, str, str], MaterializedColumnInfo] = field(default_factory=dict)
     action_refs: dict[tuple[ActionScope, int | str], list[ActionRef]] = field(default_factory=dict)
     action_exprs: dict[int, "ast.Expr"] = field(default_factory=dict)
     insight_variables_by_id: dict[str, InsightVariableInfo] = field(default_factory=dict)
@@ -215,6 +247,9 @@ class StaticDataProvider:
             person={k: v for k, v in self.property_type_catalog.person.items() if k in requested_persons},
             group={k: v for k, v in self.property_type_catalog.group.items() if k in group_keys},
         )
+
+    def materialized_column(self, table: str, column: str, property_name: str) -> Optional[MaterializedColumnInfo]:
+        return self.materialized_columns.get((table, column, property_name))
 
     def actions(self, ref: int | str, scope: ActionScope) -> list[ActionRef]:
         return self.action_refs.get((scope, ref), [])

@@ -1,5 +1,4 @@
 import re
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
@@ -20,6 +19,7 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_provider import MaterializedColumnInfo
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
@@ -44,17 +44,6 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-
-
-@dataclass
-class FakeMaterializedColumn:
-    name: str
-    is_nullable: bool
-    type: str
-    has_minmax_index: bool = False
-    has_bloom_filter_index: bool = False
-    has_ngram_lower_index: bool = False
-    has_bloom_filter_lower_index: bool = False
 
 
 def _normalize_snapshot_sql(sql: str) -> str:
@@ -196,14 +185,14 @@ class TestPropertyTypes(BaseTest):
         assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
 
     def test_property_comparison_planner_allows_numeric_minmax_when_source_type_matches(self) -> None:
-        fake_column = FakeMaterializedColumn(
+        fake_column = MaterializedColumnInfo(
             name="mat_$screen_width",
             is_nullable=True,
             type="Nullable(Float64)",
             has_minmax_index=True,
         )
 
-        with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
+        with patch("posthog.hogql.django_provider.get_materialized_column_for_property", return_value=fake_column):
             plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
@@ -244,14 +233,14 @@ class TestPropertyTypes(BaseTest):
             name="event_time_prop",
             defaults={"property_type": "DateTime"},
         )
-        fake_column = FakeMaterializedColumn(
+        fake_column = MaterializedColumnInfo(
             name="mat_event_time_prop",
             is_nullable=True,
             type="Nullable(DateTime64(6, 'UTC'))",
             has_minmax_index=True,
         )
 
-        with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
+        with patch("posthog.hogql.django_provider.get_materialized_column_for_property", return_value=fake_column):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.event_time_prop < '2024-01-01'"
             )

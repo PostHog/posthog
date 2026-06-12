@@ -1,5 +1,5 @@
 import datetime
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db import models
 from django.db.models import Prefetch, Q
@@ -14,14 +14,20 @@ from posthog.hogql.data_provider import (
     CohortRef,
     CohortRefKind,
     InsightVariableInfo,
+    MaterializedColumnInfo,
     PropertyKind,
     PropertyTypes,
 )
 from posthog.hogql.team_context import HogQLTeamContext
 
-from posthog.clickhouse.materialized_columns import DMAT_STRING_COLUMN_NAME_PREFIX
+from posthog.clickhouse.materialized_columns import (
+    DMAT_STRING_COLUMN_NAME_PREFIX,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
+)
 from posthog.models import PropertyDefinition, Team
 from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
+from posthog.models.property import PropertyName, TableColumn
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.actions.backend.models.action import Action
@@ -252,6 +258,26 @@ class DjangoDataProvider:
             )
 
         return PropertyTypes(event=event, person=person, group=group)
+
+    def materialized_column(self, table: str, column: str, property_name: str) -> Optional[MaterializedColumnInfo]:
+        # Gated on the MATERIALIZED_COLUMNS_ENABLED instance setting inside the lookup;
+        # when disabled every property is reported as unmaterialized.
+        mat_column = get_materialized_column_for_property(
+            cast(TablesWithMaterializedColumns, table),
+            cast(TableColumn, column),
+            cast(PropertyName, property_name),
+        )
+        if mat_column is None:
+            return None
+        return MaterializedColumnInfo(
+            name=mat_column.name,
+            type=mat_column.type,
+            is_nullable=mat_column.is_nullable,
+            has_minmax_index=mat_column.has_minmax_index,
+            has_bloom_filter_index=mat_column.has_bloom_filter_index,
+            has_ngram_lower_index=mat_column.has_ngram_lower_index,
+            has_bloom_filter_lower_index=mat_column.has_bloom_filter_lower_index,
+        )
 
     def actions(self, ref: int | str, scope: ActionScope) -> list[ActionRef]:
         if scope == "team":

@@ -14,14 +14,20 @@ from posthog.schema import (
     HogQLQueryModifiers,
     HogQLVariable,
     InCohortVia,
-    MaterializationMode,
     PersonsOnEventsMode,
     RetentionEntity,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.data_provider import ActionRef, CohortRef, InsightVariableInfo, PropertyTypes, StaticDataProvider
+from posthog.hogql.data_provider import (
+    ActionRef,
+    CohortRef,
+    InsightVariableInfo,
+    MaterializedColumnInfo,
+    PropertyTypes,
+    StaticDataProvider,
+)
 from posthog.hogql.database.database import Database
 from posthog.hogql.filters import replace_filters_core
 from posthog.hogql.modifiers import create_default_modifiers_for_team_context
@@ -60,12 +66,7 @@ class TestEngineIsolationGate(SimpleTestCase):
         provider = provider or _provider()
         modifiers = create_default_modifiers_for_team_context(
             provider.team_context,
-            HogQLQueryModifiers(
-                personsOnEventsMode=PersonsOnEventsMode.DISABLED,
-                # Materialized-column resolution is the one compile read not yet behind
-                # the port (sequenced after the printer rearchitecture lands).
-                materializationMode=MaterializationMode.DISABLED,
-            ),
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
             cloud=False,
         )
         return HogQLContext(
@@ -111,6 +112,30 @@ class TestEngineIsolationGate(SimpleTestCase):
         assert context.property_swapper is not None
         self.assertEqual(context.property_swapper.event_properties, {"$screen_height": {"type": "Numeric"}})
         self.assertEqual(context.property_swapper.person_properties, {"is_paying": {"type": "Boolean"}})
+
+    def test_materialized_column_resolved_via_provider(self) -> None:
+        provider = _provider(
+            materialized_columns={
+                ("events", "properties", "$browser"): MaterializedColumnInfo(
+                    name="mat_$browser", type="String", is_nullable=False
+                )
+            }
+        )
+        printed, _ = prepare_and_print_ast(
+            parse_select("SELECT properties.$browser FROM events WHERE properties.$browser = 'Chrome'"),
+            self._print_context(provider),
+            dialect="clickhouse",
+        )
+        self.assertIn("mat_$browser", printed)
+        self.assertNotIn("JSONExtract", printed)
+
+    def test_unmaterialized_property_falls_back_to_json_read(self) -> None:
+        printed, _ = prepare_and_print_ast(
+            parse_select("SELECT properties.$browser FROM events"),
+            self._print_context(),
+            dialect="clickhouse",
+        )
+        self.assertIn("JSONExtract", printed)
 
     def test_event_property_filter(self) -> None:
         expr = property_to_expr_core(

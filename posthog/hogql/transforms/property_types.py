@@ -1,8 +1,9 @@
 from datetime import datetime
-from typing import Literal, Optional, cast
+from typing import Literal, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_provider import MaterializedColumnInfo
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import (
@@ -18,13 +19,7 @@ from posthog.hogql.property_planner import PropertySourceKind, plan_property_acc
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
-from posthog.clickhouse.materialized_columns import (
-    MATERIALIZATION_VALID_TABLES,
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
-from posthog.models.property import PropertyName, TableColumn
+from posthog.clickhouse.materialized_columns import MATERIALIZATION_VALID_TABLES
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -263,12 +258,7 @@ class PropertySwapper(CloningVisitor):
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
 
-        field_name = cast(TableColumn, database_field.name)
-        mat_col = get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name),
-            field_name,
-            property_name,
-        )
+        mat_col = self.context.data.materialized_column(table_name, database_field.name, property_name)
         if mat_col is None:
             return None
 
@@ -296,7 +286,7 @@ class PropertySwapper(CloningVisitor):
         return None
 
     @staticmethod
-    def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumn) -> bool:
+    def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumnInfo) -> bool:
         if node.name == "JSONExtractString":
             # JSONExtractString has string semantics, so it only matches a string-backed column.
             # A non-string materialized column (e.g. Nullable(Float64)) would otherwise be rewritten
@@ -615,11 +605,4 @@ class PropertySwapper(CloningVisitor):
             start=max(node.start, node.end - len(escape_hogql_identifier(node.chain[-1]))),
             end=node.end,
             message=message,
-        )
-
-    def _get_materialized_column(
-        self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> MaterializedColumn | None:
-        return get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
         )

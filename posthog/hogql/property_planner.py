@@ -1,12 +1,13 @@
 import dataclasses
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal, Optional, cast
+from typing import Literal, Optional
 
 from posthog.schema import PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_provider import MaterializedColumnInfo
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
@@ -25,14 +26,8 @@ from posthog.hogql.type_system import (
     runtime_type_from_constant_type,
 )
 
-from posthog.clickhouse.materialized_columns import (
-    MATERIALIZATION_VALID_TABLES,
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
+from posthog.clickhouse.materialized_columns import MATERIALIZATION_VALID_TABLES
 from posthog.clickhouse.property_groups import property_groups
-from posthog.models.property import PropertyName, TableColumn
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
@@ -300,11 +295,7 @@ def _plan_property_source(
     if restricted or context.modifiers.materializationMode == "disabled":
         return _json_source_plan(table_name=table_name, field_name=field_name, restricted=restricted)
 
-    materialized_column = get_materialized_column_for_property(
-        cast(TablesWithMaterializedColumns, table_name),
-        cast(TableColumn, field_name),
-        cast(PropertyName, property_name),
-    )
+    materialized_column = context.data.materialized_column(table_name, field_name, property_name)
     if materialized_column is not None:
         return PropertySourcePlan(
             kind=PropertySourceKind.MATERIALIZED_COLUMN,
@@ -384,7 +375,7 @@ def _materialized_table_info(field_type: ast.FieldType, context: HogQLContext) -
     return table_name, field.name
 
 
-def _materialized_column_physical_type(materialized_column: MaterializedColumn) -> ast.ConstantType:
+def _materialized_column_physical_type(materialized_column: MaterializedColumnInfo) -> ast.ConstantType:
     runtime_type = parse_sql_runtime_type(materialized_column.type)
     if runtime_type.family != "unknown":
         return constant_type_from_runtime_type(
