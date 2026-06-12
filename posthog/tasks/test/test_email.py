@@ -602,7 +602,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     ) -> None:
         mock_email_messages(MockEmailMessage)
 
-        # Before 10:00 UTC the digest day is still the previous calendar date.
         with freeze_time("2024-05-15 09:59:00"):
             send_external_data_failure_digest(
                 self.team.pk,
@@ -727,7 +726,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         with freeze_time("2024-05-15 10:00:00"):
             send_external_data_failure_digest(self.team.pk, items)
 
-        # Should only be sent to user2
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
@@ -735,12 +733,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
-        # Same day: the team-level daily guard blocks a second email entirely.
         with freeze_time("2024-05-15 18:00:00"):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages) == 1
 
-        # Next day: sent again, now to both users.
         with freeze_time("2024-05-16 10:00:00"):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages[1].to) == 2

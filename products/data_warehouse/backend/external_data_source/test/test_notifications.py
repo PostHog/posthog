@@ -62,7 +62,6 @@ class TestNotifyExternalDataSyncFailures:
         mock_sender.assert_called_once()
         team_id, items = mock_sender.call_args.args
         assert team_id == team.pk
-        # Paused schemas come first.
         assert [(item["schema_name"], item["paused"]) for item in items] == [
             ("Invoice", True),
             ("Charge", False),
@@ -147,7 +146,6 @@ class TestNotifyExternalDataSyncFailures:
         (_, items) = mock_sender.call_args.args
         assert len(items) == MAX_SCHEMAS_PER_DIGEST_EMAIL
         assert mock_sender.call_args.kwargs["omitted_count"] == 5
-        # Omitted schemas are still stamped — they were communicated via the "+N more" line.
         assert (
             ExternalDataSchema.objects.filter(
                 id__in=[schema.id for schema in schemas], last_error_notified_at__isnull=False
@@ -213,7 +211,6 @@ class TestGetTeamIdsWithRecentSyncFailures:
             schema=schema,
             status=ExternalDataJob.Status.FAILED,
         )
-        # finished_at is stamped by the status-update path; set it directly here.
         ExternalDataJob.objects.filter(id=job.id).update(finished_at=job_finished_at)
         return team
 
@@ -228,11 +225,8 @@ class TestGetTeamIdsWithRecentSyncFailures:
     @pytest.mark.parametrize(
         "schema_status,job_age,schema_deleted",
         [
-            # Failure older than the lookback — already had its chance to be flushed.
             (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=30), False),
-            # Schema recovered since the failure.
             (ExternalDataSchema.Status.COMPLETED, dt.timedelta(hours=2), False),
-            # Schema deleted since the failure.
             (ExternalDataSchema.Status.FAILED, dt.timedelta(hours=2), True),
         ],
     )
@@ -246,7 +240,6 @@ class TestGetTeamIdsWithRecentSyncFailures:
         assert get_team_ids_with_recent_sync_failures() == []
 
     def test_excludes_failures_already_communicated(self):
-        # A digest went out after the failure — the catch-up must not duplicate it.
         self._create_schema_with_job(
             schema_status=ExternalDataSchema.Status.FAILED,
             job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2),
@@ -256,7 +249,6 @@ class TestGetTeamIdsWithRecentSyncFailures:
         assert get_team_ids_with_recent_sync_failures() == []
 
     def test_includes_failures_newer_than_the_stamp(self):
-        # The schema failed again after the last digest — there is news to deliver.
         team = self._create_schema_with_job(
             schema_status=ExternalDataSchema.Status.FAILED,
             job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1),
@@ -270,7 +262,6 @@ class TestGetTeamIdsWithRecentSyncFailures:
             schema_status=ExternalDataSchema.Status.FAILED,
             job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2),
         )
-        # A different team whose schema recovered must not ride along.
         self._create_schema_with_job(
             schema_status=ExternalDataSchema.Status.COMPLETED,
             job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2),
