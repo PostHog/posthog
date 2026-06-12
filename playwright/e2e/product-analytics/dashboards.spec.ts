@@ -152,8 +152,6 @@ test.describe('Dashboards', () => {
             await dashboard.openFirstTileMenu()
             await dashboard.selectTileMenuOption('Remove from dashboard')
 
-            await page.getByRole('contentinfo').getByRole('button', { name: 'Remove from dashboard' }).click()
-
             await expect(dashboard.insightCards.first().getByText(newTileName)).not.toBeVisible()
         })
     })

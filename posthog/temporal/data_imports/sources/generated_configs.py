@@ -368,7 +368,8 @@ class CircleCISourceConfig(config.Config):
 
 @config.config
 class ClariSourceConfig(config.Config):
-    pass
+    api_key: str
+    forecast_id: str
 
 
 @config.config
@@ -645,7 +646,9 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GladlySourceConfig(config.Config):
-    pass
+    organization: str
+    agent_email: str
+    api_token: str
 
 
 @config.config
@@ -945,6 +948,11 @@ class OneDriveSourceConfig(config.Config):
 
 
 @config.config
+class OpenAIAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class OpsgenieSourceConfig(config.Config):
     pass
 
@@ -977,7 +985,8 @@ class OrttoSourceConfig(config.Config):
 
 @config.config
 class OutbrainSourceConfig(config.Config):
-    pass
+    username: str
+    password: str
 
 
 @config.config
@@ -1605,6 +1614,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.OKTA: OktaSourceConfig,
         ExternalDataSourceType.OMNISEND: OmnisendSourceConfig,
         ExternalDataSourceType.ONEDRIVE: OneDriveSourceConfig,
+        ExternalDataSourceType.OPENAIADS: OpenAIAdsSourceConfig,
         ExternalDataSourceType.OPSGENIE: OpsgenieSourceConfig,
         ExternalDataSourceType.OPTIMIZELY: OptimizelySourceConfig,
         ExternalDataSourceType.ORACLE: OracleSourceConfig,

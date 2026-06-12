@@ -924,36 +924,46 @@ export function getSessionStartTimestamp(timestamp: string): string {
 
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMEvent(event)) {
-        if (event.event === '$ai_generation') {
-            const spanName = event.properties.$ai_span_name
-            if (spanName) {
-                return `${spanName}`
-            }
-            const title = event.properties.$ai_model || 'Generation'
-            if (event.properties.$ai_provider) {
-                return `${title} (${event.properties.$ai_provider})`
-            }
+        const spanName = asString(event.properties.$ai_span_name)
 
-            return title
+        if (event.event === '$ai_generation') {
+            if (spanName) {
+                return spanName
+            }
+            const title = asString(event.properties.$ai_model) || 'Generation'
+            const provider = asString(event.properties.$ai_provider)
+            return provider ? `${title} (${provider})` : title
         }
 
         if (event.event === '$ai_embedding') {
-            const spanName = event.properties.$ai_span_name
             if (spanName) {
-                return `${spanName}`
+                return spanName
             }
-            const title = event.properties.$ai_model || 'Embedding'
-            if (event.properties.$ai_provider) {
-                return `${title} (${event.properties.$ai_provider})`
-            }
-
-            return title
+            const title = asString(event.properties.$ai_model) || 'Embedding'
+            const provider = asString(event.properties.$ai_provider)
+            return provider ? `${title} (${provider})` : title
         }
 
-        return event.properties.$ai_span_name ?? 'Span'
+        return spanName ?? 'Span'
     }
 
     return event.traceName ?? 'Trace'
+}
+
+export function formatModelRowLabel(event: LLMTrace | LLMTraceEvent): string | null {
+    if (!isLLMEvent(event) || event.event !== '$ai_generation') {
+        return null
+    }
+    // if we don't have a span name, we don't want to render the model row as its covered by the event title
+    if (!asString(event.properties.$ai_span_name)) {
+        return null
+    }
+    const model = asString(event.properties.$ai_model)
+    const provider = asString(event.properties.$ai_provider)
+    if (model && provider) {
+        return `${model} (${provider})`
+    }
+    return model || provider || null
 }
 
 /**

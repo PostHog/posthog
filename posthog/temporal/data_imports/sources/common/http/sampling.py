@@ -71,7 +71,16 @@ MAX_CONFIG_TTL_SECONDS = 24 * 60 * 60
 _REDACTED_HEADER = "REDACTED"
 _REDACTED_FORM_VALUE = "REDACTED"
 _AUTH_HEADER_NAMES: frozenset[str] = frozenset(
-    {"authorization", "x-api-key", "x-sn-apikey", "x-auth-token", "cookie", "set-cookie", "proxy-authorization"}
+    {
+        "authorization",
+        "x-api-key",
+        "x-sn-apikey",
+        "x-auth-token",
+        "ob-token-v1",
+        "cookie",
+        "set-cookie",
+        "proxy-authorization",
+    }
 )
 
 __all__ = ["CaptureConfig", "CaptureRule", "maybe_capture"]

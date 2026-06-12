@@ -164,7 +164,7 @@
         background-color: color-mix(in oklab, var(--muted) 50%, transparent);
     }
 
-    :is(.dark, [theme='dark']) .quill-button--variant-outline:hover {
+    :is(.dark, [theme='dark']) .quill-button--variant-outline:not(:disabled):hover {
         color: var(--foreground);
     }
 
@@ -367,5 +367,80 @@
 
     .quill-button--inert:not(:disabled):active {
         translate: 0 0;
+    }
+
+    /* =========================================================================
+       Loading
+       ========================================================================= */
+
+    /* The label stays in the DOM at full width — text fades to transparent and
+       element children (icons, kbd) fade out — so the button never resizes.
+       The spinner overlays the center. */
+    .quill-button[data-loading] {
+        position: relative;
+        color: transparent;
+
+        /* No hover/active reactions while busy — variant hover rules would
+           otherwise repaint the label color over the spinner. */
+        pointer-events: none;
+        transition: color 150ms ease;
+    }
+
+    /* Loading is busy, not unavailable: the button is focusable-while-disabled
+       (aria-disabled, no native disabled attribute), so the dimmed :disabled
+       look never applies — full-strength visuals under the spinner. */
+    .quill-button[data-loading] > :not(.quill-spinner) {
+        opacity: 0;
+        transition: opacity 150ms ease;
+    }
+
+    .quill-button[data-loading] > .quill-spinner {
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        color: var(--foreground);
+        animation:
+            var(--animate-spin, spin 1s linear infinite),
+            quill-button__spinner-in 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
+
+    .quill-button--variant-primary[data-loading] > .quill-spinner {
+        color: var(--primary-foreground);
+    }
+
+    .quill-button--variant-destructive[data-loading] > .quill-spinner {
+        color: var(--destructive-foreground);
+    }
+
+    .quill-button--variant-link[data-loading] > .quill-spinner {
+        color: var(--primary);
+    }
+
+    .quill-button--variant-link-muted[data-loading] > .quill-spinner {
+        color: var(--muted-foreground);
+    }
+
+    @keyframes quill-button__spinner-in {
+        from {
+            opacity: 0;
+            scale: 0.9;
+        }
+
+        to {
+            opacity: 1;
+            scale: 1;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-button[data-loading],
+        .quill-button[data-loading] > :not(.quill-spinner) {
+            transition: none;
+        }
+
+        /* Keep the rotation — it is the status indicator — but drop the entrance. */
+        .quill-button[data-loading] > .quill-spinner {
+            animation: var(--animate-spin, spin 1s linear infinite);
+        }
     }
 }

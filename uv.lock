@@ -3813,15 +3813,15 @@ wheels = [
 
 [[package]]
 name = "langgraph-checkpoint"
-version = "2.1.2"
+version = "4.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "ormsgpack" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/29/83/6404f6ed23a91d7bc63d7df902d144548434237d017820ceaa8d014035f2/langgraph_checkpoint-2.1.2.tar.gz", hash = "sha256:112e9d067a6eff8937caf198421b1ffba8d9207193f14ac6f89930c1260c06f9", size = 142420, upload-time = "2025-10-07T17:45:17.129Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/47/886af6f886f0bff2273164a45f008694e48a96ff3cd25ff0228f2aa9480e/langgraph_checkpoint-4.1.1.tar.gz", hash = "sha256:6c2bdb530c91f91d7d9c1bd100925d0fc4f498d418c17f3587d1526279482a25", size = 184020, upload-time = "2026-05-22T16:57:38.503Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/f2/06bf5addf8ee664291e1b9ffa1f28fc9d97e59806dc7de5aea9844cbf335/langgraph_checkpoint-2.1.2-py3-none-any.whl", hash = "sha256:911ebffb069fd01775d4b5184c04aaafc2962fcdf50cf49d524cd4367c4d0c60", size = 45763, upload-time = "2025-10-07T17:45:16.19Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/b4/71425e3e38be92611300b9cc5e46a5bf98ab23f5ea8a75b73d02a2f1413c/langgraph_checkpoint-4.1.1-py3-none-any.whl", hash = "sha256:25d29144b082827218e7bc3f1e9b0566a4bb007895cd6cc26f66a8428739f56e", size = 56212, upload-time = "2026-05-22T16:57:37.203Z" },
 ]
 
 [[package]]
@@ -5541,6 +5541,7 @@ dependencies = [
     { name = "opentelemetry-instrumentation-requests" },
     { name = "opentelemetry-sdk" },
     { name = "orjson" },
+    { name = "ormsgpack" },
     { name = "pandas" },
     { name = "paramiko" },
     { name = "pillow" },
@@ -5782,7 +5783,7 @@ requires-dist = [
     { name = "langchain-core", specifier = "~=0.3.81" },
     { name = "langchain-openai", specifier = "~=0.3.35" },
     { name = "langgraph", specifier = "==0.4.10" },
-    { name = "langgraph-checkpoint", specifier = "==2.1.2" },
+    { name = "langgraph-checkpoint", specifier = "==4.1.1" },
     { name = "linkedin-api-client", specifier = "~=0.3.0" },
     { name = "lxml", specifier = "==6.0.2" },
     { name = "lzstring", specifier = "==1.0.4" },
@@ -5810,6 +5811,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-requests", specifier = "==0.54b1" },
     { name = "opentelemetry-sdk", specifier = "==1.33.1" },
     { name = "orjson", specifier = "==3.11.9" },
+    { name = "ormsgpack", specifier = "~=1.12" },
     { name = "pandas", specifier = "~=2.2.2" },
     { name = "paramiko", specifier = "~=3.5.0" },
     { name = "pillow", specifier = "==12.2.0" },

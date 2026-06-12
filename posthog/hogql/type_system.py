@@ -1283,6 +1283,7 @@ def _conversion_nullable(normalized_name: str, arg_types: list[ast.ConstantType]
     return any(arg_type.nullable for arg_type in arg_types) or normalized_name in {
         "toint",
         "tofloat",
+        "tobool",
         "touuid",
         "todecimal",
         "parsedatetime",

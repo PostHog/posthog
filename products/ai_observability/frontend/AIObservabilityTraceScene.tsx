@@ -108,6 +108,7 @@ import {
     formatLLMEventTitle,
     formatLLMLatency,
     formatLLMUsage,
+    formatModelRowLabel,
     getEventType,
     getSessionStartTimestamp,
     getTraceTimestamp,
@@ -1305,24 +1306,15 @@ const TreeNode = React.memo(function TraceNode({
 })
 
 export function renderModelRow(event: LLMTrace | LLMTraceEvent, searchQuery?: string): React.ReactNode | null {
-    if (isLLMEvent(event)) {
-        if (event.event === '$ai_generation') {
-            // if we don't have a span name, we don't want to render the model row as its covered by the event title
-            if (!event.properties.$ai_span_name) {
-                return null
-            }
-            let model = event.properties.$ai_model
-            if (event.properties.$ai_provider) {
-                model = `${model} (${event.properties.$ai_provider})`
-            }
-            return searchQuery?.trim() ? (
-                <SearchHighlight string={model} substring={searchQuery} className="flex-1" />
-            ) : (
-                <span className="flex-1 truncate"> {model} </span>
-            )
-        }
+    const model = formatModelRowLabel(event)
+    if (model === null) {
+        return null
     }
-    return null
+    return searchQuery?.trim() ? (
+        <SearchHighlight string={model} substring={searchQuery} className="flex-1" />
+    ) : (
+        <span className="flex-1 truncate"> {model} </span>
+    )
 }
 
 function TreeNodeChildren({
