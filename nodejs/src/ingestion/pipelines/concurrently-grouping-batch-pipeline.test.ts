@@ -462,9 +462,10 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             await jest.advanceTimersByTimeAsync(50)
             expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2'])
 
-            // Advance to complete a2 - first batch processing ends
+            // Advance to complete a2 - first batch processing ends, and the
+            // parked next() eagerly routes and starts the queued a3
             await jest.advanceTimersByTimeAsync(50)
-            expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2', 'end-a2'])
+            expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2', 'end-a2', 'start-a3'])
 
             // Await first next() - gets results for a1 and a2
             const results: any[] = []
@@ -474,7 +475,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             }
             expect(results).toHaveLength(2)
 
-            // Call next() to route and process a3
+            // a3 is already in flight; the second next() collects it
             const nextPromise2 = pipeline.next()
             await jest.advanceTimersByTimeAsync(0)
             expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2', 'end-a2', 'start-a3'])
@@ -553,10 +554,19 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             expect(results).toHaveLength(2)
             expect((results[1].result as any).value.value).toBe('c1')
 
-            // Advance remaining time for B to complete b1 (1000 - 50 - 50 = 900ms)
+            // Advance remaining time for B to complete b1 (1000 - 50 - 50 = 900ms).
+            // The parked next() eagerly starts the queued b2 when b1's group ends.
             const nextPromise3 = pipeline.next()
             await jest.advanceTimersByTimeAsync(900)
-            expect(processingOrder).toEqual(['start-a1', 'start-b1', 'end-a1', 'start-c1', 'end-c1', 'end-b1'])
+            expect(processingOrder).toEqual([
+                'start-a1',
+                'start-b1',
+                'end-a1',
+                'start-c1',
+                'end-c1',
+                'end-b1',
+                'start-b2',
+            ])
 
             // Await third next() - returns b1's result
             const result3 = await nextPromise3
@@ -565,7 +575,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             }
             expect(results).toHaveLength(3)
 
-            // Call next() to route b2 and start processing
+            // b2 is already in flight; the fourth next() collects it
             const nextPromise4 = pipeline.next()
             await jest.advanceTimersByTimeAsync(0)
             expect(processingOrder).toEqual([

@@ -36,6 +36,11 @@ export class ConcurrentlyGroupingBatchPipeline<
     // Completed result batches ready to be returned
     private completedResults: PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[][] = []
 
+    // Resolved when feed() delivers new input while next() is parked waiting on
+    // active groups, so a long-running group doesn't stall the routing and
+    // start of later batches' groups.
+    private newInputSignal: { promise: Promise<void>; resolve: () => void } | null = null
+
     constructor(
         private groupingFn: GroupingFunction<TIntermediate, TKey>,
         private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
@@ -44,32 +49,48 @@ export class ConcurrentlyGroupingBatchPipeline<
 
     feed(elements: OkResultWithContext<TInput, CInput>[]): void {
         this.previousPipeline.feed(elements)
+        if (this.newInputSignal) {
+            this.newInputSignal.resolve()
+            this.newInputSignal = null
+        }
     }
 
     async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
-        // Get more elements from the previous pipeline and route them to group queues
-        const previousResults = await this.previousPipeline.next()
-        if (previousResults !== null) {
-            this.routeToGroups(previousResults)
+        while (true) {
+            // Get more elements from the previous pipeline and route them to group queues
+            const previousResults = await this.previousPipeline.next()
+            if (previousResults !== null) {
+                this.routeToGroups(previousResults)
+            }
+
+            // Start processing for any groups that have queued items and aren't currently processing
+            this.startAvailableProcessing()
+
+            // Return completed results if available
+            const completed = this.pullCompletedResults()
+            if (completed !== null) {
+                return completed
+            }
+
+            // If there's active processing, wait for a group to complete or for
+            // new input to arrive, then loop: re-pull, re-route, and start any
+            // newly available groups. Waking on new input keeps a long-running
+            // group from delaying the start of later batches' groups.
+            if (this.activeProcessing.size > 0) {
+                if (!this.newInputSignal) {
+                    let resolve!: () => void
+                    const promise = new Promise<void>((r) => {
+                        resolve = r
+                    })
+                    this.newInputSignal = { promise, resolve }
+                }
+                await Promise.race([...this.activeProcessing.values(), this.newInputSignal.promise])
+                continue
+            }
+
+            // Nothing left to process or return
+            return null
         }
-
-        // Start processing for any groups that have queued items and aren't currently processing
-        this.startAvailableProcessing()
-
-        // Return completed results if available
-        const completed = this.pullCompletedResults()
-        if (completed !== null) {
-            return completed
-        }
-
-        // If there's active processing, wait for any to complete
-        if (this.activeProcessing.size > 0) {
-            await Promise.race(this.activeProcessing.values())
-            return this.pullCompletedResults()
-        }
-
-        // Nothing left to process or return
-        return null
     }
 
     private pullCompletedResults(): BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null {
