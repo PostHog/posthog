@@ -10,6 +10,7 @@ import { logger } from '~/utils/logger'
 import { type PiiScrubStats } from '../log-pii-scrub'
 import {
     type LogRecord,
+    type LogRecordsTransform,
     decodeLogRecords,
     encodeLogRecords,
     transformDecodedLogRecordsInPlace,
@@ -90,7 +91,8 @@ export class LogsSamplingService {
         buffer: Buffer,
         settings: LogsSettings,
         ruleSet: CompiledRuleSet,
-        teamId?: number
+        teamId?: number,
+        recordsTransform?: LogRecordsTransform
     ): Promise<ProcessBufferWithSamplingResult> {
         const [logRecordType, compressionCodec, records] = await decodeLogRecords(buffer)
         if (!logRecordType) {
@@ -160,6 +162,11 @@ export class LogsSamplingService {
                 }
                 kept.push(record)
             }
+        }
+
+        // Hog log transformations run last, on the records that survived the drop rules
+        if (recordsTransform && kept.length > 0) {
+            await recordsTransform(kept)
         }
 
         trace.getActiveSpan()?.setAttributes({

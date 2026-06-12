@@ -18,12 +18,13 @@ import { logger } from '../utils/logger'
 import { TeamManager } from '../utils/team-manager'
 import { LogsIngestionConsumerConfig } from './config'
 import { type PiiScrubStats } from './log-pii-scrub'
-import { processLogMessageBuffer } from './log-record-avro'
+import { type LogRecordsTransform, processLogMessageBuffer } from './log-record-avro'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService } from './sampling/logs-sampling.service'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
+import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
 import { LogsIngestionMessage } from './types'
 
 export interface LogsIngestionConsumerDeps {
@@ -31,6 +32,8 @@ export interface LogsIngestionConsumerDeps {
     quotaLimiting: QuotaLimiting
     /** When set, enabled teams may run head sampling before ClickHouse Kafka produce. */
     samplingRulesCache?: SamplingRulesCache
+    /** When set, enabled teams run hog log transformations after the built-in processing. */
+    logsTransformer?: LogsTransformerService
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -145,6 +148,8 @@ export class LogsIngestionConsumer {
     private samplingService: LogsSamplingService
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
+    private readonly transformationsEnabledTeamsRaw: string
+    private readonly transformationsKillswitch: boolean
 
     protected groupId: string
     protected topic: string
@@ -187,33 +192,67 @@ export class LogsIngestionConsumer {
         this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = mergedConfig.LOGS_SAMPLING_KILLSWITCH
+        this.transformationsEnabledTeamsRaw = mergedConfig.LOGS_TRANSFORMATIONS_ENABLED_TEAMS
+        this.transformationsKillswitch = mergedConfig.LOGS_TRANSFORMATIONS_KILLSWITCH
     }
 
-    private isSamplingEvalEnabledForTeam(teamId: number): boolean {
-        if (this.samplingKillswitch) {
+    private static teamMatchesAllowlist(raw: string, teamId: number): boolean {
+        const trimmed = (raw || '').trim()
+        if (!trimmed) {
             return false
         }
-        const raw = (this.samplingEnabledTeamsRaw || '').trim()
-        if (!raw) {
-            return false
-        }
-        if (raw === '*') {
+        if (trimmed === '*') {
             return true
         }
-        return raw
+        return trimmed
             .split(',')
             .map((s) => parseInt(s.trim(), 10))
             .filter((n) => !Number.isNaN(n))
             .includes(teamId)
     }
 
+    private isSamplingEvalEnabledForTeam(teamId: number): boolean {
+        if (this.samplingKillswitch) {
+            return false
+        }
+        return LogsIngestionConsumer.teamMatchesAllowlist(this.samplingEnabledTeamsRaw, teamId)
+    }
+
+    private isTransformationsEnabledForTeam(teamId: number): boolean {
+        if (this.transformationsKillswitch || !this.deps.logsTransformer) {
+            return false
+        }
+        return LogsIngestionConsumer.teamMatchesAllowlist(this.transformationsEnabledTeamsRaw, teamId)
+    }
+
+    /**
+     * Builds the hog log transformation hook for a message, or undefined when the team
+     * is not gated in or has no enabled transformation_log functions (the existence
+     * check is an in-process cache hit, preserving the no-decode passthrough).
+     */
+    private async buildRecordsTransform(
+        message: LogsIngestionMessage,
+        batchBudget?: TransformationBatchBudget
+    ): Promise<LogRecordsTransform | undefined> {
+        const transformer = this.deps.logsTransformer
+        if (!transformer || !this.isTransformationsEnabledForTeam(message.teamId)) {
+            return undefined
+        }
+        if (!(await transformer.teamHasTransformations(message.teamId))) {
+            return undefined
+        }
+        return (records) => transformer.transformRecords(message.teamId, records, batchBudget)
+    }
+
     /**
      * Decode + optional head sampling, or passthrough `processLogMessageBuffer`.
-     * `sampling_all_dropped` means do not enqueue to logs output (message fully sampled out).
+     * `all_dropped` means do not enqueue to logs output (every record was sampled out
+     * or dropped by transformations); `reason` distinguishes the source.
      */
     private async resolveLogMessageBufferWithOptionalSampling(
         message: LogsIngestionMessage,
-        logsSettings: LogsSettings
+        logsSettings: LogsSettings,
+        batchBudget?: TransformationBatchBudget
     ): Promise<
         | {
               outcome: 'produce'
@@ -224,7 +263,8 @@ export class LogsIngestionConsumer {
               bytesDroppedByRuleId: Map<string, number>
           }
         | {
-              outcome: 'sampling_all_dropped'
+              outcome: 'all_dropped'
+              reason: 'sampling_all_dropped' | 'transformations_all_dropped'
               pii: PiiScrubStats
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
@@ -238,6 +278,7 @@ export class LogsIngestionConsumer {
             ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
         }
         const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
+        const recordsTransform = await this.buildRecordsTransform(message, batchBudget)
 
         trace.getActiveSpan()?.setAttributes({
             'logs.sampling.killswitch': this.samplingKillswitch,
@@ -246,6 +287,7 @@ export class LogsIngestionConsumer {
             'logs.sampling.cache_present': Boolean(samplingCache),
             'logs.sampling.eval_enabled_for_team': samplingEvalEnabled,
             'logs.sampling.compiled_rule_count': ruleSet?.rules.length ?? 0,
+            'logs.transformations.enabled_for_team': Boolean(recordsTransform),
             'logs.sampling.pipeline': useSamplingPipeline
                 ? 'decode_sample_encode'
                 : 'passthrough_processLogMessageBuffer',
@@ -256,7 +298,8 @@ export class LogsIngestionConsumer {
                 message.message.value!,
                 logsSettings,
                 ruleSet,
-                message.teamId
+                message.teamId,
+                recordsTransform
             )
             if (sampled.recordsDropped > 0) {
                 logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
@@ -266,7 +309,8 @@ export class LogsIngestionConsumer {
             }
             if (sampled.allDropped) {
                 return {
-                    outcome: 'sampling_all_dropped',
+                    outcome: 'all_dropped',
+                    reason: 'sampling_all_dropped',
                     pii: sampled.pii,
                     recordsDropped: sampled.recordsDropped,
                     recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
@@ -283,7 +327,17 @@ export class LogsIngestionConsumer {
             }
         }
 
-        const res = await processLogMessageBuffer(message.message.value!, logsSettings)
+        const res = await processLogMessageBuffer(message.message.value!, logsSettings, recordsTransform)
+        if (res.value === null) {
+            return {
+                outcome: 'all_dropped',
+                reason: 'transformations_all_dropped',
+                pii: res.pii,
+                recordsDropped: 0,
+                recordsDroppedByRuleId: new Map(),
+                bytesDroppedByRuleId: new Map(),
+            }
+        }
         return {
             outcome: 'produce',
             processedValue: res.value,
@@ -320,11 +374,22 @@ export class LogsIngestionConsumer {
             ...rateLimiterDroppedMessages,
         ])
 
+        // One transformation time budget shared by all messages of this batch
+        const transformationBatchBudget = this.deps.logsTransformer?.startBatch()
+
         return {
             // Produce first so PII replacement counts are folded into `usageStats` before MSK usage emit
             backgroundTask: (async () => {
-                await this.processAndProduceLogMessages(rateLimiterAllowedMessages, usageStats)
+                await this.processAndProduceLogMessages(
+                    rateLimiterAllowedMessages,
+                    usageStats,
+                    transformationBatchBudget
+                )
                 await this.emitUsageMetrics(usageStats)
+                // Best-effort flush of transformation app metrics + function logs; never block the data path
+                await this.deps.logsTransformer?.flush().catch((error) => {
+                    logger.error('Failed to flush logs transformer monitoring', { error: String(error) })
+                })
             })(),
             messages: rateLimiterAllowedMessages,
         }
@@ -451,7 +516,8 @@ export class LogsIngestionConsumer {
 
     private async processAndProduceLogMessages(
         messages: LogsIngestionMessage[],
-        usageStats: UsageStatsByTeam
+        usageStats: UsageStatsByTeam,
+        transformationBatchBudget?: TransformationBatchBudget
     ): Promise<void> {
         const limit = pLimit(MAX_CONCURRENT_MESSAGE_PROCESSES)
         const results = await Promise.allSettled(
@@ -486,11 +552,16 @@ export class LogsIngestionConsumer {
                                     inbound_bytes: message.message.value?.length ?? 0,
                                 }),
                             },
-                            async () => this.resolveLogMessageBufferWithOptionalSampling(message, logsSettings)
+                            async () =>
+                                this.resolveLogMessageBufferWithOptionalSampling(
+                                    message,
+                                    logsSettings,
+                                    transformationBatchBudget
+                                )
                         )
-                        if (resolved.outcome === 'sampling_all_dropped') {
+                        if (resolved.outcome === 'all_dropped') {
                             logMessageDroppedCounter.inc(
-                                { reason: 'sampling_all_dropped', team_id: message.teamId.toString() },
+                                { reason: resolved.reason, team_id: message.teamId.toString() },
                                 1
                             )
                             this.addPiiStatsIntoUsage(usageStats, message.teamId, resolved.pii)
