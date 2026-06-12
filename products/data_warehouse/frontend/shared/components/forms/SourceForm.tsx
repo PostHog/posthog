@@ -40,10 +40,13 @@ export interface SourceFormProps {
     showPrefix?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
+    showCdcConfig?: boolean
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
     sourceWizardLogicProps?: SourceWizardLogicProps
+    /** Override the form value setter — for hosts other than the wizard (e.g. the connect page). */
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
 }
 
 export function SourceAccessMethodSelector({
@@ -641,16 +644,20 @@ export function SourceFormComponent({
     showPrefix = true,
     showDescription,
     showAccessMethodSelector = true,
+    showCdcConfig = true,
     jobInputs,
     initialAccessMethod,
     setSourceConfigValue,
     sourceWizardLogicProps,
+    setSourceConnectionDetailsValue: setSourceConnectionDetailsValueOverride,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const setSourceConnectionDetailsValue = sourceWizardLogicProps
-        ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
-        : undefined
+    const setSourceConnectionDetailsValue =
+        setSourceConnectionDetailsValueOverride ??
+        (sourceWizardLogicProps
+            ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
+            : undefined)
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
@@ -776,6 +783,7 @@ export function SourceFormComponent({
                 )}
             </Group>
             {!isUpdateMode &&
+                showCdcConfig &&
                 sourceConfig.name === 'Postgres' &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
                 selectedAccessMethod === 'warehouse' && <CDCConfigSection />}

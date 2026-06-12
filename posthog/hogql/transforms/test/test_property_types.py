@@ -18,10 +18,11 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_planner import (

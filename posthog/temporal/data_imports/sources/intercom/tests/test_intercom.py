@@ -300,13 +300,15 @@ class TestSubstreamGenerators:
             list(_conversation_parts_generator(mock_session, "updated_at", None))
 
     def test_company_segments_skips_404_parent(self):
+        # The parent companies walk (scroll) and the per-company segments fetch
+        # both go through GET, so the calls interleave on `session.get` in order:
+        # scroll page -> segments(co1) -> segments(co2) -> empty scroll page.
         mock_session = mock.MagicMock()
-        mock_session.post.side_effect = [
-            _make_response({"data": [{"id": "co1"}, {"id": "co2"}], "pages": {}}),
-        ]
         mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}, {"id": "co2"}], "scroll_param": "s1"}),
             _make_response(None, status_code=404, text="Not Found"),
             _make_response({"data": [{"id": "s2"}]}),
+            _make_response({"data": [], "scroll_param": "s2"}),
         ]
 
         segments = list(_company_segments_generator(mock_session))
@@ -316,10 +318,8 @@ class TestSubstreamGenerators:
 
     def test_company_segments_reraises_non_404(self):
         mock_session = mock.MagicMock()
-        mock_session.post.side_effect = [
-            _make_response({"data": [{"id": "co1"}], "pages": {}}),
-        ]
         mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
             _make_response(None, status_code=500, text="Server Error"),
         ]
 
@@ -328,12 +328,11 @@ class TestSubstreamGenerators:
 
     def test_company_segments_injects_company_id(self):
         mock_session = mock.MagicMock()
-        mock_session.post.side_effect = [
-            _make_response({"data": [{"id": "co1"}, {"id": "co2"}], "pages": {}}),
-        ]
         mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}, {"id": "co2"}], "scroll_param": "s1"}),
             _make_response({"data": [{"id": "s1"}]}),
             _make_response({"data": [{"id": "s2"}, {"id": "s3"}]}),
+            _make_response({"data": [], "scroll_param": "s2"}),
         ]
 
         segments = list(_company_segments_generator(mock_session))
@@ -342,28 +341,38 @@ class TestSubstreamGenerators:
         assert segments[0]["company_id"] == "co1"
         assert segments[1]["company_id"] == "co2"
 
-    def test_iter_companies_follows_next_url_with_post(self):
-        # `/companies/list` is POST-only; its `pages.next` URL carries the page
-        # cursor in the query string. Following it with GET 404s in production,
-        # so every page — including subsequent ones — must be a POST carrying
-        # the same body.
-        next_url = f"{INTERCOM_API_BASE}/companies/list?per_page=60&page=2"
+    def test_iter_companies_walks_scroll(self):
+        # `POST /companies/list` is capped at 10,000 companies (60 * 167 page
+        # crosses the ceiling and Intercom 400s). The Scroll API has no ceiling:
+        # the first GET carries no param, subsequent GETs feed `scroll_param`
+        # back, and the walk ends when `data` comes back empty.
         mock_session = mock.MagicMock()
-        mock_session.post.side_effect = [
-            _make_response({"data": [{"id": "co1"}], "pages": {"next": next_url}}),
-            _make_response({"data": [{"id": "co2"}], "pages": {}}),
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": [{"id": "co2"}], "scroll_param": "s2"}),
+            _make_response({"data": [], "scroll_param": "s3"}),
         ]
 
         companies = list(_iter_companies(mock_session))
 
         assert [c["id"] for c in companies] == ["co1", "co2"]
-        # Second page is POSTed to the next-page URL with the same body — not
-        # GET (the production 404 this guards against).
-        assert mock_session.post.call_args_list[1].args[0] == next_url
-        assert mock_session.post.call_args_list[1].kwargs["json"] == {
-            "per_page": INTERCOM_ENDPOINTS["companies"].page_size
-        }
-        assert mock_session.get.call_count == 0
+        calls = mock_session.get.call_args_list
+        assert calls[0].kwargs["params"] is None
+        assert calls[1].kwargs["params"] == {"scroll_param": "s1"}
+        assert calls[2].kwargs["params"] == {"scroll_param": "s2"}
+        # Every call hits the un-capped scroll endpoint, never the 10k-capped
+        # `/companies/list` (POST) path that produced the 400.
+        assert all(call.args[0].endswith("/companies/scroll") for call in calls)
+        assert mock_session.post.call_count == 0
+
+    def test_iter_companies_stops_on_empty_first_page(self):
+        # A workspace with no companies returns empty data on the first scroll
+        # request — the walk must terminate without a second call.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [_make_response({"data": [], "scroll_param": "s1"})]
+
+        assert list(_iter_companies(mock_session)) == []
+        assert mock_session.get.call_count == 1
 
 
 class TestSubstreamSessionRetries:

@@ -39,14 +39,7 @@ import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/top
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
-import {
-    AiEventOutput,
-    AsyncOutput,
-    EventOutput,
-    HeatmapsOutput,
-    PersonDistinctIdsOutput,
-    PersonsOutput,
-} from './outputs'
+import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
 import {
     PerDistinctIdPipelineConfig,
     PerDistinctIdPipelineInput,
@@ -67,7 +60,6 @@ export interface JoinedIngestionPipelineConfig {
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
-        | HeatmapsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -213,7 +205,7 @@ export function createJoinedIngestionPipeline<
                         .sequentially((b) =>
                             b
                                 .pipe(createParseHeadersStep())
-                                .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning']))
+                                .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning', '$$heatmap']))
                                 .pipe(
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                         overflowEnabled,

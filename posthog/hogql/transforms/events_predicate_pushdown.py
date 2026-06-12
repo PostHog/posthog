@@ -33,11 +33,9 @@ Two things are built by hand here, on purpose:
   wraps in `ifNull(...)` only when the value is genuinely nullable.
 """
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import structlog
-
-from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
@@ -51,10 +49,13 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.settings import TEST
 
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
+
 logger = structlog.get_logger(__name__)
 
 
-def events_pushdown_enabled(modifiers: HogQLQueryModifiers) -> bool:
+def events_pushdown_enabled(modifiers: "HogQLQueryModifiers") -> bool:
     """Enabled when explicitly on, or unset under TEST. Shared by the call site and the transform."""
     return bool(modifiers.pushDownPredicates or (modifiers.pushDownPredicates is None and TEST))
 
