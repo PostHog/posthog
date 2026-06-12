@@ -1,3 +1,6 @@
+2026-06-12
+objectstorage seaweedfs now registers dev S3 identities at startup (fixes presigned POST / symbol set upload); recreate the container to pick it up: docker compose -f docker-compose.dev.yml up -d objectstorage
+
 2026-06-08
 objectstorage swapped minio -> seaweedfs; old local files stay on the old volume, run hogli deploy:upgrade-objectstorage to copy them over
 
