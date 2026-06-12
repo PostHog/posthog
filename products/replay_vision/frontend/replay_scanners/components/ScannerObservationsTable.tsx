@@ -17,6 +17,7 @@ import {
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
+import { ScanSessionButton } from './ScanSessionButton'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -92,6 +93,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         availableTags,
         observationStats,
         scanner,
+        triggeringOnDemandObservation,
     } = useValues(logic)
     const {
         loadObservations,
@@ -197,6 +199,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 </p>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
+                        <ScanSessionButton scannerId={scannerId} />
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>
                                 <FilterPill<ObservationStatusValue>
@@ -279,7 +282,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={observationsLoading}
+                // `observationsLoading` flashes every poll while in-flight observations are pending; only show
+                // the loading bar for the initial empty load and for explicit user-initiated triggers.
+                loading={(observationsLoading && observations.length === 0) || triggeringOnDemandObservation}
                 rowKey="id"
                 pagination={{
                     controlled: true,

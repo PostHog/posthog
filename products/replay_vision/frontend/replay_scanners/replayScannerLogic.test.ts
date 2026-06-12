@@ -429,4 +429,29 @@ describe('replayScannerLogic', () => {
             })
         })
     })
+
+    describe('triggerOnDemandObservation', () => {
+        it.each([
+            { name: 'empty string', input: '' },
+            { name: 'whitespace only', input: '   ' },
+        ])('bails on $name session ID without calling the API', async ({ input }) => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                await expectLogic(persisted, () =>
+                    persisted.actions.triggerOnDemandObservation(input)
+                ).toDispatchActions(['triggerOnDemandObservationFailure'])
+                expect(persisted.values.triggeringOnDemandObservation).toBe(false)
+            } finally {
+                persisted.unmount()
+            }
+        })
+
+        it('bails when scanner ID is new (unsaved scanner)', async () => {
+            await expectLogic(logic, () => logic.actions.triggerOnDemandObservation('019a3f47-8c2d')).toDispatchActions(
+                ['triggerOnDemandObservationFailure']
+            )
+            expect(logic.values.triggeringOnDemandObservation).toBe(false)
+        })
+    })
 })

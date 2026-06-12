@@ -15,6 +15,7 @@ import {
     visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
+    visionScannersObserveCreate,
     visionScannersPartialUpdate,
     visionScannersRetrieve,
 } from '../generated/api'
@@ -230,6 +231,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerEstimate: true,
         loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => ({ estimate }),
         loadScannerEstimateFailure: (error: string | null = null) => ({ error }),
+        triggerOnDemandObservation: (sessionId: string) => ({ sessionId }),
+        triggerOnDemandObservationSuccess: true,
+        triggerOnDemandObservationFailure: true,
     }),
 
     forms(({ props, values, actions }) => ({
@@ -316,6 +320,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 toggleEnabled: () => true,
                 toggleEnabledSuccess: () => false,
                 toggleEnabledFailure: () => false,
+            },
+        ],
+        triggeringOnDemandObservation: [
+            false,
+            {
+                triggerOnDemandObservation: () => true,
+                triggerOnDemandObservationSuccess: () => false,
+                triggerOnDemandObservationFailure: () => false,
             },
         ],
         scannerLoading: [
@@ -718,6 +730,34 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const verb = next ? 'enable' : 'disable'
                     lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
                     actions.toggleEnabledFailure()
+                }
+            },
+
+            triggerOnDemandObservation: async ({ sessionId }) => {
+                if (props.id === 'new') {
+                    actions.triggerOnDemandObservationFailure()
+                    return
+                }
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    actions.triggerOnDemandObservationFailure()
+                    return
+                }
+                const trimmed = sessionId.trim()
+                if (!trimmed) {
+                    actions.triggerOnDemandObservationFailure()
+                    return
+                }
+                try {
+                    await visionScannersObserveCreate(String(teamId), props.id, { session_id: trimmed })
+                    lemonToast.success('Scanning session — new observation will appear below shortly.')
+                    actions.triggerOnDemandObservationSuccess()
+                    // Surface the pending observation immediately rather than waiting for the next poll.
+                    actions.loadObservations()
+                    actions.loadObservationStats()
+                } catch (error: any) {
+                    lemonToast.error(`Failed to scan session${error.detail ? `: ${error.detail}` : ''}`)
+                    actions.triggerOnDemandObservationFailure()
                 }
             },
 
