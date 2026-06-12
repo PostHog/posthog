@@ -7,20 +7,12 @@ _DEFAULT_SLUG = "default"
 
 
 def backfill_credential_gateway_bindings(apps, schema_editor):
-    """Bind pre-existing llm_gateway:read OAuth applications to their team's seeded gateway.
+    """One-time catch-up binding pre-existing llm_gateway:read OAuth apps to their gateway.
 
-    Runs after 1216, so every canonical team already has its initial gateway. A
-    gateway can hold many keys (ForeignKey), so all of an org's eligible applications
-    bind to the one seeded gateway. Idempotent: only rows still unbound are touched;
-    new applications are bound at mint time, so this is a one-time catch-up. Signals
-    don't fire — historical models are distinct classes from the ones receivers target.
-
-    Binds only when a single authoritative team is derivable (the org's one root team).
-    Anything ambiguous is left unbound — a guessed binding silently misattributes
-    billing, whereas an unbound credential fails closed and can be bound explicitly
-    later. Project secret keys are not backfilled: they're directly team-scoped and were
-    minted for other purposes, so auto-binding them to a gateway would misattribute.
-    Writes are grouped by resolved gateway and issued as one UPDATE per gateway.
+    Binds only when the org has one root team; ambiguous (multi-root) is left unbound
+    rather than misattributing billing. Project secret keys aren't backfilled (team-
+    scoped, minted for other purposes). Idempotent (only unbound rows), one bulk UPDATE
+    per gateway; signals don't fire on historical models.
     """
     OAuthApplication = apps.get_model("posthog", "OAuthApplication")
     OAuthAccessToken = apps.get_model("posthog", "OAuthAccessToken")
@@ -47,9 +39,7 @@ def backfill_credential_gateway_bindings(apps, schema_editor):
     def org_root_team_id(organization_id: int | str | None) -> int | None:
         if not organization_id:
             return None
-        # Bind only when the org has exactly one root team — a multi-project org has no
-        # single authoritative gateway, so leave the credential unbound. Fetch two to
-        # detect ambiguity without counting the whole set.
+        # One root team → bind; ambiguous (multi-root org) → unbound. Fetch 2 to detect it.
         roots = list(
             Team.objects.filter(organization_id=organization_id, parent_team_id__isnull=True)
             .order_by("id")
@@ -57,9 +47,7 @@ def backfill_credential_gateway_bindings(apps, schema_editor):
         )
         return roots[0] if len(roots) == 1 else None
 
-    # OAuth scope lives on issued tokens; the binding is per-application. An app
-    # belongs to an organization, so attribute it to the org's root team; an app with
-    # no organization has no authoritative team and is left unbound.
+    # Scope lives on issued tokens; bind the application to its org's root team.
     app_ids = set(
         OAuthAccessToken.objects.filter(
             scope__iregex=r"(^|\s)llm_gateway:read(\s|$)", application_id__isnull=False
@@ -76,11 +64,8 @@ def backfill_credential_gateway_bindings(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    # Atomic (the default): only the small set of pre-existing llm_gateway:read
-    # credentials is touched, so the transaction is short and re-runs are idempotent
-    # (only gateway__isnull rows are bound). The OAuth scope lookup is an unindexable
-    # regex scan, but it's a read (ACCESS SHARE snapshot, no heavy lock); the writes
-    # are bulk updates on a bounded set.
+    # Atomic: short transaction over a small set, idempotent re-runs. The OAuth scope
+    # regex scan is unindexable but a read (ACCESS SHARE, no heavy lock); writes are bulk.
     dependencies = [
         ("posthog", "1217_backfill_default_gateways"),
     ]

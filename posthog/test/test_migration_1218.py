@@ -31,16 +31,14 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
         self.team_solo = Team.objects.create(
             id=project_solo.id, name="tsolo", organization=org_solo, project=project_solo
         )
-        # The provision-on-create signal targets the real Team class, not this
-        # historical one, so create the seeded gateway explicitly. Historical
-        # Gateway's default manager is `all_teams`, so there's no `.objects`.
+        # Provision-on-create targets the real Team, not this historical one, so seed
+        # the gateway explicitly. Historical Gateway's default manager is `all_teams`.
         self.default_gateway_solo = Gateway._default_manager.create(team=self.team_solo, slug="default")
         user = User.objects.create(email="u@example.com", current_team=self.team_solo)
 
         expires = timezone.now() + timedelta(hours=1)
 
-        # OAuth scope lives on issued tokens; the migration binds the application to
-        # its org's single root team's gateway.
+        # Scope lives on issued tokens; the migration binds the app to its org root's gateway.
         self.eligible_app = self._make_app(OAuthApplication, org_solo, user, "elig")
         OAuthAccessToken.objects.create(
             user=user, application=self.eligible_app, token="tok-elig", expires=expires, scope=GATEWAY_SCOPE
@@ -50,8 +48,7 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
             user=user, application=self.ineligible_app, token="tok-inelig", expires=expires, scope="feature_flag:read"
         )
 
-        # A multi-root org: two root teams → no single authoritative gateway, so an
-        # eligible app here must be left unbound rather than guessing a root.
+        # Multi-root org (two root teams) → ambiguous, so an eligible app stays unbound.
         org_multi = Organization.objects.create(name="multi", slug="multi")
         for project_id, name in ((987654322, "p1"), (987654323, "p2")):
             project = Project.objects.create(id=project_id, organization=org_multi, name=name)
@@ -62,8 +59,7 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
             user=user, application=self.multiroot_app, token="tok-multi", expires=expires, scope=GATEWAY_SCOPE
         )
 
-        # Project secret keys are directly team-scoped and minted for other purposes,
-        # so the migration never backfills them — even an eligible one stays unbound.
+        # Project secret keys are never backfilled — even an eligible one stays unbound.
         self.secret_key = ProjectSecretAPIKey.objects.create(
             label="secret",
             team=self.team_solo,
