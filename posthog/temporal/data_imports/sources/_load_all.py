@@ -154,6 +154,7 @@ from .notion.source import NotionSource
 from .okta.source import OktaSource
 from .omnisend.source import OmnisendSource
 from .onedrive.source import OneDriveSource
+from .openai_ads.source import OpenAIAdsSource
 from .opsgenie.source import OpsgenieSource
 from .optimizely.source import OptimizelySource
 from .oracle.source import OracleSource

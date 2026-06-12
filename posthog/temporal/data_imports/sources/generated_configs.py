@@ -942,6 +942,11 @@ class OneDriveSourceConfig(config.Config):
 
 
 @config.config
+class OpenAIAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class OpsgenieSourceConfig(config.Config):
     pass
 
@@ -1592,6 +1597,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.OKTA: OktaSourceConfig,
         ExternalDataSourceType.OMNISEND: OmnisendSourceConfig,
         ExternalDataSourceType.ONEDRIVE: OneDriveSourceConfig,
+        ExternalDataSourceType.OPENAIADS: OpenAIAdsSourceConfig,
         ExternalDataSourceType.OPSGENIE: OpsgenieSourceConfig,
         ExternalDataSourceType.OPTIMIZELY: OptimizelySourceConfig,
         ExternalDataSourceType.ORACLE: OracleSourceConfig,

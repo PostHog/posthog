@@ -20484,6 +20484,7 @@
                 "AmazonSQS",
                 "AmazonKinesis",
                 "AmazonCloudWatch",
+                "OpenAIAds",
                 "Custom"
             ],
             "type": "string"
