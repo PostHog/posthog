@@ -62,6 +62,7 @@ __all__ = [
     "MySQLImplementation",
     "STATEMENT_TIMEOUT_SECONDS",
     "filter_mysql_incremental_fields",
+    "get_connection_metadata",
 ]
 
 _IDENTIFIER_QUOTER = BacktickIdentifierQuoter()
@@ -224,6 +225,22 @@ def _release_streaming_cursor(cursor: SSCursor) -> None:
     # PyMySQL clears this same attribute once a query is fully consumed; the
     # stub types it non-optional, so we mirror that runtime behaviour here.
     cursor.connection = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+
+def get_connection_metadata(conn: pymysql.Connection, *, database: str) -> dict[str, Any]:
+    """Connection metadata persisted on a direct-query source for the HogQL executor."""
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT DATABASE(), VERSION()")
+        row = cursor.fetchone()
+    current_database = str(row[0]) if row and row[0] is not None else database
+    version = str(row[1]) if row and row[1] is not None else ""
+    # The HogQL direct-query executor only branches postgres-vs-mysql on `engine`, so
+    # MariaDB also reports "mysql"; the version string still identifies MariaDB servers.
+    return {
+        "database": current_database,
+        "version": version,
+        "engine": "mysql",
+    }
 
 
 class MySQLColumn(Column):

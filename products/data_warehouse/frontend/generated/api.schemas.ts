@@ -901,12 +901,14 @@ export const AccessMethodEnumApi = {
 /**
  * * `duckdb` - duckdb
  * * `postgres` - postgres
+ * * `mysql` - mysql
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
 export const EngineEnumApi = {
     Duckdb: 'duckdb',
     Postgres: 'postgres',
+    Mysql: 'mysql',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -950,7 +952,8 @@ export interface ExternalDataSourceSerializersApi {
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
-     * * `postgres` - postgres */
+     * * `postgres` - postgres
+     * * `mysql` - mysql */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -1275,7 +1278,8 @@ export interface PatchedExternalDataSourceSerializersApi {
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
-     * * `postgres` - postgres */
+     * * `postgres` - postgres
+     * * `mysql` - mysql */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -1380,7 +1384,8 @@ export interface ExternalDataSourceConnectionOptionApi {
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
-     * * `postgres` - postgres */
+     * * `postgres` - postgres
+     * * `mysql` - mysql */
     readonly engine: EngineEnumApi | null
 }
 
