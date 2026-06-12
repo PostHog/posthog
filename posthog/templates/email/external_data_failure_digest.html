@@ -49,6 +49,13 @@
     </table>
 </div>
 
+{% if omitted_count %}
+<p style="font-size: 0.9em; color: #374151; margin-top: 8px;">
+    &hellip;and <strong>{{ omitted_count }}</strong> more failing syncs &mdash;
+    <a href="{{ sources_url }}" target="_blank" style="color: #111827; font-weight: 600;">view them all in PostHog</a>.
+</p>
+{% endif %}
+
 <p style="font-size: 0.85em; color: #6b7280; margin-top: 16px;">
     Click any table name to see its sync history and full error details.
 </p>

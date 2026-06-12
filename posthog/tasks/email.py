@@ -615,7 +615,7 @@ def send_batch_export_run_failure(
 EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC = 10
 
 
-def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]]) -> bool:
+def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]], omitted_count: int = 0) -> bool:
     """Email a per-team digest of failing external data source syncs.
 
     Called inline from the sync failure path rather than as a task. The
@@ -652,7 +652,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     paused_count = sum(1 for schema in schemas if schema["paused"])
     subject = (
         f"[Alert] Data warehouse syncs paused in project '{team.name}'"
-        if paused_count == len(schemas)
+        if paused_count == len(schemas) and omitted_count == 0
         else f"[Alert] Data warehouse syncs failing in project '{team.name}'"
     )
 
@@ -664,6 +664,8 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
             "team": team,
             "schemas": schemas,
             "has_paused": paused_count > 0,
+            "omitted_count": omitted_count,
+            "sources_url": f"{settings.SITE_URL}/project/{team.id}/data-management/sources",
         },
     )
     for membership in memberships_to_email:

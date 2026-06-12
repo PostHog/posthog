@@ -7,6 +7,7 @@ from unittest.mock import patch
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.external_data_source.notifications import (
+    MAX_SCHEMAS_PER_DIGEST_EMAIL,
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
 )
@@ -125,6 +126,34 @@ class TestNotifyExternalDataSyncFailures:
 
         with patch(SENDER_PATH, side_effect=Exception("smtp down")):
             notify_external_data_sync_failures(team.pk)
+
+    def test_caps_listed_schemas_and_reports_omitted_count(self):
+        team, source = _create_team_and_source()
+        total = MAX_SCHEMAS_PER_DIGEST_EMAIL + 5
+        schemas = ExternalDataSchema.objects.bulk_create(
+            ExternalDataSchema(
+                name=f"table_{i:03d}",
+                team=team,
+                source=source,
+                status=ExternalDataSchema.Status.FAILED,
+                latest_error="boom",
+            )
+            for i in range(total)
+        )
+
+        with patch(SENDER_PATH, return_value=True) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        (_, items) = mock_sender.call_args.args
+        assert len(items) == MAX_SCHEMAS_PER_DIGEST_EMAIL
+        assert mock_sender.call_args.kwargs["omitted_count"] == 5
+        # Omitted schemas are still stamped — they were communicated via the "+N more" line.
+        assert (
+            ExternalDataSchema.objects.filter(
+                id__in=[schema.id for schema in schemas], last_error_notified_at__isnull=False
+            ).count()
+            == total
+        )
 
     def test_stamps_schemas_after_successful_send(self):
         team, source = _create_team_and_source()

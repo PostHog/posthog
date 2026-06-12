@@ -14,6 +14,11 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 
 logger = structlog.get_logger(__name__)
 
+# A broken source can fail hundreds of schemas at once; cap the email table and
+# point at the sources page for the rest. Omitted schemas are still stamped as
+# notified — the email communicates them in aggregate via the "+N more" line.
+MAX_SCHEMAS_PER_DIGEST_EMAIL = 30
+
 
 def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta(hours=24)) -> list[int]:
     """Teams with still-failing schemas that have an un-communicated recent failure.
@@ -62,7 +67,7 @@ def notify_external_data_sync_failures(team_id: int) -> None:
             return
 
         items = []
-        for schema in failing_schemas:
+        for schema in failing_schemas[:MAX_SCHEMAS_PER_DIGEST_EMAIL]:
             items.append(
                 {
                     "schema_name": schema.name,
@@ -78,7 +83,8 @@ def notify_external_data_sync_failures(team_id: int) -> None:
                 }
             )
 
-        sent = send_external_data_failure_digest(team_id, items)
+        omitted_count = max(0, len(failing_schemas) - MAX_SCHEMAS_PER_DIGEST_EMAIL)
+        sent = send_external_data_failure_digest(team_id, items, omitted_count=omitted_count)
         if sent:
             # Mark every listed schema as communicated, so the daily catch-up only
             # re-triggers for failures that happened after this email went out.
