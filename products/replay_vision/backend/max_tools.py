@@ -315,7 +315,10 @@ class _ObservationFilters:
 
 
 class SearchObservationsArgs(BaseModel):
-    query: str = Field(description="The natural-language search describing what to find in the recordings' reasoning.")
+    query: str = Field(
+        max_length=2000,
+        description="The natural-language search describing what to find in the recordings' reasoning.",
+    )
     scanner_id: str | None = Field(
         default=None,
         description="Scope the search to a single scanner. Omit to search across every scanner the user can read.",
@@ -445,7 +448,7 @@ class SearchReplayVisionObservationsTool(MaxTool):
         if not lines:
             return empty
 
-        header = f'Recordings from {scope_label} most relevant to "{query}" ({len(lines)} matches, best first).'
+        header = f'Recordings from {scope_label} most relevant to "{_neutralize_markup(query)}" ({len(lines)} matches, best first).'
         content = header + "\n\n" + _as_untrusted_data("observations", lines)
         return content, {"result_count": len(lines), "observation_ids": matched_ids}
 

@@ -92,7 +92,16 @@ async def _emit_embeddings(
                 )
                 results.append((rendering, result))
         for rendering, result in results:
-            result.get(timeout=0)
+            try:
+                result.get(timeout=0)
+            except Exception:
+                logger.exception(
+                    "replay_vision.embed_observation.kafka_delivery_failed",
+                    session_id=session_id,
+                    observation_id=str(observation_id),
+                    rendering=rendering,
+                )
+                raise
             logger.debug(
                 "replay_vision.embed_observation.rendering_emitted",
                 session_id=session_id,
