@@ -1,4 +1,4 @@
-import { afterMount, kea, path } from 'kea'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,11 +10,18 @@ import type { visionQuotaLogicType } from './visionQuotaLogicType'
 export const visionQuotaLogic = kea<visionQuotaLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'visionQuotaLogic']),
 
+    actions({
+        // Optimistic shift of the fleet projection (e.g. ±scanner estimate on toggle); loadQuota reconciles.
+        adjustProjectedMonthly: (delta: number) => ({ delta }),
+    }),
+
     loaders({
         quota: [
             null as VisionQuotaApi | null,
             {
-                loadQuota: async () => {
+                loadQuota: async (_, breakpoint) => {
+                    // Coalesce bursts of post-mutation refetches (e.g. toggling several scanners).
+                    await breakpoint(50)
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
@@ -27,6 +34,18 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                 },
             },
         ],
+    }),
+
+    reducers({
+        quota: {
+            adjustProjectedMonthly: (state: VisionQuotaApi | null, { delta }: { delta: number }) =>
+                state
+                    ? {
+                          ...state,
+                          projected_monthly_observations: Math.max(0, state.projected_monthly_observations + delta),
+                      }
+                    : state,
+        },
     }),
 
     afterMount(({ actions }) => {
