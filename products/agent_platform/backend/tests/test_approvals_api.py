@@ -96,7 +96,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         mock_janitor.return_value.decide_approval.assert_called_once_with(
             self.approval_id,
             decision="approve",
-            decided_by=str(self.user.pk),
+            decided_by=str(self.user.uuid),
             edited_args=None,
             reason="looks good",
         )
