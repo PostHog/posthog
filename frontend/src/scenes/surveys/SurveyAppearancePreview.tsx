@@ -11,6 +11,7 @@ interface Props {
     survey: Survey | NewSurvey
     previewPageIndex: number
     onPreviewSubmit?: (res: string | string[] | number | null) => void
+    onPreviewBack?: () => void
     positionStyles?: React.CSSProperties
 }
 
@@ -31,6 +32,7 @@ export function SurveyAppearancePreview({
     survey,
     previewPageIndex,
     onPreviewSubmit = () => {},
+    onPreviewBack = () => {},
     positionStyles = DEFAULT_POSITION_STYLES,
 }: Props): JSX.Element {
     const surveyPreviewRef = useRef<HTMLDivElement>(null)
@@ -55,6 +57,7 @@ export function SurveyAppearancePreview({
                 parentElement: surveyPreviewRef.current,
                 previewPageIndex,
                 onPreviewSubmit,
+                onPreviewBack,
                 positionStyles,
             })
         }
@@ -65,7 +68,7 @@ export function SurveyAppearancePreview({
                 root: feedbackWidgetPreviewRef.current,
             })
         }
-    }, [survey, previewPageIndex, onPreviewSubmit, positionStyles]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [survey, previewPageIndex, onPreviewSubmit, onPreviewBack, positionStyles]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return <div ref={surveyPreviewRef} className="flex w-full min-w-0 justify-center" />
 }
