@@ -40,7 +40,7 @@ Before changing code, get the baseline:
 hogli product:maturity <name>    # scores models, facade, presentation, boundaries, codegen
 hogli product:lint <name>        # structural lint + isolation chain (strict if facade/contracts.py exists)
 rg -n "from products\.<name>\.backend\.(models|logic|presentation|tasks|storage)" .
-rg -o "(from|import) products\.<name>" posthog ee | wc -l   # core-coupling count
+rg -o --pcre2 "(from|import) products\.<name>\.backend\.(?!facade)" posthog ee | wc -l   # core-coupling count (internals only)
 ```
 
 The `rg` output is your import map: every line is a caller that needs to migrate to the facade.
@@ -110,9 +110,11 @@ the two-PR default; triple digits means the caller sweep needs slicing by owning
 ### Legacy leaks during migration
 
 This is the exception path for high-coupling products whose caller sweep is sliced
-across teams (see PR strategy below) — isolation turns on before every core import
-has moved. With the two-PR default, all core callers land in the sweep PR and this
-block never needs to exist.
+across teams (see PR strategy below) — the tach boundary turns on before every core
+import has moved, while the `backend:contract-check` CI switch must wait until the
+block is gone (`hogli product:lint` rejects the script while leaks remain). With the
+two-PR default, all core callers land in the sweep PR and this block never needs to
+exist.
 
 If `posthog/` or `ee/` still imports product internals (`backend.models`,
 `backend.oauth`, …) when the isolation chain turns on, add a second
@@ -134,12 +136,13 @@ let the verification chain carry the mechanical review burden.
 Default to exactly two PRs:
 
 - **PR 1 — design (where human review matters).** Contracts + facade methods +
-  behavioral-parity tests for the facade, with no caller changes. New files only, so it
-  cannot conflict with parallel work. The contract surface is the long-lived API —
-  spend review attention on naming, capability shape, and field selection, not
-  mechanics. For a small product this PR can also flip `api.py`/`webhooks.py` into
-  `presentation/` and enable the 4-step chain (see `user_interviews` PR #59132 for
-  that combined shape).
+  behavioral-parity tests for the facade, with no caller changes. The base shape adds
+  only new files, keeping conflict exposure near zero. The contract surface is the
+  long-lived API — spend review attention on naming, capability shape, and field
+  selection, not mechanics. For a small product this PR can also flip
+  `api.py`/`webhooks.py` into `presentation/` and enable the 4-step chain (see
+  `user_interviews` PR #59132 for that combined shape — that variant does touch
+  existing files and gives up some of the conflict immunity).
 - **PR 2 — mechanical sweep (where verification carries it).** All caller migrations,
   the presentation flip, and the 4-step chain. Reviewers sample rather than read
   line-by-line; the parity tests from PR 1 plus tach, import-linter, contract-check,
@@ -156,9 +159,12 @@ Gate by the core-coupling count from the baseline, not by product size:
 - **High (triple digits):** PR 2 won't review as one unit. Slice the sweep by who owns
   the calling code (the consuming team/area, not the product's own owner) so each team
   reviews its own call sites in parallel — never serially by capability, which trades
-  calendar time for an authoring risk that no longer exists. Turn the isolation chain on behind a
-  legacy-leaks block (above) and add a final cleanup PR that drops the block,
-  `ignore_imports` TODOs, dead adapters, and shims.
+  calendar time for an authoring risk that no longer exists. Add the legacy-leaks tach
+  block (above) so boundaries are enforced while the sweeps land, but do NOT add
+  `backend:contract-check` yet — `hogli product:lint` rejects that script while leaks
+  remain. The final cleanup PR drops the block, `ignore_imports` TODOs, dead adapters,
+  and shims, and only then enables contract-check + narrowed `turbo.json` inputs — the
+  CI payoff for this path lands at the end.
 
 Within the sweep, use risk to direct review attention, not PR boundaries: write paths
 and transaction boundaries get the close read; read-only list/detail swaps, internal
