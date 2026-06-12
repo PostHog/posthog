@@ -30,7 +30,11 @@ class CoupaResumeConfig:
 
 
 def normalize_host(host: str) -> str:
-    """Normalize the instance URL and reject anything that isn't plain http(s)."""
+    """Normalize the instance URL and reject anything that isn't HTTPS.
+
+    Credentials travel as HTTP Basic auth, so plaintext http:// is rejected to
+    keep them off the wire in the clear. Bare hosts default to https.
+    """
     host = host.strip()
     if not host:
         raise ValueError("Coupa instance URL is required")
@@ -38,8 +42,8 @@ def normalize_host(host: str) -> str:
         host = f"https://{host}"
     host = host.rstrip("/")
     parsed = urlparse(host)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise ValueError(f"Invalid Coupa instance URL: {host}")
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError(f"Invalid Coupa instance URL (must be https): {host}")
     return host
 
 
@@ -48,7 +52,18 @@ def hostname_of(host: str) -> str:
 
 
 def _get_session(client_secret: str) -> requests.Session:
-    return make_tracked_session(redact_values=(client_secret,), headers={"Accept": "application/json"})
+    # No-redirect session is an SSRF boundary: a user-supplied instance_url must
+    # not be able to bounce token/API calls to an internal host via a 3xx.
+    return make_tracked_session(
+        redact_values=(client_secret,), headers={"Accept": "application/json"}, allow_redirects=False
+    )
+
+
+def _is_scope_error(response: requests.Response) -> bool:
+    try:
+        return response.json().get("error") == "invalid_scope"
+    except Exception:
+        return False
 
 
 def _mint_token(
@@ -70,7 +85,7 @@ def _mint_token(
         auth=(client_id, client_secret),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
-    if scope and response.status_code == 400:
+    if scope and response.status_code == 400 and _is_scope_error(response):
         return _mint_token(session, instance_url, client_id, client_secret, None)
     response.raise_for_status()
     return response.json()["access_token"]
@@ -133,8 +148,13 @@ def get_rows(
         if response.status_code in (429, 503) or response.status_code >= 500:
             raise CoupaRetryableError(f"Coupa API error (retryable): status={response.status_code}, url={url}")
 
+        # The session never follows redirects (SSRF boundary); a 3xx means the
+        # instance is pointing us elsewhere, so treat it as a hard upstream error.
+        if 300 <= response.status_code < 400:
+            raise ValueError(f"Coupa API returned an unexpected redirect: status={response.status_code}, url={url}")
+
         if not response.ok:
-            logger.error(f"Coupa API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+            logger.error("Coupa API error", status=response.status_code, body=response.text[:500], url=url)
             response.raise_for_status()
 
         return response.json()
@@ -146,7 +166,7 @@ def get_rows(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     offset = resume_config.next_offset if resume_config is not None else 0
     if resume_config is not None:
-        logger.debug(f"Coupa: resuming {endpoint} from offset {offset}")
+        logger.debug("Coupa: resuming from offset", endpoint=endpoint, offset=offset)
 
     while True:
         url = f"{base_url}/api{config.path}?{urlencode({**params, 'offset': offset})}"

@@ -48,7 +48,7 @@ class TestNormalizeHost:
     def test_valid_hosts(self, value, expected):
         assert normalize_host(value) == expected
 
-    @pytest.mark.parametrize("value", ["", "   ", "ftp://example.com", "https://"])
+    @pytest.mark.parametrize("value", ["", "   ", "ftp://example.com", "https://", "http://myorg.coupahost.com"])
     def test_invalid_hosts_raise(self, value):
         with pytest.raises(ValueError):
             normalize_host(value)
@@ -120,6 +120,18 @@ class TestGetRows:
 
         second_token_body = mock_session.return_value.post.call_args_list[1].kwargs["data"]
         assert "scope" not in second_token_body
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_non_scope_400_does_not_fall_back(self, mock_session):
+        rejected = _response({"error": "invalid_client"}, status_code=400)
+        rejected.raise_for_status.side_effect = Exception("400")
+        mock_session.return_value.post.return_value = rejected
+
+        with pytest.raises(Exception):
+            list(get_rows("https://myorg.coupahost.com", "cid", "sec", "invoices", mock.MagicMock(), _make_manager()))
+
+        # Only the original (scoped) request is made; no scopeless retry.
+        assert mock_session.return_value.post.call_count == 1
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_incremental_passes_updated_at_gt(self, mock_session):
