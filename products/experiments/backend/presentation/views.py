@@ -800,7 +800,9 @@ class EnterpriseExperimentsViewSet(
                     )
                 )
             except Exception:
-                ExperimentTimeseriesRecalculation.objects.filter(id=recalculation_id).update(
+                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
+                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
+                ExperimentTimeseriesRecalculation.objects.filter(team=self.team, id=recalculation_id).update(
                     status=ExperimentTimeseriesRecalculation.Status.FAILED
                 )
                 raise
@@ -854,7 +856,9 @@ class EnterpriseExperimentsViewSet(
                     )
                 )
             except Exception:
-                ExperimentMetricsRecalculation.objects.filter(id=recalculation_id).update(
+                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
+                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
+                ExperimentMetricsRecalculation.objects.filter(team=self.team, id=recalculation_id).update(
                     status=ExperimentMetricsRecalculation.Status.FAILED
                 )
                 raise
