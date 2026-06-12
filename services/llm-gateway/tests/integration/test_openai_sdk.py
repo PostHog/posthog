@@ -269,6 +269,7 @@ class TestToolCalling:
         assert tool_call.function.name == "calculate"
 
 
+@xfail_provider_unavailable
 class TestMultiTurnParametrized:
     def test_conversation_history(self, oai_sdk_config: OpenAISDKTestConfig):
         response = oai_sdk_config.client.chat.completions.create(
