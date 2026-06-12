@@ -25916,7 +25916,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
-      /** Raw YAML recipe source, compiled and validated client-side. */
+      /**
+         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * @maxLength 100000
+         */
       source: string;
       /** User who created the recipe. */
       readonly created_by: UserBasic | null;
@@ -32074,7 +32077,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
-      /** Raw YAML recipe source, compiled and validated client-side. */
+      /**
+         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * @maxLength 100000
+         */
       source?: string;
       /** User who created the recipe. */
       readonly created_by?: UserBasic | null;

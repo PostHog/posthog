@@ -460,6 +460,7 @@ export type ApprovalCardUIStatus = ApprovalDecisionStatus | 'approving' | 'rejec
 
 export type AssistantTool =
     | 'search_session_recordings'
+    | 'create_parser_recipe'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_user_interview_topic'

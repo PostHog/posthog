@@ -1232,6 +1232,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Searching LLM traces...'
         },
     },
+    create_parser_recipe: {
+        name: 'Create custom parsers',
+        description: 'Create custom parsers to control how AI observability events are displayed',
+        icon: iconForType('llm_analytics'),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS,
+        clientExecuted: true,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created a custom parser'
+            }
+            return 'Writing a custom parser...'
+        },
+    },
     run_hog_eval_test: {
         name: 'Test evaluation',
         description: 'Test evaluation code against sample events',

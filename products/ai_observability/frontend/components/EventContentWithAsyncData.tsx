@@ -1,11 +1,17 @@
+import { useValues } from 'kea'
 import React from 'react'
+
+import { IconSparkles } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
 } from '../ConversationDisplay/ConversationMessagesDisplay'
+import { useCustomParserMaxTool } from '../customParser/useCustomParserMaxTool'
 import { useAIData } from '../hooks/useAIData'
 import { normalizeMessage, normalizeMessages } from '../messageNormalization'
+import { parserRecipesLogic } from '../settings/parserRecipesLogic'
 import { AIDataLoading } from './AIDataLoading'
 import { JSONValueDisplay } from './JSONValueDisplay'
 
@@ -48,6 +54,8 @@ export function EventContentConversation({
         input: rawInput,
         output: rawOutput,
     })
+    // The normalizer is a module singleton — recipesVersion signals the memos below are stale
+    const { recipesVersion } = useValues(parserRecipesLogic)
 
     // Map each normalized input message back to its original index in $ai_input,
     // a stable key for per-message sentiment lookups. Generations only.
@@ -68,23 +76,45 @@ export function EventContentConversation({
             }
         }
         return indices
-    }, [input, tools, generationEventId])
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [input, tools, generationEventId, recipesVersion])
 
     const { recognized: inputRecognized, messages: inputMessages } = React.useMemo(
         () => normalizeMessages(input, 'user', tools),
-        [input, tools]
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+        [input, tools, recipesVersion]
     )
     const { recognized: outputRecognized, messages: outputMessages } = React.useMemo(
         () => normalizeMessages(output, 'assistant'),
-        [output]
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+        [output, recipesVersion]
     )
+
+    const openCustomParserMax = useCustomParserMaxTool({
+        eventId,
+        input,
+        output,
+        tools,
+        inputRecognized,
+        outputRecognized,
+        isLoading,
+        isGeneration: !!generationEventId,
+    })
 
     if (isLoading) {
         return <AIDataLoading variant="block" />
     }
 
     if (!inputRecognized || !outputRecognized) {
-        return <JsonInputOutput input={input} output={output} errorData={errorData} raisedError={raisedError} />
+        return (
+            <JsonInputOutput
+                input={input}
+                output={output}
+                errorData={errorData}
+                raisedError={raisedError}
+                onSetUpCustomParser={openCustomParserMax}
+            />
+        )
     }
 
     return (
@@ -110,16 +140,35 @@ function JsonInputOutput({
     output,
     errorData,
     raisedError,
+    onSetUpCustomParser,
 }: {
     input: unknown
     output: unknown
     errorData?: unknown
     raisedError?: boolean
+    onSetUpCustomParser?: (() => void) | null
 }): JSX.Element {
     // On error, surface the error payload when there's no output to show.
     const outputValue = raisedError ? (output ?? errorData) : output
+
     return (
         <div className="space-y-4">
+            {onSetUpCustomParser && (
+                <div className="flex items-center justify-between gap-2 px-2 py-1 border border-primary rounded bg-surface-secondary">
+                    <span className="text-xs text-muted">
+                        Shown as raw JSON — no parser recognizes this event's shape.
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        icon={<IconSparkles />}
+                        onClick={onSetUpCustomParser}
+                        data-attr="llma-json-fallback-create-parser"
+                    >
+                        Set up custom parser
+                    </LemonButton>
+                </div>
+            )}
             <div>
                 <h3 className="font-semibold mb-2">Input</h3>
                 <div className="p-2 bg-surface-secondary rounded text-xs overflow-auto">

@@ -344,6 +344,7 @@ class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
 
 class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
+    CREATE_PARSER_RECIPE = "create_parser_recipe"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
