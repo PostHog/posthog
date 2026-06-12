@@ -690,9 +690,10 @@ class OAuthValidator(OAuth2Validator):
             scoped_organizations=scoped_organizations,
             impersonated_by_id=self._get_impersonator_id(request, refresh_token=source_refresh_token),
             # The refresh token is the durable label carrier: DOT's rotation deletes the
-            # previous access token (and nulls its FK) before this runs, so the prior
-            # access token's label is unreadable here.
-            label=source_refresh_token.label if source_refresh_token else "",
+            # previous access token (and nulls its FK) before this runs, and non-rotating
+            # refreshes arrive with the RT only in ``scope_source_refresh_token``, so the
+            # coalesced refresh token is the only readable label source on either path.
+            label=refresh_token.label if refresh_token else "",
         )
 
     def _create_authorization_code(self, request, code, expires=None):
