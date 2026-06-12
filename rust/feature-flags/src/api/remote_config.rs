@@ -182,14 +182,10 @@ pub async fn remote_config(
     }
 }
 
-/// 200 with an empty body and a JSON content type, matching DRF's `Response(None)`.
+/// 200 with an empty body and no Content-Type, matching DRF's `Response(None)`: the renderer
+/// emits no bytes and DRF then deletes the Content-Type header.
 fn empty_json_ok() -> Response {
-    (
-        StatusCode::OK,
-        [("content-type", "application/json")],
-        axum::body::Body::empty(),
-    )
-        .into_response()
+    StatusCode::OK.into_response()
 }
 
 /// Mirrors Python truthiness for `payloads.get("true") or None`. In practice the payload
