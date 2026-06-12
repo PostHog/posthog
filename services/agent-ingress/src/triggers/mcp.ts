@@ -66,7 +66,6 @@ export interface McpTriggerDeps {
     resolver: RevisionResolver
     queue: SessionQueue
     bus: SessionEventBus
-    teamId: number
     authProvider?: AuthProvider
     /**
      * Public base URL the connect-info endpoint advertises in PATH mode (slug
@@ -292,7 +291,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                     // read it by URI since they hold the returned id).
                     const externalKey = mcpSessionId ? `mcp:${mcpSessionId}:${randomUUID()}` : null
                     const freshOutcome = await enqueueOrResume(
-                        { queue: deps.queue, teamId: deps.teamId },
+                        { queue: deps.queue },
                         {
                             application: resolved.application,
                             revision: resolved.revision,

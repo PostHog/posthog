@@ -69,7 +69,6 @@ export interface BuildAppOpts {
     revisions: RevisionStore
     queue: SessionQueue
     bus: SessionEventBus
-    teamId: number
     routingMode: RoutingMode
     domainSuffix?: string
     pathPrefix?: string
@@ -136,7 +135,6 @@ export function buildApp(opts: BuildAppOpts): Express {
         mode: opts.routingMode,
         domainSuffix: opts.domainSuffix,
         pathPrefix: opts.pathPrefix,
-        teamId: opts.teamId,
         internalSigningKey: opts.internalSigningKey,
     })
     app.use(
@@ -168,7 +166,6 @@ export function buildApp(opts: BuildAppOpts): Express {
     const triggerDeps = {
         resolver,
         queue: opts.queue,
-        teamId: opts.teamId,
         bus,
         authProvider,
         signingSecretResolver: opts.slackSigningSecretResolver ?? UNCONFIGURED_SLACK_SIGNING_SECRET_RESOLVER,

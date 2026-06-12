@@ -82,7 +82,6 @@ function mkResolver(store: PgRevisionStore): RevisionResolver {
         revisions: store,
         mode: 'path',
         pathPrefix: '/agents',
-        teamId: 1,
         internalSigningKey: SECRET,
     })
 }

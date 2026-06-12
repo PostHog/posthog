@@ -4,7 +4,6 @@ describe('loadAgentIngressConfig', () => {
     it('returns defaults for an empty env', () => {
         const cfg = loadAgentIngressConfig({})
         expect(cfg.port).toBe(8080)
-        expect(cfg.teamId).toBe(1)
         expect(cfg.routingMode).toBe('path')
         expect(cfg.pathPrefix).toBe('/agents')
         expect(cfg.internalSigningKey).toBeUndefined()
@@ -18,9 +17,8 @@ describe('loadAgentIngressConfig', () => {
     })
 
     it('coerces numeric env strings', () => {
-        const cfg = loadAgentIngressConfig({ PORT: '3030', TEAM_ID: '42' })
+        const cfg = loadAgentIngressConfig({ PORT: '3030' })
         expect(cfg.port).toBe(3030)
-        expect(cfg.teamId).toBe(42)
     })
 
     it('throws on bad numeric values', () => {

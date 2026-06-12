@@ -72,7 +72,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
         }
         const store = new PgRevisionStore(pool)
         const app = await store.createApplication({ team_id: 1, slug: 'echo', name: 'Echo', description: '' })
-        expect(await store.getApplicationBySlug(1, 'echo')).toMatchObject({ slug: 'echo' })
+        expect(await store.getApplicationBySlug('echo')).toMatchObject({ slug: 'echo' })
 
         const spec = AgentSpecSchema.parse({ model: 'mock-echo' })
         const rev = await store.createRevision({

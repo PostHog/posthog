@@ -61,7 +61,7 @@ describe('memory tools: cross-session round-trip', () => {
 
         // Verify the file actually landed via the memoryStore — proves the
         // tool ran and the dispatch chain wired memoryStore through.
-        const appA = await c.revisions.getApplicationBySlug(1, 'memuser')
+        const appA = await c.revisions.getApplicationBySlug('memuser')
         const stored = await c.memoryStore.read({ teamId: 1, applicationId: appA!.id }, 'notes/db-incident.md')
         expect(stored.frontmatter.description).toBe('Postgres connection pool exhausted under traffic')
         expect(stored.content).toBe('pgbouncer default_pool_size was 20, raised to 80')
@@ -108,7 +108,7 @@ describe('memory tools: cross-session round-trip', () => {
                 ],
             },
         })
-        const app = await c.revisions.getApplicationBySlug(1, 'memupdater')
+        const app = await c.revisions.getApplicationBySlug('memupdater')
         const scope = { teamId: 1, applicationId: app!.id }
         await c.memoryStore.put(
             scope,
@@ -239,7 +239,7 @@ describe('memory: janitor + runner share one bucket', () => {
             slug: 'shared-bucket-jw',
             spec: { tools: [{ kind: 'native', id: '@posthog/memory-read' }] },
         })
-        const app = await c.revisions.getApplicationBySlug(1, 'shared-bucket-jw')
+        const app = await c.revisions.getApplicationBySlug('shared-bucket-jw')
         const applicationId = app!.id
 
         const writeRes = await request(c.janitor)
@@ -278,7 +278,7 @@ describe('memory: janitor + runner share one bucket', () => {
             slug: 'shared-bucket-rw',
             spec: { tools: [{ kind: 'native', id: '@posthog/memory-write' }] },
         })
-        const app = await c.revisions.getApplicationBySlug(1, 'shared-bucket-rw')
+        const app = await c.revisions.getApplicationBySlug('shared-bucket-rw')
         const applicationId = app!.id
 
         c.setScript([
@@ -314,7 +314,7 @@ describe('memory: janitor + runner share one bucket', () => {
             slug: 'shared-bucket-patch',
             spec: { tools: [{ kind: 'native', id: '@posthog/memory-list' }] },
         })
-        const app = await c.revisions.getApplicationBySlug(1, 'shared-bucket-patch')
+        const app = await c.revisions.getApplicationBySlug('shared-bucket-patch')
         const applicationId = app!.id
 
         await request(c.janitor)

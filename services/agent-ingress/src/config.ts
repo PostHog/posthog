@@ -14,12 +14,6 @@ import { extendEnvKeyMap, loadConfigFromEnv, PLATFORM_ENV_KEY_MAP, PlatformConfi
 
 export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
     port: z.coerce.number().int().positive().default(8080).describe('HTTP listen port.'),
-    teamId: z.coerce
-        .number()
-        .int()
-        .positive()
-        .default(1)
-        .describe('Team that owns all routed agents in this deployment. v1 is single-tenant.'),
     routingMode: z
         .enum(['path', 'domain'])
         .default('path')
@@ -52,7 +46,6 @@ export type AgentIngressConfig = z.infer<typeof AgentIngressConfigSchema>
 
 const ENV_KEY_MAP = extendEnvKeyMap<AgentIngressConfig>(PLATFORM_ENV_KEY_MAP, {
     PORT: 'port',
-    TEAM_ID: 'teamId',
     ROUTING_MODE: 'routingMode',
     DOMAIN_SUFFIX: 'domainSuffix',
     PATH_PREFIX: 'pathPrefix',

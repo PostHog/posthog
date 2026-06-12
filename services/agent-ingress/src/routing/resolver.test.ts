@@ -19,8 +19,12 @@ beforeEach(async () => {
     await reset({ databaseUrl: TEST_DB_URL })
 })
 
-async function seedApp(store: PgRevisionStore, slug: string): Promise<{ app: AgentApplication; rev: AgentRevision }> {
-    const app = await store.createApplication({ team_id: 1, slug, name: slug, description: '' })
+async function seedApp(
+    store: PgRevisionStore,
+    slug: string,
+    teamId = 1
+): Promise<{ app: AgentApplication; rev: AgentRevision }> {
+    const app = await store.createApplication({ team_id: teamId, slug, name: slug, description: '' })
     const rev = await store.createRevision({
         application_id: app.id,
         parent_revision_id: null,
@@ -37,7 +41,7 @@ describe('RevisionResolver', () => {
     it('resolves in path mode', async () => {
         const store = new PgRevisionStore(pool)
         const { app } = await seedApp(store, 'weekly-digest')
-        const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
+        const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents' })
         const out = await resolver.resolveFromHostAndPath(undefined, '/agents/weekly-digest/slack/events')
         expect(out!.application.id).toBe(app.id)
     })
@@ -49,15 +53,29 @@ describe('RevisionResolver', () => {
             revisions: store,
             mode: 'domain',
             domainSuffix: '.agents.posthog.com',
-            teamId: 1,
         })
         const out = await resolver.resolveFromHostAndPath('weekly-digest.agents.posthog.com', '/slack/events')
         expect(out!.application.slug).toBe('weekly-digest')
     })
 
+    it('resolves a slug regardless of the owning team (global namespace)', async () => {
+        // The ingress is no longer single-tenant: a slug owned by any team must
+        // resolve, and the resolved app carries that team's real team_id.
+        const store = new PgRevisionStore(pool)
+        const { app } = await seedApp(store, 'cross-team-agent', 7)
+        const resolver = new RevisionResolver({
+            revisions: store,
+            mode: 'domain',
+            domainSuffix: '.agents.posthog.com',
+        })
+        const out = await resolver.resolveFromHostAndPath('cross-team-agent.agents.posthog.com', '/run')
+        expect(out!.application.id).toBe(app.id)
+        expect(out!.application.team_id).toBe(7)
+    })
+
     it('returns null for unknown slug', async () => {
         const store = new PgRevisionStore(pool)
-        const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
+        const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents' })
         expect(await resolver.resolveFromHostAndPath(undefined, '/agents/ghost/slack')).toBeNull()
     })
 
@@ -65,7 +83,7 @@ describe('RevisionResolver', () => {
         const store = new PgRevisionStore(pool)
         const { app } = await seedApp(store, 'abandoned')
         await store.archiveApplication(app.id)
-        const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
+        const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents' })
         expect(await resolver.resolveFromHostAndPath(undefined, '/agents/abandoned/x')).toBeNull()
     })
 
@@ -88,7 +106,7 @@ describe('RevisionResolver', () => {
                 spec: AgentSpecSchema.parse({ model: 'x' }),
             })
             await rebrandRevisionId(store, rev.id, '019e6f25-0185-7814-b4d8-882a429da835')
-            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
+            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents' })
             const out = await resolver.resolveBySlug('preview-019e6f25')
             expect(out!.revision.id).toBe('019e6f25-0185-7814-b4d8-882a429da835')
         })
@@ -112,7 +130,7 @@ describe('RevisionResolver', () => {
             })
             await rebrandRevisionId(store, revA.id, '019e6f25-0185-7814-b4d8-aaaaaaaaaaaa')
             await rebrandRevisionId(store, revB.id, '019e6f25-0185-7814-b4d8-bbbbbbbbbbbb')
-            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
+            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents' })
             await expect(resolver.resolveBySlug('preview-019e6f25')).rejects.toBeInstanceOf(AmbiguousRevisionError)
         })
 
@@ -136,7 +154,7 @@ describe('RevisionResolver', () => {
             })
             await store.setRevisionState(rev.id, 'live')
             await store.setLiveRevision(app.id, rev.id)
-            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
+            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents' })
             const out = await resolver.resolveBySlug('unrelated-abcdef12')
             expect(out!.application.id).toBe(app.id)
         })
@@ -158,7 +176,7 @@ describe('RevisionResolver', () => {
             })
             await rebrandRevisionId(store, rev.id, '019e6f25-0000-0000-0000-000000000000')
             await store.setRevisionState('019e6f25-0000-0000-0000-000000000000', 'archived')
-            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents', teamId: 1 })
+            const resolver = new RevisionResolver({ revisions: store, mode: 'path', pathPrefix: '/agents' })
             // Falls through to verbatim slug, which has no live_revision → null.
             expect(await resolver.resolveBySlug('with-archived-019e6f25')).toBeNull()
         })
@@ -219,7 +237,6 @@ describe('RevisionResolver', () => {
                 revisions: store,
                 mode: 'path',
                 pathPrefix: '/agents',
-                teamId: 1,
                 internalSigningKey: opts.internalSigningKey,
             })
         }
@@ -308,7 +325,6 @@ describe('RevisionResolver', () => {
                 revisions: new PgRevisionStore(pool),
                 mode: 'domain',
                 domainSuffix: '.agents.posthog.com',
-                teamId: 1,
             })
         }
 

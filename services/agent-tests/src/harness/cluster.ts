@@ -424,7 +424,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         revisions,
         queue,
         bus,
-        teamId,
         routingMode: opts.routingMode ?? 'path',
         pathPrefix: '/agents',
         domainSuffix: opts.domainSuffix,

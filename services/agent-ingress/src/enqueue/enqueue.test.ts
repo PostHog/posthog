@@ -57,7 +57,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const out = await enqueueOrResume(
-            { queue, teamId: 1 },
+            { queue },
             {
                 application: app,
                 revision: rev,
@@ -73,7 +73,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
-            { queue, teamId: 1 },
+            { queue },
             {
                 application: app,
                 revision: rev,
@@ -83,7 +83,7 @@ describe('enqueueOrResume', () => {
             }
         )
         const second = await enqueueOrResume(
-            { queue, teamId: 1 },
+            { queue },
             {
                 application: app,
                 revision: rev,
@@ -108,7 +108,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
-            { queue, teamId: 1 },
+            { queue },
             {
                 application: app,
                 revision: rev,
@@ -119,7 +119,7 @@ describe('enqueueOrResume', () => {
         )
         await queue.update(first.sessionId, { state: 'completed' })
         const second = await enqueueOrResume(
-            { queue, teamId: 1 },
+            { queue },
             {
                 application: app,
                 revision: rev,
@@ -136,7 +136,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
-            { queue, teamId: 1 },
+            { queue },
             {
                 application: app,
                 revision: rev,
@@ -147,7 +147,7 @@ describe('enqueueOrResume', () => {
         )
         await queue.update(first.sessionId, { state: 'closed' })
         const second = await enqueueOrResume(
-            { queue, teamId: 1 },
+            { queue },
             {
                 application: app,
                 revision: rev,
@@ -168,7 +168,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
-            { queue, teamId: 1 },
+            { queue },
             {
                 application: app,
                 revision: rev,
@@ -179,7 +179,7 @@ describe('enqueueOrResume', () => {
             }
         )
         const second = await enqueueOrResume(
-            { queue, teamId: 1 },
+            { queue },
             {
                 application: app,
                 revision: rev,
@@ -216,7 +216,7 @@ describe('enqueueOrResume', () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         await enqueueOrResume(
-            { queue, teamId: 1 },
+            { queue },
             {
                 application: app,
                 revision: rev,
@@ -230,7 +230,7 @@ describe('enqueueOrResume', () => {
         // but here we just exercise the rollover from 5 → 5.
         for (let i = 0; i < 6; i++) {
             await enqueueOrResume(
-                { queue, teamId: 1 },
+                { queue },
                 {
                     application: app,
                     revision: rev,
@@ -253,7 +253,7 @@ describe('enqueueOrResume', () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const out = await enqueueOrResume(
-                { queue, teamId: 1 },
+                { queue },
                 {
                     application: app,
                     revision: rev,
@@ -271,7 +271,7 @@ describe('enqueueOrResume', () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const first = await enqueueOrResume(
-                { queue, teamId: 1 },
+                { queue },
                 {
                     application: app,
                     revision: rev,
@@ -281,7 +281,7 @@ describe('enqueueOrResume', () => {
                 }
             )
             const second = await enqueueOrResume(
-                { queue, teamId: 1 },
+                { queue },
                 {
                     application: app,
                     revision: rev,
@@ -304,7 +304,7 @@ describe('enqueueOrResume', () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const out = await enqueueOrResume(
-                { queue, teamId: 1 },
+                { queue },
                 {
                     application: app,
                     revision: rev,
@@ -335,7 +335,7 @@ describe('enqueueOrResume', () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const first = await enqueueOrResume(
-                { queue, teamId: 1 },
+                { queue },
                 {
                     application: app,
                     revision: rev,
@@ -345,7 +345,7 @@ describe('enqueueOrResume', () => {
                 }
             )
             const second = await enqueueOrResume(
-                { queue, teamId: 1 },
+                { queue },
                 {
                     application: app,
                     revision: rev,
@@ -370,7 +370,7 @@ describe('enqueueOrResume', () => {
             const { app, rev } = makePair()
             // First call goes through normally; capture its id.
             const first = await enqueueOrResume(
-                { queue, teamId: 1 },
+                { queue },
                 {
                     application: app,
                     revision: rev,
@@ -413,7 +413,7 @@ describe('enqueueOrResume', () => {
                 },
             })
             const second = await enqueueOrResume(
-                { queue: racyQueue, teamId: 1 },
+                { queue: racyQueue },
                 {
                     application: app,
                     revision: rev,
@@ -447,7 +447,7 @@ describe('enqueueOrResume', () => {
             })
             await expect(
                 enqueueOrResume(
-                    { queue: racyQueue, teamId: 1 },
+                    { queue: racyQueue },
                     {
                         application: app,
                         revision: rev,
