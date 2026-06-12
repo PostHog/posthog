@@ -293,6 +293,14 @@ async function takeSnapshotWithTheme(
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
+    // Wait for every image to settle (loaded OR failed) so stories with intentionally
+    // broken images snapshot the final broken-image state instead of racing the error event.
+    // `complete` flips to true when fetching finishes, whether the image decoded or errored.
+    await page.waitForFunction(() => {
+        return Array.from(document.images).every(
+            (i: HTMLImageElement) => i.complete || i.classList.contains('ProseMirror-separator')
+        )
+    })
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
         await page.waitForFunction(() => {
