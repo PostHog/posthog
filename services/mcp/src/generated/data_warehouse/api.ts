@@ -1006,11 +1006,10 @@ export const ExternalDataSourcesCheckCdcPrerequisitesCreateParams = /* @__PURE__
 /**
  * Return a secure browser link for connecting a data warehouse source.
  *
- * For OAuth sources the link starts the OAuth authorize flow; for credential sources it opens a minimal
- * connect page where the user enters only their credentials — no table selection, no source creation.
- * Either way the user authenticates in their browser, credentials never pass through the agent, and the
- * agent finishes setup afterwards by passing the resulting reference (integration id or credential id)
- * to data-warehouse-source-setup.
+ * The link opens a minimal connect page rendering the source's full connection form — OAuth options
+ * included — with no table selection and no source creation. The user authenticates in their browser,
+ * secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
+ * credential id to data-warehouse-source-setup.
  */
 export const ExternalDataSourcesConnectLinkRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1307,7 +1306,7 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
+            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
         ),
     prefix: zod
         .string()

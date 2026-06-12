@@ -22,14 +22,8 @@ export const scene: SceneExport = {
 }
 
 export function SourceConnectScene(): JSX.Element {
-    const {
-        kind,
-        sourceConfig,
-        isOauthSource,
-        storedCredential,
-        availableSourcesLoading,
-        isCredentialsFormSubmitting,
-    } = useValues(sourceConnectSceneLogic)
+    const { kind, sourceConfig, storedCredential, availableSourcesLoading, isCredentialsFormSubmitting } =
+        useValues(sourceConnectSceneLogic)
     const { setCredentialsFormValue } = useActions(sourceConnectSceneLogic)
 
     if (availableSourcesLoading) {
@@ -55,9 +49,9 @@ export function SourceConnectScene(): JSX.Element {
                 name={`Connect ${sourceLabel}`}
                 resourceType={{ type: 'data_pipeline' }}
                 description={
-                    isOauthSource || storedCredential
+                    storedCredential
                         ? undefined
-                        : `Enter your ${sourceLabel} credentials. They are stored encrypted, kept only until the source is created (at most 24 hours), and never shared with anyone — including the assistant that sent you here.`
+                        : `Connect your ${sourceLabel} account or enter its credentials. Everything you submit is stored encrypted, kept only until the source is created (at most 24 hours), and never shared with anyone — including the assistant that sent you here.`
                 }
             />
             <div className="max-w-200">
@@ -67,14 +61,6 @@ export function SourceConnectScene(): JSX.Element {
                         <p className="m-0 text-sm">
                             Return to your chat and let the assistant know you're done; it will finish setting up the
                             source. Credential id: <code>{storedCredential.credential_id}</code>.
-                        </p>
-                    </LemonBanner>
-                ) : isOauthSource ? (
-                    <LemonBanner type="info">
-                        <p className="font-semibold mb-1">{sourceLabel} connects through your browser.</p>
-                        <p className="m-0 text-sm">
-                            If you've just finished authorizing {sourceLabel} in this window, you're all set — return to
-                            your chat and let the assistant know, and it will finish setting up the source.
                         </p>
                     </LemonBanner>
                 ) : (
