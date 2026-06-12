@@ -858,7 +858,7 @@ class MollieSourceConfig(config.Config):
 
 @config.config
 class MondaySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
