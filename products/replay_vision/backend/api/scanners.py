@@ -5,6 +5,7 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import CharField, Count, F, Q, QuerySet, Value
 from django.db.models.functions import Coalesce, NullIf
+from django.utils import timezone
 
 import structlog
 import django_filters
@@ -50,6 +51,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.queries import (
     ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
+    ESTIMATE_STALE_AFTER,
     estimate_scanner_session_volume,
     project_monthly_observations,
     refresh_scanner_estimate,
@@ -278,12 +280,17 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         return scanner
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:
+        was_enabled = instance.enabled
         try:
             scanner = super().update(instance, validated_data)
         except IntegrityError as e:
             self._reraise_unique_name_violation(e)
-        # Model save clears `estimated_at` when volume inputs change; refresh eagerly for the editor.
-        if scanner.estimated_at is None:
+        # Model save clears `estimated_at` when volume inputs change. Re-enables only refresh inline when
+        # the background refresher has fallen behind, so a stale number never enters the quota sum.
+        needs_refresh = scanner.estimated_at is None or (
+            scanner.enabled and not was_enabled and timezone.now() - scanner.estimated_at >= ESTIMATE_STALE_AFTER
+        )
+        if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
         return scanner
 

@@ -3392,6 +3392,9 @@ importers:
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
+      clsx:
+        specifier: '*'
+        version: 2.1.1
       fast-deep-equal:
         specifier: '*'
         version: 3.1.3
