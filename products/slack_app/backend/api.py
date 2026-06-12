@@ -1485,6 +1485,7 @@ def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: 
             UNTAGGED_THREAD_FOLLOWUPS_FLAG,
             f"slack_workspace:{slack_team_id}",
             groups={"organization": str(integration.team.organization_id)},
+            person_properties={"region": get_instance_region() or "unknown"},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
