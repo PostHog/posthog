@@ -79,7 +79,13 @@ class HogQLDatabaseMixin:
         return self._get_database()
 
     def _get_default_hogql_context(self, database: Database):
-        hogql_context = HogQLContext(team=self._team, user=self._user, database=database, enable_select_queries=True)
+        hogql_context = HogQLContext(
+            team=self._team,
+            user=self._user,
+            database=database,
+            enable_select_queries=True,
+            observability_source="max_ai",
+        )
         return hogql_context
 
     async def _serialize_database_schema(self):

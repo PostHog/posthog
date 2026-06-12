@@ -79,10 +79,10 @@ def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str,
     parsed = parse_select(query.query)
     # Separate context for the Postgres print — the HogQL round-trip below shouldn't
     # contribute to ``postgres_context.values``.
-    postgres_context = HogQLContext(team_id=team_id, enable_select_queries=True)
+    postgres_context = HogQLContext(team_id=team_id, enable_select_queries=True, observability_source="warehouse")
     postgres_sql, _ = prepare_and_print_ast(parsed, postgres_context, dialect="postgres")
 
-    hogql_context = HogQLContext(team_id=team_id, enable_select_queries=True)
+    hogql_context = HogQLContext(team_id=team_id, enable_select_queries=True, observability_source="warehouse")
     hogql_pretty, _ = prepare_and_print_ast(parsed, hogql_context, dialect="hogql")
 
     return postgres_sql, dict(postgres_context.values), hogql_pretty

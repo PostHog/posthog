@@ -332,6 +332,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 team_id=cohort_obj.team_id,
                 enable_select_queries=True,
                 limit_context=LimitContext.COHORT_CALCULATION,
+                observability_source="messaging",
             )
             current_members_sql, _ = prepare_and_print_ast(current_members_query, hogql_context, "clickhouse")
             return current_members_sql, hogql_context.values

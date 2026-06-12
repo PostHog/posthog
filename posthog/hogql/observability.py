@@ -24,7 +24,7 @@ from prometheus_client import (
 from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.clickhouse.query_tagging import Product, get_query_tags
+from posthog.clickhouse.query_tagging import Product, add_fallback_query_tags, get_query_tags
 
 logger = structlog.get_logger(__name__)
 
@@ -268,8 +268,21 @@ def create_hogql_type_observability(
 
 
 def _source_from_query_tags() -> str:
-    """Attribute the pass to the product surface the request layer already tagged it with."""
-    product = get_query_tags().product
+    """Attribute the pass to the product surface.
+
+    Prefer an explicitly set product tag, then fall back to the same bounded taxonomy the
+    request/execution layer uses for ``system.query_log`` attribution (scene → query kind →
+    HogQL features → MCP source). Observability resolves the source while *printing*, which
+    happens before ``sync_execute`` applies that fallback — so without re-running the fallback
+    here, every pass whose product is only derivable (not explicitly tagged) lands in
+    "unknown". We resolve against a deep copy so the shared request tags are never mutated.
+    """
+    tags = get_query_tags()
+    product = tags.product
+    if product is None:
+        resolved = tags.model_copy(deep=True)
+        add_fallback_query_tags(resolved)
+        product = resolved.product
     if product is None:
         return "unknown"
     return str(getattr(product, "value", product))

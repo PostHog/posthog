@@ -17,7 +17,7 @@ from posthog.hogql.observability import (
     emit_hogql_type_observability,
 )
 
-from posthog.clickhouse.query_tagging import Product
+from posthog.clickhouse.query_tagging import Product, QueryTags
 
 
 def _metric(name: str, labels: dict[str, str]) -> float:
@@ -172,6 +172,25 @@ class TestHogQLTypeObservability(SimpleTestCase):
 
         assert stats is not None
         self.assertEqual(stats.source, "warehouse")
+
+    @parameterized.expand(
+        [
+            ("kind_fallback", QueryTags(query_type="TrendsQuery"), "product_analytics"),
+            ("scene_fallback", QueryTags(scene="Cohort"), "cohorts"),
+            ("nothing_resolvable", QueryTags(query_type="ActorsQuery"), "unknown"),
+        ]
+    )
+    @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 1.0)
+    def test_source_resolves_via_query_tag_fallback_when_product_unset(self, _name, tags, expected):
+        # Observability resolves the source while printing, before sync_execute applies the
+        # product fallback. Re-running that fallback here keeps derivable passes off "unknown".
+        with patch("posthog.hogql.observability.get_query_tags", return_value=tags):
+            stats = create_hogql_type_observability(dialect="clickhouse")
+
+        assert stats is not None
+        self.assertEqual(stats.source, expected)
+        # The shared request tags must never be mutated by observability resolution.
+        self.assertIsNone(tags.product)
 
     @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 1.0)
     def test_explicit_source_wins_over_query_tags(self):

@@ -230,7 +230,9 @@ class HogQLCohortQuery:
         team: Optional[Team] = None,
     ):
         if cohort is not None:
-            self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
+            self.hogql_context = HogQLContext(
+                team_id=cohort.team.pk, enable_select_queries=True, observability_source="cohorts"
+            )
             self.team = team or cohort.team
             unwrapped = unwrap_cohort(
                 Filter(
@@ -246,7 +248,9 @@ class HogQLCohortQuery:
         elif filter is not None:
             if team is None:
                 raise ValueError("HogQLCohortQuery requires a team when constructed from a filter")
-            self.hogql_context = HogQLContext(team_id=team.pk, enable_select_queries=True)
+            self.hogql_context = HogQLContext(
+                team_id=team.pk, enable_select_queries=True, observability_source="cohorts"
+            )
             self.team = team
             self.property_groups = unwrap_cohort(filter, team.pk, team).property_groups
         else:

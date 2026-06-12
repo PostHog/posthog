@@ -146,6 +146,7 @@ def write_sql_from_prompt(
         enable_select_queries=True,
         database=database,
         modifiers=create_default_modifiers_for_team(team),
+        observability_source="max_ai",
     )
     serialized_database = database.serialize(context)
     schema_description = "\n\n".join(

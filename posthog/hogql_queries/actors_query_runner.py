@@ -488,6 +488,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                             enable_select_queries=True,
                             timings=self.timings,
                             modifiers=self.modifiers,
+                            observability_source=self.observability_source(),
                         ),
                         dialect="clickhouse",
                     )

@@ -626,7 +626,9 @@ def build_lazy_computation_insert_sql(
         query.where = date_range_filter
 
     # Print the SELECT query to ClickHouse SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
+    context = HogQLContext(
+        team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False, observability_source="internal"
+    )
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,
@@ -1196,6 +1198,7 @@ def _build_manual_insert_sql(
         enable_select_queries=True,
         limit_top_select=False,
         modifiers=create_default_modifiers_for_team(team),
+        observability_source="internal",
     )
     select_sql, _ = prepare_and_print_ast(
         query,

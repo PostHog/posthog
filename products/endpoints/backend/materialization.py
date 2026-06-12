@@ -62,6 +62,7 @@ def _print_materialized_hogql(query: ast.Expr, team: Team, modifiers: HogQLQuery
             enable_select_queries=True,
             limit_top_select=False,
             modifiers=create_default_modifiers_for_team(team, modifiers),
+            observability_source="endpoints",
         ),
         pretty=True,
     )[0]

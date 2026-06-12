@@ -374,6 +374,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False
+    hogql_context.observability_source = "cohorts"
     create_default_modifiers_for_team(team, hogql_context.modifiers)
 
     # Apply HogQL global settings to ensure consistency with regular queries

@@ -185,7 +185,13 @@ class HogQLQueryFixerTool(MaxTool):
 
     def _run_impl(self) -> tuple[str, str | None]:
         database = Database.create_for(team=self._team, user=self._user)
-        hogql_context = HogQLContext(team=self._team, user=self._user, enable_select_queries=True, database=database)
+        hogql_context = HogQLContext(
+            team=self._team,
+            user=self._user,
+            enable_select_queries=True,
+            database=database,
+            observability_source="max_ai",
+        )
 
         all_table_names = database.get_all_table_names()
         schema_description = _get_schema_description(self.context, hogql_context, database)

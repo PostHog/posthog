@@ -40,6 +40,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
@@ -140,6 +141,16 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
+
+    def test_observability_source_resolves_from_query_kind(self):
+        runner = get_query_runner(query=TrendsQuery(series=[EventsNode(event="$pageview")]), team=self.team)
+        with tags_context():
+            self.assertEqual(runner.observability_source(), "product_analytics")
+
+    def test_observability_source_prefers_explicit_product_tag(self):
+        runner = get_query_runner(query=TrendsQuery(series=[EventsNode(event="$pageview")]), team=self.team)
+        with tags_context(product=Product.WEB_ANALYTICS):
+            self.assertEqual(runner.observability_source(), "web_analytics")
 
     @parameterized.expand(
         [

@@ -92,7 +92,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, kind_fallback_tags, tag_queries
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
@@ -1810,6 +1810,29 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
+    def observability_source(self) -> str:
+        """Best-effort product-surface attribution for HogQL type-system observability.
+
+        Prefer a product the request layer already tagged; otherwise attribute by the query
+        kind using the same taxonomy as ``system.query_log``. Background and programmatic
+        callers (cache warming, exports, the ``/query`` API) run query runners without
+        frontend tags, so resolving from the kind keeps them off the "unknown" bucket.
+        Returns "unknown" when neither resolves — the observability layer then falls back to
+        the request query tags.
+        """
+        product = get_query_tag_value("product")
+        if product is not None:
+            return str(getattr(product, "value", product))
+        kind = getattr(self.query, "kind", None)
+        if kind is not None:
+            try:
+                mapped = kind_fallback_tags(NodeKind(kind))
+            except ValueError:
+                mapped = None
+            if mapped is not None and (kind_product := mapped.get("product")) is not None:
+                return kind_product.value
+        return "unknown"
+
     def to_hogql(self, **kwargs) -> str:
         with self.timings.measure("to_hogql"):
             return prepare_and_print_ast(
@@ -1819,6 +1842,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     enable_select_queries=True,
                     timings=self.timings,
                     modifiers=self.modifiers,
+                    observability_source=self.observability_source(),
                 ),
                 "hogql",
                 **kwargs,
