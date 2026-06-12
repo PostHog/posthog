@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Glob-pinned: exact deb revisions vanish from mirrors on security point
 # releases, which would 404 the build; the upstream version stays fixed.
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     "curl=8.14.1*" \
     && rm -rf /var/lib/apt/lists/*
 
