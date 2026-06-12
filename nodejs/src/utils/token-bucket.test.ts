@@ -122,6 +122,53 @@ describe('Storage', () => {
             expect(() => storage.consume(key, 1)).toThrow(BucketKeyMissingError)
         })
     })
+
+    describe('maxBuckets', () => {
+        it('evicts the oldest bucket when the cap is reached', () => {
+            const storage = new Storage(10, 1, 2)
+
+            storage.replenish('first')
+            storage.replenish('second')
+            storage.replenish('third')
+
+            expect(storage.buckets.size).toEqual(2)
+            expect(storage.buckets.has('first')).toEqual(false)
+            expect(storage.buckets.has('second')).toEqual(true)
+            expect(storage.buckets.has('third')).toEqual(true)
+        })
+
+        it('does not evict when replenishing an existing key', () => {
+            const storage = new Storage(10, 1, 2)
+
+            storage.replenish('first')
+            storage.replenish('second')
+            storage.replenish('first')
+
+            expect(storage.buckets.size).toEqual(2)
+            expect(storage.buckets.has('first')).toEqual(true)
+            expect(storage.buckets.has('second')).toEqual(true)
+        })
+
+        it('stays bounded under sustained unique key churn', () => {
+            const storage = new Storage(1, 1, 100)
+
+            for (let i = 0; i < 10000; i++) {
+                storage.replenish(`key-${i}`)
+            }
+
+            expect(storage.buckets.size).toEqual(100)
+        })
+
+        it('is unbounded when maxBuckets is not set', () => {
+            const storage = new Storage(10, 1)
+
+            storage.replenish('first')
+            storage.replenish('second')
+            storage.replenish('third')
+
+            expect(storage.buckets.size).toEqual(3)
+        })
+    })
 })
 
 describe('Limiter', () => {
@@ -175,6 +222,18 @@ describe('Limiter', () => {
             expect(limiter.consume(key, 1)).toEqual(false)
             // Even though we are not advancing time, we are passing the time to use with now
             expect(limiter.consume(key, 1, now.valueOf() + 1000)).toEqual(true)
+        })
+
+        it('allows a fresh consume for keys evicted by the bucket cap', () => {
+            const limiter = new Limiter(1, 0, 1)
+            const now = new Date('2023-02-08T08:00:00')
+            jest.useFakeTimers().setSystemTime(now)
+
+            expect(limiter.consume('a', 1)).toEqual(true)
+            expect(limiter.consume('a', 1)).toEqual(false)
+            // 'b' evicts 'a', so 'a' starts over with a full bucket
+            expect(limiter.consume('b', 1)).toEqual(true)
+            expect(limiter.consume('a', 1)).toEqual(true)
         })
     })
 })

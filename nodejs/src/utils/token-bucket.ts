@@ -13,17 +13,27 @@ export class Storage {
     public buckets: Map<string, Bucket>
     public replenishRate: number
     public bucketCapacity: number
+    public maxBuckets?: number
 
-    constructor(bucketCapacity: number, replenishRate: number) {
+    constructor(bucketCapacity: number, replenishRate: number, maxBuckets?: number) {
         this.buckets = new Map()
         this.bucketCapacity = bucketCapacity
         this.replenishRate = replenishRate
+        this.maxBuckets = maxBuckets
     }
 
     replenish(key: string, now?: number): void {
         const replenish_timestamp: number = now ?? Date.now()
         const bucket = this.buckets.get(key)
         if (bucket === undefined) {
+            // Bound memory when keys are caller-controlled (e.g. session ids): evict the
+            // oldest bucket, which at worst re-allows one extra consume for that key.
+            if (this.maxBuckets !== undefined && this.buckets.size >= this.maxBuckets) {
+                const oldestKey = this.buckets.keys().next().value
+                if (oldestKey !== undefined) {
+                    this.buckets.delete(oldestKey)
+                }
+            }
             this.buckets.set(key, [this.bucketCapacity, replenish_timestamp])
             return
         }
@@ -56,8 +66,8 @@ export class Storage {
 export class Limiter {
     public storage: Storage
 
-    constructor(bucketCapacity: number, replenishRate: number) {
-        this.storage = new Storage(bucketCapacity, replenishRate)
+    constructor(bucketCapacity: number, replenishRate: number, maxBuckets?: number) {
+        this.storage = new Storage(bucketCapacity, replenishRate, maxBuckets)
     }
 
     consume(key: string, tokens: number, now?: number): boolean {
@@ -72,6 +82,8 @@ export const ConfiguredLimiter: Limiter = new Limiter(
     defaultConfig.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
 )
 
-export const IngestionWarningLimiter: Limiter = new Limiter(1, 1.0 / 3600)
+// Debounce keys can include client-controlled values (session ids), so cap the
+// bucket count to keep memory bounded under engineered key churn.
+export const IngestionWarningLimiter: Limiter = new Limiter(1, 1.0 / 3600, 100_000)
 
 export const LoggingLimiter: Limiter = new Limiter(1, 1.0 / 60)

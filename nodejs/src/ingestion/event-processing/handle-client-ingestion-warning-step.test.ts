@@ -129,14 +129,73 @@ describe('handleClientIngestionWarningStep', () => {
                     distinctId: 'my_id',
                     message: 'Replay data dropped',
                 },
-                alwaysSend: true,
+                key: 'session-abc',
             })
+            expect(result.warnings[0].alwaysSend).toBeUndefined()
+        })
+
+        it('persists only the sanitized fields, never the raw client payload', async () => {
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_type: 'replay_message_too_large',
+                        $$client_ingestion_warning_details: {
+                            ...replayDetails,
+                            replayRecord: { session_id: 'session-abc', injected: 'x'.repeat(100000) },
+                            snapshotBytes: 'not-a-number',
+                            arbitraryBlob: { nested: 'x'.repeat(100000) },
+                        },
+                    },
+                },
+            }
+
+            const result = await handleStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings[0].type).toBe('replay_message_too_large')
+            expect(result.warnings[0].details.arbitraryBlob).toBeUndefined()
+            expect(result.warnings[0].details.snapshotBytes).toBeUndefined()
+            expect(result.warnings[0].details.replayRecord).toEqual({ session_id: 'session-abc' })
+        })
+
+        it('does not persist client details on the generic fallback', async () => {
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_message: 'some message',
+                        $$client_ingestion_warning_details: { arbitraryBlob: 'x'.repeat(100000) },
+                    },
+                },
+            }
+
+            const result = await handleStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings[0]).toMatchObject({ type: 'client_ingestion_warning', alwaysSend: true })
+            expect(result.warnings[0].details.arbitraryBlob).toBeUndefined()
         })
 
         it.each([
             ['missing details', undefined],
             ['details without replayRecord', { timestamp: '2026-06-12T10:00:00.000Z' }],
-            ['replayRecord without session_id', { replayRecord: {} }],
+            ['replayRecord without session_id', { timestamp: '2026-06-12T10:00:00.000Z', replayRecord: {} }],
+            ['missing timestamp', { replayRecord: { session_id: 'session-abc' } }],
+            ['non-string timestamp', { timestamp: 123, replayRecord: { session_id: 'session-abc' } }],
+            ['oversized timestamp', { timestamp: 'x'.repeat(1000), replayRecord: { session_id: 'session-abc' } }],
+            [
+                'non-string session_id',
+                { timestamp: '2026-06-12T10:00:00.000Z', replayRecord: { session_id: { evil: true } } },
+            ],
+            [
+                'oversized session_id',
+                { timestamp: '2026-06-12T10:00:00.000Z', replayRecord: { session_id: 'x'.repeat(1000) } },
+            ],
             ['non-object details', 'not-an-object'],
         ])('falls back to client_ingestion_warning when override has %s', async (_name, details) => {
             const input: HandleClientIngestionWarningStepInput = {
