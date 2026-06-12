@@ -52,25 +52,17 @@ def _scoped_teams_for_request(request: Request) -> list[int] | None:
 
 
 class GatewayManagementPermission(TeamMemberStrictManagementPermission):
-    """Authorize against the canonical (parent) team that owns the gateway.
+    """Authorize against the canonical (parent) team that owns the gateway — else a
+    child-env admin could manage the parent's shared gateway via the child's URL team_id."""
 
-    Gateways are project-scoped and live on the parent team; a child environment's
-    URL team_id resolves to that parent in the queryset. Measuring membership against
-    the URL team would let a child-environment-only admin manage the parent's shared
-    gateway, so resolve the parent and check there — matching the resource's owner.
-    """
-
-    # Listing the team's assignable keys is a read any member can do; binding,
-    # unbinding, and the gateway mutations manage shared team resources, so they're
-    # admin-only (project secret keys are team-owned, not per-user).
+    # Listing assignable keys is a read any member can do; binding/unbinding and gateway
+    # mutations manage shared team resources, so they're admin-only.
     member_level_actions = {"assignable_credentials"}
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         canonical = _canonical_team(view.team)  # type: ignore[attr-defined]
-        # Gateways are owned by the canonical (parent) team, but APIScopePermission
-        # only checks a token's scoped_teams against the URL team — which may be a
-        # child environment. Re-check against the owner so a token scoped only to a
-        # child can't manage the parent's shared gateways.
+        # APIScopePermission checks scoped_teams against the URL team (maybe a child env).
+        # Re-check against the owner so a child-scoped token can't manage parent gateways.
         scoped_teams = _scoped_teams_for_request(request)
         if scoped_teams and canonical.id not in scoped_teams:
             return False
@@ -83,9 +75,8 @@ class GatewayManagementPermission(TeamMemberStrictManagementPermission):
 
 
 class GatewaySerializer(serializers.ModelSerializer):
-    # Declared explicitly (rather than via the model field) so we can strip
-    # before validating and surface a clean 400 — the model's RegexValidator
-    # would otherwise reject untrimmed input before we get a chance to trim it.
+    # Declared explicitly so we can strip before validating — the model's RegexValidator
+    # would otherwise reject untrimmed input first.
     slug = serializers.CharField(
         max_length=64,
         help_text=(
@@ -189,15 +180,13 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     queryset = Gateway.objects.unscoped()
 
     def _should_skip_parents_filter(self) -> bool:
-        # safely_get_queryset already scopes via for_team(); the default parent
-        # filter would re-filter on the raw URL team_id and miss a child
-        # environment's parent-owned gateways.
+        # safely_get_queryset already scopes via for_team(); the default parent filter
+        # would re-filter on the raw URL team_id and miss parent-owned gateways.
         return True
 
     def safely_get_queryset(self, queryset: QuerySet[Gateway]) -> QuerySet[Gateway]:
-        # Gateways live on the canonical (parent) team, so a child environment's
-        # team_id must resolve to its parent — for_team() does that, where a raw
-        # team_id filter would return nothing for a child environment.
+        # Gateways live on the canonical (parent) team; for_team() resolves a child env's
+        # team_id to its parent, where a raw team_id filter would return nothing.
         return (
             Gateway.objects.for_team(self.team_id)
             .select_related("created_by")
