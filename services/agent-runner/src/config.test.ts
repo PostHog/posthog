@@ -9,7 +9,7 @@ describe('loadAgentRunnerConfig', () => {
         vi.stubEnv('NODE_ENV', 'production')
         const cfg = loadAgentRunnerConfig({})
         expect(cfg.maxConcurrency).toBe(8)
-        expect(cfg.useAiGateway).toBe(false)
+        expect(cfg.useAiGateway).toBe(true)
         expect(cfg.aiGatewayUrl).toBe('http://ai-gateway/v1')
         expect(cfg.encryptionSaltKeys).toBe('')
         expect(cfg.logLevel).toBe('info')
