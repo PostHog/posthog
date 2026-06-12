@@ -1,7 +1,7 @@
 import copy
 import json
 import graphlib
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
 from urllib.parse import urlparse
 
@@ -847,7 +847,8 @@ def _format_incremental_cursor(value: Any, chosen: dict[str, Any]) -> Any:
     wire format; absent that we default to ISO-8601 via ``isoformat()``. Non-datetime
     cursors (integer, string) and an already-formatted string pass through untouched.
     """
-    if not isinstance(value, date | datetime):
+    # `datetime` is a subclass of `date`, so this matches both.
+    if not isinstance(value, date):
         return value
     endpoint = chosen.get("endpoint")
     incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None

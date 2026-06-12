@@ -1389,42 +1389,31 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
         )
         source.source_for_pipeline(config, inputs)
 
+    _DT = datetime(2026, 6, 8, 12, 53, 34, tzinfo=UTC)
+
     @parameterized.expand(
         [
-            ("typeform_z", "%Y-%m-%dT%H:%M:%SZ", "2026-06-08T12:53:34Z"),
-            ("date_only", "%Y-%m-%d", "2026-06-08"),
-            ("space_separated", "%Y-%m-%d %H:%M:%S", "2026-06-08 12:53:34"),
+            # A datetime watermark reaches the engine as the resource's declared wire
+            # format — never Python's `str(datetime)` (space-separated, rejected by
+            # strict APIs like Typeform).
+            ("typeform_z", "%Y-%m-%dT%H:%M:%SZ", _DT, "2026-06-08T12:53:34Z"),
+            ("date_only", "%Y-%m-%d", _DT, "2026-06-08"),
+            ("space_separated", "%Y-%m-%d %H:%M:%S", _DT, "2026-06-08 12:53:34"),
+            # With no declared format, default to ISO-8601 (valid `T` separator).
+            ("iso8601_default", None, _DT, "2026-06-08T12:53:34+00:00"),
+            # Non-datetime cursors (already-formatted string, integer) pass through untouched.
+            ("string_passthrough", "%Y-%m-%dT%H:%M:%SZ", "2026-06-08T00:00:00Z", "2026-06-08T00:00:00Z"),
         ]
     )
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_datetime_watermark_uses_declared_format(self, _name, fmt, expected, mock_resources):
-        # A datetime watermark must reach the engine as the resource's declared
-        # wire format — never Python's `str(datetime)` (space-separated, rejected
-        # by strict APIs like Typeform).
+    def test_datetime_watermark_formatting(self, _name, fmt, watermark, expected, mock_resources):
         mock_resources.return_value = [_fake_resource("users")]
-        self._run(self._manifest(fmt), datetime(2026, 6, 8, 12, 53, 34, tzinfo=UTC))
+        self._run(self._manifest(fmt), watermark)
 
         assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] == expected
         # datetime_format is a Custom-source hint; it must not reach Incremental(**config).
         incremental = mock_resources.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
         assert "datetime_format" not in incremental
-
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_datetime_watermark_defaults_to_isoformat(self, mock_resources):
-        # Without a declared format, default to ISO-8601 (valid `T` separator),
-        # never the space-separated `str(datetime)`.
-        mock_resources.return_value = [_fake_resource("users")]
-        self._run(self._manifest(), datetime(2026, 6, 8, 12, 53, 34, tzinfo=UTC))
-
-        assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] == "2026-06-08T12:53:34+00:00"
-
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_non_datetime_watermark_passes_through(self, mock_resources):
-        # Integer / already-formatted-string cursors are left untouched.
-        mock_resources.return_value = [_fake_resource("users")]
-        self._run(self._manifest("%Y-%m-%dT%H:%M:%SZ"), "2026-06-08T00:00:00Z")
-
-        assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] == "2026-06-08T00:00:00Z"
 
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_datetime_format_reaches_request_through_real_engine(self, mock_make_session):
