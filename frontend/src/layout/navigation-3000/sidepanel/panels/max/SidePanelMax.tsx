@@ -1,14 +1,9 @@
-import { Suspense, lazy } from 'react'
+import { lazy } from 'react'
 
-import { Spinner } from 'lib/lemon-ui/Spinner'
-
+// Lazy so the side panel registry doesn't pull Max's thread graph (Query, message widgets)
+// into the shell chunk. SidePanel already wraps panel content in a Suspense boundary.
 const MaxInstance = lazy(() => import('scenes/max/Max').then((m) => ({ default: m.MaxInstance })))
 
-/** Lazy so the side panel registry doesn't pull Max's thread graph (Query, message widgets) into the shell chunk. */
 export function SidePanelMax(): JSX.Element | null {
-    return (
-        <Suspense fallback={<Spinner className="m-4" />}>
-            <MaxInstance sidePanel />
-        </Suspense>
-    )
+    return <MaxInstance sidePanel />
 }
