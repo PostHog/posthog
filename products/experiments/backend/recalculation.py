@@ -30,7 +30,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
-from products.experiments.backend.temporal.recalculation_logic import discover_metrics_for_experiment, find_metric_dict
+from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics, find_metric_dict
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
@@ -143,7 +143,7 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
 
         # Set total_metrics up front from the experiment definition so the client can show progress
         # ("N of M") immediately, before the workflow's discovery activity confirms the same count.
-        metrics = discover_metrics_for_experiment(experiment)
+        metrics = discover_experiment_metrics(experiment)
         recalc = ExperimentMetricsRecalculation.objects.create(
             team=experiment.team,
             experiment=experiment,

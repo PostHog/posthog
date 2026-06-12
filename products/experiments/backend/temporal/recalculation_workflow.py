@@ -128,7 +128,13 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         final_status = "failed" if failed > 0 else "completed"
         await temporalio.workflow.execute_activity(
             update_recalculation_progress,
-            RecalculationProgressUpdate(recalculation_id=recalculation_id, status=final_status, mark_completed=True),
+            RecalculationProgressUpdate(
+                recalculation_id=recalculation_id,
+                status=final_status,
+                mark_completed=True,
+                succeeded_metrics=succeeded,
+                failed_metrics=failed,
+            ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
