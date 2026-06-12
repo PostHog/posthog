@@ -665,7 +665,8 @@ class GreenhouseSourceConfig(config.Config):
 
 @config.config
 class GuruSourceConfig(config.Config):
-    pass
+    username: str
+    api_token: str
 
 
 @config.config

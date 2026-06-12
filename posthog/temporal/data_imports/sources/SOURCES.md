@@ -86,6 +86,7 @@ the row lists both.
 | granola          | HTTP                        | requests                                                        | ✅                          |
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse       | HTTP                        | requests                                                        | ✅                          |
+| guru             | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | incident_io      | HTTP                        | requests                                                        | ✅                          |
 | intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -243,7 +244,6 @@ doesn't conflict with concurrent PRs.
 - google_analytics
 - google_cloud_storage
 - google_drive
-- guru
 - gusto
 - heap
 - helpscout
