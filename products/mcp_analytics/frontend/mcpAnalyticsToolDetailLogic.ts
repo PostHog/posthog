@@ -7,6 +7,7 @@ import { DataTableNode, HogQLQueryResponse, InsightVizNode, NodeKind } from '~/q
 import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyMathType } from '~/types'
 
 import type { mcpAnalyticsToolDetailLogicType } from './mcpAnalyticsToolDetailLogicType'
+import { EFFECTIVE_TOOL_HOGQL } from './mcpEventShape'
 
 export interface ToolSummary {
     calls: number
@@ -36,12 +37,6 @@ export interface MCPAnalyticsToolDetailLogicProps {
 const NEW_SDK_SOURCE = 'posthog_mcp_analytics'
 
 const DATE_FROM_CURRENT = '-7d'
-
-// HogQL expression that resolves to the *effective* tool name for new-SDK events:
-// the inner tool when the call went through the single-exec wrapper, otherwise
-// the directly-registered tool name. Use anywhere we need to filter/group by tool.
-const EFFECTIVE_TOOL_HOGQL =
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))"
 
 const NEW_SDK_FILTER = `properties.$mcp_source = '${NEW_SDK_SOURCE}'`
 

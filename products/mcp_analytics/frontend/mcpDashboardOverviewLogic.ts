@@ -7,25 +7,31 @@ import { hogql } from '~/queries/utils'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
+import { EFFECTIVE_DURATION_HOGQL, EFFECTIVE_IS_ERROR_HOGQL, EFFECTIVE_TOOL_HOGQL } from './mcpEventShape'
 
 // KPI tiles compare this week against the prior week.
 const LOOKBACK_DAYS = 7
 // Breakdowns and trends (activity, tools, harnesses, notable sessions) use a longer 30-day window.
 const BREAKDOWN_DAYS = 30
 
+// Counts each real tool call exactly once across event shapes: resolves to a tool
+// name for every shape (so shapeless noise drops out — NULL fails the comparison)
+// and excludes the exec dispatcher wrapper, which always pairs with an inner event
+// for the real tool.
+const REAL_TOOL_CALL_HOGQL = `${EFFECTIVE_TOOL_HOGQL} != 'exec'`
+
 const KPI_QUERY = hogql`
 SELECT
     toDate(timestamp) AS bucket,
     countDistinctIf(toString(properties.$mcp_session_id), toString(properties.$mcp_session_id) != '') AS sessions,
     count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
+    countIf(${hogql.raw(EFFECTIVE_IS_ERROR_HOGQL)}) AS errors,
+    round(quantile(0.95)(${hogql.raw(EFFECTIVE_DURATION_HOGQL)})) AS p95,
     timestamp >= now() - INTERVAL ${hogql.raw(String(LOOKBACK_DAYS))} DAY AS in_current
 FROM events
 WHERE event = 'mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(LOOKBACK_DAYS * 2))} DAY
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
+    AND ${hogql.raw(REAL_TOOL_CALL_HOGQL)}
 GROUP BY bucket, in_current
 ORDER BY bucket
 `
@@ -36,18 +42,17 @@ const SESSION_ROWS_QUERY = hogql`
 SELECT
     toString(properties.$mcp_session_id) AS session_id,
     count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+    countIf(${hogql.raw(EFFECTIVE_IS_ERROR_HOGQL)}) AS errors,
+    round(countIf(${hogql.raw(EFFECTIVE_IS_ERROR_HOGQL)}) * 100.0 / count(), 1) AS error_rate_pct,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
-    uniq(toString(properties.$mcp_tool_name)) AS distinct_tools,
+    uniq(${hogql.raw(EFFECTIVE_TOOL_HOGQL)}) AS distinct_tools,
     max(timestamp) AS last_seen
 FROM events
 WHERE event = 'mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_session_id IS NOT NULL
     AND properties.$mcp_session_id != ''
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
+    AND ${hogql.raw(REAL_TOOL_CALL_HOGQL)}
 GROUP BY session_id
 HAVING tool_calls >= 1
 ORDER BY tool_calls DESC
@@ -58,16 +63,15 @@ LIMIT 500
 // compact reliability matrix on the overview. Limited columns + 50 rows.
 const TOOL_ROWS_QUERY = hogql`
 SELECT
-    toString(properties.$mcp_tool_name) AS tool,
+    ${hogql.raw(EFFECTIVE_TOOL_HOGQL)} AS tool,
     count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
+    countIf(${hogql.raw(EFFECTIVE_IS_ERROR_HOGQL)}) AS errors,
+    round(countIf(${hogql.raw(EFFECTIVE_IS_ERROR_HOGQL)}) * 100.0 / count(), 1) AS error_rate_pct,
+    round(quantile(0.95)(${hogql.raw(EFFECTIVE_DURATION_HOGQL)})) AS p95_duration_ms
 FROM events
 WHERE event = 'mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
+    AND ${hogql.raw(REAL_TOOL_CALL_HOGQL)}
 GROUP BY tool
 ORDER BY total_calls DESC
 LIMIT 50
@@ -77,13 +81,14 @@ const HARNESS_ROWS_QUERY = hogql`
 SELECT
     toString(properties.$mcp_client_name) AS client,
     count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    countIf(${hogql.raw(EFFECTIVE_IS_ERROR_HOGQL)}) AS errors,
     countDistinctIf(toString(properties.$mcp_session_id), toString(properties.$mcp_session_id) != '') AS sessions
 FROM events
 WHERE event = 'mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_client_name IS NOT NULL
     AND properties.$mcp_client_name != ''
+    AND ${hogql.raw(REAL_TOOL_CALL_HOGQL)}
 GROUP BY client
 ORDER BY total_calls DESC
 LIMIT 200
@@ -93,13 +98,12 @@ LIMIT 200
 const ACTIVITY_QUERY = hogql`
 SELECT
     toDate(timestamp) AS day,
-    countIf(NOT toBool(properties.$mcp_is_error)) AS successes,
-    countIf(toBool(properties.$mcp_is_error)) AS errors
+    countIf(not(${hogql.raw(EFFECTIVE_IS_ERROR_HOGQL)})) AS successes,
+    countIf(${hogql.raw(EFFECTIVE_IS_ERROR_HOGQL)}) AS errors
 FROM events
 WHERE event = 'mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
+    AND ${hogql.raw(REAL_TOOL_CALL_HOGQL)}
 GROUP BY day
 ORDER BY day
 `
@@ -108,13 +112,12 @@ ORDER BY day
 const TOOL_DAILY_QUERY = hogql`
 SELECT
     toDate(timestamp) AS day,
-    toString(properties.$mcp_tool_name) AS tool,
+    ${hogql.raw(EFFECTIVE_TOOL_HOGQL)} AS tool,
     count() AS calls
 FROM events
 WHERE event = 'mcp_tool_call'
     AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
+    AND ${hogql.raw(REAL_TOOL_CALL_HOGQL)}
 GROUP BY day, tool
 ORDER BY day
 LIMIT 10000
