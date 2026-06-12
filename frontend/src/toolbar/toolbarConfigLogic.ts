@@ -608,6 +608,19 @@ function classifyFetchError(error: unknown): string {
     return 'unknown'
 }
 
+// HTTP statuses that just mean this host doesn't route /toolbar_oauth/check
+// (older self-hosted instances, reverse proxies/CDNs). These are expected
+// client-configuration failures — already surfaced via the config modal and the
+// 'toolbar ui host check' analytics event — so they shouldn't be tracked as exceptions.
+const EXPECTED_UI_HOST_CHECK_STATUSES = new Set([403, 404, 405])
+
+function isExpectedUiHostCheckError(error: unknown): boolean {
+    if (error instanceof Error && error.message.startsWith('HTTP ')) {
+        return EXPECTED_UI_HOST_CHECK_STATUSES.has(Number(error.message.slice('HTTP '.length)))
+    }
+    return false
+}
+
 /**
  * Run a CORS HEAD check against the PostHog app to verify uiHost is reachable.
  * If a pending OAuth code exchange exists, it runs after the check succeeds
@@ -659,9 +672,14 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // Only capture genuinely unexpected failures. Expected client-config
+            // statuses (host doesn't route the check) are already tracked via the
+            // 'toolbar ui host check' analytics event below.
+            if (!isExpectedUiHostCheckError(error)) {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: classifyFetchError(error),
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
