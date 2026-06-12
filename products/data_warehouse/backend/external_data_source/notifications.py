@@ -2,7 +2,8 @@ import datetime as dt
 from urllib.parse import quote
 
 from django.conf import settings
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
+from django.utils import timezone
 
 import structlog
 
@@ -15,25 +16,27 @@ logger = structlog.get_logger(__name__)
 
 
 def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta(hours=24)) -> list[int]:
-    """Teams with still-failing schemas whose latest failure happened within the lookback.
+    """Teams with still-failing schemas that have an un-communicated recent failure.
 
     Powers the daily catch-up digest: failures that the one-email-per-day block
     swallowed get flushed the next day — including schemas that were paused and
-    will never produce another failed run to re-trigger the inline path.
+    will never produce another failed run to re-trigger the inline path. A failure
+    counts only if it is newer than the schema's `last_error_notified_at` stamp,
+    so failures already covered by an earlier digest don't trigger a duplicate.
     """
     cutoff = dt.datetime.now(dt.UTC) - lookback
     # Drive from the schema side: the jobs table grows with every sync run and has
     # no index on (status, finished_at), so starting there would seq-scan it daily.
     # Schemas are one row each, and their jobs are reachable via the schema_id FK index.
-    recent_failed_job = ExternalDataJob.objects.filter(
+    unnotified_failed_job = ExternalDataJob.objects.filter(
         schema_id=OuterRef("id"),
         status=ExternalDataJob.Status.FAILED,
         finished_at__gte=cutoff,
-    )
+    ).filter(Q(schema__last_error_notified_at__isnull=True) | Q(finished_at__gt=OuterRef("last_error_notified_at")))
     return list(
         ExternalDataSchema.objects.exclude(deleted=True)
         .filter(status=ExternalDataSchema.Status.FAILED)
-        .filter(Exists(recent_failed_job))
+        .filter(Exists(unnotified_failed_job))
         .values_list("team_id", flat=True)
         .distinct()
     )
@@ -75,6 +78,12 @@ def notify_external_data_sync_failures(team_id: int) -> None:
                 }
             )
 
-        send_external_data_failure_digest(team_id, items)
+        sent = send_external_data_failure_digest(team_id, items)
+        if sent:
+            # Mark every listed schema as communicated, so the daily catch-up only
+            # re-triggers for failures that happened after this email went out.
+            ExternalDataSchema.objects.filter(id__in=[schema.id for schema in failing_schemas]).update(
+                last_error_notified_at=timezone.now()
+            )
     except Exception:
         logger.exception("Failed to send external data sync failure digest", team_id=team_id)

@@ -561,7 +561,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         with freeze_time("2024-05-15 10:00:00"):
-            send_external_data_failure_digest(
+            sent = send_external_data_failure_digest(
                 self.team.pk,
                 [
                     {
@@ -581,6 +581,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 ],
             )
 
+        assert sent is True
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
@@ -626,7 +627,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             record.sent_at = timezone.now()
             record.save()
 
-            send_external_data_failure_digest(
+            sent = send_external_data_failure_digest(
                 self.team.pk,
                 [
                     {
@@ -639,6 +640,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 ],
             )
 
+        assert sent is False
         assert len(mocked_email_messages) == 0
 
     def test_send_external_data_failure_digest_all_paused_subject(self, MockEmailMessage: MagicMock) -> None:

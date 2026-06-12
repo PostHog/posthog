@@ -615,15 +615,18 @@ def send_batch_export_run_failure(
 EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC = 10
 
 
-def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]]) -> None:
+def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]]) -> bool:
     """Email a per-team digest of failing external data source syncs.
 
     Called inline from the sync failure path rather than as a task. The
     MessagingRecord campaign key embeds the digest day, capping delivery at one
     email per team per digest day — repeat calls the same day are no-ops.
+
+    Returns whether the email was actually sent, so the caller can stamp the
+    included schemas as notified.
     """
     if not is_email_available(with_absolute_urls=True):
-        return
+        return False
 
     # Shift the clock back so the date in the key changes at the boundary hour
     # (UTC-anchored — date.today() would follow the OS timezone instead).
@@ -634,17 +637,17 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     # one to send wins. Bail before the recipient/permission queries and render —
     # the per-recipient MessagingRecord lock in _send_email stays the real gate.
     if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
-        return
+        return False
 
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         logger.warning("Team %d not found for external data failure digest", team_id)
-        return
+        return False
 
     memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
-        return
+        return False
 
     paused_count = sum(1 for schema in schemas if schema["paused"])
     subject = (
@@ -666,6 +669,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
     message.send()
+    return True
 
 
 @shared_task(ignore_result=True)

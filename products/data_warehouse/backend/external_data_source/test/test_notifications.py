@@ -126,6 +126,38 @@ class TestNotifyExternalDataSyncFailures:
         with patch(SENDER_PATH, side_effect=Exception("smtp down")):
             notify_external_data_sync_failures(team.pk)
 
+    def test_stamps_schemas_after_successful_send(self):
+        team, source = _create_team_and_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="boom",
+        )
+
+        with patch(SENDER_PATH, return_value=True):
+            notify_external_data_sync_failures(team.pk)
+
+        schema.refresh_from_db()
+        assert schema.last_error_notified_at is not None
+
+    def test_does_not_stamp_when_email_not_sent(self):
+        team, source = _create_team_and_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="boom",
+        )
+
+        with patch(SENDER_PATH, return_value=False):
+            notify_external_data_sync_failures(team.pk)
+
+        schema.refresh_from_db()
+        assert schema.last_error_notified_at is None
+
 
 class TestGetTeamIdsWithRecentSyncFailures:
     def _create_schema_with_job(
@@ -134,6 +166,7 @@ class TestGetTeamIdsWithRecentSyncFailures:
         schema_status: str,
         job_finished_at: dt.datetime,
         schema_deleted: bool = False,
+        last_error_notified_at: dt.datetime | None = None,
     ) -> Team:
         team, source = _create_team_and_source()
         schema = ExternalDataSchema.objects.create(
@@ -143,6 +176,7 @@ class TestGetTeamIdsWithRecentSyncFailures:
             status=schema_status,
             deleted=schema_deleted,
             latest_error="boom",
+            last_error_notified_at=last_error_notified_at,
         )
         job = ExternalDataJob.objects.create(
             team=team,
@@ -181,3 +215,23 @@ class TestGetTeamIdsWithRecentSyncFailures:
         )
 
         assert get_team_ids_with_recent_sync_failures() == []
+
+    def test_excludes_failures_already_communicated(self):
+        # A digest went out after the failure — the catch-up must not duplicate it.
+        self._create_schema_with_job(
+            schema_status=ExternalDataSchema.Status.FAILED,
+            job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2),
+            last_error_notified_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1),
+        )
+
+        assert get_team_ids_with_recent_sync_failures() == []
+
+    def test_includes_failures_newer_than_the_stamp(self):
+        # The schema failed again after the last digest — there is news to deliver.
+        team = self._create_schema_with_job(
+            schema_status=ExternalDataSchema.Status.FAILED,
+            job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1),
+            last_error_notified_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2),
+        )
+
+        assert get_team_ids_with_recent_sync_failures() == [team.pk]
