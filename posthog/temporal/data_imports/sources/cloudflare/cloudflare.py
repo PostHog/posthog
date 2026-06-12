@@ -86,6 +86,9 @@ def get_rows(
         return
 
     zone_ids = [zone["id"] for page in iterate_pages("/zones") for zone in page if zone.get("id")]
+    assert config.parent_key is not None, (
+        f"Zone-scoped endpoint '{endpoint}' must define parent_key in CLOUDFLARE_ENDPOINTS"
+    )
     for zone_id in zone_ids:
         path = config.path.replace("{zone_id}", quote(zone_id))
         for page_items in iterate_pages(path):
