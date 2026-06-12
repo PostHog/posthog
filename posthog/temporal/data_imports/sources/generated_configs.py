@@ -376,7 +376,12 @@ class CodaSourceConfig(config.Config):
 
 @config.config
 class CommercetoolsSourceConfig(config.Config):
-    pass
+    project_key: str
+    client_id: str
+    client_secret: str
+    region: Literal[
+        "us-central1.gcp", "us-east-2.aws", "europe-west1.gcp", "eu-central-1.aws", "australia-southeast1.gcp"
+    ] = config.value(default="us-central1.gcp")
 
 
 @config.config
