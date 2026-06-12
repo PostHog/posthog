@@ -146,7 +146,8 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).",
     )
-    clauses = _MetricClauseSerializer(
+    # mypy can't see DRF's many_init routing max_length to the ListSerializer
+    clauses = _MetricClauseSerializer(  # type: ignore[call-arg]
         many=True,
         required=False,
         max_length=MAX_CLAUSES_PER_QUERY,
