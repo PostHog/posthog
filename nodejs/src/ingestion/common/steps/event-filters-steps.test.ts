@@ -253,7 +253,7 @@ describe('createApplyEventFiltersStep', () => {
     interface FilterScenario {
         name: string
         filter: FilterNode
-        event: { event_name?: string; distinct_id?: string }
+        event: { event_name?: string; distinct_id?: string; ip?: string }
         drops: boolean
     }
 
@@ -302,6 +302,44 @@ describe('createApplyEventFiltersStep', () => {
             drops: false,
         },
         { name: 'undefined field', filter: cond('event_name', 'exact', 'test'), event: {}, drops: false },
+
+        // ip matching
+        {
+            name: 'exact ip match',
+            filter: cond('ip', 'exact', '203.0.113.7'),
+            event: { ip: '203.0.113.7' },
+            drops: true,
+        },
+        {
+            name: 'exact ip no match',
+            filter: cond('ip', 'exact', '203.0.113.7'),
+            event: { ip: '203.0.113.8' },
+            drops: false,
+        },
+        {
+            name: 'ip contains match (prefix)',
+            filter: cond('ip', 'contains', '10.0.0.'),
+            event: { ip: '10.0.0.42' },
+            drops: true,
+        },
+        {
+            name: 'missing ip header never drops',
+            filter: cond('ip', 'exact', '203.0.113.7'),
+            event: { event_name: '$pageview' },
+            drops: false,
+        },
+        {
+            name: 'AND of ip and event_name both match',
+            filter: and(cond('ip', 'exact', '203.0.113.7'), cond('event_name', 'exact', '$pageview')),
+            event: { ip: '203.0.113.7', event_name: '$pageview' },
+            drops: true,
+        },
+        {
+            name: 'AND of ip and event_name only ip matches',
+            filter: and(cond('ip', 'exact', '203.0.113.7'), cond('event_name', 'exact', '$pageview')),
+            event: { ip: '203.0.113.7', event_name: '$click' },
+            drops: false,
+        },
 
         // empty groups are conservative (never drop)
         { name: 'empty AND', filter: { type: 'and', children: [] }, event: { event_name: '$pageview' }, drops: false },
@@ -474,7 +512,7 @@ describe('createApplyEventFiltersStep', () => {
         const step = createApplyEventFiltersStep(mockManager)
         const input = {
             team: createTestTeam({ id: 1 }),
-            headers: createTestEventHeaders({ event: event.event_name, distinct_id: event.distinct_id }),
+            headers: createTestEventHeaders({ event: event.event_name, distinct_id: event.distinct_id, ip: event.ip }),
             eventFiltersBatchAppMetrics: metrics,
         }
 

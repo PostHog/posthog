@@ -38,7 +38,7 @@ export interface ApplyEventFiltersInput {
 /**
  * Creates a pipeline step that evaluates customer-configured event filters.
  *
- * Uses event headers (event name, distinct_id) so it can run before the Kafka
+ * Uses event headers (event name, distinct_id, ip) so it can run before the Kafka
  * message is parsed into a full event — avoiding wasted work on dropped events.
  *
  * In "live" mode, matching events are dropped and a "dropped" metric is recorded.
@@ -61,6 +61,7 @@ export function createApplyEventFiltersStep<T extends ApplyEventFiltersInput>(
         const matched = evaluateFilterTree(filter.filter_tree, {
             event_name: input.headers.event,
             distinct_id: input.headers.distinct_id,
+            ip: input.headers.ip,
         })
 
         if (matched) {

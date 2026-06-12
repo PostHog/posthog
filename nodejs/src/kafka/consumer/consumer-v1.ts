@@ -883,6 +883,8 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.token = sanitizeString(value)
             } else if (key === 'distinct_id') {
                 result.distinct_id = sanitizeString(value)
+            } else if (key === 'ip') {
+                result.ip = sanitizeString(value)
             } else if (key === 'session_id') {
                 result.session_id = normalizeSessionId(sanitizeString(value))
             } else if (key === 'timestamp') {
@@ -910,6 +912,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     const trackedHeaders = [
         'token',
         'distinct_id',
+        'ip',
         'session_id',
         'timestamp',
         'event',

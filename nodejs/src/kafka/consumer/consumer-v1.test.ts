@@ -565,6 +565,12 @@ describe('parseEventHeaders', () => {
         expect(result).toEqual(createTestEventHeaders({ distinct_id: 'user-123' }))
     })
 
+    it('should parse ip header only', () => {
+        const headers: MessageHeader[] = [{ ip: Buffer.from('203.0.113.7') }]
+        const result = parseEventHeaders(headers)
+        expect(result).toEqual(createTestEventHeaders({ ip: '203.0.113.7' }))
+    })
+
     it('should parse timestamp header only', () => {
         const headers: MessageHeader[] = [{ timestamp: Buffer.from('1234567890') }]
         const result = parseEventHeaders(headers)

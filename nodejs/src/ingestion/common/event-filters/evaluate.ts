@@ -1,5 +1,12 @@
 import { FilterConditionNode, FilterNode } from './schema'
 
+/** Event fields that filter conditions can match on, keyed by condition `field`. */
+export interface FilterableEvent {
+    event_name?: string
+    distinct_id?: string
+    ip?: string
+}
+
 /**
  * Recursively evaluate a filter tree node against event fields.
  *
@@ -12,7 +19,7 @@ import { FilterConditionNode, FilterNode } from './schema'
  * This is intentional — when in doubt, don't drop. Dropping is irreversible,
  * while not dropping just means unwanted events get through temporarily.
  */
-export function evaluateFilterTree(node: FilterNode, event: { event_name?: string; distinct_id?: string }): boolean {
+export function evaluateFilterTree(node: FilterNode, event: FilterableEvent): boolean {
     switch (node.type) {
         case 'condition':
             return evaluateCondition(node, event)
@@ -26,7 +33,7 @@ export function evaluateFilterTree(node: FilterNode, event: { event_name?: strin
     }
 }
 
-function evaluateCondition(node: FilterConditionNode, event: { event_name?: string; distinct_id?: string }): boolean {
+function evaluateCondition(node: FilterConditionNode, event: FilterableEvent): boolean {
     const value = event[node.field]
     if (value === undefined || value === null) {
         return false

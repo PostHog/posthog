@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 const FilterConditionSchema = z.object({
     type: z.literal('condition'),
-    field: z.enum(['event_name', 'distinct_id']),
+    field: z.enum(['event_name', 'distinct_id', 'ip']),
     operator: z.enum(['exact', 'contains']),
     value: z.string().min(1),
 })

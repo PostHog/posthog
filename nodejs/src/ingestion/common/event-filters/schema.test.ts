@@ -11,6 +11,16 @@ describe('FilterNodeSchema', () => {
         expect(result.success).toBe(true)
     })
 
+    it('accepts a valid ip condition', () => {
+        const result = FilterNodeSchema.safeParse({
+            type: 'condition',
+            field: 'ip',
+            operator: 'exact',
+            value: '203.0.113.7',
+        })
+        expect(result.success).toBe(true)
+    })
+
     it('rejects condition with empty value', () => {
         const result = FilterNodeSchema.safeParse({
             type: 'condition',
