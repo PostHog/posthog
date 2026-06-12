@@ -15,6 +15,7 @@ from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryEr
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
+from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.printer.base import (
     BasePrinter,
     get_channel_definition_dict,
@@ -472,7 +473,7 @@ class ClickHousePrinter(BasePrinter):
             return field_sql
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        return f"JSONDropKeys({keys_placeholder})({field_sql})"
+        return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
 
     def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
         """If the expression resolves to $session_id on the events table, return the table type."""
