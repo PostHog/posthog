@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { IngestionWarning } from 'scenes/data-management/ingestion-warnings/ingestionWarningsLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -44,6 +46,20 @@ describe('playerIngestionWarningsLogic', () => {
                                 },
                             ],
                         },
+                        {
+                            // a forged prototype-key type must not match the phrase map
+                            type: 'constructor',
+                            lastSeen: '2026-06-12T10:00:00Z',
+                            count: 1,
+                            sparkline: [],
+                            warnings: [
+                                {
+                                    type: 'constructor',
+                                    timestamp: '2026-06-12T10:00:00Z',
+                                    details: { sessionId: 'session-1' },
+                                },
+                            ],
+                        },
                     ],
                 },
             },
@@ -58,6 +74,14 @@ describe('playerIngestionWarningsLogic', () => {
 
         expect(logic.values.replayWarnings).toHaveLength(1)
         expect(logic.values.replayWarnings[0].type).toBe('replay_message_too_large')
+        expect(logic.values.droppedDataPhrases).toEqual(['some data was too large to ingest'])
+    })
+
+    it('does not let a forged prototype-key warning type leak into the banner', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        const types = logic.values.replayWarnings.map((w: IngestionWarning) => w.type)
+        expect(types).not.toContain('constructor')
         expect(logic.values.droppedDataPhrases).toEqual(['some data was too large to ingest'])
     })
 })
