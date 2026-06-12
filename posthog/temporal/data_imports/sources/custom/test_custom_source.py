@@ -1,6 +1,7 @@
 import io
 import gzip
 import json
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
@@ -1365,3 +1366,109 @@ class TestCustomSourceFanoutSchemasAndProbe(SimpleTestCase):
 
         probed_urls = [call.args[1] for call in mock_session.return_value.request.call_args_list]
         assert probed_urls == ["https://api.example.com/forms"]
+
+
+class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
+    def _manifest(self, datetime_format=None) -> dict:
+        manifest = _minimal_manifest()
+        incremental = {"cursor_path": "updated_at", "start_param": "since"}
+        if datetime_format is not None:
+            incremental["datetime_format"] = datetime_format
+        manifest["resources"][0]["endpoint"]["incremental"] = incremental
+        return manifest
+
+    def _run(self, manifest, watermark):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+        )
+        source.source_for_pipeline(config, inputs)
+
+    @parameterized.expand(
+        [
+            ("typeform_z", "%Y-%m-%dT%H:%M:%SZ", "2026-06-08T12:53:34Z"),
+            ("date_only", "%Y-%m-%d", "2026-06-08"),
+            ("space_separated", "%Y-%m-%d %H:%M:%S", "2026-06-08 12:53:34"),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_datetime_watermark_uses_declared_format(self, _name, fmt, expected, mock_resources):
+        # A datetime watermark must reach the engine as the resource's declared
+        # wire format — never Python's `str(datetime)` (space-separated, rejected
+        # by strict APIs like Typeform).
+        mock_resources.return_value = [_fake_resource("users")]
+        self._run(self._manifest(fmt), datetime(2026, 6, 8, 12, 53, 34, tzinfo=UTC))
+
+        assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] == expected
+        # datetime_format is a Custom-source hint; it must not reach Incremental(**config).
+        incremental = mock_resources.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
+        assert "datetime_format" not in incremental
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_datetime_watermark_defaults_to_isoformat(self, mock_resources):
+        # Without a declared format, default to ISO-8601 (valid `T` separator),
+        # never the space-separated `str(datetime)`.
+        mock_resources.return_value = [_fake_resource("users")]
+        self._run(self._manifest(), datetime(2026, 6, 8, 12, 53, 34, tzinfo=UTC))
+
+        assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] == "2026-06-08T12:53:34+00:00"
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_non_datetime_watermark_passes_through(self, mock_resources):
+        # Integer / already-formatted-string cursors are left untouched.
+        mock_resources.return_value = [_fake_resource("users")]
+        self._run(self._manifest("%Y-%m-%dT%H:%M:%SZ"), "2026-06-08T00:00:00Z")
+
+        assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] == "2026-06-08T00:00:00Z"
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_datetime_format_reaches_request_through_real_engine(self, mock_make_session):
+        # End-to-end: the formatted watermark must land in the child's `since` query
+        # param (the exact failure mode that 400'd against Typeform).
+        def _response(body: dict) -> Response:
+            resp = Response()
+            resp.status_code = 200
+            resp._content = json.dumps(body).encode()
+            resp.headers["Content-Type"] = "application/json"
+            return resp
+
+        captured: list[dict] = []
+
+        def send(prepared, **kwargs):
+            captured.append(dict(getattr(prepared, "params", {}) or {}))
+            if "/forms/f1/responses" in prepared.url:
+                return _response({"items": []})
+            return _response({"items": [{"id": "f1"}]})
+
+        session = mock_make_session.return_value
+        session.headers = {}
+        session.prepare_request.side_effect = lambda request: request
+        session.send.side_effect = send
+
+        manifest = _fanout_manifest()
+        for resource in manifest["resources"]:
+            resource["endpoint"]["paginator"] = {"type": "single_page"}
+        manifest["resources"][1]["endpoint"]["incremental"] = {
+            "cursor_path": "submitted_at",
+            "start_param": "since",
+            "datetime_format": "%Y-%m-%dT%H:%M:%SZ",
+        }
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="responses",
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 6, 8, 12, 53, 34, tzinfo=UTC),
+        )
+        list(source.source_for_pipeline(config, inputs).items())
+
+        child_params = next((p for p in captured if "since" in p), {})
+        assert child_params.get("since") == "2026-06-08T12:53:34Z"

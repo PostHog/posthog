@@ -668,6 +668,19 @@ function IncrementalSection({
                         Pick "Descending" when the API returns newest rows first — otherwise a resumed sync may skip
                         rows.
                     </p>
+                    {stream.cursor_type !== 'integer' && (
+                        <LemonField.Pure label="Datetime format">
+                            <LemonInput
+                                placeholder="%Y-%m-%dT%H:%M:%SZ"
+                                value={stream.datetime_format}
+                                onChange={(value) => onUpdate({ datetime_format: value })}
+                            />
+                            <p className="m-0 mt-1 text-xs text-secondary">
+                                strftime pattern for the watermark sent to the API (e.g. <code>%Y-%m-%dT%H:%M:%SZ</code>
+                                , <code>%s</code> for unix). Leave blank for ISO-8601.
+                            </p>
+                        </LemonField.Pure>
+                    )}
                 </>
             )}
         </div>

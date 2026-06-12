@@ -1,6 +1,7 @@
 import copy
 import json
 import graphlib
+from datetime import date, datetime
 from typing import Any, Literal, NamedTuple, Optional, cast
 from urllib.parse import urlparse
 
@@ -682,6 +683,15 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             ]
             engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
 
+            # Format the high-watermark to a string before the engine binds it into
+            # the request. The engine otherwise serializes a datetime via ``str()``
+            # (``2026-06-08 12:53:34+00:00`` — space-separated), which strict APIs
+            # reject; the chosen resource's ``endpoint.incremental.datetime_format``
+            # (or ISO-8601 by default) controls the wire format. No-op for
+            # non-datetime cursors.
+            last_value = inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            last_value = _format_incremental_cursor(last_value, chosen)
+
             # Inside the try block: the engine raises deterministic ValueErrors at
             # build time for config problems the create-time checks can't see
             # (e.g. `include_from_parent` on a resource with no resolve param).
@@ -689,9 +699,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 engine_manifest,
                 team_id=inputs.team_id,
                 job_id=inputs.job_id,
-                db_incremental_field_last_value=(
-                    inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
-                ),
+                db_incremental_field_last_value=last_value,
             )
         except ValueError as exc:
             # A malformed manifest, a missing resource, or a broken parent
@@ -821,10 +829,30 @@ def _incremental_field_type(raw: Any) -> IncrementalFieldType:
 
 # Keys the Custom source understands on ``endpoint.incremental`` that the generic
 # REST engine's ``Incremental(**config)`` constructor does NOT accept. They inform
-# how the cursor is typed (see ``_incremental_field_type``) but must be removed
-# before the engine builds its incremental tracker, or it raises an unexpected
-# keyword-argument error at sync setup.
-_ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type"})
+# how the cursor is typed (``cursor_type`` — see ``_incremental_field_type``) and
+# how a datetime watermark is rendered on the wire (``datetime_format`` — see
+# ``_format_incremental_cursor``), but must be removed before the engine builds its
+# incremental tracker, or it raises an unexpected keyword-argument error at sync setup.
+_ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type", "datetime_format"})
+
+
+def _format_incremental_cursor(value: Any, chosen: dict[str, Any]) -> Any:
+    """Render a datetime/date high-watermark as a string for the REST engine.
+
+    The engine binds the watermark into the request via ``str()``, so a
+    ``datetime`` reaches the API as ``2026-06-08 12:53:34+00:00`` (space-separated),
+    a format strict APIs (e.g. Typeform) reject. The chosen resource may declare
+    ``endpoint.incremental.datetime_format`` — a strftime pattern, mirroring
+    Airbyte's ``datetime_format`` (e.g. ``"%Y-%m-%dT%H:%M:%SZ"``) — to control the
+    wire format; absent that we default to ISO-8601 via ``isoformat()``. Non-datetime
+    cursors (integer, string) and an already-formatted string pass through untouched.
+    """
+    if not isinstance(value, date | datetime):
+        return value
+    endpoint = chosen.get("endpoint")
+    incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None
+    datetime_format = incremental.get("datetime_format") if isinstance(incremental, dict) else None
+    return value.strftime(datetime_format) if datetime_format else value.isoformat()
 
 
 def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict[str, Any]:
