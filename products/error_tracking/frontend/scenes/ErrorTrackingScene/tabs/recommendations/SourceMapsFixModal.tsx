@@ -57,7 +57,7 @@ function WizardCommand({ onCopy }: { onCopy: (key: number) => void }): JSX.Eleme
             type="button"
             onClick={handleCopy}
             aria-label="Copy wizard command"
-            className="group inline-flex items-center gap-2 px-4 py-3 font-mono text-sm cursor-pointer max-w-full transition-colors rounded-lg bg-surface-primary border border-primary hover:border-accent"
+            className="group inline-flex items-center gap-2 px-4 py-3 font-mono text-sm cursor-pointer max-w-full transition-colors rounded-lg bg-surface-primary border border-primary hover:border-blue-500"
         >
             <IconTerminal className="size-4 text-muted" />
             <span className="relative min-w-0">
