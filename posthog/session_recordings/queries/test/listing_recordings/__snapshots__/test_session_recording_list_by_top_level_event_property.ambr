@@ -29,7 +29,7 @@
                                                                                                                                                                                                                          GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -76,7 +76,7 @@
                                                                                                                                                                                                                          GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -125,7 +125,7 @@
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -174,7 +174,7 @@
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -223,7 +223,7 @@
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -270,7 +270,7 @@
                                                                                                                                                                                                                          GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -317,7 +317,7 @@
                                                                                                                                                                                                                          GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -364,7 +364,7 @@
                                                                                                                                                                                                                          GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -411,7 +411,7 @@
                                                                                                                                                                                                                          GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -460,7 +460,7 @@
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -509,7 +509,7 @@
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -558,7 +558,7 @@
                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                       LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -605,7 +605,7 @@
                                                                                                                                                                                                                          GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -652,7 +652,7 @@
                                                                                                                                                                                                                          GROUP BY nullIf(nullIf(events.`$session_id`, ''), 'null')
                                                                                                                                                                                                                          LIMIT 1000000)))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
+  HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
