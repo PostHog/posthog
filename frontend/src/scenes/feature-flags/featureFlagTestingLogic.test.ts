@@ -235,7 +235,7 @@ describe('featureFlagTestingLogic', () => {
                 expectedHasMultiple: false,
             },
             {
-                description: 'partial person (no distinct_ids) yields an empty list',
+                description: 'partial person (no distinct_ids) yields an empty list before async resolve',
                 person: { name: 'Jane Doe' },
                 expectedDistinctIds: [],
                 expectedHasMultiple: false,
@@ -253,6 +253,45 @@ describe('featureFlagTestingLogic', () => {
                 personDistinctIds: expectedDistinctIds,
                 hasMultipleDistinctIds: expectedHasMultiple,
             })
+        })
+
+        it('resolves distinct IDs for a partial person (recent tab) via the persons API', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team/persons/': () => [
+                        200,
+                        { results: [{ distinct_ids: ['user-123', 'user-456'] }], count: 1 },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedPerson({ name: 'Jane Doe' }, 'user-123')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    personDistinctIds: ['user-123', 'user-456'],
+                    hasMultipleDistinctIds: true,
+                })
+        })
+
+        it('clears resolved distinct IDs when a new person is selected', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team/persons/': () => [
+                        200,
+                        { results: [{ distinct_ids: ['user-123', 'user-456'] }], count: 1 },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedPerson({ name: 'Jane Doe' }, 'user-123')
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedPerson(null)
+            }).toMatchValues({ personDistinctIds: [], hasMultipleDistinctIds: false })
         })
     })
 
@@ -287,8 +326,21 @@ describe('featureFlagTestingLogic', () => {
                 logic.actions.testFlagEvaluationSuccess({
                     ...baseResult,
                     evaluation_distinct_id,
-                } as FeatureFlagTestEvaluationResponseApi)
+                })
             }).toMatchValues({ bucketingDistinctId: expected })
+        })
+
+        it('resets to null when setTestFormData is dispatched after a successful evaluation', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.testFlagEvaluationSuccess({
+                    ...baseResult,
+                    evaluation_distinct_id: 'user-123',
+                })
+            }).toMatchValues({ bucketingDistinctId: 'user-123' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setTestFormData({ distinct_id: 'user-456' })
+            }).toMatchValues({ bucketingDistinctId: null })
         })
     })
 

@@ -98,7 +98,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     // name + distinct_id, not the full person (no uuid/distinct_ids).
                                     const distinctId = typeof value === 'string' ? value : ''
                                     if (distinctId) {
-                                        setSelectedPerson((person as Partial<PersonType>) ?? null)
+                                        setSelectedPerson((person as Partial<PersonType>) ?? null, distinctId)
                                         setTestFormData({ distinct_id: distinctId })
                                     } else {
                                         setSelectedPerson(null)
@@ -112,13 +112,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 truncate
                                 renderValue={() => {
                                     if (formData.distinct_id) {
-                                        return (
-                                            <span>
-                                                {selectedPerson?.name ||
-                                                    selectedPerson?.distinct_ids?.[0] ||
-                                                    formData.distinct_id}
-                                            </span>
-                                        )
+                                        return <span>{selectedPerson?.name || formData.distinct_id}</span>
                                     }
                                     return null
                                 }}
