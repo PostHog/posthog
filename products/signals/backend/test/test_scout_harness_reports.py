@@ -160,11 +160,13 @@ class TestScoutCreateReportAPI(ScoutReportAPIBase):
             )
             for i in range(MAX_REPORTS_PER_RUN)
         )
-        with _safety_filter():
+        with _safety_filter() as mock_filter:
             response = self.client.post(self._create_url(str(run.id)), data=self._create_payload(), format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["skipped_reason"] == "report_cap_reached"
         assert SignalReport.objects.filter(team_id=self.team.id).count() == MAX_REPORTS_PER_RUN
+        # The cap check runs before the (costly) LLM safety check, same as the preflight gates.
+        mock_filter.assert_not_called()
 
     def test_create_rejects_malformed_judgment(self) -> None:
         run = _make_run(self.team)
@@ -221,8 +223,10 @@ class TestScoutUpdateReportAPI(ScoutReportAPIBase):
     @parameterized.expand(
         [
             ("resolve_ready", SignalReport.Status.READY, "resolved", SignalReport.Status.RESOLVED),
+            ("resolve_pending_input", SignalReport.Status.PENDING_INPUT, "resolved", SignalReport.Status.RESOLVED),
             ("suppress_ready", SignalReport.Status.READY, "suppressed", SignalReport.Status.SUPPRESSED),
             ("reopen_suppressed", SignalReport.Status.SUPPRESSED, "potential", SignalReport.Status.POTENTIAL),
+            ("reopen_resolved", SignalReport.Status.RESOLVED, "potential", SignalReport.Status.POTENTIAL),
         ]
     )
     def test_update_transitions_state(self, _name: str, from_status: str, target: str, expected: str) -> None:
@@ -253,18 +257,25 @@ class TestScoutUpdateReportAPI(ScoutReportAPIBase):
         assert report.status == SignalReport.Status.POTENTIAL
         assert report.signals_at_run == 7
 
-    def test_update_illegal_transition_returns_409(self) -> None:
+    @parameterized.expand(
+        [
+            ("resolve_potential", SignalReport.Status.POTENTIAL, "resolved"),
+            ("resolve_resolved", SignalReport.Status.RESOLVED, "resolved"),
+            ("suppress_suppressed", SignalReport.Status.SUPPRESSED, "suppressed"),
+        ]
+    )
+    def test_update_illegal_transition_returns_409(self, _name: str, from_status: str, target: str) -> None:
         run = _make_run(self.team)
-        report = self._make_report(report_status=SignalReport.Status.POTENTIAL)
+        report = self._make_report(report_status=from_status)
         with _safety_filter():
             response = self.client.post(
                 self._update_url(str(run.id)),
-                data={"report_id": str(report.id), "new_state": "resolved"},
+                data={"report_id": str(report.id), "new_state": target},
                 format="json",
             )
         assert response.status_code == status.HTTP_409_CONFLICT
         report.refresh_from_db()
-        assert report.status == SignalReport.Status.POTENTIAL
+        assert report.status == from_status
 
     def test_update_appends_priority_judgment_with_attribution(self) -> None:
         run = _make_run(self.team)

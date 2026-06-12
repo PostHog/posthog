@@ -21,6 +21,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAG_LENGTH,
     MAX_TAGS_PER_FINDING,
 )
+from products.signals.backend.scout_harness.tools.reports import SCOUT_ALLOWED_TARGET_STATES
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -512,11 +513,7 @@ class UpdateReportRequestSerializer(serializers.Serializer):
         help_text="New report summary. Omit to leave unchanged — this replaces the whole summary, it does not append.",
     )
     new_state = serializers.ChoiceField(
-        choices=[
-            ("suppressed", "suppressed"),
-            ("potential", "potential"),
-            ("resolved", "resolved"),
-        ],
+        choices=[(state.value, state.value) for state in SCOUT_ALLOWED_TARGET_STATES],
         required=False,
         allow_null=True,
         help_text=(
