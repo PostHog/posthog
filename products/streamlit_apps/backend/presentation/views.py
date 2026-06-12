@@ -1,7 +1,7 @@
 import io
 import uuid
 import hashlib
-from typing import Any
+from typing import Any, cast
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
@@ -9,6 +9,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import status, viewsets
 from rest_framework.request import Request
@@ -18,17 +19,24 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.user import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle
 
 from products.streamlit_apps.backend.logic.app_runtime import AppRuntimeService
-from products.streamlit_apps.backend.logic.zip_validator import validate_zip
+from products.streamlit_apps.backend.logic.zip_validator import MAX_ZIP_SIZE, validate_zip
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 from products.streamlit_apps.backend.presentation.serializers import (
+    ActivateVersionRequestSerializer,
+    ActivateVersionResponseSerializer,
     StreamlitAppMinimalSerializer,
     StreamlitAppsAccessPermission,
     StreamlitAppSandboxSerializer,
     StreamlitAppSerializer,
+    StreamlitAppStatusSerializer,
+    StreamlitAppVersionListSerializer,
     StreamlitAppVersionSerializer,
+    StreamlitConnectInfoSerializer,
+    UploadVersionRequestSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -91,10 +99,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.save(update_fields=["deleted", "deleted_at", "updated_at"])
 
         request = self.request
+        user = cast(User, request.user)
         log_activity(
-            organization_id=request.user.current_organization_id,
+            organization_id=user.current_organization_id,
             team_id=self.team_id,
-            user=request.user,
+            user=user,
             was_impersonated=is_impersonated_session(request),
             item_id=str(instance.id),
             scope="StreamlitApp",
@@ -102,6 +111,10 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             detail=Detail(name=instance.name),
         )
 
+    @extend_schema(
+        summary="List app versions",
+        responses={200: StreamlitAppVersionListSerializer},
+    )
     @action(methods=["GET"], detail=True, url_path="versions")
     def versions(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -109,6 +122,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = StreamlitAppVersionSerializer(versions, many=True)
         return Response({"results": serializer.data})
 
+    @extend_schema(
+        summary="Upload a new app version",
+        request=UploadVersionRequestSerializer,
+        responses={201: StreamlitAppVersionSerializer},
+    )
     @action(methods=["POST"], detail=True, url_path="upload_version")
     def upload_version(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -116,6 +134,14 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if not zip_file:
             return Response({"detail": "No file provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Reject oversized uploads by their declared size before reading the body
+        # into memory, so a large multipart POST can't force a full allocation.
+        if zip_file.size is not None and zip_file.size > MAX_ZIP_SIZE:
+            return Response(
+                {"detail": f"Zip file too large (max {MAX_ZIP_SIZE // (1024 * 1024)} MB)."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
 
         file_content = zip_file.read()
         validation = validate_zip(io.BytesIO(file_content))
@@ -150,7 +176,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     version_number=next_version_number,
                     zip_file=zip_path,
                     zip_hash=zip_hash,
-                    created_by=request.user,
+                    created_by=cast(User, request.user),
                 )
 
                 app.active_version = version
@@ -167,10 +193,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         self._stop_active_sandbox_after_version_change(app)
 
+        user = cast(User, request.user)
         log_activity(
-            organization_id=request.user.current_organization_id,
+            organization_id=user.current_organization_id,
             team_id=self.team_id,
-            user=request.user,
+            user=user,
             was_impersonated=is_impersonated_session(request),
             item_id=str(app.id),
             scope="StreamlitApp",
@@ -181,6 +208,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = StreamlitAppVersionSerializer(version)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Activate an existing app version",
+        request=ActivateVersionRequestSerializer,
+        responses={200: ActivateVersionResponseSerializer},
+    )
     @action(methods=["POST"], detail=True, url_path="activate_version")
     def activate_version(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -188,6 +220,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if version_number is None:
             return Response({"detail": "version_number is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Guard the type before the ORM lookup: a non-integer (e.g. "abc" or 1.5)
+        # would otherwise raise ValueError and surface as a 500 instead of a 400.
+        if not isinstance(version_number, int) or isinstance(version_number, bool):
+            return Response({"detail": "version_number must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             version = app.versions.get(version_number=version_number)
@@ -199,10 +236,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         self._stop_active_sandbox_after_version_change(app)
 
+        user = cast(User, request.user)
         log_activity(
-            organization_id=request.user.current_organization_id,
+            organization_id=user.current_organization_id,
             team_id=self.team_id,
-            user=request.user,
+            user=user,
             was_impersonated=is_impersonated_session(request),
             item_id=str(app.id),
             scope="StreamlitApp",
@@ -212,6 +250,10 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"active_version": StreamlitAppVersionSerializer(version).data})
 
+    @extend_schema(
+        summary="Get app sandbox status",
+        responses={200: StreamlitAppStatusSerializer},
+    )
     @action(methods=["GET"], detail=True, url_path="status")
     def get_status(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -238,6 +280,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(payload)
         return Response(cached)
 
+    @extend_schema(
+        summary="Start the app sandbox",
+        request=None,
+        responses={200: StreamlitAppSerializer, 202: StreamlitAppSerializer},
+    )
     @action(methods=["POST"], detail=True, url_path="start", throttle_classes=[ClickHouseBurstRateThrottle])
     def start(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -262,6 +309,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_202_ACCEPTED,
         )
 
+    @extend_schema(
+        summary="Stop the app sandbox",
+        request=None,
+        responses={200: StreamlitAppSerializer},
+    )
     @action(methods=["POST"], detail=True, url_path="stop")
     def stop(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
@@ -275,15 +327,20 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(StreamlitAppSerializer(app, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        summary="Get iframe connection info for a running app",
+        responses={200: StreamlitConnectInfoSerializer},
+    )
     @action(methods=["GET"], detail=True, url_path="connect_info", throttle_classes=[ClickHouseBurstRateThrottle])
     def connect_info(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
-        sandbox_record = StreamlitAppSandbox.objects.filter(app=app).first()
+        sandbox_record = self._get_sandbox_or_none(app)
         if not sandbox_record or sandbox_record.status != StreamlitAppSandbox.Status.RUNNING:
             return Response({"detail": "App is not running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        user = cast(User, request.user)
         runtime = AppRuntimeService()
-        connect_data = runtime.get_connect_url(app, user_id=request.user.id, team_id=self.team_id)
+        connect_data = runtime.get_connect_url(app, user_id=user.id, team_id=self.team_id)
         if not connect_data:
             return Response({"detail": "Unable to connect to app."}, status=status.HTTP_502_BAD_GATEWAY)
 
@@ -300,9 +357,9 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             find_reusable_streamlit_access_token,
         )
 
-        access_token = find_reusable_streamlit_access_token(user=request.user, team_id=self.team_id)
+        access_token = find_reusable_streamlit_access_token(user=user, team_id=self.team_id)
         if access_token is None:
-            access_token = create_streamlit_access_token(user=request.user, team_id=self.team_id)
+            access_token = create_streamlit_access_token(user=user, team_id=self.team_id)
 
         sandbox_url = connect_data["url"].rstrip("/")
         # Docker sandboxes have no Modal connect token; only Modal tunnels need it.
@@ -320,6 +377,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
+    @extend_schema(
+        summary="Restart the app sandbox",
+        request=None,
+        responses={202: StreamlitAppSerializer},
+    )
     @action(methods=["POST"], detail=True, url_path="restart", throttle_classes=[ClickHouseBurstRateThrottle])
     def restart(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()

@@ -69,9 +69,9 @@ class _StreamlitAppsFlagMixin:
 
 
 class TestStreamlitAppAPI(_StreamlitAppsFlagMixin, APIBaseTest):
-    # The viewset is registered under /environments/ via the product's routes.py.
+    # The viewset is registered under /projects/ via the product's routes.py.
     def _url(self, suffix: str = "") -> str:
-        base = f"/api/environments/{self.team.id}/streamlit_apps"
+        base = f"/api/projects/{self.team.id}/streamlit_apps"
         if suffix:
             return f"{base}/{suffix}"
         return f"{base}/"
@@ -218,7 +218,7 @@ class TestStreamlitAppAPI(_StreamlitAppsFlagMixin, APIBaseTest):
 
 class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
     def _url(self, short_id: str, suffix: str = "") -> str:
-        base = f"/api/environments/{self.team.id}/streamlit_apps/{short_id}"
+        base = f"/api/projects/{self.team.id}/streamlit_apps/{short_id}"
         if suffix:
             return f"{base}/{suffix}"
         return f"{base}/"
@@ -432,10 +432,38 @@ class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         response = self.client.post(self._url(app.short_id, "activate_version/"))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand([("string", "abc"), ("float", 1.5), ("bool", True)])
+    def test_activate_version_rejects_non_integer(self, _name, version_number):
+        # A non-integer would otherwise hit the ORM and raise a 500 rather than a 400.
+        app = self._create_app()
+        self._create_version(app, 1)
+        response = self.client.post(
+            self._url(app.short_id, "activate_version/"),
+            data={"version_number": version_number},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.storage.object_storage.write")
+    def test_upload_version_too_large_413(self, mock_storage_write):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from products.streamlit_apps.backend.logic.zip_validator import MAX_ZIP_SIZE
+
+        app = self._create_app()
+        oversized = SimpleUploadedFile("app.zip", b"\0" * (MAX_ZIP_SIZE + 1), content_type="application/zip")
+        response = self.client.post(
+            self._url(app.short_id, "upload_version/"),
+            data={"file": oversized},
+            format="multipart",
+        )
+        assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+        # The body is rejected by size before it is ever read or persisted.
+        mock_storage_write.assert_not_called()
+
 
 class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
     def _url(self, short_id: str, suffix: str = "") -> str:
-        base = f"/api/environments/{self.team.id}/streamlit_apps/{short_id}"
+        base = f"/api/projects/{self.team.id}/streamlit_apps/{short_id}"
         if suffix:
             return f"{base}/{suffix}"
         return f"{base}/"
