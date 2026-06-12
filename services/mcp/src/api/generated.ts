@@ -18927,6 +18927,109 @@ export namespace Schemas {
     }
 
     /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type FieldNoteElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the field note was made, as {width, height}.
+     * @nullable
+     */
+    export type FieldNoteViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    /**
+     * * `pending` - Pending
+     * * `acknowledged` - Acknowledged
+     * * `resolved` - Resolved
+     * * `dismissed` - Dismissed
+     */
+    export type FieldNoteStatusEnum = typeof FieldNoteStatusEnum[keyof typeof FieldNoteStatusEnum];
+
+
+    export const FieldNoteStatusEnum = {
+      Pending: 'pending',
+      Acknowledged: 'acknowledged',
+      Resolved: 'resolved',
+      Dismissed: 'dismissed',
+    } as const;
+
+    export interface FieldNote {
+      readonly id: string;
+      /**
+         * The note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment: string;
+      /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
+      field_note_status?: FieldNoteStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the field note was made on.
+         * @maxLength 2048
+         */
+      url: string;
+      /**
+         * Hostname of the page, used to scope field notes to a site.
+         * @maxLength 255
+         */
+      host: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the element on the page.
+         * @maxLength 4096
+         */
+      selector: string;
+      /**
+         * Visible text of the element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: FieldNoteElementContext;
+      /**
+         * Viewport size when the field note was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: FieldNoteViewport;
+      /**
+         * URL of an uploaded screenshot captured with the field_note.
+         * @maxLength 2048
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic;
+    }
+
+    /**
      * * `events` - events
      * * `persons` - persons
      * * `sessions` - sessions
@@ -25271,6 +25374,15 @@ export namespace Schemas {
       results: FeatureFlag[];
     }
 
+    export interface PaginatedFieldNoteList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FieldNote[];
+    }
+
     export interface PaginatedFileSystemList {
       count: number;
       /** @nullable */
@@ -30582,6 +30694,93 @@ export namespace Schemas {
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+    }
+
+    /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type PatchedFieldNoteElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the field note was made, as {width, height}.
+     * @nullable
+     */
+    export type PatchedFieldNoteViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    export interface PatchedFieldNote {
+      readonly id?: string;
+      /**
+         * The note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment?: string;
+      /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
+      field_note_status?: FieldNoteStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the field note was made on.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Hostname of the page, used to scope field notes to a site.
+         * @maxLength 255
+         */
+      host?: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the element on the page.
+         * @maxLength 4096
+         */
+      selector?: string;
+      /**
+         * Visible text of the element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: PatchedFieldNoteElementContext;
+      /**
+         * Viewport size when the field note was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: PatchedFieldNoteViewport;
+      /**
+         * URL of an uploaded screenshot captured with the field_note.
+         * @maxLength 2048
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      readonly created_by?: UserBasic;
     }
 
     export interface PatchedFileSystem {
@@ -50175,6 +50374,35 @@ export namespace Schemas {
      */
     groups?: string;
     };
+
+    export type FieldNotesListParams = {
+    /**
+     * Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).
+     */
+    field_note_status?: FieldNotesListFieldNoteStatus;
+    /**
+     * Filter to field notes made on this hostname (e.g. `app.example.com`).
+     */
+    host?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type FieldNotesListFieldNoteStatus = typeof FieldNotesListFieldNoteStatus[keyof typeof FieldNotesListFieldNoteStatus];
+
+
+    export const FieldNotesListFieldNoteStatus = {
+      Acknowledged: 'acknowledged',
+      Dismissed: 'dismissed',
+      Pending: 'pending',
+      Resolved: 'resolved',
+    } as const;
 
     export type FileDownloadBatchExportsListParams = {
     /**
