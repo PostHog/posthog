@@ -57,6 +57,7 @@ def _login(username: str, password: str) -> str:
     # captured HTTP sample. The login host is the fixed, trusted Outbrain API
     # (no user-supplied host, so no SSRF concern), so issue it on an untracked
     # session to keep the token out of HTTP sample capture entirely.
+    # nosemgrep: data-imports-http-transport-requests-verb — untracked on purpose so the token-bearing login response is never sampled
     response = requests.get(
         f"{OUTBRAIN_BASE_URL}/login",
         auth=(username, password),
