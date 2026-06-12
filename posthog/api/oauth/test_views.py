@@ -1532,33 +1532,26 @@ class TestOAuthAPI(APIBaseTest):
         retry_scopes = set(OAuthAccessToken.objects.get(token=retry.json()["access_token"]).scope.split())
         self.assertEqual(retry_scopes, {"insight:read"})
 
+    @parameterized.expand(
+        [
+            ("labeled", "Matt's laptop"),
+            ("unlabeled", ""),
+        ]
+    )
     @freeze_time("2026-01-01 00:00:00")
-    def test_refresh_carries_label_through_rotation(self):
+    def test_refresh_carries_label_through_rotation(self, _name, label):
         # The previous access token is deleted by DOT before the new one is minted, so
         # the label has to come from the refresh-token row — for the connection's whole
         # life, not just one rotation.
-        refresh_token = self._create_refreshable_token_pair("openid", label="Matt's laptop")
+        refresh_token = self._create_refreshable_token_pair("openid", label=label)
 
         first = self._refresh(refresh_token.token)
-        first_access = OAuthAccessToken.objects.get(token=first["access_token"])
-        first_refresh = OAuthRefreshToken.objects.get(token=first["refresh_token"])
-        self.assertEqual(first_access.label, "Matt's laptop")
-        self.assertEqual(first_refresh.label, "Matt's laptop")
+        self.assertEqual(OAuthAccessToken.objects.get(token=first["access_token"]).label, label)
+        self.assertEqual(OAuthRefreshToken.objects.get(token=first["refresh_token"]).label, label)
 
         second = self._refresh(first["refresh_token"])
-        second_access = OAuthAccessToken.objects.get(token=second["access_token"])
-        second_refresh = OAuthRefreshToken.objects.get(token=second["refresh_token"])
-        self.assertEqual(second_access.label, "Matt's laptop")
-        self.assertEqual(second_refresh.label, "Matt's laptop")
-
-    @freeze_time("2026-01-01 00:00:00")
-    def test_refresh_without_label_stays_unlabeled(self):
-        refresh_token = self._create_refreshable_token_pair("openid")
-
-        data = self._refresh(refresh_token.token)
-
-        self.assertEqual(OAuthAccessToken.objects.get(token=data["access_token"]).label, "")
-        self.assertEqual(OAuthRefreshToken.objects.get(token=data["refresh_token"]).label, "")
+        self.assertEqual(OAuthAccessToken.objects.get(token=second["access_token"]).label, label)
+        self.assertEqual(OAuthRefreshToken.objects.get(token=second["refresh_token"]).label, label)
 
     def test_non_rotating_refresh_preserves_label(self):
         # DCR/CIMD clients don't rotate; whichever branch mints or reuses the access
@@ -1608,6 +1601,8 @@ class TestOAuthAPI(APIBaseTest):
             self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
             access_token = OAuthAccessToken.objects.get(token=refresh_response.json()["access_token"])
             self.assertEqual(access_token.label, "MCP session")
+            returned_refresh = OAuthRefreshToken.objects.get(token=refresh_response.json()["refresh_token"])
+            self.assertEqual(returned_refresh.label, "MCP session")
 
     def test_refresh_with_injected_code_does_not_escalate_scopes(self):
         """A refresh request that includes a `code` parameter from a broader-scope
