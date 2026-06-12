@@ -50,11 +50,6 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
 
     const upstream = buildUpstreamUrl(segments, request.nextUrl.search)
     const init = await buildRequestInit(request)
-    // Domain-mode ingress resolves the agent slug from the Host header, so the
-    // proxy stamps it while still dialing the in-cluster base URL.
-    if (upstream.hostHeader) {
-        ;(init.headers as Headers).set('host', upstream.hostHeader)
-    }
 
     const first = await proxy(upstream.url, init, session)
     if (first.status !== 401) {
@@ -81,16 +76,11 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
     // original request (cheap because Next has the body buffered for
     // the route handler).
     const replayInit = await buildRequestInit(request)
-    if (upstream.hostHeader) {
-        ;(replayInit.headers as Headers).set('host', upstream.hostHeader)
-    }
     return await proxy(upstream.url, replayInit, merged)
 }
 
 interface UpstreamTarget {
     url: string
-    /** Set in domain mode: the `<slug><suffix>` Host the ingress routes on. */
-    hostHeader?: string
 }
 
 function buildUpstreamUrl(segments: string[], search: string): UpstreamTarget {
@@ -98,16 +88,15 @@ function buildUpstreamUrl(segments: string[], search: string): UpstreamTarget {
     if (segments[0] === 'agents' && segments[1] === 'v1') {
         const rest = segments.slice(2)
         // Domain mode: the ingress mounts trigger routes at root and reads the
-        // slug from Host. Rewrite `agents/<slug>/<route>` → base + `/<route>`,
-        // Host = `<slug><suffix>`. Fall back to path form for anything that
-        // isn't the `agents/<slug>/…` shape, or when no suffix is configured.
+        // slug from the Host. We can't override `Host` on a fetch (it's a
+        // forbidden header — silently dropped), so we dial the agent's public
+        // domain directly, making the authority the Host. Rewrite
+        // `agents/<slug>/<route>` → `https://<slug><suffix>/<route>`. Fall back
+        // to the path form when the shape doesn't match or no suffix is set.
         if (agentIngressRoutingMode === 'domain' && agentIngressDomainSuffix && rest[0] === 'agents' && rest[1]) {
             const slug = rest[1]
             const route = rest.slice(2).join('/')
-            return {
-                url: `${posthogAgentsBaseUrl}/${route}${search}`,
-                hostHeader: `${slug}${agentIngressDomainSuffix}`,
-            }
+            return { url: `https://${slug}${agentIngressDomainSuffix}/${route}${search}` }
         }
         return { url: `${posthogAgentsBaseUrl}/${rest.join('/')}${search}` }
     }

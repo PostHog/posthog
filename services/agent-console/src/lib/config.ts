@@ -49,8 +49,9 @@ export const AgentConsoleConfigSchema = z.object({
         .default('path')
         .describe(
             'Mirrors the ingress ROUTING_MODE. `path` (dev) forwards `/agents/<slug>/<route>` to the base URL as-is. ' +
-                '`domain` (deployed, behind a wildcard cert) sends `<route>` to the base URL with the `Host` header set ' +
-                'to `<slug><suffix>`, since the domain-mode ingress resolves the slug from the host.'
+                '`domain` (deployed, behind a wildcard cert) dials the agent`s public domain directly — ' +
+                '`https://<slug><suffix>/<route>` — so the URL authority is the Host the domain-mode ingress resolves on ' +
+                '(Host can`t be set on a fetch — it`s a forbidden header).'
         ),
     agentIngressDomainSuffix: z
         .string()
