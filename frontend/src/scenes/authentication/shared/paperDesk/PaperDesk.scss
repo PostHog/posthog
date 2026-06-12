@@ -1,0 +1,766 @@
+// Paper-desk auth variant — reproduces the Claude Design "Paper desk" mock.
+// Light mode only (unauthenticated auth scenes are forced light). Values lifted from the design.
+
+$pd-page: #eef0e7;
+$pd-dots: rgb(17 17 17 / 5.5%);
+$pd-card: #fff;
+$pd-text: #111;
+$pd-muted: rgb(17 17 17 / 58%);
+$pd-faint: rgb(17 17 17 / 40%);
+$pd-input-bg: #fbfbf9;
+$pd-input-border: #c5c6bd;
+$pd-border: #e0e1d9;
+$pd-divider: #e0e1d9;
+$pd-sso: #8a5a00;
+$pd-accent: #f7a501;
+$pd-accent-frame: #a36d01; // phDarken(accent, .34)
+$pd-accent-ring: rgb(247 165 1 / 15%);
+$pd-invalid: #db3707;
+$pd-invalid-ring: rgb(219 55 7 / 15%);
+$pd-green: #388600;
+
+.PaperDesk {
+    position: relative;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: var(--font-sans);
+    color: $pd-text;
+    background-color: $pd-page;
+
+    // dotted paper grid
+    &::before {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        content: '';
+        background-image: radial-gradient($pd-dots 1.4px, transparent 1.4px);
+        background-size: 16px 16px;
+    }
+
+    // faint accent glow
+    &::after {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        content: '';
+        background: radial-gradient(72% 72% at 50% 38%, rgb(247 165 1 / 5%), transparent 70%);
+    }
+}
+
+.PaperDesk__notes {
+    position: absolute;
+    top: clamp(20px, 4vh, 40px);
+    left: clamp(20px, 4vw, 44px);
+    z-index: 2;
+    min-height: 2.6em;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    white-space: pre;
+
+    &-line {
+        color: $pd-faint;
+
+        &:first-child {
+            font-weight: 600;
+            color: $pd-muted;
+        }
+    }
+}
+
+.PaperDesk__caret {
+    display: inline-block;
+    width: 7px;
+    height: 1.05em;
+    margin-left: 3px;
+    vertical-align: -2px;
+    background: $pd-accent;
+    border-radius: 1px;
+    animation: PaperDesk__blink 1.05s steps(1) infinite;
+}
+
+.PaperDesk__content {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 72px 40px;
+}
+
+.PaperDesk__column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 432px;
+    max-width: 100%;
+
+    @media (prefers-reduced-motion: no-preference) {
+        animation: PaperDesk__rise 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+}
+
+.PaperDesk__logo {
+    display: block;
+    margin-bottom: 26px;
+
+    svg {
+        display: block;
+        width: auto;
+        height: 30px;
+    }
+
+    &--mark svg {
+        height: 30px;
+    }
+}
+
+.PaperDesk__card {
+    width: 100%;
+    padding: 30px 36px 32px;
+    background: $pd-card;
+    border: 1px solid $pd-border;
+    border-radius: 10px;
+    box-shadow:
+        0 20px 44px -26px rgb(40 38 30 / 35%),
+        0 3px 0 $pd-border;
+}
+
+.PaperDesk__title {
+    margin: 0;
+    font-family: var(--font-title);
+    font-size: 24px;
+    font-weight: 800;
+    line-height: 1.15;
+    color: $pd-text;
+    text-align: center;
+    letter-spacing: -0.02em;
+}
+
+.PaperDesk__sub {
+    margin: 7px 0 0;
+    font-size: 14px;
+    color: $pd-muted;
+    text-align: center;
+    text-wrap: pretty;
+
+    code,
+    .PaperDesk__mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: $pd-text;
+    }
+}
+
+.PaperDesk__field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    &-labelRow {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        justify-content: space-between;
+    }
+
+    &-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: $pd-text;
+    }
+
+    &-help {
+        margin: 2px 0 0;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: $pd-faint;
+
+        &--error {
+            color: $pd-invalid;
+        }
+    }
+}
+
+.PaperDesk__input {
+    width: 100%;
+    padding: 10px 12px;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    color: $pd-text;
+    background: $pd-input-bg;
+    border: 1px solid $pd-input-border;
+    border-radius: 5px;
+    transition:
+        border-color 0.12s,
+        box-shadow 0.12s;
+
+    &::placeholder {
+        color: $pd-faint;
+    }
+
+    &:focus {
+        border-color: $pd-accent;
+        outline: none;
+        box-shadow: 0 0 0 3px $pd-accent-ring;
+    }
+
+    &--invalid {
+        border-color: $pd-invalid;
+
+        &:focus {
+            border-color: $pd-invalid;
+            box-shadow: 0 0 0 3px $pd-invalid-ring;
+        }
+    }
+
+    &--locked {
+        padding-right: 36px;
+        color: $pd-muted;
+        background: transparent;
+        border-style: dashed;
+    }
+}
+
+.PaperDesk__lockedWrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+
+    svg {
+        position: absolute;
+        right: 12px;
+        color: $pd-faint;
+        pointer-events: none;
+    }
+}
+
+.PaperDesk__primaryBtn {
+    position: relative;
+    top: 0;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 11px 16px;
+    font-family: var(--font-sans);
+    font-size: 14.5px;
+    font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+    background: $pd-accent;
+    border: 1.5px solid $pd-accent-frame;
+    border-radius: 7px;
+    box-shadow: 0 3px 0 $pd-accent-frame;
+    transition:
+        top 0.08s,
+        box-shadow 0.08s;
+
+    &:active:not(:disabled) {
+        top: 3px;
+        box-shadow: 0 0 0 $pd-accent-frame;
+    }
+
+    &:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+    }
+}
+
+.PaperDesk__secondaryBtn {
+    display: flex;
+    gap: 9px;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 10px 14px;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 600;
+    color: $pd-text;
+    white-space: nowrap;
+    cursor: pointer;
+    background: $pd-card;
+    border: 1px solid $pd-input-border;
+    border-radius: 6px;
+    transition:
+        background 0.12s,
+        border-color 0.12s;
+
+    &:hover:not(:disabled) {
+        background: #f6f6f2;
+        border-color: $pd-text;
+    }
+
+    &:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+
+    .PaperDesk__sso-icon {
+        display: flex;
+        color: $pd-sso;
+    }
+}
+
+.PaperDesk__sso-icon {
+    display: inline-flex;
+    align-items: center;
+    color: $pd-sso;
+}
+
+.PaperDesk__spinner {
+    width: 15px;
+    height: 15px;
+    border: 2px solid rgb(255 255 255 / 40%);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: PaperDesk__spin 1s linear infinite;
+}
+
+.PaperDesk__divider {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+
+    &-line {
+        flex: 1;
+        height: 1px;
+        background: $pd-divider;
+    }
+
+    &-label {
+        font-size: 12.5px;
+        color: $pd-muted;
+        white-space: nowrap;
+    }
+}
+
+.PaperDesk__footer {
+    margin: 22px 0 0;
+    font-size: 14px;
+    color: $pd-muted;
+    text-align: center;
+}
+
+.PaperDesk__link {
+    font-weight: 600;
+    color: $pd-accent;
+    text-decoration: none;
+    cursor: pointer;
+
+    &:hover {
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
+    &--muted {
+        color: $pd-muted;
+    }
+}
+
+.PaperDesk__terms {
+    margin: 20px 0 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: $pd-faint;
+    text-align: center;
+
+    a {
+        font-weight: 600;
+        color: $pd-muted;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+}
+
+// password strength meter (3 segments + label)
+.PaperDesk__strength {
+    display: inline-flex;
+    gap: 7px;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: $pd-faint;
+
+    &--1 {
+        color: $pd-invalid;
+    }
+
+    &--2 {
+        color: #f7a501;
+    }
+
+    &--3 {
+        color: $pd-green;
+    }
+
+    &-segments {
+        display: inline-flex;
+        gap: 3px;
+    }
+
+    &-seg {
+        width: 14px;
+        height: 4px;
+        background: $pd-divider;
+        border-radius: 2px;
+        transition: background 0.15s;
+
+        &--on {
+            background: currentColor;
+        }
+    }
+}
+
+.PaperDesk__dashed-divider {
+    margin: 22px 0 0;
+    border: none;
+    border-top: 1px dashed $pd-divider;
+}
+
+// icon social row
+.PaperDesk__social {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+
+    &-btn {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 54px;
+        height: 54px;
+        cursor: pointer;
+        background: $pd-card;
+        border: 1px solid $pd-input-border;
+        border-radius: 10px;
+        transition:
+            transform 0.12s,
+            border-color 0.12s,
+            background 0.12s;
+
+        &:hover {
+            background: #f6f6f2;
+            border-color: $pd-text;
+            transform: translateY(-2px);
+        }
+    }
+
+    &-badge {
+        position: absolute;
+        top: -9px;
+        left: 50%;
+        padding: 1px 5px;
+        font-size: 9.5px;
+        font-weight: 600;
+        line-height: 1.3;
+        color: $pd-muted;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        background: $pd-card;
+        border: 1px solid $pd-border;
+        border-radius: 5px;
+        transform: translateX(-50%);
+    }
+
+    &-caption {
+        margin: 10px 0 0;
+        font-size: 12px;
+        color: $pd-faint;
+        text-align: center;
+    }
+}
+
+// segmented data-region toggle
+.PaperDesk__region {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+
+    &-track {
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+        background: $pd-input-bg;
+        border: 1.5px solid $pd-input-border;
+        border-radius: 9px;
+    }
+
+    &-option {
+        display: flex;
+        flex: 1;
+        gap: 7px;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        padding: 8px 6px;
+        font-family: var(--font-sans);
+        font-size: 13px;
+        font-weight: 500;
+        color: $pd-muted;
+        cursor: pointer;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        transition:
+            background 0.14s,
+            border-color 0.14s;
+
+        &-label {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        &--active {
+            font-weight: 600;
+            color: $pd-text;
+            background: $pd-card;
+            border-color: $pd-accent;
+            box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+        }
+    }
+}
+
+.PaperDesk__flag {
+    display: block;
+    flex-shrink: 0;
+    width: 18px;
+    height: 12px;
+    overflow: hidden;
+    line-height: 0;
+    border: 1px solid rgb(0 0 0 / 16%);
+    border-radius: 3px;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
+
+    svg {
+        display: block;
+    }
+}
+
+.PaperDesk__divider-caption {
+    margin: 15px 0 16px;
+    font-size: 13.5px;
+    color: $pd-muted;
+    text-align: center;
+}
+
+// org plaque tile (keycap)
+.PaperDesk__orgTile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    font-family: var(--font-title);
+    font-size: 21px;
+    font-weight: 800;
+    color: #fff;
+    background: $pd-accent;
+    border: 1.5px solid $pd-accent-frame;
+    border-radius: 9px;
+    box-shadow: 0 3px 0 $pd-accent-frame;
+}
+
+// invite header (org tile + mark + invitation line)
+.PaperDesk__inviteHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 20px;
+
+    &-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+
+    &-mark {
+        display: inline-flex;
+        opacity: 0.9;
+
+        svg {
+            width: auto;
+            height: 30px;
+        }
+    }
+
+    &-org {
+        padding-bottom: 6px;
+        margin: 2px 0 0;
+        font-family: var(--font-title);
+        font-size: 27px;
+        font-weight: 800;
+        color: $pd-text;
+        letter-spacing: -0.02em;
+        border-bottom: 1px dashed $pd-input-border;
+    }
+
+    &-meta {
+        margin: 0;
+        font-size: 13.5px;
+        color: $pd-muted;
+    }
+}
+
+// whoami row (existing-account accept)
+.PaperDesk__whoami {
+    display: flex;
+    gap: 11px;
+    align-items: center;
+    padding: 10px 13px;
+    border: 1px dashed $pd-input-border;
+    border-radius: 8px;
+
+    &-name {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: $pd-text;
+    }
+
+    &-email {
+        margin: 0;
+        overflow: hidden;
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        color: $pd-muted;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+// dashed info / success callouts
+.PaperDesk__note {
+    padding: 12px 14px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: $pd-muted;
+    text-align: left;
+    background: $pd-input-bg;
+    border: 1px dashed $pd-input-border;
+    border-radius: 7px;
+
+    b {
+        color: $pd-text;
+    }
+}
+
+.PaperDesk__error {
+    padding: 11px 13px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: $pd-text;
+    text-align: left;
+    background: rgb(219 55 7 / 7%);
+    border: 1px solid rgb(219 55 7 / 33%);
+    border-radius: 7px;
+}
+
+.PaperDesk__success {
+    display: flex;
+    gap: 9px;
+    align-items: flex-start;
+    padding: 11px 13px;
+    font-size: 13.5px;
+    color: $pd-text;
+    text-align: left;
+    background: rgb(56 134 0 / 7%);
+    border: 1px solid rgb(56 134 0 / 33%);
+    border-radius: 7px;
+
+    &-check {
+        font-weight: 700;
+        color: $pd-green;
+    }
+}
+
+// centered hedgehog illustrations on status screens
+.PaperDesk__hog {
+    display: block;
+    width: auto;
+    margin: 0 auto;
+}
+
+.PaperDesk__emailChip {
+    display: inline-block;
+    padding: 4px 10px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: $pd-text;
+    background: $pd-input-bg;
+    border: 1px solid $pd-border;
+    border-radius: 6px;
+}
+
+// verify success progress bar
+.PaperDesk__progress {
+    height: 5px;
+    overflow: hidden;
+    background: $pd-divider;
+    border-radius: 3px;
+
+    &-fill {
+        width: 100%;
+        height: 100%;
+        background: $pd-accent;
+        border-radius: 3px;
+
+        @media (prefers-reduced-motion: no-preference) {
+            animation: PaperDesk__progress 2.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+    }
+}
+
+@keyframes PaperDesk__blink {
+    0%,
+    50% {
+        opacity: 1;
+    }
+
+    50.01%,
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes PaperDesk__spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes PaperDesk__rise {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes PaperDesk__progress {
+    from {
+        width: 0%;
+    }
+
+    to {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .PaperDesk__caret {
+        animation: none;
+    }
+}
