@@ -343,6 +343,9 @@ class OAuthAccessToken(AbstractAccessToken):
 
     # Optional user-facing label set at mint time. Carried across refreshes so
     # it persists for the life of the connection, not just one rotated token.
+    # Anything that sets this must also set OAuthRefreshToken.label on the linked
+    # refresh token: DOT's rotation deletes the access token before the new one is
+    # minted, so the refresh row is the only label source the rotation path can read.
     label: models.CharField = models.CharField(
         max_length=40,
         blank=True,
