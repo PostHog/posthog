@@ -335,7 +335,7 @@
   FROM events LEFT JOIN (
     SELECT id AS person_id, 1 AS matched 
     FROM ((
-        SELECT id 
+        SELECT persons.id 
         FROM (
           SELECT tupleElement(argMax(tuple(raw_persons.properties.test_prop), raw_persons.version), 1) AS properties___test_prop, raw_persons.id AS id 
           FROM raw_persons 
@@ -345,8 +345,8 @@
               WHERE equals(properties.test_prop, 'RANDOM_TEST_ID::UUID'))) 
           GROUP BY raw_persons.id 
           HAVING and(equals(tupleElement(argMax(tuple(raw_persons.is_deleted), raw_persons.version), 1), 0), less(tupleElement(argMax(tuple(raw_persons.created_at), raw_persons.version), 1), plus(now(), toIntervalDay(1))))) AS persons 
-        WHERE equals(properties.test_prop, 'RANDOM_TEST_ID::UUID') 
-        ORDER BY id ASC))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
+        WHERE equals(persons.properties___test_prop, 'RANDOM_TEST_ID::UUID') 
+        ORDER BY persons.id ASC))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
   WHERE and(equals(in_cohort__XX.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID')) 
   LIMIT 100
   '''

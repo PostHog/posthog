@@ -511,6 +511,11 @@ def _expand_scope(
     select_type = demand.select_type
     group_swapper = _group_property_swapper(context)
 
+    # The ClickHouse printer derives an alias for an unaliased Call select item from its HogQL rendering, which
+    # prints field chains as written. Rewriting (or qualifying) chains would change that derivation, so freeze the
+    # alias now, from the pre-rewrite tree.
+    _freeze_call_aliases(node, context)
+
     # New joins can make bare field names ambiguous on re-resolution; qualify them with their bound table first.
     if demand.joins_to_add:
         ambiguous_names: set[str] = set()
@@ -591,6 +596,16 @@ def _expand_scope(
     for rewrite in demand.field_rewrites:
         rewrite.field.chain = [rewrite.table_name, rewrite.column_name, *rewrite.tail]
         rewrite.field.type = None
+
+
+def _freeze_call_aliases(node: ast.SelectQuery, context: HogQLContext) -> None:
+    from posthog.hogql.escape_sql import safe_identifier  # noqa: PLC0415 — circular import via the printer package
+    from posthog.hogql.printer.hogql import HogQLPrinter  # noqa: PLC0415 — circular import via the printer package
+
+    for i, expr in enumerate(node.select):
+        if isinstance(expr, ast.Call):
+            alias = safe_identifier(HogQLPrinter(context=context).visit(expr))
+            node.select[i] = ast.Alias(alias=alias, expr=expr, hidden=True)
 
 
 def _splice_join(

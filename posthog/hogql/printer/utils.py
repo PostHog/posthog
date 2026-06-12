@@ -31,7 +31,7 @@ from posthog.hogql.transforms.geoip_dict_fallback import (
     geoip_dict_fallback_enabled_for_team,
 )
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
-from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.lazy_expansion import expand_lazy_references
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
@@ -166,7 +166,7 @@ def prepare_ast_for_printing(
 
     if dialect in ("postgres", "duckdb"):
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
+            node = expand_lazy_references(node, dialect, stack, context, resolver_factory=resolver_factory)
 
         # Lower JSON-blob property reads to dialect-neutral PropertyAccess nodes. The warehouse dialects have no
         # materialized columns, so logical lowering is the whole story for them (no ClickHouse property resolution).
@@ -194,7 +194,7 @@ def prepare_ast_for_printing(
             ).visit(node)
 
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
+            node = expand_lazy_references(node, dialect, stack, context, resolver_factory=resolver_factory)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(
