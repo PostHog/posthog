@@ -81,7 +81,18 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
 
 
 @retry(
-    retry=retry_if_exception_type((NotionRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    # ChunkedEncodingError is a sibling of ConnectionError (both RequestException, not subclasses of
+    # each other): Notion can break the connection mid-response, surfacing as a malformed chunk
+    # ("Connection broken: InvalidChunkLength"). It is a transient connection failure like the others,
+    # so retry it rather than letting it crash the sync.
+    retry=retry_if_exception_type(
+        (
+            NotionRetryableError,
+            requests.ReadTimeout,
+            requests.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        )
+    ),
     stop=stop_after_attempt(5),
     wait=_wait_strategy,
     reraise=True,
