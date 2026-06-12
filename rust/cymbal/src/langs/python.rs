@@ -344,98 +344,106 @@ impl From<&RawPythonFrame> for Frame {
 mod test {
     use super::RawPythonFrame;
 
-    fn frame(value: serde_json::Value) -> RawPythonFrame {
-        serde_json::from_value(value).unwrap()
+    #[test]
+    fn test_in_app_normalization() {
+        let cases = [
+            (
+                "site-packages frames are demoted",
+                serde_json::json!({
+                    "abs_path": "/usr/local/lib/python3.11/site-packages/redis/connection.py",
+                    "filename": "redis/connection.py",
+                    "function": "connect",
+                    "module": "redis.connection",
+                    "in_app": true,
+                }),
+                false,
+            ),
+            (
+                "dist-packages filename is demoted without abs_path",
+                serde_json::json!({
+                    "filename": "/usr/lib/python3/dist-packages/click/core.py",
+                    "function": "invoke",
+                    "in_app": true,
+                }),
+                false,
+            ),
+            (
+                "stdlib path is demoted",
+                serde_json::json!({
+                    "abs_path": "/usr/local/lib/python3.11/socket.py",
+                    "filename": "socket.py",
+                    "function": "getaddrinfo",
+                    "in_app": true,
+                }),
+                false,
+            ),
+            (
+                "stdlib module is demoted without path",
+                serde_json::json!({
+                    "filename": "functools.py",
+                    "function": "__get__",
+                    "module": "functools",
+                    "in_app": true,
+                }),
+                false,
+            ),
+            (
+                "unset in_app defaults true but library code is still demoted",
+                serde_json::json!({
+                    "abs_path": "/app/.venv/lib/python3.12/site-packages/kombu/utils/objects.py",
+                    "filename": "kombu/utils/objects.py",
+                    "function": "__get__",
+                }),
+                false,
+            ),
+            (
+                "application frames stay in_app",
+                serde_json::json!({
+                    "abs_path": "/app/myapp/views.py",
+                    "filename": "myapp/views.py",
+                    "function": "get_user",
+                    "module": "myapp.views",
+                    "in_app": true,
+                }),
+                true,
+            ),
+            (
+                "app module sharing a stdlib prefix stays in_app",
+                serde_json::json!({
+                    "abs_path": "/app/jsonapi/render.py",
+                    "filename": "jsonapi/render.py",
+                    "function": "render",
+                    "module": "jsonapi.render",
+                    "in_app": true,
+                }),
+                true,
+            ),
+            (
+                "explicit client false is never promoted",
+                serde_json::json!({
+                    "abs_path": "/app/myapp/views.py",
+                    "filename": "myapp/views.py",
+                    "function": "get_user",
+                    "module": "myapp.views",
+                    "in_app": false,
+                }),
+                false,
+            ),
+        ];
+
+        for (case, value, expected) in cases {
+            let raw: RawPythonFrame = serde_json::from_value(value).unwrap();
+            assert_eq!(raw.in_app(), expected, "{case}");
+        }
     }
 
     #[test]
-    fn test_site_packages_frames_are_demoted() {
-        let raw = frame(serde_json::json!({
-            "abs_path": "/usr/local/lib/python3.11/site-packages/redis/connection.py",
-            "filename": "redis/connection.py",
-            "function": "connect",
-            "module": "redis.connection",
-            "in_app": true,
-        }));
-        assert!(!raw.in_app());
-    }
-
-    #[test]
-    fn test_dist_packages_filename_is_demoted_without_abs_path() {
-        let raw = frame(serde_json::json!({
-            "filename": "/usr/lib/python3/dist-packages/click/core.py",
-            "function": "invoke",
-            "in_app": true,
-        }));
-        assert!(!raw.in_app());
-    }
-
-    #[test]
-    fn test_stdlib_path_is_demoted() {
-        let raw = frame(serde_json::json!({
-            "abs_path": "/usr/local/lib/python3.11/socket.py",
-            "filename": "socket.py",
-            "function": "getaddrinfo",
-            "in_app": true,
-        }));
-        assert!(!raw.in_app());
-    }
-
-    #[test]
-    fn test_stdlib_module_is_demoted_without_path() {
-        let raw = frame(serde_json::json!({
-            "filename": "functools.py",
-            "function": "__get__",
-            "module": "functools",
-            "in_app": true,
-        }));
-        assert!(!raw.in_app());
-    }
-
-    #[test]
-    fn test_unset_in_app_defaults_true_but_library_code_is_still_demoted() {
-        let raw = frame(serde_json::json!({
-            "abs_path": "/app/.venv/lib/python3.12/site-packages/kombu/utils/objects.py",
-            "filename": "kombu/utils/objects.py",
-            "function": "__get__",
-        }));
+    fn test_unset_in_app_defaults_to_true() {
+        let raw: RawPythonFrame = serde_json::from_value(serde_json::json!({
+            "filename": "app.py",
+            "function": "main",
+        }))
+        .unwrap();
         assert!(raw.meta.in_app);
-        assert!(!raw.in_app());
-    }
-
-    #[test]
-    fn test_application_frames_stay_in_app() {
-        let raw = frame(serde_json::json!({
-            "abs_path": "/app/myapp/views.py",
-            "filename": "myapp/views.py",
-            "function": "get_user",
-            "module": "myapp.views",
-            "in_app": true,
-        }));
-        assert!(raw.in_app());
-    }
-
-    #[test]
-    fn test_app_module_sharing_a_stdlib_prefix_stays_in_app() {
-        let raw = frame(serde_json::json!({
-            "abs_path": "/app/jsonapi/render.py",
-            "filename": "jsonapi/render.py",
-            "function": "render",
-            "module": "jsonapi.render",
-            "in_app": true,
-        }));
-        assert!(raw.in_app());
-    }
-
-    #[test]
-    fn test_explicit_client_false_is_never_promoted() {
-        let raw = frame(serde_json::json!({
-            "abs_path": "/app/myapp/views.py",
-            "filename": "myapp/views.py",
-            "function": "get_user",
-            "module": "myapp.views",
-            "in_app": false,
-        }));
-        assert!(!raw.in_app());
     }
 }
