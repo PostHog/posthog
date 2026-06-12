@@ -22,11 +22,24 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { isObject } from '~/lib/utils'
-import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
+import {
+    AgentMode,
+    AssistantTool,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    TaskExecutionStatus,
+} from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'
-import { EnhancedToolCall } from './Thread'
+
+export interface EnhancedToolCall extends AssistantToolCall {
+    status: TaskExecutionStatus
+    isLastPlanningMessage?: boolean
+    updates?: string[]
+    /** The tool call result message, if available */
+    result?: AssistantToolCallMessage
+}
 
 export interface DisplayFormatterContext {
     registeredToolMap: Record<string, ToolRegistration>

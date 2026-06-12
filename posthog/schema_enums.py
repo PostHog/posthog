@@ -133,6 +133,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     BOLD_NUMBER = "BoldNumber"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_PIE = "ActionsPie"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
@@ -1341,6 +1342,12 @@ class ExternalDataSourceType(StrEnum):
     SAP_SUCCESS_FACTORS = "SapSuccessFactors"
     ORACLE_EBS = "OracleEbs"
     ORACLE_FUSION = "OracleFusion"
+    AMAZON_SNS = "AmazonSNS"
+    AMAZON_EVENT_BRIDGE = "AmazonEventBridge"
+    AMAZON_SQS = "AmazonSQS"
+    AMAZON_KINESIS = "AmazonKinesis"
+    AMAZON_CLOUD_WATCH = "AmazonCloudWatch"
+    OPEN_AI_ADS = "OpenAIAds"
     CUSTOM = "Custom"
 
 

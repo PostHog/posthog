@@ -1448,12 +1448,13 @@
             "type": "object"
         },
         "AssistantDataVisualizationDisplayType": {
-            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
+            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
             "enum": [
                 "ActionsTable",
                 "BoldNumber",
                 "ActionsLineGraph",
                 "ActionsBar",
+                "ActionsPie",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
                 "TwoDimensionalHeatmap"
@@ -1485,7 +1486,7 @@
                 },
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationDisplayType",
-                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
                 },
                 "kind": {
                     "const": "DataVisualizationNode",
@@ -17303,7 +17304,7 @@
                     "type": "string"
                 },
                 "pendingFingerprintIssueStateUpdates": {
-                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.",
+                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery. The backend caps the list at 50 entries; extras are dropped silently.",
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingPendingFingerprintIssueStateUpdate"
                     },
@@ -17325,14 +17326,6 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
-                },
-                "useQueryV2": {
-                    "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
-                    "type": "boolean"
-                },
-                "useQueryV3": {
-                    "description": "Use V3 query path (denormalized ClickHouse table, no Postgres joins)",
-                    "type": "boolean"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -20486,6 +20479,12 @@
                 "SapSuccessFactors",
                 "OracleEbs",
                 "OracleFusion",
+                "AmazonSNS",
+                "AmazonEventBridge",
+                "AmazonSQS",
+                "AmazonKinesis",
+                "AmazonCloudWatch",
+                "OpenAIAds",
                 "Custom"
             ],
             "type": "string"
@@ -21648,6 +21647,11 @@
                 "showAnnotations": {
                     "default": true,
                     "description": "Whether to render annotations on the chart. Only applies to historical-trends funnels.",
+                    "type": "boolean"
+                },
+                "showLegend": {
+                    "default": false,
+                    "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
                     "type": "boolean"
                 },
                 "showTrendLines": {
@@ -27742,6 +27746,15 @@
             "additionalProperties": false,
             "properties": {
                 "id": {
+                    "type": "string"
+                },
+                "insertion_placeholder_block_id": {
+                    "type": "string"
+                },
+                "insertion_placeholder_marker": {
+                    "type": "string"
+                },
+                "markdown_with_insertion_placeholder": {
                     "type": "string"
                 },
                 "name": {
@@ -40642,6 +40655,12 @@
         "SurveyAppearanceSchema": {
             "additionalProperties": false,
             "properties": {
+                "allowGoBack": {
+                    "type": "boolean"
+                },
+                "backButtonText": {
+                    "type": "string"
+                },
                 "backgroundColor": {
                     "type": "string"
                 },

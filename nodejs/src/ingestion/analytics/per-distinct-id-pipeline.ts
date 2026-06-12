@@ -13,22 +13,14 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import { EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
-import { HeatmapSubpipelineInput, createHeatmapSubpipeline } from './heatmap-subpipeline'
-import {
-    AiEventOutput,
-    AsyncOutput,
-    EventOutput,
-    HeatmapsOutput,
-    PersonDistinctIdsOutput,
-    PersonsOutput,
-} from './outputs'
+import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
 
-export type PerDistinctIdPipelineInput = EventSubpipelineInput & HeatmapSubpipelineInput & AiEventSubpipelineInput
+export type PerDistinctIdPipelineInput = EventSubpipelineInput & AiEventSubpipelineInput
 
 export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions
     outputs: IngestionOutputs<
-        EventOutput | AiEventOutput | HeatmapsOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
+        EventOutput | AiEventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
     teamManager: TeamManager
@@ -43,10 +35,9 @@ export interface PerDistinctIdPipelineContext {
     team: Team
 }
 
-type EventBranch = 'heatmap' | 'ai' | 'event'
+type EventBranch = 'ai' | 'event'
 
 const EVENT_BRANCH_MAP = new Map<string, EventBranch>([
-    ['$$heatmap', 'heatmap'],
     ...[...AI_EVENT_TYPES].map((t): [string, EventBranch] => [t, 'ai']),
 ])
 
@@ -65,14 +56,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
         (e) =>
             e.branching(classifyEvent, (branches) =>
                 branches
-                    .branch('heatmap', (b) =>
-                        createHeatmapSubpipeline(b, {
-                            options,
-                            outputs,
-                            teamManager,
-                            groupTypeManager,
-                        })
-                    )
                     .branch('ai', (b) =>
                         createAiEventSubpipeline(b, {
                             options,

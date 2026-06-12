@@ -441,6 +441,8 @@ export function createBarScales(
         minBandSize?: number
         /** Fixed `[min, max]` or `{ include }` extra values the value axis must cover. */
         valueDomain?: ValueDomain
+        /** Px reserved past the bars at the value-axis data end(s) — see {@link BarsConfig.valuePadding}. */
+        valuePadding?: number
     } = {}
 ): BarScaleSet {
     const {
@@ -454,6 +456,7 @@ export function createBarScales(
         fitToHeight,
         minBandSize,
         valueDomain,
+        valuePadding = 0,
     } = options
 
     const isHorizontal = axisOrientation === 'horizontal'
@@ -514,7 +517,8 @@ export function createBarScales(
                 'grouped',
                 scaleType,
                 undefined,
-                axisIndex === 0 ? valueDomain : undefined
+                axisIndex === 0 ? valueDomain : undefined,
+                valuePadding
             )
             yAxes[axisId] = { scale, position }
         })
@@ -531,7 +535,8 @@ export function createBarScales(
             barLayout,
             scaleType,
             valueStackedSeries,
-            valueDomain
+            valueDomain,
+            valuePadding
         ),
         group,
     }
@@ -544,7 +549,8 @@ function buildBarValueScale(
     barLayout: 'stacked' | 'grouped' | 'percent',
     scaleType: 'linear' | 'log',
     stackedSeries: Series[] | undefined,
-    valueDomain: ValueDomain | undefined
+    valueDomain: ValueDomain | undefined,
+    valuePadding: number
 ): D3YScale {
     const { fixed, include } = resolveValueDomain(valueDomain)
     if (fixed) {
@@ -568,7 +574,26 @@ function buildBarValueScale(
     if (min === max) {
         max = min + 1
     }
-    return scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
+    const scale = scaleLinear().domain([min, max]).nice(tickCount)
+    return scale.range(padValueRange(valueRange, scale.domain() as [number, number], valuePadding))
+}
+
+// Hold back `paddingPx` of the value axis's pixel range at the data-extent end(s), so the bars stop
+// short of the edge and an overlay (e.g. a value label) has room beyond the bar tip. Reserving range
+// rather than extending the domain keeps the gap exactly `paddingPx` regardless of the data scale.
+// Only the end(s) the bars actually reach are padded — the zero baseline stays pinned to the edge.
+function padValueRange(
+    [start, end]: [number, number],
+    [min, max]: [number, number],
+    paddingPx: number
+): [number, number] {
+    const span = Math.abs(end - start)
+    if (paddingPx <= 0 || span === 0) {
+        return [start, end]
+    }
+    // Cap each reserved end at a third of the axis so padding can't swallow the plot.
+    const reserve = Math.min(paddingPx, span / 3) * Math.sign(start - end || 1)
+    return [min < 0 ? start - reserve : start, max > 0 ? end + reserve : end]
 }
 
 export function autoFormatYTick(value: number, domainMax: number): string {

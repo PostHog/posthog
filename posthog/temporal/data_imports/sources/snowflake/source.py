@@ -176,7 +176,14 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "404 Not Found": None,
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            # Snowflake error 250001: the user account was disabled by the customer's Snowflake admin
+            # (e.g. `ALTER USER ... SET DISABLED = TRUE`). Retrying can never succeed until they re-enable it.
+            "User access disabled. Contact your local system administrator": "Your Snowflake user account has been disabled. Please contact your Snowflake administrator to re-enable it, then resync.",
             "MFA authentication is required": None,
+            # The account enforces Duo Security multi-factor auth for this user, so the
+            # connector's login is rejected (250001 / 08001). An unattended sync can't answer a
+            # Duo push, so retrying never succeeds — surface an actionable message instead.
+            "Duo Security authentication is denied": "Snowflake rejected the login because multi-factor authentication (Duo Security) is enforced for this user. Automated syncs can't answer an MFA prompt — connect with a service user that uses key-pair authentication or is exempt from MFA.",
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
