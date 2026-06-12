@@ -233,7 +233,6 @@ export const defaultMocks: Mocks = {
             session_events: { columns: [], results: [] },
             related_events: { columns: [], results: [] },
         },
-        '/api/environments/:team_id/session_recordings/:id/capture_diagnostics': { properties: null },
         '/api/projects/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
