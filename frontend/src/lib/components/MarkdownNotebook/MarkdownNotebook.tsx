@@ -20,7 +20,7 @@ import {
     useState,
 } from 'react'
 
-import { IconCode, IconDrag } from '@posthog/icons'
+import { IconCode, IconComment, IconDrag } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -3268,6 +3268,30 @@ export function MarkdownNotebook({
         }
     }
 
+    // A block comment has no `<ref>` highlight: the thread anchors purely by sitting right
+    // above the block it discusses (below it for the title row, which always stays first).
+    const startBlockCommentForNode = (nodeId: string): void => {
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const targetIndex = nodes.findIndex((node) => node.id === nodeId)
+        if (targetIndex === -1) {
+            return
+        }
+
+        const commentNode: NotebookComponentBlockNode = {
+            id: makeEmptyParagraph(`comment-${nodeId}`).id,
+            type: 'component',
+            tagName: 'Comment',
+            props: { replies: [] },
+        }
+        const insertIndex = Math.max(targetIndex, 1)
+        markNotebookNodeFreshlyInserted(commentNode.id)
+        commitDocument({
+            ...currentDocument,
+            nodes: [...nodes.slice(0, insertIndex), commentNode, ...nodes.slice(insertIndex)],
+        })
+    }
+
     const copyFloatingToolbarSelection = (): void => {
         if (!floatingToolbar?.selectedMarkdown) {
             return
@@ -4790,6 +4814,24 @@ export function MarkdownNotebook({
                         onDragEnd={handleBlockDragEnd}
                     >
                         <IconDrag />
+                    </div>
+                ) : null}
+                {isDraggableRow ? (
+                    <div
+                        className="MarkdownNotebook__block-comment-button"
+                        contentEditable={false}
+                        role="button"
+                        aria-label="Comment on block"
+                        title="Comment"
+                        data-attr="markdown-notebook-block-comment-button"
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            startBlockCommentForNode(node.id)
+                        }}
+                    >
+                        <IconComment />
                     </div>
                 ) : null}
                 {dropIndicatorTarget?.index === index ? (

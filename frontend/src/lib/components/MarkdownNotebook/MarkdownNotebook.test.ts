@@ -3759,6 +3759,39 @@ Numbers <ref id="${refId}">look</ref> off here`)
 Body text`)
     })
 
+    it('creates a block comment thread above a component from the gutter button', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('<Query query={{"kind":"DataTableNode"}} />'),
+                onChange,
+            })
+        )
+        const commentButtons = Array.from(
+            container.querySelectorAll('[data-attr="markdown-notebook-block-comment-button"]')
+        )
+        expect(commentButtons).toHaveLength(1)
+
+        fireEvent.click(commentButtons[0] as HTMLElement)
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+<Comment replies={[]} />
+
+<Query query={{"kind":"DataTableNode"}} />`)
+    })
+
+    it('does not offer the block comment button in view mode', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('<Query query={{"kind":"DataTableNode"}} />'),
+                mode: 'view',
+            })
+        )
+
+        expect(container.querySelectorAll('[data-attr="markdown-notebook-block-comment-button"]')).toHaveLength(0)
+    })
+
     it('creates one comment thread spanning a multi-block selection', () => {
         const onChange = jest.fn()
         const { container } = render(

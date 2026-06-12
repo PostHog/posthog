@@ -323,6 +323,53 @@
     transform: translateX(var(--markdown-notebook-inline-control-width));
 }
 
+/* The block comment button occupies the gutter slot left of the drag handle. */
+.MarkdownNotebook__block-comment-button {
+    position: absolute;
+    top: 0.25rem;
+    left: calc(var(--markdown-notebook-inline-control-width) * -1);
+    z-index: var(--z-raised);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--markdown-notebook-inline-control-width);
+    height: 1.25rem;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    user-select: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.MarkdownNotebook__block-comment-button svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+.MarkdownNotebook__row:hover .MarkdownNotebook__block-comment-button {
+    opacity: 0.5;
+}
+
+.MarkdownNotebook__block-comment-button:hover,
+.MarkdownNotebook__block-comment-button:focus-visible {
+    opacity: 1;
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__block-comment-button {
+    left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem - var(--markdown-notebook-inline-control-width));
+}
+
+.MarkdownNotebook__blockquote-group .MarkdownNotebook__block-comment-button {
+    left: calc(
+        var(--markdown-notebook-content-offset) * -1 -
+            1rem - var(--markdown-notebook-quote-indent) - var(--markdown-notebook-inline-control-width)
+    );
+}
+
+.MarkdownNotebook__row:has(.MarkdownNotebook__line-insert-menu-hit-area) .MarkdownNotebook__block-comment-button {
+    transform: translateX(var(--markdown-notebook-inline-control-width));
+}
+
 .MarkdownNotebook__row--dragging {
     opacity: 0.4;
 }
