@@ -439,11 +439,6 @@ class ClickHousePrinter(BasePrinter):
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         return f"JSONDropKeys({keys_placeholder})({field_sql})"
 
-    def _render_cohort_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str | None:
-        # Backstop for an internal invariant — cohort ops resolve before printing (null-semantics lowering raises the
-        # same error earlier with full context).
-        raise InternalHogQLError("Cohort operations should have been resolved before printing")
-
     def visit_call(self, node: ast.Call):
         # Property-group call optimizations (isNull/isNotNull/JSONHas over a property-group key) now run in ClickHouse
         # property resolution, which rewrites them to the keys-index `has(group, key)` form before printing.

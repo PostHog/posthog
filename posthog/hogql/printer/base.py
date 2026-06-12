@@ -965,7 +965,8 @@ class BasePrinter(Visitor[str]):
             op = HOGQL_COMPARISON_MAPPING[node.name]
             if len(node.args) != 2:
                 raise QueryError(f"Comparison '{node.name}' requires exactly two arguments")
-            # We do "cleverer" logic with nullable types in visit_compare_operation
+            # Render the call form through the comparison renderer so both forms print identically. On the ClickHouse
+            # path, null-semantics lowering already routed call-form comparisons the same way before printing.
             return self.visit_compare_operation(
                 ast.CompareOperation(
                     left=node.args[0],
