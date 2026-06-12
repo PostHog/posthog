@@ -38,7 +38,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ..facade.api import run_count_query
+from ..facade.api import run_count_query, run_duration_histogram_query
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
     TraceSpansQueryRunner,
@@ -158,7 +158,7 @@ class _TracingQueryBodySerializer(serializers.Serializer):
     excludeAttributes = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
+        help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
 
 
@@ -174,7 +174,7 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
     excludeAttributes = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
+        help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
 
 
@@ -539,6 +539,32 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         runner = TraceSpansSparklineQueryRunner(spans_query, self.team)
         response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_TracingQueryRequestSerializer)
+    @action(detail=False, methods=["POST"], url_path="duration-histogram", required_scopes=["tracing:read"])
+    def duration_histogram(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        response = run_duration_histogram_query(
+            team=self.team,
+            date_range=date_range,
+            service_names=query_data.get("serviceNames", None),
+            status_codes=query_data.get("statusCodes", None),
+            filter_group=filter_group,
+        )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 

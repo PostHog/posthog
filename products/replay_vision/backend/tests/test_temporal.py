@@ -11,6 +11,7 @@ from django.utils import timezone
 
 import psycopg.errors
 from asgiref.sync import sync_to_async
+from google.genai.errors import APIError
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -19,6 +20,10 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
+    REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
+    REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -71,6 +76,7 @@ from products.replay_vision.backend.temporal.state import (
 )
 from products.replay_vision.backend.temporal.types import (
     ApplyScannerInputs,
+    CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
     EmbedSummarizerObservationInputs,
@@ -280,6 +286,7 @@ class TestCreateObservationActivity:
                 usage_this_month=1,
                 period_start=dt.datetime.now(dt.UTC),
                 period_end=dt.datetime.now(dt.UTC),
+                projected_monthly_observations=0,
             )
             result = create_observation_activity(
                 CreateObservationInputs(
@@ -1195,6 +1202,53 @@ class TestEnsureSessionAssetActivity:
         ctx = asset.export_context or {}
         assert ctx["render_fingerprint"] == "abcdef"
         assert ctx["content_location"] == "s3://prior/video.mp4"
+
+
+class TestCleanupGeminiFileActivity:
+    @pytest.mark.asyncio
+    async def test_deletes_file_and_clears_tracking(self, gemini_redis) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-ok", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-ok": 0.0})
+        fake_client = MagicMock()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-ok"))
+        fake_client.files.delete.assert_called_once_with(name="files/rv-ok")
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-ok") == 0
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-ok") is None
+
+    @pytest.mark.asyncio
+    async def test_keeps_tracking_on_transient_failure(self, gemini_redis) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-transient", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-transient": 0.0})
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = RuntimeError("gemini down")
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-transient"))
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-transient") == 1
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-transient") is not None
+
+    @pytest.mark.parametrize("code", [403, 404])
+    @pytest.mark.asyncio
+    async def test_clears_tracking_when_file_already_gone(self, gemini_redis, code: int) -> None:
+        # Gemini reports missing files as 403 PERMISSION_DENIED ("...or it may not exist") or 404;
+        # either way the file can't be deleted, so the tracking key must be dropped.
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-gone": 0.0})
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = APIError(code=code, response_json={})
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-gone"))
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone") == 0
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-gone") is None
 
 
 def _build_inputs(**overrides: Any) -> ApplyScannerInputs:

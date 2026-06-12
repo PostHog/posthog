@@ -377,12 +377,22 @@ function escapeForDescribe(desc: string): string {
  * that return {results: [...]} with no top-level id) — the URL is built from the
  * request params instead of the response body.
  */
-function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string; source: 'result' | 'params' } {
-    const match = enrichUrl.match(/^(.*?)\{(?:(params)\.)?(\w+)\}$/)
+function parseEnrichUrl(enrichUrl: string): {
+    prefix: string
+    field: string
+    suffix: string
+    source: 'result' | 'params'
+} {
+    const match = enrichUrl.match(/^(.*?)\{(?:(params)\.)?(\w+)\}(.*)$/)
     if (!match) {
         throw new Error(`Invalid enrich_url format: ${enrichUrl}`)
     }
-    return { prefix: match[1]!, field: match[3]!, source: match[2] === 'params' ? 'params' : 'result' }
+    return {
+        prefix: match[1]!,
+        field: match[3]!,
+        suffix: match[4] ?? '',
+        source: match[2] === 'params' ? 'params' : 'result',
+    }
 }
 
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
@@ -810,7 +820,7 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     const baseUrl = config.url_prefix ?? category.url_prefix
 
     if (config.list && config.enrich_url) {
-        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         // For list endpoints, 'params.x' is not meaningful (items come from the response
         // array, not request params), so force 'result' source here.
         if (source === 'params') {
@@ -821,7 +831,7 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
         return [
             `        return await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
-            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
+            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
             `        }, '${baseUrl}')`,
             ``,
         ].join('\n')
@@ -832,10 +842,10 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     }
 
     if (config.enrich_url) {
-        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}\`)\n`
+        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)\n`
     }
 
     return `        return ${resultVar}\n`
@@ -1023,6 +1033,33 @@ function generateToolCode(
         composition.bodyFieldNames.length > 0 || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
+    // When `confirmed_action` is declared, emit TWO factories instead of
+    // one — `<name>-prepare` and `<name>-execute`. The prepare tool signs
+    // the validated args into a hash; the execute tool verifies the hash,
+    // requires the literal "confirm" arg, and then runs the original
+    // handler body with the verified args. See `src/tools/confirmed-action-runtime.ts`.
+    if (config.confirmed_action) {
+        const wrapped = buildConfirmedActionFactories({
+            toolName,
+            config,
+            schemaName,
+            schemaDecl,
+            originalHandlerBody: handlerBody,
+            resultType,
+        })
+        return {
+            code: wrapped.code,
+            orvalImports: composition.orvalImports,
+            toolInputsImports: composition.toolInputsImports,
+            castHelperImports: composition.castHelperImports,
+            schemaRefBlocks: composition.schemaRefBlocks,
+            responseType,
+            needsWithPostHogUrl,
+            hasEnrichment,
+            responseFilterImport: responseFilter.helperImport,
+        }
+    }
+
     const toolBody = `{
     name: '${toolName}',
     schema: ${schemaName},
@@ -1049,6 +1086,103 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         hasEnrichment,
         responseFilterImport: responseFilter.helperImport,
     }
+}
+
+/**
+ * Emit prepare + execute factories for a tool that declares `confirmed_action`.
+ * Returns the combined `code` block — the two factories plus the extended
+ * schema used by `-execute`. The base schema is emitted exactly as the
+ * non-confirmed path does it, so the prepare variant reuses it directly.
+ */
+function buildConfirmedActionFactories(args: {
+    toolName: string
+    config: ToolConfig
+    schemaName: string
+    schemaDecl: string
+    originalHandlerBody: string
+    resultType: string
+}): { code: string } {
+    const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType } = args
+    const baseFactory = toCamelCase(toolName)
+    const prepareName = `${toolName}-prepare`
+    const executeName = `${toolName}-execute`
+    const prepareFactory = `${baseFactory}Prepare`
+    const executeFactory = `${baseFactory}Execute`
+    const executeSchemaName = `${schemaName}Execute`
+    const actionLabel = config.confirmed_action?.action_label ?? config.title ?? toolName
+    const messageTemplate = config.confirmed_action?.message ?? `Confirm ${actionLabel}?`
+
+    // Execute schema = base schema extended with the two framework fields.
+    // `confirmation` is z.string() not z.literal('confirm') on purpose: the
+    // runtime checks the value and refuses with a structured tool-call
+    // result + metric counter. A literal would raise a generic zod parse
+    // error before our guard runs, losing the metric and the
+    // user-targetted refusal text.
+    const executeSchemaDecl = `const ${executeSchemaName} = ${schemaName}.extend({
+    confirmation_hash: z.string().describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})`
+
+    // Prepare handler: validate args via the base schema (already happens
+    // before our handler runs) and call into the runtime. Args are signed
+    // verbatim — bound to user identity + purpose.
+    const prepareHandler = `        const __runtime = getConfirmedActionRuntime()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: ${JSON.stringify(toolName)},
+            actionLabel: ${JSON.stringify(actionLabel)},
+            messageTemplate: ${JSON.stringify(messageTemplate)},
+            codec: __runtime.codec,
+        })
+`
+
+    // Execute handler: guard, then re-run the original handler body with
+    // the verified args. `params` is reassigned to the verified payload so
+    // the rest of the original code path (which reads from `params.*`)
+    // works unchanged. The cast pins the type so TS knows the original
+    // shape survives.
+    const executeHandler = `        const __runtime = getConfirmedActionRuntime()
+        const __guard = await executeConfirmedAction(context, {
+            incomingArgs: params,
+            purpose: ${JSON.stringify(toolName)},
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        // Replace, do NOT merge: only signed fields are authorized. Any
+        // base-schema field the model slipped into the execute call
+        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
+        // would otherwise survive into the downstream API body.
+        // eslint-disable-next-line no-param-reassign
+        params = { ...__guard.verifiedArgs } as typeof params
+${originalHandlerBody}`
+
+    const prepareBody = `{
+    name: '${prepareName}',
+    schema: ${schemaName},
+    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+${prepareHandler}    },
+}`
+
+    const executeBody = `{
+    name: '${executeName}',
+    schema: ${executeSchemaName},
+    handler: async (context: Context, params: z.infer<typeof ${executeSchemaName}>) => {
+${executeHandler}    },
+}`
+
+    const code = `
+${schemaDecl}
+
+${executeSchemaDecl}
+
+const ${prepareFactory} = (): ToolBase<typeof ${schemaName}, PrepareConfirmedActionResult> => (${prepareBody})
+
+const ${executeFactory} = (): ToolBase<typeof ${executeSchemaName}, ${resultType}> => (${executeBody})
+`
+    return { code }
 }
 
 function generateCustomSchemaToolCode(
@@ -1356,7 +1490,19 @@ function generateCategoryFile(
             .join('\n')
     }
 
-    const restMapEntries = enabledTools.map(([name]) => `    '${name}': ${toCamelCase(name)},`).join('\n')
+    const restMapEntries = enabledTools
+        .flatMap(([name, config]) => {
+            if (config.confirmed_action) {
+                return [
+                    `    '${name}-prepare': ${toCamelCase(name)}Prepare,`,
+                    `    '${name}-execute': ${toCamelCase(name)}Execute,`,
+                ]
+            }
+            return [`    '${name}': ${toCamelCase(name)},`]
+        })
+        .join('\n')
+
+    const hasConfirmedAction = enabledTools.some(([, c]) => c.confirmed_action)
     const mapEntries = [restMapEntries, wrapperMapEntries].filter(Boolean).join('\n')
 
     const orvalImportLine =
@@ -1403,13 +1549,17 @@ function generateCategoryFile(
     const wrapperImportLine =
         enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
 
+    const confirmedActionImportLine = hasConfirmedAction
+        ? `import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'\nimport { executeConfirmedAction, prepareConfirmedAction, type PrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'\n`
+        : ''
+
     const schemaRefCode = allSchemaRefBlocks.length > 0 ? '\n' + allSchemaRefBlocks.join('\n\n') + '\n' : ''
 
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }
@@ -1455,26 +1605,93 @@ function generateDefinitionsJson(
     for (const { config: category, enabledTools, enabledWrappers, yamlDir } of categories) {
         for (const [name, toolConfig, resolved] of enabledTools) {
             const opDescription = resolved.operation.description?.trim() || resolved.operation.summary?.trim() || ''
-            definitions[name] = {
-                description: resolveDescription(toolConfig, yamlDir, opDescription),
-                category: category.category,
-                feature: category.feature,
-                summary: toolConfig.title || opDescription.split('.')[0] || name,
-                title: toolConfig.title || resolved.operation.summary || name,
-                required_scopes: toolConfig.scopes,
-                annotations: {
-                    destructiveHint: toolConfig.annotations.destructive,
-                    idempotentHint: toolConfig.annotations.idempotent,
-                    openWorldHint: true,
-                    readOnlyHint: toolConfig.annotations.readOnly,
-                },
-                ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
-                ...(toolConfig.feature_flag_behavior
-                    ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
-                    : {}),
-                ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
-                ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+            const baseDescription = resolveDescription(toolConfig, yamlDir, opDescription)
+            const baseTitle = toolConfig.title || resolved.operation.summary || name
+            const baseSummary = toolConfig.title || opDescription.split('.')[0] || name
+
+            if (toolConfig.confirmed_action) {
+                // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
+                // `<name>-execute` entries. Descriptions explicitly guide the
+                // model through the prepare → ask user → execute sequence.
+                const actionLabel = toolConfig.confirmed_action.action_label ?? baseTitle
+                definitions[`${name}-prepare`] = {
+                    description:
+                        `Step 1 of 2 for ${actionLabel}. ` +
+                        `Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. ` +
+                        `The user must reply with the literal word "confirm" before you call the matching -execute tool with the hash. ` +
+                        `Original action: ${baseDescription}`,
+                    category: category.category,
+                    feature: category.feature,
+                    summary: `${baseSummary} (prepare)`,
+                    title: `${baseTitle} (prepare)`,
+                    required_scopes: toolConfig.scopes,
+                    annotations: {
+                        destructiveHint: false,
+                        idempotentHint: true,
+                        openWorldHint: true,
+                        readOnlyHint: true,
+                    },
+                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                    ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
+                    ...(toolConfig.feature_flag_behavior
+                        ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
+                        : {}),
+                    ...(toolConfig.feature_flag_variant
+                        ? { feature_flag_variant: toolConfig.feature_flag_variant }
+                        : {}),
+                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                }
+                definitions[`${name}-execute`] = {
+                    description:
+                        `Step 2 of 2 for ${actionLabel}. ` +
+                        `Verifies the confirmation_hash from -prepare and the literal "confirm" string typed by the user, then performs the action. ` +
+                        `ONLY call this after the user has explicitly typed "confirm" in chat. ` +
+                        `Original action: ${baseDescription}`,
+                    category: category.category,
+                    feature: category.feature,
+                    summary: `${baseSummary} (execute)`,
+                    title: `${baseTitle} (execute)`,
+                    required_scopes: toolConfig.scopes,
+                    annotations: {
+                        destructiveHint: toolConfig.annotations.destructive,
+                        idempotentHint: toolConfig.annotations.idempotent,
+                        openWorldHint: true,
+                        readOnlyHint: toolConfig.annotations.readOnly,
+                    },
+                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                    ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
+                    ...(toolConfig.feature_flag_behavior
+                        ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
+                        : {}),
+                    ...(toolConfig.feature_flag_variant
+                        ? { feature_flag_variant: toolConfig.feature_flag_variant }
+                        : {}),
+                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                }
+            } else {
+                definitions[name] = {
+                    description: baseDescription,
+                    category: category.category,
+                    feature: category.feature,
+                    summary: baseSummary,
+                    title: baseTitle,
+                    required_scopes: toolConfig.scopes,
+                    annotations: {
+                        destructiveHint: toolConfig.annotations.destructive,
+                        idempotentHint: toolConfig.annotations.idempotent,
+                        openWorldHint: true,
+                        readOnlyHint: toolConfig.annotations.readOnly,
+                    },
+                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                    ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
+                    ...(toolConfig.feature_flag_behavior
+                        ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
+                        : {}),
+                    ...(toolConfig.feature_flag_variant
+                        ? { feature_flag_variant: toolConfig.feature_flag_variant }
+                        : {}),
+                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                }
             }
         }
         // Include query wrappers defined in the same category file

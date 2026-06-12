@@ -1,4 +1,6 @@
 import datetime
+from collections.abc import Generator
+from typing import cast
 
 import pytest
 from unittest.mock import MagicMock
@@ -14,6 +16,7 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     MySQLImplementation,
     _build_query,
     _is_bad_plan_timeout,
+    _release_streaming_cursor,
     _safe_convert_date,
     _safe_convert_datetime,
     _sanitize_identifier,
@@ -584,6 +587,54 @@ class TestStreamingConnectionTimeouts:
         assert ss_cursor.execute.called
 
 
+class TestReleaseStreamingCursor:
+    def test_detaches_cursor_without_closing(self):
+        cursor = MagicMock()
+        _release_streaming_cursor(cursor)
+        assert cursor.connection is None
+        cursor.close.assert_not_called()
+
+
+class TestStreamingCursorTeardown:
+    """The streaming SSCursor must be torn down without draining its unbuffered
+    result set, so an early exit can't resurface a lost-connection error over
+    the real reason iteration stopped."""
+
+    def test_early_close_does_not_drain_or_raise(self, build_pipeline_mocks):
+        _, _, ss_cursor = build_pipeline_mocks
+        # Every fetch returns a row, so the generator stays suspended at a yield
+        # until we close it — mimicking a sync cancelled mid-stream.
+        ss_cursor.fetchmany.return_value = [(1,)]
+        ss_cursor.close.side_effect = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+
+        source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs())
+        # MySQL source is always sync, so items() yields a plain generator.
+        rows = cast(Generator, source.items())
+        next(rows)  # pull the first batch, suspend at the yield
+
+        # A cancelled activity closes the generator early — this must not raise.
+        rows.close()
+
+        ss_cursor.close.assert_not_called()
+        assert ss_cursor.connection is None
+
+    def test_midstream_error_propagates_without_draining(self, build_pipeline_mocks):
+        _, _, ss_cursor = build_pipeline_mocks
+        # First fetch yields a batch, the second loses the connection mid-stream.
+        ss_cursor.fetchmany.side_effect = [
+            [(1,)],
+            pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"),
+        ]
+        ss_cursor.close.side_effect = AssertionError("cursor must not be drained on teardown")
+
+        source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs())
+        with pytest.raises(pymysql.err.OperationalError):
+            list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
+
+        ss_cursor.close.assert_not_called()
+        assert ss_cursor.connection is None
+
+
 class TestIsBadPlanTimeout:
     def test_matches_error_2013(self):
         assert _is_bad_plan_timeout(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
@@ -727,3 +778,31 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657)",
+            # The signature also arrives wrapped in pymysql's OperationalError(2013) — we must
+            # still catch it without making the bare 2013/"Lost connection" text non-retryable.
+            "OperationalError: (2013, 'Lost connection to MySQL server during query "
+            "([SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657))')",
+        ],
+    )
+    def test_ssl_wrong_version_number_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSL version mismatch should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A genuine transient connection drop (no SSL signature) must stay retryable.
+            "OperationalError: (2013, 'Lost connection to MySQL server during query')",
+            "Lost connection to MySQL server during query",
+        ],
+    )
+    def test_transient_lost_connection_stays_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Transient lost-connection error should remain retryable: {error_msg}"

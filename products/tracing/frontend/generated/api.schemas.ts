@@ -135,11 +135,6 @@ export interface _TracingCountResponseApi {
     count: number
 }
 
-export interface _HasSpansResponseApi {
-    /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
-    hasSpans: boolean
-}
-
 /**
  * * `timestamp` - timestamp
  * * `duration` - duration
@@ -197,7 +192,7 @@ export interface _TracingQueryBodyApi {
     rootSpans?: boolean
     /** Number of child spans to prefetch per trace (1-100). */
     prefetchSpans?: number
-    /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
 }
 
@@ -206,10 +201,15 @@ export interface _TracingQueryRequestApi {
     query: _TracingQueryBodyApi
 }
 
+export interface _HasSpansResponseApi {
+    /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+    hasSpans: boolean
+}
+
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Defaults to last 24 hours. */
     dateRange?: _TracingDateRangeApi
-    /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
 }
 

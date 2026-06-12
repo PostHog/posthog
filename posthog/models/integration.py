@@ -48,6 +48,7 @@ from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
@@ -271,24 +272,23 @@ class OauthConfig:
     additional_authorize_params: dict[str, str] | None = None
 
 
-POSTHOG_SLACK_SCOPE = ",".join(
-    [
-        "channels:read",
-        "groups:read",
-        "chat:write",
-        "chat:write.customize",
-        "app_mentions:read",
-        "channels:history",
-        "groups:history",
-        "links:read",
-        "links:write",
-        "reactions:read",
-        "reactions:write",
-        "team:read",
-        "users:read",
-        "users:read.email",
-    ]
-)
+# Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
+# StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
+# frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
+#
+# On the internal DEV instance (CLOUD_DEPLOYMENT="DEV") and local development (settings.DEBUG)
+# we also request the in-review scopes — the Slack app manifest in those setups can list them.
+# US/EU/self-hosted would fail with `invalid_scope` until Slack approves the public Cloud app.
+# Evaluated at module import; tests that need a different value should
+# `@override_settings(...)` *before* importing this module (or `importlib.reload` it after).
+def _build_posthog_slack_scope() -> str:
+    scopes = [scope.value for scope in SlackIntegrationScope]
+    if settings.DEBUG or get_instance_region() == "DEV":
+        scopes.extend(scope.value for scope in SlackIntegrationScopeInReview)
+    return ",".join(scopes)
+
+
+POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
 
 
 class OauthIntegration:

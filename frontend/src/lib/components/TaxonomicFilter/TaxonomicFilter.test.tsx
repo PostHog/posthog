@@ -275,6 +275,68 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    describe('no results - switch to all', () => {
+        // Every group type renders its list (active one visible, the rest hidden via CSS), so the
+        // empty-state button can appear in several hidden tabs at once. Scope queries to the visible tab.
+        const inVisibleTab = (elements: HTMLElement[]): HTMLElement | undefined =>
+            elements.find((el) => !el.closest('.hidden'))
+
+        // Land on a non-"all" group while it still has results, so a later empty search leaves us there
+        // (empty tabs aren't clickable, mirroring how a user starts on a group then searches it dry).
+        async function activateGroupWithResults(testId: string): Promise<void> {
+            await waitFor(() => {
+                expect(screen.getByTestId(testId)).not.toHaveAttribute('aria-disabled', 'true')
+            })
+            await userEvent.click(screen.getByTestId(testId))
+        }
+
+        it('offers a button to jump to the all section when another group has matches', async () => {
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await activateGroupWithResults('taxonomic-tab-person_properties')
+            // Search for something that only matches events, leaving person properties empty
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'test event')
+
+            // The empty state offers a shortcut to the aggregated all/suggested-filters section
+            let switchButton: HTMLElement | undefined
+            await waitFor(() => {
+                switchButton = inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-all'))
+                expect(switchButton).toBeTruthy()
+            })
+            expect(switchButton).toHaveTextContent(/See results from other categories/i)
+
+            await userEvent.click(switchButton!)
+
+            await waitFor(() => {
+                expectActiveTab('taxonomic-tab-suggested_filters')
+            })
+        })
+
+        it('does not offer the button when no other group has matches', async () => {
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await activateGroupWithResults('taxonomic-tab-person_properties')
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'xyznonexistent')
+
+            await waitFor(() => {
+                expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
+            })
+            expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
+        })
+    })
+
     describe('tab switching', () => {
         it('clicking a category tab switches the visible results', async () => {
             renderFilter({
@@ -1101,8 +1163,10 @@ describe('TaxonomicFilter', () => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
 
+            // Pill auto-injects the "All" (SuggestedFilters) tab as the default for a
+            // multi-group picker, so that's the category showing before and after Tab.
             const trigger = screen.getByTestId('taxonomic-category-dropdown-trigger-pill')
-            expect(trigger).toHaveAttribute('aria-label', expect.stringContaining('Events'))
+            expect(trigger).toHaveAttribute('aria-label', expect.stringContaining('All'))
 
             const input = screen.getByTestId('taxonomic-filter-searchfield') as HTMLInputElement
             input.focus()
@@ -1110,7 +1174,7 @@ describe('TaxonomicFilter', () => {
 
             expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveAttribute(
                 'aria-label',
-                expect.stringContaining('Events')
+                expect.stringContaining('All')
             )
         })
     })
