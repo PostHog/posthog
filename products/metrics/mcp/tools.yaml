@@ -7,7 +7,21 @@
 category: Metrics
 feature: metrics
 url_prefix: /metrics
+ui_apps: {}
 tools:
+    characterize-metric-anomaly:
+        operation: metrics_characterize_create
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Characterize metric anomaly
+        description_file: ./prompts/characterize-metric-anomaly.md
+        system_prompt_hint: First call when investigating "metric X looks wrong" — magnitude, onset, which labels moved
+        feature_flag: metrics
     event-definitions-metrics-retrieve:
         operation: event_definitions_metrics_retrieve
         enabled: false
@@ -50,6 +64,22 @@ tools:
     hog-functions-metrics-totals-retrieve:
         operation: hog_functions_metrics_totals_retrieve
         enabled: false
+    metric-names-list:
+        operation: metrics_values_retrieve
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List metric names
+        description_file: ./prompts/metric-names-list.md
+        system_prompt_hint: Discover which server/infrastructure metrics exist before querying them
+        feature_flag: metrics
+        response:
+            include:
+                - results
     metrics-has-metrics-retrieve:
         operation: metrics_has_metrics_retrieve
         enabled: false
@@ -69,32 +99,3 @@ tools:
         response:
             include:
                 - results
-    metric-names-list:
-        operation: metrics_values_retrieve
-        enabled: true
-        scopes:
-            - metrics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List metric names
-        description_file: ./prompts/metric-names-list.md
-        system_prompt_hint: Discover which server/infrastructure metrics exist before querying them
-        feature_flag: metrics
-        response:
-            include:
-                - results
-    characterize-metric-anomaly:
-        operation: metrics_characterize_create
-        enabled: true
-        scopes:
-            - metrics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Characterize metric anomaly
-        description_file: ./prompts/characterize-metric-anomaly.md
-        system_prompt_hint: First call when investigating "metric X looks wrong" — magnitude, onset, which labels moved
-        feature_flag: metrics
