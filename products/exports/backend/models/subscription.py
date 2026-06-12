@@ -36,7 +36,11 @@ def __getattr__(name: str) -> int:
     if name == "SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER":
         from posthog.schema import SubscriptionFreeTierLimit  # noqa: PLC0415
 
-        return SubscriptionFreeTierLimit.model_fields["root"].default
+        value = SubscriptionFreeTierLimit.model_fields["root"].default
+        # Cache as a real module attribute: later reads skip __getattr__, and tests
+        # patching the attribute keep working since mock restores what getattr returns.
+        globals()[name] = value
+        return value
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -282,8 +286,10 @@ class Subscription(ModelActivityMixin, models.Model):
             # A None limit means unlimited (paid plans without a numeric cap).
             if allowed is not None and existing_count >= allowed:
                 return f"Your team has reached the limit of {allowed} subscriptions on your plan."
-        elif existing_count >= _free_tier_subscription_limit():
-            return f"Your plan is limited to {_free_tier_subscription_limit()} subscriptions."
+        else:
+            limit = _free_tier_subscription_limit()
+            if existing_count >= limit:
+                return f"Your plan is limited to {limit} subscriptions."
 
         return None
 
