@@ -15,8 +15,11 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChoiceQuestionResponseData } from '~/types'
 
 const CATEGORY_LABEL_WIDTH = 280
-// Room beside each bar tip for the value label's text width, so it floats rather than overlapping the bar.
-const VALUE_LABEL_PADDING = 88
+// Gap between the bar tip and its value label.
+const VALUE_LABEL_OFFSET = 6
+// Room beside each bar tip for the value label's text width plus its offset, so it floats rather
+// than overlapping the bar.
+const VALUE_LABEL_PADDING = 88 + VALUE_LABEL_OFFSET
 
 interface Props {
     chartData: ChoiceQuestionResponseData[]
@@ -79,7 +82,10 @@ export function MultipleChoiceBarChart({
                 onPointClick={({ dataIndex }) => onBarClick(dataIndex)}
                 dataAttr="survey-multiple-choice"
             >
-                <ValueLabels valueFormatter={(value) => formatCountWithPercentage(value, totalResponses)} />
+                <ValueLabels
+                    valueFormatter={(value) => formatCountWithPercentage(value, totalResponses)}
+                    offset={VALUE_LABEL_OFFSET}
+                />
             </BarChart>
         </div>
     )
