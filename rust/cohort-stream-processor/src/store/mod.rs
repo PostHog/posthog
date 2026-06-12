@@ -1,8 +1,4 @@
-//! RocksDB state store and durability.
-//!
-//! A single per-process RocksDB holding the three state column families, with
-//! `partition_id`-prefixed keys and a per-person secondary index. WAL is async
-//! (`set_sync(false)`); durability comes from the checkpoint cadence plus Kafka replay.
+//! RocksDB state store.
 
 pub mod column_families;
 pub mod keys;

@@ -1,6 +1,5 @@
-//! Merge-protocol producers: the `cohort_merge_state_transfer` produce and the straggler re-key
-//! back into `cohort_stream_events`. Both are keyed by `merge_partition_key(team, person)` so
-//! co-partitioned topics agree on worker affinity.
+//! Merge-protocol producers for `cohort_merge_state_transfer` and straggler re-keys back into
+//! `cohort_stream_events`.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -20,7 +19,6 @@ use crate::merge::transfer::MergeStateTransfer;
 use crate::partitions::partitioner::merge_partition_key;
 use crate::producer::kafka::AlwaysHealthy;
 
-/// Produce state transfers to `cohort_merge_state_transfer` and await all acks.
 #[async_trait]
 pub trait TransferSink: Send + Sync {
     async fn produce(
@@ -29,13 +27,11 @@ pub trait TransferSink: Send + Sync {
     ) -> Vec<Result<(), KafkaProduceError>>;
 }
 
-/// Produce re-keyed straggler events back to `cohort_stream_events` and await all acks.
 #[async_trait]
 pub trait StreamEventSink: Send + Sync {
     async fn produce(&self, events: Vec<CohortStreamEvent>) -> Vec<Result<(), KafkaProduceError>>;
 }
 
-/// Kafka [`TransferSink`] for `cohort_merge_state_transfer`.
 pub struct KafkaTransferSink {
     producer: FutureProducer<KafkaContext>,
     topic: String,
@@ -67,7 +63,6 @@ impl TransferSink for KafkaTransferSink {
     }
 }
 
-/// Kafka [`StreamEventSink`] for the straggler re-key back into `cohort_stream_events`.
 pub struct KafkaStreamEventSink {
     producer: FutureProducer<KafkaContext>,
     topic: String,
@@ -96,7 +91,6 @@ impl StreamEventSink for KafkaStreamEventSink {
     }
 }
 
-/// Keyed by `merge_partition_key(team, P_new)` so the transfer lands on P_new's owning worker.
 fn transfer_key(transfer: &MergeStateTransfer) -> Option<String> {
     Some(merge_partition_key(
         TeamId(transfer.team_id),
@@ -104,7 +98,6 @@ fn transfer_key(transfer: &MergeStateTransfer) -> Option<String> {
     ))
 }
 
-/// Keyed by `merge_partition_key(team, person)` over the already-rewritten `person_id`.
 fn stream_event_key(event: &CohortStreamEvent) -> Option<String> {
     match Uuid::parse_str(&event.person_id) {
         Ok(person) => Some(merge_partition_key(TeamId(event.team_id), &person)),
@@ -114,8 +107,6 @@ fn stream_event_key(event: &CohortStreamEvent) -> Option<String> {
 
 const FAIL_ALWAYS: usize = usize::MAX;
 
-/// Shared capture core for test doubles: records produced items, optionally failing the first `n`
-/// flushes.
 #[derive(Debug)]
 struct Capture<T> {
     items: Arc<Mutex<Vec<T>>>,
@@ -182,7 +173,6 @@ impl<T: Clone> Capture<T> {
     }
 }
 
-/// An in-memory [`TransferSink`] for tests; see [`Capture`].
 #[derive(Debug, Default, Clone)]
 pub struct CaptureTransferSink(Capture<MergeStateTransfer>);
 
@@ -191,13 +181,10 @@ impl CaptureTransferSink {
         Self::default()
     }
 
-    /// Fails its first `n` flushes (recording nothing, returning an `Err` per transfer), then like
-    /// [`new`](Self::new).
     pub fn failing_first(n: usize) -> Self {
         Self(Capture::failing_first(n))
     }
 
-    /// Fails every flush — the permanent-broker-outage double for the retry-exhaustion path.
     pub fn failing_always() -> Self {
         Self(Capture::failing_always())
     }
@@ -217,7 +204,6 @@ impl TransferSink for CaptureTransferSink {
     }
 }
 
-/// An in-memory [`StreamEventSink`] for tests; see [`Capture`].
 #[derive(Debug, Default, Clone)]
 pub struct CaptureStreamEventSink(Capture<CohortStreamEvent>);
 
@@ -226,13 +212,10 @@ impl CaptureStreamEventSink {
         Self::default()
     }
 
-    /// Fails its first `n` flushes (recording nothing, returning an `Err` per event), then like
-    /// [`new`](Self::new).
     pub fn failing_first(n: usize) -> Self {
         Self(Capture::failing_first(n))
     }
 
-    /// Fails every flush.
     pub fn failing_always() -> Self {
         Self(Capture::failing_always())
     }
@@ -310,7 +293,6 @@ mod tests {
             Some(merge_partition_key(TeamId(42), &person)),
         );
 
-        // Defensive: a non-UUID person still keys with the shuffler's "{team}:{person}" shape.
         let raw = CohortStreamEvent {
             person_id: "not-a-uuid".to_string(),
             ..event

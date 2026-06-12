@@ -1,9 +1,4 @@
-//! Turn a [`CohortStreamEvent`] into the HogVM globals dict that compiled cohort bytecode reads.
-//!
-//! Every top-level key must be present (the VM errors on missing top-level globals). Group/derived
-//! fields are emitted as empty defaults since supported realtime cohorts never filter on them.
-//! A malformed `properties`/`person_properties` payload returns [`GlobalsError`] so the caller
-//! skips the event.
+//! Build HogVM globals dicts from [`CohortStreamEvent`]s for cohort bytecode evaluation.
 
 use chrono::{DateTime, NaiveDateTime};
 use metrics::counter;
@@ -12,7 +7,7 @@ use serde_json::{json, Value};
 use crate::consumers::events::CohortStreamEvent;
 use crate::observability::metrics::STAGE1_GLOBALS_PARSE_ERROR;
 
-/// A present-but-malformed `properties`/`person_properties` payload; the caller skips the event.
+/// A malformed `properties`/`person_properties` JSON payload.
 #[derive(Debug, thiserror::Error)]
 #[error("failed to parse event `{field}` as JSON: {source}")]
 pub struct GlobalsError {
@@ -21,7 +16,7 @@ pub struct GlobalsError {
     pub source: serde_json::Error,
 }
 
-/// Build the full behavioral globals dict.
+/// Build the behavioral globals dict with all top-level keys the VM expects.
 pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let properties = parse_optional_json(event.properties.as_deref(), "properties")?;
     let person_properties =
@@ -64,7 +59,7 @@ pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, Glob
     }))
 }
 
-/// Build the small person-property globals dict (`person` + `project`).
+/// Build the person-property globals dict (`person` + `project`).
 pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let person_properties =
         parse_optional_json(event.person_properties.as_deref(), "person_properties")?;
@@ -75,7 +70,7 @@ pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value,
     }))
 }
 
-/// Parse a raw JSON payload: `None` or empty-string yields `{}`; malformed returns [`GlobalsError`].
+/// Parse a raw JSON payload: `None` or empty string yields `{}`.
 fn parse_optional_json(raw: Option<&str>, field: &'static str) -> Result<Value, GlobalsError> {
     let Some(raw) = raw.filter(|s| !s.is_empty()) else {
         return Ok(json!({}));
@@ -97,9 +92,7 @@ fn elements_chain(event: &CohortStreamEvent, properties: &Value) -> Value {
     }
 }
 
-/// Normalize a ClickHouse-format timestamp to ISO 8601. An already-valid RFC 3339 string passes
-/// through; otherwise the ClickHouse form is parsed as UTC and re-emitted with millisecond
-/// precision. Unrecognized formats pass through unchanged.
+/// Normalize a ClickHouse-format timestamp to ISO 8601. RFC 3339 passes through unchanged.
 fn normalize_timestamp(raw: &str) -> String {
     if DateTime::parse_from_rfc3339(raw).is_ok() {
         return raw.to_string();
@@ -174,7 +167,6 @@ mod tests {
         );
         assert_eq!(globals["distinct_id"], json!("d-1"));
         assert_eq!(globals["properties"], json!({ "$browser": "Chrome" }));
-        // person.id is the person id, NOT the distinct id.
         assert_eq!(globals["person"]["id"], json!("p-123"));
         assert_eq!(
             globals["person"]["properties"],
@@ -197,7 +189,6 @@ mod tests {
             globals,
             json!({
                 "person": { "id": "p-123", "properties": { "email": "u@p.com" } },
-                // team_id is fed into project.id verbatim (Node parity).
                 "project": { "id": 42 },
             })
         );
@@ -218,7 +209,6 @@ mod tests {
 
     #[test]
     fn empty_string_payload_parses_to_empty_object() {
-        // Node treats `""` as falsy → `{}`, not an error.
         assert_eq!(
             parse_optional_json(Some(""), "properties").unwrap(),
             json!({})
@@ -242,8 +232,6 @@ mod tests {
 
     #[test]
     fn person_globals_treat_empty_string_person_properties_as_empty_object() {
-        // The worker guards `""` out before calling, but the builder must not error if invoked
-        // directly.
         let mut e = event();
         e.person_properties = Some(String::new());
         let globals = build_person_property_globals(&e).unwrap();
@@ -296,7 +284,6 @@ mod tests {
 
     #[test]
     fn clickhouse_timestamp_normalizes_to_iso_millis_z() {
-        // Pinned byte-for-byte against Luxon `.toISO()`.
         assert_eq!(
             normalize_timestamp("2026-05-26 12:34:56.789000"),
             "2026-05-26T12:34:56.789Z"

@@ -34,7 +34,6 @@ pub fn compose_stage2(
     event_ms: i64,
     last_updated: &str,
 ) -> Result<Vec<CohortMembershipChange>, StoreError> {
-    // Dedup: one event can flip several leaves of one cohort, but the cohort composes once per person.
     let mut affected: BTreeSet<(CohortId, Uuid)> = BTreeSet::new();
     for transition in transitions {
         if let Some(cohorts) = filters
@@ -86,7 +85,7 @@ pub fn compose_stage2(
             last_updated: last_updated.to_string(),
             status,
         });
-        // Write `false` rather than deleting so absence stays unambiguous ("never evaluated").
+        // Write `false` rather than deleting so absence means "never evaluated".
         pending.push((
             stage2_key,
             Stage2State {
@@ -228,8 +227,6 @@ mod tests {
         })
     }
 
-    /// A `performed_event_multiple` (daily-bucket) leaf — routes leaf membership through the count
-    /// comparator rather than the op-less single bit.
     fn daily_leaf(window_days: i64, op: &str, value: i64) -> Value {
         json!({
             "type": "behavioral", "value": "performed_event_multiple", "key": "$pageview",
@@ -240,7 +237,6 @@ mod tests {
         })
     }
 
-    /// A daily-bucket state (7-day window → 8 buckets) holding `count` matches on its "now" day.
     fn daily_state(count: u32) -> Stage1State {
         let mut buckets = vec![0u32; 8];
         buckets[7] = count;
@@ -260,7 +256,6 @@ mod tests {
         })
     }
 
-    /// Freeze a single team cohort `AND(values)` under cohort id 1.
     fn freeze(values: Vec<Value>) -> TeamFilters {
         let cohort = json!({ "properties": { "type": "AND", "values": values } });
         let mut builder = TeamFiltersBuilder::default();
@@ -331,7 +326,6 @@ mod tests {
             .map(|bytes| Stage2State::decode(&bytes).unwrap().in_cohort)
     }
 
-    /// The behavioral + person LSKs of an `AND(behavioral_leaf, person_leaf)` cohort.
     fn and_leaf_keys(filters: &TeamFilters) -> (LeafStateKey, LeafStateKey) {
         (
             filters.by_condition_to_lsk[&HASH][0],
@@ -346,7 +340,6 @@ mod tests {
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
         let alice = person(1);
 
-        // Both leaves already true in cf_stage1; the behavioral flip triggers the recompose.
         write_stage1(&store, beh_lsk, alice, behavioral_match());
         write_stage1(&store, per_lsk, alice, person_state(true));
 
@@ -376,7 +369,6 @@ mod tests {
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
         let alice = person(1);
 
-        // Phase A: only the behavioral leaf is true; the person leaf is still absent.
         write_stage1(&store, beh_lsk, alice, behavioral_match());
         let phase_a = compose_stage2(
             PARTITION,
@@ -394,7 +386,6 @@ mod tests {
             "no bit written on a non-flip"
         );
 
-        // Phase B: the person leaf flips true → the AND is satisfied.
         write_stage1(&store, per_lsk, alice, person_state(true));
         let phase_b = compose_stage2(
             PARTITION,
@@ -422,7 +413,6 @@ mod tests {
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
         let alice = person(1);
 
-        // Establish membership: both leaves true → Entered.
         write_stage1(&store, beh_lsk, alice, behavioral_match());
         write_stage1(&store, per_lsk, alice, person_state(true));
         let entered = compose_stage2(
@@ -437,7 +427,6 @@ mod tests {
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].status, MembershipStatus::Entered);
 
-        // The person leaf flips false → the AND fails → Left.
         write_stage1(&store, per_lsk, alice, person_state(false));
         let left = compose_stage2(
             PARTITION,
@@ -482,7 +471,6 @@ mod tests {
         .unwrap();
         assert_eq!(first.len(), 1, "the first evaluation enters");
 
-        // Same inputs, unchanged state: the stored bit already agrees, so nothing is emitted.
         let second = compose_stage2(
             PARTITION,
             &store,
@@ -500,8 +488,6 @@ mod tests {
 
     #[test]
     fn dedups_when_one_event_flips_two_leaves_of_one_cohort() {
-        // AND of a 7d and a 30d performed_event on the same matcher: one $pageview flips both windows,
-        // so two transitions arrive for one cohort+person — the cohort must compose once, emit once.
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7), behavioral_leaf(30)]);
         let lsks = &filters.by_condition_to_lsk[&HASH];
@@ -533,8 +519,6 @@ mod tests {
 
     #[test]
     fn composes_a_performed_event_multiple_leaf_via_variant_dispatch() {
-        // A `performed_event_multiple` leaf must route through its count comparator: count 2 satisfies
-        // `gte 2`, so the AND with a true person leaf composes one Entered.
         let (_dir, store) = temp_store();
         let filters = freeze(vec![daily_leaf(7, "gte", 2), person_leaf()]);
         let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
@@ -560,7 +544,6 @@ mod tests {
         assert_eq!(changes[0].status, MembershipStatus::Entered);
         assert_eq!(changes[0].cohort_id, 1);
 
-        // And a count below the threshold is not a member, so the AND stays unsatisfied.
         let (_dir2, store2) = temp_store();
         write_stage1(&store2, beh_lsk, alice, daily_state(1)); // 1 < gte 2
         write_stage1(&store2, per_lsk, alice, person_state(true));
@@ -582,7 +565,7 @@ mod tests {
     #[test]
     fn transitions_touching_no_composable_cohort_emit_nothing() {
         let (_dir, store) = temp_store();
-        let filters = freeze(vec![behavioral_leaf(7)]); // single-leaf cohort
+        let filters = freeze(vec![behavioral_leaf(7)]);
         let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
         let alice = person(1);
         write_stage1(&store, beh_lsk, alice, behavioral_match());
@@ -618,7 +601,6 @@ mod tests {
         let (beh_lsk, _per_lsk) = and_leaf_keys(&filters);
         let alice = person(1);
 
-        // A true, B absent → AND(true, ¬absent=true) → Entered.
         write_stage1(&store, beh_lsk, alice, behavioral_match());
 
         let changes = compose_stage2(
@@ -654,7 +636,6 @@ mod tests {
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].status, MembershipStatus::Entered);
 
-        // B flips true → AND(true, ¬true=false) → Left.
         write_stage1(&store, per_lsk, alice, person_state(true));
         let left = compose_stage2(
             PARTITION,

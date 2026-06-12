@@ -90,171 +90,110 @@ pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
 
-// ── `cohort_stream_events` consumer ────────────────────────────────────────────
 /// Envelopes consumed and successfully deserialized from `cohort_stream_events` (counter).
 pub const COHORT_STREAM_EVENTS_CONSUMED: &str = "cohort_stream_events_consumed_total";
-/// Events actually routed to a per-partition worker (counter). Counts only routed events — events
-/// for a partition this consumer no longer owns are excluded (see
-/// [`COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED`]). Conservation chain:
-/// `consumed == dispatched + not_owned_skipped` and `dispatched == processed + Σskipped + route_errors`.
-pub const COHORT_STREAM_EVENTS_DISPATCHED: &str = "cohort_stream_events_dispatched_total";
-/// Events dropped in `dispatch` because this consumer no longer owns their partition (a revoke that
-/// raced an already-`recv()`'d in-flight batch) or because shutdown's draining gate had already
-/// flipped (counter). The event is never routed and never marked processed, so Kafka replays it on
-/// the partition's true owner. Closes the consumer half of the conservation chain:
+/// Events routed to a per-partition worker (counter). Conservation:
 /// `consumed == dispatched + not_owned_skipped`.
+pub const COHORT_STREAM_EVENTS_DISPATCHED: &str = "cohort_stream_events_dispatched_total";
+/// Events dropped because the partition is no longer owned or shutdown is draining (counter).
 pub const COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED: &str =
     "cohort_stream_events_skipped_not_owned_total";
-/// `KAFKA_PERSON_MERGE_EVENTS` messages dropped at `dispatch_merges`' owned/draining gate
-/// (counter): never routed, never ceiling-bumped, replayed by Kafka on the partition's true owner —
-/// the merge counterpart of [`COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED`].
+/// Merge messages dropped because the partition is no longer owned or shutdown is draining (counter).
 pub const COHORT_STREAM_MERGES_SKIPPED_NOT_OWNED: &str =
     "cohort_stream_merges_skipped_not_owned_total";
-/// `KAFKA_PERSON_MERGE_EVENTS` envelopes consumed and successfully decoded (counter); the merge
-/// counterpart of [`COHORT_STREAM_EVENTS_CONSUMED`].
+/// `KAFKA_PERSON_MERGE_EVENTS` envelopes consumed and successfully decoded (counter).
 pub const COHORT_STREAM_MERGES_CONSUMED: &str = "cohort_stream_merges_consumed_total";
 /// `cohort_merge_state_transfer` envelopes consumed and successfully decoded (counter).
 pub const COHORT_STREAM_TRANSFERS_CONSUMED: &str = "cohort_stream_transfers_consumed_total";
-/// `KAFKA_PERSON_MERGE_EVENTS` payloads that were empty or failed to decode (counter). The message
-/// is skipped and later marks advance past it — a malformed merge is not recoverable by replay.
+/// `KAFKA_PERSON_MERGE_EVENTS` payloads that were empty or failed to decode (counter).
 pub const COHORT_STREAM_MERGE_DESERIALIZE_ERRORS: &str =
     "cohort_stream_merge_deserialize_errors_total";
-/// `cohort_merge_state_transfer` payloads that were empty or failed to decode (counter); same
-/// skip semantics as [`COHORT_STREAM_MERGE_DESERIALIZE_ERRORS`].
+/// `cohort_merge_state_transfer` payloads that were empty or failed to decode (counter).
 pub const COHORT_STREAM_TRANSFER_DESERIALIZE_ERRORS: &str =
     "cohort_stream_transfer_deserialize_errors_total";
-/// `cohort_merge_state_transfer` messages dropped at `dispatch_transfers`' owned/draining gate
-/// (counter); same replay semantics as [`COHORT_STREAM_MERGES_SKIPPED_NOT_OWNED`].
+/// Transfer messages dropped because the partition is no longer owned or shutdown is draining
+/// (counter).
 pub const COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED: &str =
     "cohort_stream_transfers_skipped_not_owned_total";
 /// Decoded `KAFKA_PERSON_MERGE_EVENTS` envelopes accumulated per consume → dispatch cycle
-/// (histogram); the merge counterpart of [`COHORT_STREAM_CONSUME_BATCH_SIZE`]. A separate constant
-/// per topic, not a label (D12) — batch sizes from different topics in one histogram would be
-/// meaningless.
+/// (histogram). A separate constant per topic, not a label.
 pub const COHORT_STREAM_MERGES_CONSUME_BATCH_SIZE: &str = "cohort_stream_merges_consume_batch_size";
 /// Decoded `cohort_merge_state_transfer` envelopes accumulated per consume → dispatch cycle
-/// (histogram); see [`COHORT_STREAM_MERGES_CONSUME_BATCH_SIZE`].
+/// (histogram).
 pub const COHORT_STREAM_TRANSFERS_CONSUME_BATCH_SIZE: &str =
     "cohort_stream_transfers_consume_batch_size";
-/// A worker tried to mark an offset past what the dispatcher routed to it, so the
-/// [`OffsetTracker`](crate::partitions::OffsetTracker) capped it (counter). A non-zero rate should
-/// page.
+/// A worker tried to mark an offset past what the dispatcher routed (counter).
 pub const COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH: &str =
     "cohort_stream_offset_ahead_of_dispatch_total";
-/// Messages with a present-but-unparseable payload; skipped, offset still advances (counter).
+/// Messages with a present-but-unparseable payload (counter).
 pub const COHORT_STREAM_DESERIALIZE_ERRORS: &str = "cohort_stream_deserialize_errors_total";
-/// Messages with a `None` (zero-byte) payload, skipped (counter). Distinct from
-/// [`COHORT_STREAM_DESERIALIZE_ERRORS`] so neither is a conservation blind spot.
+/// Messages with a `None` (zero-byte) payload, skipped (counter).
 pub const COHORT_STREAM_EMPTY_PAYLOAD: &str = "cohort_stream_empty_payload_total";
-/// Kafka transport errors from `recv()` (counter). A sustained rate suppresses the liveness
-/// heartbeat, so the stall detector eventually restarts the pod.
+/// Kafka transport errors from `recv()` (counter).
 pub const COHORT_STREAM_KAFKA_RECV_ERRORS: &str = "cohort_stream_kafka_recv_errors_total";
 /// Offset commits accepted by Kafka (counter).
 pub const COHORT_STREAM_OFFSET_COMMITS: &str = "cohort_stream_offset_commits_total";
-/// Offset commit attempts Kafka rejected; retried on the next tick (counter).
+/// Offset commit attempts Kafka rejected (counter).
 pub const COHORT_STREAM_OFFSET_COMMIT_ERRORS: &str = "cohort_stream_offset_commit_errors_total";
 /// Stage 1 workers lazily spawned on first delivery of a partition (counter).
 pub const COHORT_STREAM_WORKERS_SPAWNED: &str = "cohort_stream_workers_spawned_total";
-/// Per-partition routing failures (no live worker / closed channel); the offset is held back so
-/// Kafka replays it (counter).
+/// Per-partition routing failures (counter).
 pub const COHORT_STREAM_ROUTE_ERRORS: &str = "cohort_stream_route_errors_total";
 /// Events accumulated per consume → route cycle (histogram).
 pub const COHORT_STREAM_CONSUME_BATCH_SIZE: &str = "cohort_stream_consume_batch_size";
 
-// ── Output producer ────────────────────────────────────────────────────────────
 /// Membership changes produced to `cohort_membership_changed_shadow`, labelled by `status`
 /// (counter). Counted only after a fully-acked flush.
 pub const OUTPUT_MEMBERSHIP_CHANGES_EMITTED: &str = "output_membership_changes_emitted_total";
-/// Leaf transitions that mapped to zero output cohorts, labelled by `reason` (counter). Single-leaf
-/// cohorts emit here via `map_transition` and composable cohorts emit via Stage 2, so a transition is
-/// unmapped only when its leaf is owned solely by `Excluded` cohorts.
+/// Leaf transitions that mapped to zero output cohorts, labelled by `reason` (counter).
 pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total";
-/// Produce failures to `cohort_membership_changed_shadow` (counter). The worker holds the offset
-/// back so Kafka replays; re-produce is idempotent for the parity diff.
+/// Produce failures to `cohort_membership_changed_shadow` (counter).
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
 
-// ── Sweep (time-driven eviction) ─────────────────────────────────────────────────
-/// Sweep cycles that fired (counter). One per [`run_sweep_loop`](crate::sweep::run_sweep_loop) tick;
-/// ticks skipped under lag (`MissedTickBehavior::Skip`) are not counted, so graph its rate against
-/// `sweep_interval` to spot a starved sweep.
+/// Sweep cycles that fired (counter).
 pub const SWEEP_CYCLES_TOTAL: &str = "sweep_cycles_total";
-/// Wall-clock duration of one sweep cycle (histogram, seconds): how long a single
-/// [`Sweeper::run_once`](crate::sweep::Sweeper::run_once) took.
+/// Wall-clock duration of one sweep cycle (histogram, seconds).
 pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
-/// Keys the sweep evicted — state deleted (full expiry) or its window advanced — labelled by
-/// `variant` (counter). The `Left`s and `Entered`s these emit reuse
-/// `output_membership_changes_emitted_total{status}` and `stage1_transitions_total`, so this counts
-/// eviction *work*, not just membership flips (a daily slide that drops a bucket but keeps the member
-/// is counted here with no transition).
+/// Keys the sweep evicted, labelled by `variant` (counter).
 pub const SWEEP_KEYS_EVICTED_TOTAL: &str = "sweep_keys_evicted_total";
-// ── Cross-partition merge protocol (TDD §4.5.1 / §8.1) ───────────────────────────
-/// Person merges handled, labelled by `path` (`same_partition`|`cross_partition`) (counter). Expect
-/// ~1.6% / ~98.4% in steady state. **Dormant in production until C3** ships the Node merge
-/// producer — the C2 plumbing is live but nothing produces to `person_merge_events` yet.
+/// Person merges handled, labelled by `path` (`same_partition`|`cross_partition`) (counter).
 pub const MERGE_HANDLED_TOTAL: &str = "merge_handled_total";
-/// Drain messages short-circuited by a `cf_merge_drains_applied` hit (counter) — non-zero is normal
-/// under replay/restart.
+/// Drain messages short-circuited by a `cf_merge_drains_applied` hit (counter).
 pub const MERGE_DRAINS_SKIPPED_REPLAY_TOTAL: &str = "merge_drains_skipped_replay_total";
-/// Transfer messages short-circuited by a `cf_merge_applied` hit (counter) — same as above.
+/// Transfer messages short-circuited by a `cf_merge_applied` hit (counter).
 pub const MERGE_APPLIES_SKIPPED_REPLAY_TOTAL: &str = "merge_applies_skipped_replay_total";
 /// Late events for merged persons that triggered a tombstone redirect, labelled by `path`
-/// (`inline`|`re_keyed`) (counter). Closes S6a. `inline` counts at resolve time; `re_keyed` counts
-/// only after the re-produce ack (a failed produce holds the events offset, and the redelivery
-/// re-resolves — resolve-time counting would count every retry). A hop-capped redirect is counted
-/// only under [`MERGE_REDIRECT_HOP_CAPPED_TOTAL`], never under `{inline|re_keyed}`.
+/// (`inline`|`re_keyed`) (counter). `inline` counts at resolve time; `re_keyed` counts only after
+/// the re-produce ack. A hop-capped redirect is counted only under
+/// [`MERGE_REDIRECT_HOP_CAPPED_TOTAL`].
 pub const MERGE_TOMBSTONE_REDIRECTS_TOTAL: &str = "merge_tombstone_redirects_total";
-/// Straggler re-key produces to `cohort_stream_events` that failed (counter). The worker holds the
-/// events offset so Kafka replays the straggler; unlike the membership produce's hold, this one IS
-/// self-healing — the re-key path writes no state, so the redelivery re-resolves the tombstone and
-/// re-produces, and a duplicate copy is absorbed by the target's `redirect_dedup[origin]`.
+/// Straggler re-key produces to `cohort_stream_events` that failed (counter).
 pub const MERGE_REKEY_PRODUCE_FAILURE_TOTAL: &str = "merge_rekey_produce_failure_total";
-/// Cross-partition redirects that hit the `redirect_hops` cap and were processed inline at the
-/// best-known target instead of re-produced (counter, D13). Non-zero means a corrupt cross-partition
-/// tombstone cycle — investigate `cf_merge_tombstones` for the persons in the paired `warn!`.
+/// Cross-partition redirects that hit the `redirect_hops` cap and were processed inline (counter).
+/// Non-zero means a corrupt tombstone cycle.
 pub const MERGE_REDIRECT_HOP_CAPPED_TOTAL: &str = "merge_redirect_hop_capped_total";
-/// Per-leaf merge work dropped, labelled by `reason` (counter): a variant desync between the two
-/// sides (`variant_mismatch`), an LSK no longer in the catalog (`leaf_drift`), or a stale
-/// `cf_person_index` entry with no backing state (`stale_index`). A defensive guard, near-zero in
-/// steady state.
+/// Per-leaf merge work dropped, labelled by `reason` (counter).
 pub const MERGE_LEAVES_DROPPED_TOTAL: &str = "merge_leaves_dropped_total";
 /// Transfer produces that exhausted the inline retry budget (counter). The packaged state stays in
-/// `cf_pending_transfers` and the merge offset is not committed (D3); the periodic redrive closes
-/// the within-tenure gap. **Label-free on purpose**: the TDD specifies a `team_id` label, but repo
-/// precedent keeps unbounded ids out of metric labels (cf. [`FILTER_CATALOG_TZ_FALLBACK`]) — the
-/// ids go to the `warn!` instead (D12).
+/// `cf_pending_transfers` and the merge offset is not committed; the periodic redrive closes the
+/// gap.
 pub const MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL: &str = "merge_transfer_produce_failure_total";
-/// `cf_pending_transfers` clears that failed *after* the transfer produce was acked (counter). The
-/// merge offset still commits (D7): the transfer is durable on the topic, and the leftover outbox
-/// entry only re-produces a duplicate the apply side's source-coords dedup absorbs.
+/// `cf_pending_transfers` clears that failed after the transfer produce was acked (counter). The
+/// merge offset still commits; the leftover outbox entry only re-produces a duplicate the apply
+/// side's dedup absorbs.
 pub const MERGE_OUTBOX_CLEAR_FAILURE_TOTAL: &str = "merge_outbox_clear_failure_total";
-/// Cross-partition drains whose packaged transfer carried no leaves, so nothing was produced or
-/// staged (counter, D10). Expected to spike on a first-ever assignment, when days of merge history
-/// replay against a wiped store and every drain finds no state.
+/// Cross-partition drains whose packaged transfer carried no leaves (counter).
 pub const MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL: &str = "merge_transfers_skipped_empty_total";
 /// Entries currently staged in a partition's `cf_pending_transfers` outbox, labelled by `partition`
-/// (gauge; set by the periodic redrive scan, zeroed by the revoke drain — the scan stops covering a
-/// revoked partition, so a stale last value would read forever as stranded transfers on entries the
-/// revoke's `delete_partition` already wiped). A sustained non-zero level means the transfer topic
-/// keeps refusing produces. Neither write is test-pinned: unit tests install no metrics recorder,
-/// so the gauge value is unobservable there (the scan/clear sequences it summarizes are pinned).
+/// (gauge). A sustained non-zero level means the transfer topic keeps refusing produces.
 pub const MERGE_PENDING_TRANSFERS_GAUGE: &str = "merge_pending_transfers";
-/// Latency of one merge drain (`handle_merge_event`) on P_old's worker (histogram, seconds; the
-/// TDD's millisecond spec is normalized to the crate's seconds convention, D12).
+/// Latency of one merge drain (histogram, seconds).
 pub const MERGE_DRAIN_DURATION_SECONDS: &str = "merge_drain_duration_seconds";
-/// Latency of one transfer apply (`handle_transfer`) on P_new's worker (histogram, seconds; same
-/// seconds normalization as [`MERGE_DRAIN_DURATION_SECONDS`]).
+/// Latency of one transfer apply (histogram, seconds).
 pub const MERGE_APPLY_DURATION_SECONDS: &str = "merge_apply_duration_seconds";
 
-/// Keys the sweep popped from the queue but did **not** evict, labelled by `reason` (counter). The
-/// conservation counterpart to [`SWEEP_KEYS_EVICTED_TOTAL`]: both are counted only once the tick
-/// commits (a produce/write failure reschedules and re-derives, counting neither), so in steady state
-/// every popped key lands in exactly one of the two — `popped == evicted + dropped`. Without this, a
-/// catalog-drift state leak is invisible to metrics. `reason` is one of the `SweepDropReason` labels
-/// (`workers::sweep_callback`): catalog drift (the team or leaf left the catalog mid-tenure), a
-/// missing/corrupt row, an unsupported variant, or a person-property key scheduled in error.
-/// Corrupt/unsupported drops are *also* counted on
-/// `stage1_state_decode_error_total` / `stage1_unsupported_variant_skipped_total`, mirroring how the
-/// event path counts a store-error skip on top of `store_errors_total`.
+/// Keys the sweep popped but did not evict, labelled by `reason` (counter). Conservation:
+/// `popped == evicted + dropped`.
 pub const SWEEP_KEYS_DROPPED_TOTAL: &str = "sweep_keys_dropped_total";
 
 /// Install the global Prometheus recorder. Call once at startup.

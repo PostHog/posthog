@@ -1,19 +1,13 @@
-//! Typed, partition-prefixed key encoders for the three state column families.
+//! Typed, partition-prefixed key encoders for the state column families.
 //!
-//! Keys are fixed-size big-endian. Leading `partition_id` (BE `u16`) then `team_id` (BE `u64`)
-//! make lexicographic byte order group by partition, then team, so a partition's state is one
-//! contiguous `delete_range` over [`partition_range`]; little-endian would scatter it and break
-//! that delete. Ids are stored as `u64` but originate as positive Postgres `i32`, so the BE
-//! ordering is monotone — a negative id cast to `u64` would set the high bit and mis-sort.
+//! Keys are fixed-size big-endian so a partition's state is one contiguous `delete_range`.
 
 use uuid::Uuid;
 
 use super::rocks::StoreError;
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 
-/// `[partition_id u16][team_id u64][leaf_state_key 16][person_id 16]`. The longest state key; the
-/// merge-protocol keys below are all shorter, so [`partition_range`]'s max-sentinel still dominates
-/// them.
+/// `[partition_id u16][team_id u64][leaf_state_key 16][person_id 16]`.
 pub const STAGE1_KEY_LEN: usize = 2 + 8 + 16 + 16;
 /// `[partition_id u16][team_id u64][person_id 16]`.
 pub const PERSON_INDEX_KEY_LEN: usize = 2 + 8 + 16;
@@ -236,10 +230,6 @@ pub fn partition_prefix(partition_id: u16) -> [u8; 2] {
 }
 
 /// Half-open `[start, end)` byte range covering exactly one partition's keys, for `delete_range`.
-///
-/// `end` is the 2-byte successor prefix. The maximal partition has no such successor, so `end` is
-/// an all-`0xFF` sentinel one byte *longer* than the longest key — a shorter sentinel would sort
-/// before any longer key sharing its bytes (e.g. `team_id` high byte `0xFF`), leaving it undeleted.
 pub fn partition_range(partition_id: u16) -> (Vec<u8>, Vec<u8>) {
     let start = partition_id.to_be_bytes().to_vec();
     let end = match partition_id.checked_add(1) {
@@ -382,9 +372,7 @@ mod tests {
 
     #[test]
     fn big_endian_prefix_orders_by_partition_then_team() {
-        // Partition dominates team.
         assert!(stage1(1, u64::MAX).encode() < stage1(2, 0).encode());
-        // The LE trap: 1 = [0x00,0x01], 256 = [0x01,0x00]; BE keeps 1 < 256.
         assert!(stage1(1, 0).encode() < stage1(256, 0).encode());
         assert!(stage1(5, 1).encode() < stage1(5, 2).encode());
         assert!(stage1(5, 1).encode() < stage1(5, u64::from(u32::MAX)).encode());
@@ -401,8 +389,6 @@ mod tests {
         assert_eq!(end, vec![0x01, 0x00]);
     }
 
-    /// `start <= every key in p < end`, so a half-open `delete_range` reclaims the whole partition
-    /// and nothing else — checked at a normal partition and the `u16::MAX` overflow case.
     #[test]
     fn partition_range_brackets_every_key_in_the_partition() {
         for p in [0u16, 5, 256, u16::MAX - 1, u16::MAX] {
@@ -436,7 +422,6 @@ mod tests {
     #[test]
     fn max_partition_sentinel_exceeds_the_all_ones_key() {
         let (_start, end) = partition_range(u16::MAX);
-        // The sentinel must dominate even the (unreachable) all-0xFF key.
         assert!([0xFFu8; STAGE1_KEY_LEN].as_slice() < end.as_slice());
     }
 
@@ -446,8 +431,6 @@ mod tests {
         assert_eq!(PENDING_TRANSFER_KEY_LEN, 26);
         assert_eq!(MERGE_APPLIED_KEY_LEN, 38);
         assert_eq!(TOMBSTONE_KEY_LEN, 26);
-        // The `partition_range` max-sentinel is `STAGE1_KEY_LEN + 1` long, so it dominates any merge
-        // key only while each is ≤ STAGE1_KEY_LEN.
         for len in [
             MERGE_DRAIN_KEY_LEN,
             PENDING_TRANSFER_KEY_LEN,
@@ -564,8 +547,6 @@ mod tests {
 
     #[test]
     fn merge_keys_share_the_partition_prefix_so_delete_range_reclaims_them() {
-        // Each merge key starts with `[partition_id u16][team_id u64]`, so it sorts inside the same
-        // half-open `partition_range` as the state keys and `delete_partition` reclaims it too.
         for p in [0u16, 5, 256, u16::MAX] {
             let (start, end) = partition_range(p);
             let drain = MergeDrainKey {

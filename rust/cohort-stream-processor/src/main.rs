@@ -156,7 +156,6 @@ async fn async_main(config: Config) -> Result<()> {
         .subscribe(&[config.cohort_stream_events_topic.as_str()])
         .context("subscribing to cohort_stream_events")?;
 
-    // Followers never `subscribe()` — the events group's rebalance mirrors ownership onto them.
     let merges_follower_consumer: Arc<StreamConsumer> = Arc::new(
         config
             .follower_client_config(&config.kafka_merge_consumer_group)
@@ -170,7 +169,6 @@ async fn async_main(config: Config) -> Result<()> {
             .context("creating cohort_merge_state_transfer follower consumer")?,
     );
 
-    // Merge protocol assumes all three topics are co-partitioned. Fail fast on a mismatch.
     let events_partitions =
         fetch_partition_count(&stream_consumer, &config.cohort_stream_events_topic)?;
     let merge_partitions =
@@ -236,7 +234,6 @@ async fn async_main(config: Config) -> Result<()> {
         consumer_handle.shutdown_token(),
     ));
 
-    // Follower consume loops, gated on the first successful catalog load.
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_follower_consumer,
         config.person_merge_events_topic.clone(),
@@ -294,7 +291,7 @@ async fn async_main(config: Config) -> Result<()> {
     Ok(())
 }
 
-/// One topic's partition count from live broker metadata.
+/// Fetch one topic's partition count from live broker metadata.
 fn fetch_partition_count<C: ConsumerContext>(
     consumer: &StreamConsumer<C>,
     topic: &str,
@@ -318,7 +315,7 @@ fn fetch_partition_count<C: ConsumerContext>(
     Ok(count)
 }
 
-/// Spawn a follower's consume loop, gated on the first successful filter-catalog load.
+/// Spawn a follower's consume loop after the first successful filter-catalog load.
 fn spawn_follower_after_catalog_load<R: FollowerRoute>(
     catalog: Arc<CatalogHandle>,
     follower: FollowerConsumer<R>,

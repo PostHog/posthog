@@ -1,7 +1,4 @@
-//! Per-team reverse indices and dedup set.
-//!
-//! [`TeamFiltersBuilder`] implements [`LeafSink`] so a cohort's tree parse populates the indices in
-//! the same pass.
+//! Per-team reverse indices, dedup set, and eligibility classification.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -40,17 +37,16 @@ pub struct LeafStateMeta {
     pub predicate_op: Option<PredicateOp>,
 }
 
-/// A team's frozen filter view: two reverse indices, the dedup set, the parsed trees, and the
-/// resolved team timezone.
+/// A team's frozen filter view.
 #[derive(Debug)]
 pub struct TeamFilters {
-    /// `conditionHash → [LeafStateKey]`. One conditionHash can fan out to several windows/thresholds.
+    /// `conditionHash → [LeafStateKey]`.
     pub by_condition_to_lsk: HashMap<[u8; 16], Vec<LeafStateKey>>,
     /// `conditionHash → [CohortId]` for the Stage 2 walk back to owning cohorts.
     pub by_condition_to_cohorts: HashMap<[u8; 16], Vec<CohortId>>,
     /// `conditionHash → bytecode`. One entry per conditionHash.
     pub by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
-    /// Distinct conditionHashes for this team — one HogVM execution per unique conditionHash per event.
+    /// Distinct conditionHashes for this team.
     pub unique_condition_hashes: HashSet<[u8; 16]>,
     /// `LeafStateKey → LeafStateMeta`.
     pub by_lsk: HashMap<LeafStateKey, LeafStateMeta>,
@@ -58,11 +54,9 @@ pub struct TeamFilters {
     pub behavioral_conditions: HashSet<[u8; 16]>,
     /// conditionHashes whose leaves are person-property filters.
     pub person_property_conditions: HashSet<[u8; 16]>,
-    /// `LeafStateKey → [CohortId]` for single-leaf cohorts: a leaf flip directly equals a membership
-    /// change. Keyed by LSK (not conditionHash) so different windows stay distinct.
+    /// `LeafStateKey → [CohortId]` for single-leaf cohorts.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
-    /// `LeafStateKey → [CohortId]` for `Stage2Composable` cohorts, so a leaf flip re-evaluates only
-    /// the composable cohorts that own it. Deduped per cohort.
+    /// `LeafStateKey → [CohortId]` for `Stage2Composable` cohorts.
     pub by_lsk_to_composable_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// Each cohort's composition class, computed once at freeze.
     pub eligibility: HashMap<CohortId, CohortEligibility>,
@@ -72,7 +66,7 @@ pub struct TeamFilters {
     pub timezone: Tz,
 }
 
-/// Hand-written because [`Tz`] has no [`Default`]; an empty filter set defaults to UTC.
+/// Hand-written because [`Tz`] has no [`Default`].
 impl Default for TeamFilters {
     fn default() -> Self {
         Self {
@@ -92,8 +86,7 @@ impl Default for TeamFilters {
     }
 }
 
-/// Accumulates a team's filters across its cohorts (deduping index values via `HashSet`), then
-/// [`freeze`](Self::freeze)s into an immutable [`TeamFilters`].
+/// Accumulates a team's filters across its cohorts, then freezes into an immutable [`TeamFilters`].
 #[derive(Debug, Default)]
 pub struct TeamFiltersBuilder {
     by_condition_to_lsk: HashMap<[u8; 16], HashSet<LeafStateKey>>,
@@ -101,7 +94,7 @@ pub struct TeamFiltersBuilder {
     by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
     unique_condition_hashes: HashSet<[u8; 16]>,
     cohorts: HashMap<CohortId, CohortTree>,
-    /// Per-cohort eligibility signals captured during parse, consumed by [`classify`] at freeze.
+    /// Per-cohort eligibility signals captured during parse.
     flags: HashMap<CohortId, CohortParseFlags>,
 }
 
@@ -141,8 +134,7 @@ impl LeafSink for TeamFiltersBuilder {
 }
 
 impl TeamFiltersBuilder {
-    /// Parse one cohort and fold it into the team's indices. A parse error is returned to the
-    /// caller, which counts and skips the cohort.
+    /// Parse one cohort and fold it into the team's indices.
     pub fn add_cohort(
         &mut self,
         cohort_id: CohortId,
@@ -160,7 +152,6 @@ impl TeamFiltersBuilder {
         let mut behavioral_conditions = HashSet::new();
         let mut person_property_conditions = HashSet::new();
 
-        // Pass 1: per-leaf worker meta + pass-1 eligibility.
         let mut eligibility: HashMap<CohortId, CohortEligibility> = HashMap::new();
         for tree in self.cohorts.values() {
             collect_leaf_meta(
@@ -173,7 +164,6 @@ impl TeamFiltersBuilder {
             eligibility.insert(tree.cohort_id, classify(tree, &flags));
         }
 
-        // Pass 2: dependency-aware refinement of cohort-reference cohorts.
         if self.flags.values().any(|flags| flags.has_cohort_ref) {
             let analysis = cohort_graph::analyze(&self.cohorts);
             refine_ref_bearing(&mut eligibility, &analysis);
@@ -195,7 +185,6 @@ impl TeamFiltersBuilder {
             }
         }
 
-        // Pass 3: emit metrics and derive the emit maps from final eligibility.
         let mut by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>> =
             HashMap::new();
         let mut by_lsk_to_composable_cohorts: HashMap<LeafStateKey, Vec<CohortId>> = HashMap::new();
@@ -246,7 +235,7 @@ impl TeamFiltersBuilder {
     }
 }
 
-/// The distinct [`LeafStateKey`]s of every state-keyed leaf in a tree (cohort-ref leaves have none).
+/// The distinct [`LeafStateKey`]s of every state-keyed leaf in a tree.
 fn collect_leaf_state_keys(node: &FilterNode, out: &mut HashSet<LeafStateKey>) {
     match node {
         FilterNode::Group { children, .. } => {
@@ -262,7 +251,7 @@ fn collect_leaf_state_keys(node: &FilterNode, out: &mut HashSet<LeafStateKey>) {
     }
 }
 
-/// Recursively record each state-keyed leaf's [`LeafStateMeta`] and condition-kind membership.
+/// Recursively record each state-keyed leaf's [`LeafStateMeta`].
 fn collect_leaf_meta(
     node: &FilterNode,
     by_lsk: &mut HashMap<LeafStateKey, LeafStateMeta>,
@@ -349,8 +338,7 @@ mod tests {
         json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
     }
 
-    /// A `performed_event` leaf on `$pageview` with a tunable window. The conditionHash does not
-    /// encode the window, so different windows fan out to distinct LeafStateKeys under one hash.
+    /// A `performed_event` leaf on `$pageview` with a tunable window.
     fn behavioral_performed_event(time_value: i64) -> Value {
         json!({
             "type": "behavioral",
@@ -364,8 +352,7 @@ mod tests {
         })
     }
 
-    /// A `performed_event_multiple` leaf on `$pageview` (`gte`, tunable window). Shares the matcher
-    /// bytecode/conditionHash with [`behavioral_performed_event`] but routes to a daily-bucket state.
+    /// A `performed_event_multiple` leaf on `$pageview`.
     fn behavioral_performed_event_multiple(
         time_value: i64,
         time_interval: &str,
@@ -541,7 +528,6 @@ mod tests {
 
     #[test]
     fn freeze_compressed_leaf_carries_window_days_and_op() {
-        // A >180-day multiple routes to compressed but recovers the same meta the daily arm does.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -565,7 +551,6 @@ mod tests {
 
     #[test]
     fn freeze_drops_an_hourly_deferred_multiple() {
-        // A sub-day multiple (hour interval) is unsupported → no by_lsk entry.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -605,7 +590,6 @@ mod tests {
             HashSet::from([PERSON_HASH]),
             "the person conditionHash is person-property",
         );
-        // Disjoint by construction (different bytecode → different hash).
         assert!(frozen
             .behavioral_conditions
             .is_disjoint(&frozen.person_property_conditions));
@@ -661,8 +645,6 @@ mod tests {
 
     #[test]
     fn c1_two_single_leaf_cohorts_same_hash_different_windows_map_to_their_own_lsk() {
-        // Reusing the conditionHash-keyed index would wrongly return both cohorts; the LSK-keyed
-        // index splits them by window.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -697,7 +679,6 @@ mod tests {
 
     #[test]
     fn identical_single_leaf_cohorts_share_one_lsk_sorted() {
-        // Added out of order to prove the result is sorted.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -754,8 +735,6 @@ mod tests {
         let frozen = builder.freeze(UTC);
 
         assert!(frozen.by_lsk_to_single_leaf_cohorts.is_empty());
-        // `cohort_ref()` targets cohort 99, absent from this team's catalog, so freeze-time refinement
-        // narrows the pass-1 `HasCohortRef` to `UnresolvedRef`.
         assert_eq!(
             frozen.eligibility[&CohortId(1)],
             CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
@@ -789,7 +768,6 @@ mod tests {
 
     #[test]
     fn empty_all_dropped_cohort_is_not_indexed() {
-        // The only leaf drops (no conditionHash); the recorded drop excludes the cohort.
         let mut builder = TeamFiltersBuilder::default();
         let dropped =
             json!({ "type": "behavioral", "key": "$pageview", "value": "performed_event" });
@@ -811,9 +789,6 @@ mod tests {
 
     #[test]
     fn collapse_shape_with_dropped_sibling_is_excluded_not_single_leaf() {
-        // A dropped sibling must exclude the cohort. An AND of a sub-day `performed_event_multiple`
-        // (dropped as an unsupported variant) and a surviving `performed_event` leaves one leaf in
-        // the tree, which must NOT map as single-leaf and drive membership from the survivor alone.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -835,7 +810,6 @@ mod tests {
             frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
             "the surviving leaf must NOT map the dropped-sibling cohort as single-leaf",
         );
-        // Stage 1 still tracks the survivor; only the single-leaf mapping is withheld.
         assert_eq!(
             frozen.by_lsk.len(),
             1,
@@ -868,9 +842,7 @@ mod tests {
     #[test]
     fn not_in_operator_alone_does_not_negate_a_state_keyed_leaf() {
         // `operator: "not_in"` on a person/behavioral leaf is a value-list predicate compiled into
-        // the bytecode, not a Stage 2 composition negation — the oracle negates on `prop.negation`
-        // alone (`hogql_cohort_query.py:690`). Such a single-leaf cohort must still map and emit;
-        // only the cohort-ref form treats `not_in` as negation.
+        // the bytecode, not a composition negation. Only the cohort-ref form treats `not_in` as negation.
         let mut leaf = person_leaf();
         leaf.as_object_mut()
             .unwrap()
@@ -914,7 +886,6 @@ mod tests {
 
     #[test]
     fn composable_cohort_indexes_each_distinct_leaf_to_itself() {
-        // AND(behavioral, person): both leaves index to the composable cohort, each under its own LSK.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -947,9 +918,6 @@ mod tests {
 
     #[test]
     fn composable_same_hash_different_windows_index_distinct_lsks_not_the_condition_hash() {
-        // AND of a 7d and a 30d `performed_event` on one conditionHash: the LSK-keyed walk keeps the
-        // two leaves distinct, so each window maps to the cohort under its own key — a conditionHash
-        // -keyed index would have collapsed them.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -980,8 +948,6 @@ mod tests {
 
     #[test]
     fn composable_cohort_with_duplicate_leaf_is_indexed_once() {
-        // AND(L, L): the tree has two leaf nodes (so the cohort is composable, count >= 2), but the
-        // HashSet walk indexes the cohort against the one shared LSK exactly once.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -1009,8 +975,6 @@ mod tests {
 
     #[test]
     fn leaf_shared_by_single_leaf_and_composable_cohorts_appears_in_both_maps() {
-        // Cohort 1 is the bare 7d leaf (single-leaf); cohort 2 ANDs that same leaf with a person leaf
-        // (composable). The shared behavioral LSK lands in each cohort's respective map.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(

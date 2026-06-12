@@ -20,10 +20,9 @@ pub const CF_MERGE_APPLIED: &str = "cf_merge_applied";
 /// Post-merge straggler redirect: records merged-away persons for late-event redirection.
 pub const CF_MERGE_TOMBSTONES: &str = "cf_merge_tombstones";
 
-/// 10 bits ≈ 1% false-positive rate.
 const BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
 
-/// Column family enum. Only [`Cf::PersonIndex`] runs a merge operator; the rest are plain put/delete.
+/// Column family enum.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Cf {
     Stage1,
@@ -59,7 +58,7 @@ impl Cf {
     }
 }
 
-/// A column family safe for raw `put`. `cf_person_index` is excluded (merge-only).
+/// A column family safe for raw `put` (excludes `cf_person_index`).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum OpaqueCf {
     Stage1,
@@ -117,7 +116,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cf_names_match_the_tdd() {
+    fn cf_names_are_stable() {
         assert_eq!(Cf::Stage1.as_str(), "cf_stage1");
         assert_eq!(Cf::PersonIndex.as_str(), "cf_person_index");
         assert_eq!(Cf::Stage2.as_str(), "cf_stage2");

@@ -132,8 +132,6 @@ pub fn process_event(
         return Ok(EventOutcome::skipped(SkipReason::UnparseablePersonId));
     };
 
-    // A redirected straggler carries its merge origin. The fold routes replay-dedup through
-    // `redirect_dedup[origin]` instead of the main map, preventing double-folds and false skips.
     let origin: Option<Uuid> = event
         .redirected_from
         .as_deref()
@@ -146,7 +144,6 @@ pub fn process_event(
         return Ok(EventOutcome::skipped(SkipReason::NoConditions));
     }
 
-    // Behavioral first; a parse error bails the whole event.
     let behavioral_globals = if has_behavioral {
         match build_behavioral_globals(event) {
             Ok(globals) => Some(globals),
@@ -155,7 +152,6 @@ pub fn process_event(
     } else {
         None
     };
-    // An empty `person_properties` string means the person path is inactive.
     let person_active = has_person
         && event
             .person_properties
@@ -179,12 +175,10 @@ pub fn process_event(
         return Ok(EventOutcome::processed(Vec::new(), Vec::new(), 0));
     }
 
-    // Load-bearing for deadlines + argMax; an unparseable value skips the event.
     let Some(event_ms) = clickhouse_timestamp_to_millis(&event.timestamp) else {
         return Ok(EventOutcome::skipped(SkipReason::BadTimestamp));
     };
 
-    // Postgres team ids are positive, so `as u64` is safe.
     let team_id = event.team_id as u64;
     let mut transitions = Vec::new();
     let mut schedules: Vec<(Stage1Key, i64)> = Vec::new();
@@ -198,7 +192,6 @@ pub fn process_event(
             person_id,
         };
 
-        // Backend error → propagate. Corrupt bytes → skip just this leaf.
         let prev = match store.get_stage1(&key)? {
             None => None,
             Some(bytes) => match StatefulRecord::decode(&bytes) {
@@ -282,7 +275,6 @@ pub fn process_event(
         });
     }
 
-    // One atomic WriteBatch per event.
     if !pending.is_empty() {
         let person_index = PersonIndexKey {
             partition_id,
@@ -301,7 +293,6 @@ pub fn process_event(
             }
         })?;
 
-        // Post-commit accounting.
         for write in &pending {
             counter!(STAGE1_STATE_WRITES, "variant" => write.variant.as_str()).increment(1);
             if write.first_write {
@@ -366,7 +357,6 @@ fn collect_applies(
                             condition_hash: hash,
                         });
                     }
-                    // Stale catalog: behavioral hash resolving to a person LSK.
                     Some(other) => {
                         counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => other.as_str())
                             .increment(1);
@@ -540,7 +530,6 @@ fn mutate_behavioral_daily(
             },
         };
 
-    // Replay guard FIRST — the fold is not idempotent.
     if dedup_is_replay(
         &applied,
         &redirect_dedup,
@@ -560,7 +549,6 @@ fn mutate_behavioral_daily(
         event.source_offset,
     );
 
-    // Guard against a stored array with unexpected length.
     let mut buckets = match prior_buckets {
         Some(buckets) if buckets.len() == len => buckets,
         Some(_) => {
@@ -583,14 +571,12 @@ fn mutate_behavioral_daily(
 
     let cur_now_day = window_start_day + window_days_idx;
     if event_day > cur_now_day {
-        // AHEAD: slide forward, then count in the new last bucket.
         slide_window_forward(&mut buckets, &mut window_start_day, window_days, event_day);
         let last = len - 1;
         buckets[last] = buckets[last].saturating_add(1);
     } else if event_day < window_start_day {
-        // BEHIND: the bucket already slid out, so it does not count.
+        // Already slid out of the window.
     } else {
-        // WITHIN
         let idx = (event_day - window_start_day) as usize;
         buckets[idx] = buckets[idx].saturating_add(1);
     }
@@ -678,7 +664,6 @@ fn mutate_behavioral_compressed(
             },
         };
 
-    // Replay guard FIRST — the fold is not idempotent.
     if dedup_is_replay(
         &applied,
         &redirect_dedup,
@@ -713,7 +698,6 @@ fn mutate_behavioral_compressed(
 
     let cur_now_day = window_start_day + window_days_idx;
     if event_day > cur_now_day {
-        // AHEAD: slide forward, then count.
         compressed_history::slide_window_forward(
             &mut entries,
             &mut window_start_day,
@@ -722,9 +706,8 @@ fn mutate_behavioral_compressed(
         );
         compressed_history::insert_event(&mut entries, event_day);
     } else if event_day < window_start_day {
-        // BEHIND: the day already slid out.
+        // Already slid out of the window.
     } else {
-        // WITHIN
         compressed_history::insert_event(&mut entries, event_day);
     }
 
@@ -817,7 +800,7 @@ fn mutate_person(
         event.source_offset,
     );
 
-    // argMax: an event no newer than the last write keeps the prior `matches`.
+    // argMax tiebreaker: keep the most recent write.
     if (event_ms, event.source_offset) <= (prev_updated_at, prev_updated_offset) {
         counter!(STAGE1_ARGMAX_STALE).increment(1);
         let record = StatefulRecord {

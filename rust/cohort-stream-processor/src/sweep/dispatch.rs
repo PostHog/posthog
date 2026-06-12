@@ -1,4 +1,4 @@
-//! [`DispatchSweeper`]: routes one eviction cycle to every owned partition's worker.
+//! Routes one eviction cycle to every owned partition's worker.
 
 use std::sync::Arc;
 
@@ -81,8 +81,6 @@ mod tests {
 
     #[tokio::test]
     async fn run_once_routes_to_owned_partitions_without_panicking() {
-        // Owned partitions with no spawned worker: each `Sweep` is a benign dropped RouteError, so
-        // run_once must complete cleanly.
         let (_dir, dispatcher) = dispatcher();
         dispatcher.assign_partition(0);
         dispatcher.assign_partition(1);

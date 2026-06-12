@@ -2,13 +2,8 @@
 //! [`crate::merge`].
 //!
 //! [`handle_merge`] drains a `PersonMergeEvent` on P_old's worker and owns the transfer produce;
-//! [`handle_apply`] applies a `MergeStateTransfer` on P_new's worker. Both are self-contained ---
-//! they produce their own membership output and mark their own [`OffsetTracker`], never the events
-//! `max_offset` (per-topic offsets never cross-contaminate).
-//!
-//! A transfer produce failure is retried inline with bounded backoff while the partition worker is
-//! held. On exhaustion the entry stays in `cf_pending_transfers` and the periodic redrive
-//! re-produces it.
+//! [`handle_apply`] applies a `MergeStateTransfer` on P_new's worker. Both produce their own
+//! membership output and mark their own [`OffsetTracker`].
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -41,8 +36,7 @@ use crate::sweep::EvictionQueue;
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{count_by_status, transition_metric_label};
 
-/// Inline bounded backoff for the transfer produce. The defaults (5 retries, ≈15.5 s total)
-/// keep a blocked worker inside the liveness and graceful-shutdown windows.
+/// Inline bounded backoff for the transfer produce.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TransferRetryPolicy {
     /// Retries after the initial attempt (total attempts = `max_retries + 1`).
@@ -70,8 +64,7 @@ impl TransferRetryPolicy {
     }
 }
 
-/// Merge-protocol dependencies for a [`Stage1Worker`](crate::workers::Stage1Worker), shared
-/// across all workers and the dispatcher.
+/// Merge-protocol dependencies shared across all workers and the dispatcher.
 pub struct MergeWorkerDeps {
     pub transfer_sink: Arc<dyn TransferSink>,
     pub stream_event_sink: Arc<dyn StreamEventSink>,
@@ -108,8 +101,7 @@ pub(crate) async fn handle_merge(
 ) {
     let msg_coords = (partition_id as i32, offset);
 
-    // A team absent from the catalog still drains against empty filters so the tombstone, drain
-    // marker, and state deletes are applied. Holding would wedge; skipping would strand P_old.
+    // Drain against empty filters when the team is absent to avoid wedging.
     let snapshot = catalog.load();
     let fallback: TeamFilters;
     let filters: &TeamFilters = match snapshot.team(TeamId(event.team_id)) {
@@ -151,44 +143,40 @@ pub(crate) async fn handle_merge(
             }
             produce_and_settle(partition_id, store, merge, &transfer, &pending_key, offset).await;
         }
-        Ok(DrainOutcome::AlreadyDrained) => {
-            // Redelivered merge: re-produce any still-staged outbox entry, or just commit.
-            match store.get_pending_transfer(&pending_key) {
-                Ok(None) => mark_processed(&merge.merge_tracker, partition_id, offset),
-                Ok(Some(bytes)) => match PendingTransfer::decode(&bytes) {
-                    Ok(pending) => {
-                        produce_and_settle(
-                            partition_id,
-                            store,
-                            merge,
-                            &pending.transfer,
-                            &pending_key,
-                            offset,
-                        )
-                        .await;
-                    }
-                    Err(error) => {
-                        // A corrupt outbox value cannot be produced; commit past it.
-                        warn!(
-                            partition_id,
-                            team_id = event.team_id,
-                            old_person = %event.old_person_uuid,
-                            error = %error,
-                            "pending transfer failed to decode; committing past it (entry left for the redrive to surface)",
-                        );
-                        mark_processed(&merge.merge_tracker, partition_id, offset);
-                    }
-                },
+        Ok(DrainOutcome::AlreadyDrained) => match store.get_pending_transfer(&pending_key) {
+            Ok(None) => mark_processed(&merge.merge_tracker, partition_id, offset),
+            Ok(Some(bytes)) => match PendingTransfer::decode(&bytes) {
+                Ok(pending) => {
+                    produce_and_settle(
+                        partition_id,
+                        store,
+                        merge,
+                        &pending.transfer,
+                        &pending_key,
+                        offset,
+                    )
+                    .await;
+                }
                 Err(error) => {
                     warn!(
                         partition_id,
                         team_id = event.team_id,
+                        old_person = %event.old_person_uuid,
                         error = %error,
-                        "pending transfer read failed; holding the merge offset for redelivery",
+                        "pending transfer failed to decode; committing past it (entry left for the redrive to surface)",
                     );
+                    mark_processed(&merge.merge_tracker, partition_id, offset);
                 }
+            },
+            Err(error) => {
+                warn!(
+                    partition_id,
+                    team_id = event.team_id,
+                    error = %error,
+                    "pending transfer read failed; holding the merge offset for redelivery",
+                );
             }
-        }
+        },
         Ok(DrainOutcome::Skipped(_)) => {
             mark_processed(&merge.merge_tracker, partition_id, offset);
         }
@@ -219,7 +207,6 @@ pub(crate) async fn handle_apply(
 ) {
     let transfer_coords = (partition_id as i32, offset);
 
-    // An absent team applies against empty filters so the transfer is settled, not wedged.
     let snapshot = catalog.load();
     let fallback: TeamFilters;
     let filters: &TeamFilters = match snapshot.team(TeamId(transfer.team_id)) {
@@ -270,9 +257,7 @@ pub(crate) async fn handle_apply(
     }
 }
 
-/// Re-produce every `cf_pending_transfers` entry staged on this partition. Entries exist when the
-/// inline retry exhausted (or the post-ack clear failed). Single produce attempt per entry; the
-/// retry vehicle is the next tick. Capped at [`REDRIVE_MAX_ATTEMPTS_PER_TICK`] per tick.
+/// Max entries to re-produce per redrive tick.
 const REDRIVE_MAX_ATTEMPTS_PER_TICK: usize = 8;
 
 pub(crate) async fn handle_redrive(
@@ -405,8 +390,7 @@ async fn produce_transfer_with_retry(
     false
 }
 
-/// Fan a drain/apply outcome's transitions into membership output (single-leaf + Stage 2),
-/// then produce. A produce failure is logged and dropped (at-most-once).
+/// Fan transitions into membership output (single-leaf + Stage 2), then produce (at-most-once).
 async fn produce_merge_transitions(
     partition_id: u16,
     store: &CohortStore,
@@ -467,7 +451,6 @@ async fn produce_merge_transitions(
     }
 }
 
-/// Mark `offset` processed (`+ 1` = next to consume).
 fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
     if let MarkOutcome::CappedAheadOfDispatch =
         tracker.mark_processed(partition_id as i32, offset + 1)
@@ -498,7 +481,7 @@ mod tests {
     use crate::store::StoreConfig;
 
     #[test]
-    fn default_retry_policy_pins_the_d4_budget() {
+    fn default_retry_policy_budget() {
         let policy = TransferRetryPolicy::default();
         assert_eq!(policy.max_retries, 5);
         let backoffs: Vec<Duration> = (1..=policy.max_retries)
@@ -526,9 +509,7 @@ mod tests {
             cap: Duration::from_secs(8),
         };
         assert_eq!(policy.backoff(4), Duration::from_secs(8));
-        // 2^63 would overflow the multiply; saturation degrades to the cap.
         assert_eq!(policy.backoff(64), Duration::from_secs(8));
-        // A zero-based misconfiguration never panics.
         assert_eq!(policy.backoff(0), Duration::from_secs(1));
     }
 
@@ -679,7 +660,6 @@ mod tests {
         deps.merge_tracker
             .mark_dispatched(REDRIVE_PARTITION as i32, 42);
 
-        // Tick 1: the single attempt fails — entry and unmarked offset are left untouched.
         handle_redrive(REDRIVE_PARTITION, &store, &deps).await;
         assert!(sink.transfers().is_empty());
         assert!(store.get_pending_transfer(&key).unwrap().is_some());
@@ -688,7 +668,6 @@ mod tests {
             "a failed redrive marks nothing",
         );
 
-        // Tick 2 recovers: produced, cleared, marked.
         handle_redrive(REDRIVE_PARTITION, &store, &deps).await;
         assert_eq!(sink.transfers(), vec![pending.transfer]);
         assert!(store.get_pending_transfer(&key).unwrap().is_none());

@@ -1,7 +1,4 @@
-//! `FilterCatalog` + atomic swap + refresh loop.
-//!
-//! A lock-free [`arc_swap::ArcSwap`] snapshot with a fail-closed gate and jittered refresh task.
-//! A refresh outage keeps the last good snapshot rather than killing the service.
+//! `FilterCatalog` + atomic swap + jittered periodic refresh loop.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,8 +19,7 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{FilterError, TeamId};
 use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS};
 
-/// The in-memory view of all realtime cohorts, keyed by team. Each team's filters are an `Arc` so
-/// the hot path can cheaply hold a per-team handle across an event batch.
+/// The in-memory view of all realtime cohorts, keyed by team.
 #[derive(Debug, Default)]
 pub struct FilterCatalog {
     teams: HashMap<TeamId, Arc<TeamFilters>>,
@@ -53,8 +49,7 @@ impl FilterCatalog {
             .sum()
     }
 
-    /// The construction seam used by
-    /// [`build_catalog_from_rows`](crate::filters::loader::build_catalog_from_rows) and tests.
+    /// Construct from pre-built per-team filters.
     pub fn from_teams(teams: impl IntoIterator<Item = (TeamId, TeamFilters)>) -> Self {
         Self {
             teams: teams
@@ -72,10 +67,8 @@ pub struct CatalogStats {
     pub unique_conditions: usize,
 }
 
-/// Lock-free, atomically-swapped catalog handle: hot-path reads via [`load`](Self::load) are
-/// wait-free, and a refresh swaps a fresh `Arc<FilterCatalog>` without blocking readers. Starts
-/// empty and unloaded so the pipeline fails closed until the first successful refresh, mirroring the
-/// shuffler's `TeamIndex`.
+/// Lock-free, atomically-swapped catalog handle. Starts empty and unloaded; the pipeline fails
+/// closed until the first successful refresh.
 pub struct CatalogHandle {
     catalog: ArcSwap<FilterCatalog>,
     loaded: AtomicBool,
@@ -111,8 +104,7 @@ impl CatalogHandle {
         self.loaded.load(Ordering::Acquire)
     }
 
-    /// Resolve once the first refresh has succeeded; immediate if it already has. Before the first
-    /// load every team reads as absent, so consumers must gate on this to avoid false-empty views.
+    /// Resolve once the first refresh has succeeded; immediate if it already has.
     pub async fn wait_until_loaded(&self) {
         while !self.is_loaded() {
             // Register the waiter *before* re-checking, so a store that lands between the check and
@@ -125,8 +117,7 @@ impl CatalogHandle {
         }
     }
 
-    /// Build an already-loaded handle from a prebuilt catalog — the test seam; production loads via
-    /// [`refresh`](Self::refresh).
+    /// Build an already-loaded handle from a prebuilt catalog (test seam).
     pub fn from_catalog(catalog: FilterCatalog) -> Self {
         let handle = Self::new();
         handle.store(catalog);
@@ -169,8 +160,7 @@ impl Default for CatalogHandle {
     }
 }
 
-/// Periodic catalog refresh task. Sleeps `interval ± jitter` to spread DB load across pods. On
-/// failure it keeps serving the previous snapshot (staleness is safe) and retries next tick.
+/// Periodic catalog refresh task. On failure, keeps the previous snapshot and retries next tick.
 pub async fn run_refresh_loop(
     catalog: Arc<CatalogHandle>,
     pool: PgPool,
@@ -206,7 +196,6 @@ fn next_interval(interval: Duration, jitter: Duration) -> Duration {
     }
     let lo = interval.saturating_sub(jitter).as_millis() as u64;
     let hi = interval.saturating_add(jitter).as_millis() as u64;
-    // Scoped so the non-Send `ThreadRng` is dropped before any later await in the caller.
     let millis = rand::thread_rng().gen_range(lo..=hi);
     Duration::from_millis(millis)
 }
@@ -307,8 +296,7 @@ mod tests {
         }
     }
 
-    /// Live-DB smoke test of the refresh path. `#[ignore]` because CI runs this crate without
-    /// Postgres; run against a local stack with `cargo test -p cohort-stream-processor -- --ignored`.
+    /// Requires a live Postgres; run with `cargo test -p cohort-stream-processor -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn refresh_builds_catalog_from_live_postgres() {

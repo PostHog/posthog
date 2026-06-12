@@ -1,9 +1,4 @@
 //! Pure Boolean composition over Stage 1 leaf membership.
-//!
-//! [`leaf_membership`] turns one leaf's stored state into a member bit; [`evaluate_tree`] folds those
-//! bits up a cohort's AND/OR tree, XOR-ing each leaf's membership against its `negated()` bit. An
-//! all-absent membership map evaluates to `false` for any non-root-negated tree, so a person with no
-//! Stage 1 state is never a member.
 
 use std::collections::HashMap;
 
@@ -16,8 +11,7 @@ use crate::stage1::key::LeafStateKey;
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{Stage1State, StateVariant};
 
-/// Whether one leaf is currently a member. Dispatches on `meta.variant`; absent state is `false`.
-/// A variant/state desync or missing comparator counts as a decode error and reads as non-member.
+/// Whether one leaf is currently a member. Absent state is `false`.
 pub fn leaf_membership(state: Option<&Stage1State>, meta: &LeafStateMeta) -> bool {
     let Some(state) = state else {
         return false;
@@ -45,8 +39,7 @@ pub fn leaf_membership(state: Option<&Stage1State>, meta: &LeafStateMeta) -> boo
     }
 }
 
-/// Fold a cohort's filter tree into one membership bit. Each leaf's membership is XOR'd with its
-/// `negated()` bit. A `CohortRef` leaf reads `false`.
+/// Fold a cohort's filter tree into one membership bit.
 pub fn evaluate_tree(node: &FilterNode, membership: &HashMap<LeafStateKey, bool>) -> bool {
     match node {
         FilterNode::Group { op, children } => match op {

@@ -1,4 +1,4 @@
-//! The RocksDB wrapper: one database per process, multi-CF atomic `WriteBatch`, async WAL.
+//! RocksDB wrapper: multi-CF atomic `WriteBatch`, async WAL.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -22,7 +22,6 @@ use crate::observability::metrics::{
 };
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 
-// Shared between `StoreError::Backend { op }` and the metric `op` label.
 const OP_OPEN: &str = "open";
 const OP_DESTROY: &str = "destroy";
 const OP_GET: &str = "get";
@@ -61,8 +60,7 @@ impl Default for StoreConfig {
     }
 }
 
-/// Errors from the state store. `Open` and `Backend` both wrap `rocksdb::Error`, so conversion is
-/// explicit per call site (no blanket `#[from]`).
+/// Errors from the state store.
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error("opening RocksDB at {path:?}: {source}")]
@@ -88,21 +86,19 @@ pub enum StoreError {
     },
 }
 
-/// Handle to the per-process state store. Cheaply cloneable (`Arc<DB>`).
+/// Handle to the per-process state store.
 #[derive(Clone)]
 pub struct CohortStore {
     db: Arc<DBWithThreadMode<SingleThreaded>>,
 }
 
 impl CohortStore {
-    /// Open the column families at `config.path`, creating them if missing. If `wipe_on_start` is
-    /// set and a database exists, it is destroyed first.
+    /// Open the column families at `config.path`, creating them if missing.
     pub fn open(config: &StoreConfig) -> Result<Self, StoreError> {
         let cache = Cache::new_lru_cache(config.block_cache_bytes);
         let db_opts = db_options(config);
 
         if config.wipe_on_start && config.path.exists() {
-            // `destroy` requires the DB be closed; it is, since we have not opened it yet.
             DBWithThreadMode::<SingleThreaded>::destroy(&db_opts, &config.path).map_err(
                 |source| {
                     counter!(STORE_ERRORS_TOTAL, "op" => OP_DESTROY).increment(1);
@@ -168,7 +164,7 @@ impl CohortStore {
         self.get(Cf::Stage2, &key.encode())
     }
 
-    /// A missing key (or empty merge result) decodes to an empty vec — "no states".
+    /// A missing key decodes to an empty vec.
     pub fn get_person_index(&self, key: &PersonIndexKey) -> Result<Vec<LeafStateKey>, StoreError> {
         Ok(self
             .get(Cf::PersonIndex, &key.encode())?
@@ -295,7 +291,6 @@ impl CohortStore {
 
     fn commit(&self, batch: WriteBatch, op: &'static str) -> Result<(), StoreError> {
         let mut write_opts = WriteOptions::default();
-        // Async WAL; durability comes from the checkpoint cadence + Kafka replay.
         write_opts.set_sync(false);
 
         let started = Instant::now();
@@ -400,7 +395,6 @@ fn db_options(config: &StoreConfig) -> Options {
     opts.create_missing_column_families(true);
     opts.set_atomic_flush(true);
     opts.set_max_open_files(config.max_open_files);
-    // Disable mmap to bound virtual memory on shared PVC storage.
     opts.set_allow_mmap_reads(false);
     opts.set_allow_mmap_writes(false);
     opts
@@ -527,7 +521,6 @@ mod tests {
         assert!(config.max_open_files > 0);
     }
 
-    /// Compile-time guard: `CohortStore` must stay `Send + Sync` to be shared across workers.
     #[test]
     fn cohort_store_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}

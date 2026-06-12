@@ -1,14 +1,7 @@
-//! Output producer.
+//! Output producer: maps Stage 1 [`LeafTransition`]s to per-cohort [`CohortMembershipChange`]s.
 //!
-//! Maps the Stage 1 worker's per-leaf [`LeafTransition`]s to per-cohort
-//! [`CohortMembershipChange`]s and produces them to `cohort_membership_changed_shadow`.
-//!
-//! [`map_transition`] fans out a leaf flip only to the single-leaf cohorts owning it; composable
-//! (multi-leaf) cohorts are emitted by Stage 2's `compose_stage2`, not here. A leaf owned only by
-//! `Excluded` cohorts maps to nothing.
-//!
-//! Produces are flushed and acked **before** the worker marks its Kafka offset; the flush is
-//! at-least-once, which is idempotent for the per-cohort parity diff.
+//! [`map_transition`] fans out to single-leaf cohorts only; composable (multi-leaf) cohorts are
+//! emitted by Stage 2.
 
 pub mod batcher;
 pub mod kafka;
@@ -35,25 +28,17 @@ pub use merge::{
     StreamEventSink, TransferSink,
 };
 
-/// One per-cohort membership change on `cohort_membership_changed_shadow`. The wire shape matches
-/// the legacy Python producer and the Node Zod consumer exactly:
-///
-/// ```jsonc
-/// { "team_id": 42, "cohort_id": 91204, "person_id": "01928aaa-…",
-///   "last_updated": "2026-05-26 12:34:56.789123", "status": "entered" }
-/// ```
+/// One per-cohort membership change on `cohort_membership_changed_shadow`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CohortMembershipChange {
     pub team_id: i32,
     pub cohort_id: i32,
-    /// Stringified person UUID — the Zod schema is `z.guid()` and the topic is keyed by it.
     pub person_id: String,
-    /// ClickHouse `DateTime64(6)` wire format, `"YYYY-MM-DD HH:MM:SS.ffffff"`.
+    /// ClickHouse `DateTime64(6)` wire format.
     pub last_updated: String,
     pub status: MembershipStatus,
 }
 
-/// Serializes to `"entered"` / `"left"`, matching the consumer's `z.enum(['entered', 'left'])`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MembershipStatus {
@@ -62,7 +47,6 @@ pub enum MembershipStatus {
 }
 
 impl MembershipStatus {
-    /// Metric-label form, identical to the serialized wire value.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Entered => "entered",
@@ -80,10 +64,7 @@ impl From<TransitionKind> for MembershipStatus {
     }
 }
 
-/// Project one leaf transition to one membership change per single-leaf cohort owning its
-/// [`LeafStateKey`](crate::stage1::key::LeafStateKey). Composable (multi-leaf) cohorts are emitted by
-/// Stage 2's `compose_stage2`, not here; only a leaf with no single-leaf *and* no composable owner
-/// yields nothing and bumps `output_transitions_unmapped_total{reason="no_emitting_cohort"}`.
+/// Project one leaf transition to one membership change per single-leaf cohort owning its LSK.
 pub fn map_transition<'a>(
     filters: &'a TeamFilters,
     transition: &'a LeafTransition,
@@ -93,8 +74,6 @@ pub fn map_transition<'a>(
         .by_lsk_to_single_leaf_cohorts
         .get(&transition.leaf_state_key)
         .map_or(&[], Vec::as_slice);
-    // A leaf owned by a composable cohort is mapped by Stage 2 in the same pass, so it is not
-    // unmapped; count only a leaf no emitting cohort owns (its cohorts are all `Excluded`).
     if cohorts.is_empty()
         && !filters
             .by_lsk_to_composable_cohorts
@@ -116,15 +95,12 @@ pub fn map_transition<'a>(
         })
 }
 
-/// Current UTC time as a ClickHouse `DateTime64(6)` string. `%.6f` (microseconds), not `%f`
-/// (nanoseconds), which would break the `DateTime64(6)` parse and the per-row parity diff.
+/// Current UTC time as a ClickHouse `DateTime64(6)` string (microsecond precision).
 pub fn now_last_updated() -> String {
     Utc::now().format("%Y-%m-%d %H:%M:%S%.6f").to_string()
 }
 
-/// Produce a batch and await all acks, returning one result per change **in input order** so the
-/// worker can gate its offset commit on full success. At-least-once: a re-produced change is
-/// idempotent for the per-cohort parity diff, so a failed sub-batch is safe to replay.
+/// Produce a batch and await all acks, returning one result per change in input order.
 #[async_trait]
 pub trait MembershipSink: Send + Sync {
     async fn produce(
@@ -133,8 +109,6 @@ pub trait MembershipSink: Send + Sync {
     ) -> Vec<Result<(), KafkaProduceError>>;
 }
 
-/// An in-memory [`MembershipSink`] for tests: records every produced change and reports all-`Ok`.
-/// Can optionally fail its first `n` flushes to exercise the worker's produce-error offset gate.
 #[derive(Debug, Default, Clone)]
 pub struct CaptureSink {
     changes: Arc<Mutex<Vec<CohortMembershipChange>>>,
@@ -146,8 +120,6 @@ impl CaptureSink {
         Self::default()
     }
 
-    /// Fails its first `n` flushes (recording nothing, returning an `Err` per change), then like
-    /// [`new`](Self::new).
     pub fn failing_first(n: usize) -> Self {
         Self {
             changes: Arc::default(),
@@ -169,7 +141,6 @@ impl MembershipSink for CaptureSink {
         &self,
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), KafkaProduceError>> {
-        // `then` (not `then_some`) so `n - 1` is never evaluated when `n == 0` (would underflow).
         let should_fail = self
             .fail_remaining
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {

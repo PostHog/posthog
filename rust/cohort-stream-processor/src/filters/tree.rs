@@ -1,7 +1,4 @@
 //! Filter-tree types and parser.
-//!
-//! The tree is parsed without sibling-merge or preprocessing so Stage 2 can re-walk the original
-//! leaves. Each kept leaf caches its [`LeafStateKey`] and [`StateVariant`].
 
 use std::sync::Arc;
 
@@ -13,8 +10,7 @@ use crate::filters::{CohortId, FilterError, TeamId};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::StateVariant;
 
-/// Cohort behavioral predicate types. Only `PerformedEvent` and `PerformedEventMultiple` produce
-/// realtime bytecode.
+/// Cohort behavioral predicate types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BehavioralValue {
@@ -28,7 +24,7 @@ pub enum BehavioralValue {
 }
 
 impl BehavioralValue {
-    /// The wire string stored in the cohort filter JSON. Part of the [`LeafStateKey`] hash.
+    /// The wire string stored in the cohort filter JSON.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::PerformedEvent => "performed_event",
@@ -41,12 +37,12 @@ impl BehavioralValue {
         }
     }
 
-    /// Whether this value produces realtime bytecode (and a `conditionHash`).
+    /// Whether this value produces realtime bytecode.
     pub fn contributes_bytecode(self) -> bool {
         matches!(self, Self::PerformedEvent | Self::PerformedEventMultiple)
     }
 
-    /// Parse a wire string, or `None` for an unrecognized (schema-drift) string.
+    /// Parse a wire string, or `None` for an unrecognized string.
     pub fn from_wire(s: &str) -> Option<Self> {
         let value = match s {
             "performed_event" => Self::PerformedEvent,
@@ -74,18 +70,15 @@ pub struct BehavioralLeafConfig {
     pub operator: Option<String>,
     pub explicit_datetime: Option<String>,
     pub explicit_datetime_to: Option<String>,
-    /// Derived once via [`with_state_key`](Self::with_state_key), then immutable.
     pub leaf_state_key: LeafStateKey,
-    /// `None` only during construction; a kept leaf always carries `Some`.
     pub state_variant: Option<StateVariant>,
-    /// The leaf's inline bytecode. `Arc` so tree clones share one allocation.
     pub bytecode: Arc<Vec<Value>>,
-    /// Excluded from [`LeafStateKey`] — state is shared between positive and negated instances.
+    /// Excluded from [`LeafStateKey`] -- state is shared between positive and negated instances.
     pub negated: bool,
 }
 
 impl BehavioralLeafConfig {
-    /// Derive and cache the [`LeafStateKey`]. Must be called after constructing the struct literal.
+    /// Derive and cache the [`LeafStateKey`].
     #[must_use]
     pub fn with_state_key(mut self) -> Self {
         self.leaf_state_key = LeafStateKey::for_behavioral(&self);
@@ -105,14 +98,12 @@ impl BehavioralLeafConfig {
 pub struct PersonLeafConfig {
     pub condition_hash: [u8; 16],
     pub leaf_state_key: LeafStateKey,
-    /// See [`BehavioralLeafConfig::bytecode`].
     pub bytecode: Arc<Vec<Value>>,
     pub raw: Value,
-    /// See [`BehavioralLeafConfig::negated`].
     pub negated: bool,
 }
 
-/// A reference to another cohort. No `conditionHash` — not state-keyed at Stage 1.
+/// A reference to another cohort.
 #[derive(Debug, Clone)]
 pub struct CohortRefLeafConfig {
     pub referenced_cohort_id: CohortId,
@@ -136,7 +127,7 @@ impl CohortLeaf {
         }
     }
 
-    /// The leaf's Stage 1 state key, or `None` for a cohort reference (not state-keyed).
+    /// The leaf's Stage 1 state key, or `None` for a cohort reference.
     pub fn leaf_state_key(&self) -> Option<LeafStateKey> {
         match self {
             Self::PersonProperty(leaf) => Some(leaf.leaf_state_key),
@@ -145,7 +136,7 @@ impl CohortLeaf {
         }
     }
 
-    /// The leaf's `conditionHash`, or `None` for a cohort reference (no bytecode).
+    /// The leaf's `conditionHash`, or `None` for a cohort reference.
     pub fn condition_hash(&self) -> Option<[u8; 16]> {
         match self {
             Self::PersonProperty(leaf) => Some(leaf.condition_hash),
@@ -154,7 +145,7 @@ impl CohortLeaf {
         }
     }
 
-    /// The leaf's inline bytecode, or `None` for a cohort reference (no bytecode).
+    /// The leaf's inline bytecode, or `None` for a cohort reference.
     pub fn bytecode(&self) -> Option<&Arc<Vec<Value>>> {
         match self {
             Self::PersonProperty(leaf) => Some(&leaf.bytecode),
@@ -189,7 +180,7 @@ pub struct CohortTree {
     pub root: FilterNode,
 }
 
-/// Receives the indexable side effects of a parse so parsing and index-building happen in one pass.
+/// Receives the indexable side effects of a parse.
 pub trait LeafSink {
     /// Records a kept, state-keyed leaf.
     fn record_state_keyed(
@@ -207,8 +198,7 @@ pub trait LeafSink {
 }
 
 /// Parse a cohort's `filters` JSON into a [`CohortTree`], emitting index side effects through
-/// `sink`. Dropped leaves produce no node; empty groups after drops are kept to preserve AND/OR
-/// identity for Stage 2.
+/// `sink`. Empty groups after drops are kept to preserve AND/OR identity.
 pub fn parse_cohort_tree(
     cohort_id: CohortId,
     team_id: TeamId,
@@ -221,8 +211,6 @@ pub fn parse_cohort_tree(
             cohort_id: cohort_id.0,
         })?;
 
-    // A degenerate single-leaf root that drops out leaves no node; fall back to an empty AND group
-    // rather than failing the cohort.
     let root = parse_node(cohort_id, properties, sink).unwrap_or_else(|| FilterNode::Group {
         op: BoolOp::And,
         children: Vec::new(),
@@ -248,7 +236,6 @@ fn parse_node(cohort_id: CohortId, node: &Value, sink: &mut dyn LeafSink) -> Opt
 
     match classify_leaf(node) {
         LeafClass::Keep(leaf) => {
-            // Kept leaves always carry all three; the guard is defensive against a future variant.
             if let (Some(hash), Some(lsk), Some(bytecode)) = (
                 leaf.condition_hash(),
                 leaf.leaf_state_key(),

@@ -1,7 +1,4 @@
 //! Filter catalog: the in-memory view of realtime cohorts.
-//!
-//! Loads `posthog_cohort` filters, parses each cohort's tree, derives each leaf's `LeafStateKey`,
-//! and builds the `condition_hash` reverse indices — refreshed periodically with an atomic swap.
 
 pub(crate) mod cohort_graph;
 pub mod leaf_classifier;

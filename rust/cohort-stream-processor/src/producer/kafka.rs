@@ -11,8 +11,7 @@ use rdkafka::producer::FutureProducer;
 
 use crate::producer::{CohortMembershipChange, MembershipSink};
 
-/// No-op liveness reporter for producer contexts. A producer stall is surfaced by the consumer's
-/// liveness deadline, not here.
+/// No-op liveness reporter; producer stalls are surfaced by the consumer's liveness deadline.
 #[derive(Clone, Copy)]
 pub(crate) struct AlwaysHealthy;
 
@@ -52,7 +51,6 @@ impl MembershipSink for KafkaMembershipSink {
     }
 }
 
-/// Keyed by `person_id`.
 fn membership_key(change: &CohortMembershipChange) -> Option<String> {
     Some(change.person_id.clone())
 }

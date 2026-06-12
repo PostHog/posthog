@@ -1,8 +1,4 @@
 //! Per-team cohort-reference graph and Tarjan-SCC cycle analysis.
-//!
-//! Walks each cohort's parsed tree for `cohort`-reference leaves, builds the directed
-//! referrer→referenced graph, and runs Tarjan SCC to surface cycles and a
-//! referenced-before-referrer refinement order.
 
 use std::collections::{HashMap, HashSet};
 
@@ -12,7 +8,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use crate::filters::tree::{CohortLeaf, CohortTree, FilterNode};
 use crate::filters::CohortId;
 
-/// The structural facts about a team's cohort-reference graph, computed once at filter freeze.
+/// Structural facts about a team's cohort-reference graph, computed once at filter freeze.
 #[derive(Debug, Default)]
 pub(crate) struct RefGraphAnalysis {
     /// Cohorts participating in a reference cycle (SCC of size > 1, or self-loop).
@@ -25,9 +21,8 @@ pub(crate) struct RefGraphAnalysis {
     pub ref_targets: HashMap<CohortId, Vec<CohortId>>,
 }
 
-/// Analyze a team's parsed cohort trees into their reference-graph facts.
+/// Analyze a team's parsed cohort trees for reference cycles and refinement order.
 pub(crate) fn analyze(cohorts: &HashMap<CohortId, CohortTree>) -> RefGraphAnalysis {
-    // Sorted targets for a deterministic graph build.
     let mut ref_targets: HashMap<CohortId, Vec<CohortId>> = HashMap::new();
     for (&cohort_id, tree) in cohorts {
         let mut targets = HashSet::new();
@@ -42,7 +37,6 @@ pub(crate) fn analyze(cohorts: &HashMap<CohortId, CohortTree>) -> RefGraphAnalys
         return RefGraphAnalysis::default();
     }
 
-    // Nodes = team cohorts ∪ referenced-but-missing ids, sorted for deterministic NodeIndex assignment.
     let mut node_ids: Vec<CohortId> = cohorts.keys().copied().collect();
     for targets in ref_targets.values() {
         node_ids.extend(targets.iter().copied());
@@ -57,7 +51,7 @@ pub(crate) fn analyze(cohorts: &HashMap<CohortId, CohortTree>) -> RefGraphAnalys
     }
 
     // Self-loops are size-1 SCCs in Tarjan, so capture them separately.
-    let mut self_loops: HashSet<CohortId> = HashSet::new();
+    let mut self_loops = HashSet::new();
     for (&referrer, targets) in &ref_targets {
         let src = index_of[&referrer];
         for &target in targets {
@@ -89,7 +83,7 @@ pub(crate) fn analyze(cohorts: &HashMap<CohortId, CohortTree>) -> RefGraphAnalys
     }
 }
 
-/// Collect every distinct `cohort`-reference target in a tree.
+/// Collect every distinct cohort-reference target in a tree.
 fn collect_cohort_refs(node: &FilterNode, out: &mut HashSet<CohortId>) {
     match node {
         FilterNode::Group { children, .. } => {
@@ -110,7 +104,7 @@ mod tests {
     use crate::filters::tree::{BoolOp, CohortRefLeafConfig};
     use crate::filters::TeamId;
 
-    /// A cohort whose only leaves are `cohort`-references to `refs`.
+    /// A cohort whose only leaves are cohort-references to `refs`.
     fn ref_cohort(id: i32, refs: &[i32]) -> (CohortId, CohortTree) {
         let children = refs
             .iter()
@@ -146,7 +140,6 @@ mod tests {
 
     #[test]
     fn three_node_cycle_marks_all_members() {
-        // 1 → 2 → 3 → 1.
         let analysis = analyze(&catalog(vec![
             ref_cohort(1, &[2]),
             ref_cohort(2, &[3]),
@@ -157,7 +150,6 @@ mod tests {
 
     #[test]
     fn cycle_free_isomorph_marks_nothing() {
-        // 1 → 2 → 3, no back edge (3 is a ref-free leaf cohort).
         let analysis = analyze(&catalog(vec![
             ref_cohort(1, &[2]),
             ref_cohort(2, &[3]),
@@ -175,7 +167,6 @@ mod tests {
 
     #[test]
     fn tail_into_a_cycle_is_not_itself_cyclic() {
-        // 4 → 1, and 1 ⇄ 2 (a 2-cycle). Only the cycle members are marked, not the tail.
         let analysis = analyze(&catalog(vec![
             ref_cohort(4, &[1]),
             ref_cohort(1, &[2]),
@@ -186,7 +177,6 @@ mod tests {
 
     #[test]
     fn missing_target_is_in_ref_targets_but_never_in_cycle() {
-        // 1 → 99, and 99 is absent from the catalog → a placeholder node with no out-edges.
         let analysis = analyze(&catalog(vec![ref_cohort(1, &[99])]));
         assert_eq!(analysis.ref_targets[&CohortId(1)], vec![CohortId(99)]);
         assert!(analysis.in_cycle.is_empty());
@@ -196,14 +186,12 @@ mod tests {
 
     #[test]
     fn duplicate_ref_edges_dedupe() {
-        // Two ref leaves to the same cohort collapse to one target.
         let analysis = analyze(&catalog(vec![ref_cohort(1, &[2, 2]), ref_cohort(2, &[])]));
         assert_eq!(analysis.ref_targets[&CohortId(1)], vec![CohortId(2)]);
     }
 
     #[test]
     fn refinement_order_is_referenced_before_referrer() {
-        // 1 → 2 → 3 (3 ref-free). Every ref-bearing target must precede its referrer.
         let analysis = analyze(&catalog(vec![
             ref_cohort(1, &[2]),
             ref_cohort(2, &[3]),
@@ -232,7 +220,6 @@ mod tests {
 
     #[test]
     fn team_without_refs_yields_default_analysis() {
-        // A leaf-only cohort (no `cohort` references) produces the empty analysis.
         let analysis = analyze(&catalog(vec![ref_cohort(1, &[])]));
         assert!(analysis.in_cycle.is_empty());
         assert!(analysis.refinement_order.is_empty());

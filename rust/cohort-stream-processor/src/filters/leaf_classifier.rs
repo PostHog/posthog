@@ -1,8 +1,4 @@
-//! Raw leaf JSON → classified leaf.
-//!
-//! Only leaves that produced realtime bytecode (and therefore a `conditionHash`) are state-keyed;
-//! cohort references are kept in the tree but not indexed; everything else is dropped with a reason
-//! for the counter.
+//! Raw leaf JSON classification into kept, dropped, or cohort-reference leaves.
 
 use std::sync::Arc;
 
@@ -15,7 +11,7 @@ use crate::filters::CohortId;
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::pick_state::pick_state_variant;
 
-/// Why a leaf was dropped during parse. Doubles as the `reason` label on the skip counter.
+/// Why a leaf was dropped during parse. Used as the `reason` label on the skip counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeafDropReason {
     /// No `conditionHash`, or one that is not a 16-character string.
@@ -48,8 +44,7 @@ impl LeafDropReason {
     }
 }
 
-/// The outcome of classifying one leaf: a state-keyed `Keep`, an unindexed `CohortRef` kept in the
-/// tree, or a counted `Drop` that produces no node.
+/// The outcome of classifying one leaf.
 pub enum LeafClass {
     Keep(CohortLeaf),
     Drop(LeafDropReason),
@@ -206,7 +201,7 @@ mod tests {
 
     const HASH: &str = "0123456789abcdef";
 
-    /// A representative program; only that `bytecode` is present and array-valued matters here.
+    /// A representative bytecode program.
     fn bytecode() -> Value {
         json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
     }
@@ -268,8 +263,6 @@ mod tests {
 
     #[test]
     fn performed_event_multiple_sub_day_window_is_dropped() {
-        // A sub-day (hourly) multiple has no calendar-day representation in the existing pipeline, so
-        // it still drops as unsupported.
         for (time_value, time_interval, why) in [
             (5, "hour", "hour,5 = 0 whole days"),
             (30, "minute", "minute,30 = 0 whole days"),
@@ -297,7 +290,6 @@ mod tests {
 
     #[test]
     fn performed_event_multiple_over_180_day_window_is_kept_as_compressed() {
-        // A >180-day multiple is now representable as compressed run-length history rather than dropped.
         for (time_value, time_interval, why) in [
             (1, "year", "year,1 = 365 days"),
             (365, "day", "day,365 = 365 days"),
@@ -420,7 +412,6 @@ mod tests {
 
     #[test]
     fn behavioral_without_bytecode_is_dropped() {
-        // conditionHash present but no bytecode → not realtime-executable (Node manager.ts:137).
         let node = json!({
             "type": "behavioral",
             "value": "performed_event",

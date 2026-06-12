@@ -188,7 +188,6 @@ async fn run_worker(
             }
         }
 
-        // Re-produce cross-partition stragglers, gating the offset on the ack.
         if !re_keys.is_empty() {
             let produced = re_keys.len() as u64;
             let acks = merge.stream_event_sink.produce(re_keys).await;
@@ -205,7 +204,6 @@ async fn run_worker(
             tombstone_redirect::record_re_keyed(produced);
         }
 
-        // A `Sweep`-only batch carries no offset.
         if let Some(max_offset) = max_offset {
             if let MarkOutcome::CappedAheadOfDispatch =
                 tracker.mark_processed(partition_id as i32, max_offset + 1)
@@ -223,7 +221,6 @@ async fn run_worker(
     info!(partition_id, "stage 1 worker stopped");
 }
 
-/// Tally `(entered, left)` counts.
 pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) {
     changes
         .iter()
@@ -233,7 +230,6 @@ pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) 
         })
 }
 
-/// What one event's processing returns: membership changes, eviction schedules, and re-keys.
 #[derive(Default)]
 struct EventEffects {
     changes: Vec<CohortMembershipChange>,
@@ -241,7 +237,6 @@ struct EventEffects {
     re_keys: Vec<CohortStreamEvent>,
 }
 
-/// Process one event end to end, returning its [`EventEffects`].
 fn handle_event(
     partition_id: u16,
     store: &CohortStore,
@@ -257,7 +252,6 @@ fn handle_event(
     };
     let filters: &TeamFilters = team_filters;
 
-    // Tombstone preflight: redirect a post-merge straggler to its merge target.
     let resolved: Cow<'_, CohortStreamEvent> =
         match redirect_for_tombstone(partition_id, store, event) {
             Redirected::Process(event) => event,
@@ -322,14 +316,11 @@ fn handle_event(
     }
 }
 
-/// The tombstone preflight's outcome.
 enum Redirected<'a> {
     Process(Cow<'a, CohortStreamEvent>),
-    /// Re-produce to `cohort_stream_events` keyed to the rewritten target.
     ReKey(CohortStreamEvent),
 }
 
-/// Resolve a straggler event through the tombstone chain.
 fn redirect_for_tombstone<'a>(
     partition_id: u16,
     store: &CohortStore,
@@ -362,7 +353,6 @@ fn redirect_for_tombstone<'a>(
             target_person,
             origin,
         } => {
-            // At the hop cap, degrade to an inline fold for guaranteed termination.
             if event.redirect_hops >= tombstone_redirect::MAX_CROSS_PARTITION_REDIRECT_HOPS {
                 counter!(MERGE_REDIRECT_HOP_CAPPED_TOTAL).increment(1);
                 warn!(
@@ -382,8 +372,6 @@ fn redirect_for_tombstone<'a>(
     }
 }
 
-/// Rewrite a straggler to its merge target. `redirected_from` is stamped with the chain origin
-/// only if not already set.
 fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> CohortStreamEvent {
     CohortStreamEvent {
         person_id: final_person.to_string(),
@@ -395,8 +383,6 @@ fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> Co
     }
 }
 
-/// Drain the eviction queue for due keys: produce membership changes, then apply state mutations
-/// in one `WriteBatch`. On any produce error, reschedule all popped keys and write nothing.
 async fn handle_sweep(
     partition_id: u16,
     store: &CohortStore,
@@ -414,7 +400,6 @@ async fn handle_sweep(
         return;
     }
 
-    // Group by team so each key is evicted against its own team's frozen filters.
     let mut by_team: BTreeMap<u64, Vec<Stage1Key>> = BTreeMap::new();
     for &(key, _) in &popped {
         by_team.entry(key.team_id).or_default().push(key);
@@ -455,7 +440,6 @@ async fn handle_sweep(
         }
     }
 
-    // Produce before write: await all acks before mutating state.
     if !changes.is_empty() {
         let (entered, left) = count_by_status(&changes);
         let acks = sink.produce(changes).await;
@@ -521,7 +505,6 @@ async fn handle_sweep(
         counter!(SWEEP_KEYS_DROPPED_TOTAL, "reason" => reason.as_str()).increment(1);
     }
 
-    // Stage 2: recompose composable cohorts owning any leaf this tick flipped.
     let mut by_team_transitions: BTreeMap<u64, Vec<LeafTransition>> = BTreeMap::new();
     for result in &results {
         if let Some(transition) = &result.transition {
@@ -580,14 +563,12 @@ async fn handle_sweep(
     }
 }
 
-/// Reschedule every popped key at its original deadline.
 fn reschedule_all(queue: &mut EvictionQueue<Stage1Key>, popped: &[(Stage1Key, i64)]) {
     for &(key, deadline) in popped {
         queue.schedule(key, deadline);
     }
 }
 
-/// Reschedule only one team's popped keys.
 fn reschedule_team(
     queue: &mut EvictionQueue<Stage1Key>,
     popped: &[(Stage1Key, i64)],
@@ -600,7 +581,6 @@ fn reschedule_team(
     }
 }
 
-/// Map a transition to its metric label. An unknown LSK returns `None`.
 pub(crate) fn transition_metric_label(
     filters: &TeamFilters,
     transition: &LeafTransition,

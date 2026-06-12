@@ -328,7 +328,6 @@ mod tests {
     const PARTITION: u16 = 0;
     const WINDOW_DAYS: u32 = 7;
     const LEN: usize = WINDOW_DAYS as usize + 1;
-    /// A >180-day window routes to the compressed variant.
     const COMPRESSED_WINDOW_DAYS: u32 = 365;
 
     fn temp_store() -> (TempDir, CohortStore) {
@@ -448,7 +447,6 @@ mod tests {
         let filters = freeze(vec![daily_leaf(7, "gte", 3)]);
         let key = key_for(&filters, 1);
 
-        // Three matches on one day → the last bucket holds 3, window anchored that day.
         let day = day_of("2026-05-20 10:00:00.000000");
         let mut buckets = vec![0u32; LEN];
         buckets[LEN - 1] = 3;
@@ -465,7 +463,6 @@ mod tests {
             },
         );
 
-        // Slide to the day the lone bucket leaves the window: every bucket drains.
         let cutoff = start_of_day_ms_in_tz(day + WINDOW_DAYS as i32 + 1, UTC);
         let results = sweep_evict(&filters, &[key], &store, cutoff)
             .unwrap()
@@ -486,8 +483,6 @@ mod tests {
         let filters = freeze(vec![daily_leaf(7, "gte", 1)]);
         let key = key_for(&filters, 1);
 
-        // Two matches: the window's lower-bound day and four days later. Sliding past the oldest still
-        // leaves the later bucket, so the person stays a member (gte 1) — a rewrite, not a delete.
         let now_day = day_of("2026-05-27 10:00:00.000000");
         let window_start = now_day - WINDOW_DAYS as i32;
         let mut buckets = vec![0u32; LEN];
@@ -505,7 +500,6 @@ mod tests {
             },
         );
 
-        // Slide one day past the window's current now-day so only the oldest bucket leaves.
         let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
         let results = sweep_evict(&filters, &[key], &store, cutoff)
             .unwrap()
@@ -525,19 +519,13 @@ mod tests {
                 earliest_eviction_at_ms,
                 ..
             } => {
-                assert_eq!(buckets.iter().sum::<u32>(), 1, "the oldest bucket dropped");
-                assert_eq!(
-                    last_event_at_ms, 1_700_000_000_000,
-                    "preserved across the slide"
-                );
+                assert_eq!(buckets.iter().sum::<u32>(), 1);
+                assert_eq!(last_event_at_ms, 1_700_000_000_000);
                 assert_eq!(earliest_eviction_at_ms, result.reschedule.unwrap());
             }
             other => panic!("expected daily buckets, got {other:?}"),
         }
-        assert!(
-            result.reschedule.unwrap() > deadline,
-            "the surviving later bucket pushes the deadline forward",
-        );
+        assert!(result.reschedule.unwrap() > deadline);
     }
 
     #[test]
@@ -546,14 +534,11 @@ mod tests {
         let filters = freeze(vec![daily_leaf(7, "eq", 1)]);
         let key = key_for(&filters, 1);
 
-        // Two matching days → count 2, which is *not* `eq 1` (a non-member). Sliding past the oldest
-        // bucket lowers the count to 1, flipping the predicate false→true — the Enter the old `gte`
-        // tests never exercised because `gte` is monotonic under a drain.
         let day = day_of("2026-05-27 10:00:00.000000");
         let window_start = day - WINDOW_DAYS as i32;
         let mut buckets = vec![0u32; LEN];
-        buckets[0] = 1; // day window_start — drops on the slide
-        buckets[4] = 1; // day window_start + 4 — survives
+        buckets[0] = 1;
+        buckets[4] = 1;
         let deadline = daily_eviction_deadline(&buckets, window_start, WINDOW_DAYS, UTC);
         write(
             &store,
@@ -566,7 +551,6 @@ mod tests {
             },
         );
 
-        // Slide one day past the window's now-day so only the oldest bucket leaves: count 2 → 1.
         let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
         let results = sweep_evict(&filters, &[key], &store, cutoff)
             .unwrap()
@@ -598,12 +582,11 @@ mod tests {
         let filters = freeze(vec![daily_leaf(7, "lte", 2)]);
         let key = key_for(&filters, 1);
 
-        // Count 3 is above `lte 2` (a non-member). Dropping the oldest bucket lowers it to 2 → member.
         let day = day_of("2026-05-27 10:00:00.000000");
         let window_start = day - WINDOW_DAYS as i32;
         let mut buckets = vec![0u32; LEN];
-        buckets[0] = 1; // drops on the slide
-        buckets[4] = 2; // survives, leaving count 2
+        buckets[0] = 1;
+        buckets[4] = 2;
         let deadline = daily_eviction_deadline(&buckets, window_start, WINDOW_DAYS, UTC);
         write(
             &store,
@@ -645,7 +628,6 @@ mod tests {
         )]);
         let key = key_for(&filters, 1);
 
-        // Three matches on one day → a lone entry of count 3, window anchored that day.
         let day = day_of("2026-05-20 10:00:00.000000");
         let entries = vec![(day, 3u32)];
         let window_start = day - COMPRESSED_WINDOW_DAYS as i32;
@@ -662,7 +644,6 @@ mod tests {
             },
         );
 
-        // Slide to the day the lone entry leaves the window: every entry drains.
         let cutoff = start_of_day_ms_in_tz(day + COMPRESSED_WINDOW_DAYS as i32 + 1, UTC);
         let results = sweep_evict(&filters, &[key], &store, cutoff)
             .unwrap()
@@ -688,8 +669,6 @@ mod tests {
         )]);
         let key = key_for(&filters, 1);
 
-        // Two matches 100 days apart, both inside the 365-day window. Sliding past the oldest still
-        // leaves the later entry, so the person stays a member (gte 1) — a rewrite, not a delete.
         let now_day = day_of("2026-05-27 10:00:00.000000");
         let window_start = now_day - COMPRESSED_WINDOW_DAYS as i32;
         let entries = vec![(window_start, 1u32), (window_start + 100, 1u32)];
@@ -706,7 +685,6 @@ mod tests {
             },
         );
 
-        // Slide one day past the window's current now-day so only the oldest entry leaves.
         let cutoff = start_of_day_ms_in_tz(window_start + COMPRESSED_WINDOW_DAYS as i32 + 1, UTC);
         let results = sweep_evict(&filters, &[key], &store, cutoff)
             .unwrap()
@@ -726,23 +704,13 @@ mod tests {
                 earliest_eviction_at_ms,
                 ..
             } => {
-                assert_eq!(
-                    entries,
-                    vec![(window_start + 100, 1)],
-                    "the oldest entry dropped"
-                );
-                assert_eq!(
-                    last_event_at_ms, 1_700_000_000_000,
-                    "preserved across the slide"
-                );
+                assert_eq!(entries, vec![(window_start + 100, 1)]);
+                assert_eq!(last_event_at_ms, 1_700_000_000_000);
                 assert_eq!(earliest_eviction_at_ms, result.reschedule.unwrap());
             }
             other => panic!("expected compressed history, got {other:?}"),
         }
-        assert!(
-            result.reschedule.unwrap() > deadline,
-            "the surviving later entry pushes the deadline forward",
-        );
+        assert!(result.reschedule.unwrap() > deadline);
     }
 
     #[test]
@@ -755,8 +723,6 @@ mod tests {
         )]);
         let key = key_for(&filters, 1);
 
-        // Count 2 (two entries) is not `eq 1`. Sliding past the oldest entry lowers the count to 1,
-        // flipping false→true — the bidirectional Enter a `gte`-only sweep would have dropped.
         let now_day = day_of("2026-05-27 10:00:00.000000");
         let window_start = now_day - COMPRESSED_WINDOW_DAYS as i32;
         let entries = vec![(window_start, 1u32), (window_start + 100, 1u32)];
@@ -805,7 +771,6 @@ mod tests {
         )]);
         let key = key_for(&filters, 1);
 
-        // Count 3 is above `lte 2`. Dropping the oldest entry lowers it to 2 → member.
         let now_day = day_of("2026-05-27 10:00:00.000000");
         let window_start = now_day - COMPRESSED_WINDOW_DAYS as i32;
         let entries = vec![(window_start, 1u32), (window_start + 100, 2u32)];
@@ -904,7 +869,6 @@ mod tests {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![single_leaf(7)]);
 
-        // A key whose LSK isn't in the catalog (drift): state present but no meta → skip.
         let drifted = Stage1Key {
             partition_id: PARTITION,
             team_id: TEAM,
@@ -921,7 +885,6 @@ mod tests {
             },
         );
 
-        // A known leaf whose state was never written: missing row → skip.
         let missing = key_for(&filters, 999);
 
         let out = sweep_evict(&filters, &[drifted, missing], &store, i64::MAX).unwrap();

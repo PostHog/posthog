@@ -1,12 +1,7 @@
 //! `LeafStateKey` derivation and `Stage1Key`.
 //!
-//! The `conditionHash` encodes only the event matcher, not the window/threshold, so two leaves
-//! matching the same event with different windows collide on it. State is therefore keyed by a
-//! [`LeafStateKey`] hashing the full predicate configuration.
-//!
-//! [`LeafStateKey::for_behavioral`] is a cross-runtime contract (Python must reproduce byte-for-byte):
-//! fields hashed in order with no length delimiters, integers LE (`0` for absent), strings `""` for
-//! absent, `negation` excluded.
+//! `conditionHash` encodes only the event matcher, so two leaves with different windows collide
+//! on it. State is keyed by a [`LeafStateKey`] hashing the full predicate configuration.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -14,8 +9,7 @@ use uuid::Uuid;
 
 use crate::filters::tree::BehavioralLeafConfig;
 
-/// 16-byte key discriminating Stage 1 state per cohort leaf. For person-property leaves it equals
-/// `condition_hash`; for behavioral leaves it is SHA-256 over the full predicate config.
+/// 16-byte key discriminating Stage 1 state per cohort leaf.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct LeafStateKey(pub [u8; 16]);
 
@@ -25,8 +19,8 @@ impl LeafStateKey {
         Self(*condition_hash)
     }
 
-    /// Hash the full predicate config. Do not reorder fields or insert separators without updating
-    /// the Python port (`_extract_leaf_state_keys` in `posthog/models/cohort/dependencies.py`).
+    /// Hash the full predicate config. Field order must match the Python port
+    /// (`_extract_leaf_state_keys` in `posthog/models/cohort/dependencies.py`).
     pub fn for_behavioral(leaf: &BehavioralLeafConfig) -> Self {
         let mut h = Sha256::new();
         h.update(leaf.condition_hash);
@@ -110,12 +104,7 @@ mod tests {
         );
     }
 
-    /// Cross-runtime contract fixture: the Python port must reproduce the exact 16-byte digest in
-    /// [`for_behavioral_matches_known_vector`]. Every hashed field is a distinct, non-default value
-    /// so the vector pins each field's position; the hashed input, in order, no delimiters:
-    ///   `b"0123456789abcdef"` ++ `b"performed_event_multiple"` ++ `7i32.to_le_bytes()`
-    ///   ++ `b"day"` ++ `b"2026-01-01T00:00:00Z"` ++ `b"2026-02-01T00:00:00Z"`
-    ///   ++ `b"gte"` ++ `3i32.to_le_bytes()`, then `sha256(..)[..16]`.
+    /// Golden vector leaf with every field set to a distinct, non-default value.
     fn golden_leaf() -> BehavioralLeafConfig {
         BehavioralLeafConfig {
             condition_hash: HASH,
@@ -144,15 +133,12 @@ mod tests {
         assert_eq!(
             LeafStateKey::for_behavioral(&golden_leaf()),
             LeafStateKey(EXPECTED),
-            "the cross-runtime hash encoding changed; update the Python port + §4.10 normalizer \
-             to match, or revert the encoding change",
+            "the cross-runtime hash encoding changed; update the Python port to match",
         );
     }
 
     #[test]
     fn event_key_is_excluded_from_the_key() {
-        // `event_key` is not hashed: the event name is already in `condition_hash`, so hashing it
-        // again would diverge from the Python normalizer's field set.
         let mut other = golden_leaf();
         other.event_key = "$autocapture".to_string();
         assert_eq!(
