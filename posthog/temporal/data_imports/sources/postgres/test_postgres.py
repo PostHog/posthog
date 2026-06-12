@@ -63,6 +63,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _normalize_function_names,
     _rls_active_from_conn,
     _role_subject_to_rls,
+    _statement_timeout_as_non_retryable,
     filter_postgres_incremental_fields,
     get_foreign_keys,
     get_leading_index_columns,
@@ -283,6 +284,49 @@ class TestConnectWithDroppedRetry:
                 _connect_with_dropped_retry(connect, logger, max_attempts=3)
 
         assert connect.call_count == 3
+
+
+class TestStatementTimeoutAsNonRetryable:
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,incremental_field,expected_substr",
+        [
+            # Incremental syncs map the timeout to a non-retryable QueryTimeoutException.
+            (True, "updated_at", "updated_at"),
+            # Full-table syncs must re-raise the raw QueryCanceled so a fresh re-sync can
+            # reorder rows; we only short-circuit incremental reads.
+            (False, None, None),
+        ],
+    )
+    def test_statement_timeout_mapping(self, should_use_incremental_field, incremental_field, expected_substr):
+        result = _statement_timeout_as_non_retryable(
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
+        )
+        if expected_substr is None:
+            assert result is None
+        else:
+            assert isinstance(result, QueryTimeoutException)
+            assert expected_substr in str(result)
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.ProtocolViolation("server conn crashed?"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.errors.SerializationFailure("due to conflict with recovery"),
+            Exception("canceling statement due to statement timeout"),
+        ],
+    )
+    def test_non_statement_timeout_errors_are_not_mapped(self, error):
+        assert (
+            _statement_timeout_as_non_retryable(
+                error,
+                should_use_incremental_field=True,
+                incremental_field="updated_at",
+            )
+            is None
+        )
 
 
 class TestPostgresSourceForPipelineSchemaResolution:
