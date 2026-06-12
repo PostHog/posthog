@@ -146,7 +146,9 @@ class TestGeoipDictFallbackExecution(ClickhouseTestMixin, BaseTest):
         for prop in ("$geoip_city_name", "$geoip_country_code", "$ip"):
             self.enterContext(materialized("events", prop))
 
-        # The dictionary is created manually on the real clusters, so the test creates its own miniature version.
+        # Deliberately NOT a ClickHouse migration: the fallback is temporary (reverted once the backfill completes), so
+        # the dictionary was created manually on the cloud clusters rather than rolled out to every install, and this
+        # test creates its own miniature version the same way.
         sync_execute(
             f"CREATE TABLE IF NOT EXISTS {self.SOURCE_TABLE} "
             "(prefix String, city_name String, postal_code String) ENGINE = MergeTree() ORDER BY prefix"
