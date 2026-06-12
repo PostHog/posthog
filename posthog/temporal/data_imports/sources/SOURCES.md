@@ -224,7 +224,6 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
-- apollo
 - apple_search_ads
 - attentive
 - auth0
