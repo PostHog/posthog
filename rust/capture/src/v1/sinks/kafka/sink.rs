@@ -52,7 +52,8 @@ struct MetricLabels {
 }
 
 /// Map the client-controlled attempt number to a bounded static label value.
-/// Capped at "5+" as a cardinality defense.
+/// Attempts 0-5 map to themselves; 6 or more bucket into "6+" as a
+/// cardinality defense (the label reads literally: "6 or more").
 fn attempt_tag(attempt: u32) -> &'static str {
     match attempt {
         0 => "0",
@@ -61,7 +62,7 @@ fn attempt_tag(attempt: u32) -> &'static str {
         3 => "3",
         4 => "4",
         5 => "5",
-        _ => "5+",
+        _ => "6+",
     }
 }
 
@@ -548,8 +549,8 @@ mod attempt_tag_tests {
 
     #[test]
     fn caps_out_of_range_attempts() {
-        assert_eq!(attempt_tag(6), "5+");
-        assert_eq!(attempt_tag(100), "5+");
-        assert_eq!(attempt_tag(u32::MAX), "5+");
+        assert_eq!(attempt_tag(6), "6+");
+        assert_eq!(attempt_tag(100), "6+");
+        assert_eq!(attempt_tag(u32::MAX), "6+");
     }
 }
