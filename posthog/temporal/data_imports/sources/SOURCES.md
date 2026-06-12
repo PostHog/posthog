@@ -75,6 +75,7 @@ the row lists both.
 | crunchbase       | HTTP                        | requests                                                        | ✅                          |
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog          | HTTP                        | requests                                                        | ✅                          |
+| deel             | HTTP                        | requests                                                        | ✅                          |
 | delighted        | HTTP                        | requests                                                        | ✅                          |
 | doit             | HTTP                        | requests                                                        | ✅                          |
 | drip             | HTTP                        | requests                                                        | ✅                          |
@@ -235,7 +236,6 @@ doesn't conflict with concurrent PRs.
 - culture_amp
 - databricks
 - db2
-- deel
 - display_video_360
 - dixa
 - docusign
