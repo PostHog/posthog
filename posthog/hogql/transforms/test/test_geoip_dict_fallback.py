@@ -111,12 +111,18 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         )
         assert "dictGetStringOrDefault" not in sql
 
-    def test_no_fallback_for_restricted_target_property(self) -> None:
+    @parameterized.expand(
+        [
+            ("event scope", PropertyDefinition.Type.EVENT),
+            ("person scope", PropertyDefinition.Type.PERSON),
+        ]
+    )
+    def test_no_fallback_for_restricted_target_property(self, _name: str, property_type: int) -> None:
         # Property-level access control resolves the restricted read to NULL; the fallback must not reconstruct it
-        # from `$ip`, so it stands down entirely.
+        # from `$ip`, so it stands down entirely. Any scope counts, matching the printer's direct-call guard.
         sql, _ = self._print_select(
             "SELECT properties.$geoip_city_name FROM events",
-            restricted_properties={("$geoip_city_name", PropertyDefinition.Type.EVENT)},
+            restricted_properties={("$geoip_city_name", property_type)},
         )
         assert "dictGetStringOrDefault" not in sql
 
@@ -178,13 +184,20 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         with pytest.raises(QueryError, match="not available"):
             self._print_select("SELECT _lookupGeoipCityName('89.160.20.129') FROM events", teams="")
 
-    def test_lookup_functions_rejected_for_restricted_target(self) -> None:
+    @parameterized.expand(
+        [
+            ("event scope", PropertyDefinition.Type.EVENT),
+            ("person scope", PropertyDefinition.Type.PERSON),
+        ]
+    )
+    def test_lookup_functions_rejected_for_restricted_target(self, _name: str, property_type: int) -> None:
         # Direct calls must enforce the same guard as the transform: otherwise a user denied the geo property could
-        # derive it from a readable `$ip`.
+        # derive it from a readable `$ip`. The function is generic over what its argument refers to, so a restriction
+        # on the target property name in any scope (event or person) rejects the call.
         with pytest.raises(QueryError, match="restricted"):
             self._print_select(
                 "SELECT _lookupGeoipPostalCode(properties.$ip) FROM events",
-                restricted_properties={("$geoip_postal_code", PropertyDefinition.Type.EVENT)},
+                restricted_properties={("$geoip_postal_code", property_type)},
             )
 
     def test_lookup_functions_allowed_when_only_source_restricted(self) -> None:

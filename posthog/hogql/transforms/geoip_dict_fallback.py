@@ -37,7 +37,6 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.printer.base import get_geoip_city_postal_dict
-from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.cache_utils import cache_for
@@ -100,11 +99,14 @@ class GeoipDictFallback(CloningVisitor):
             return node
         # Property-level access control resolves restricted reads to NULL later in the pipeline; wrapping such a read
         # would reconstruct the restricted value from `$ip` on every enriched row, so the fallback must stand down
-        # when the target property is restricted. Restricted sources need no guard and don't disable it: the
-        # restriction layer scrubs those reads to NULL, so recovery quietly misses without exposing them. Known
-        # accepted limitation: a user with `$ip` restricted keeps blank values even though the derived property is
-        # readable — punching the restriction boundary for the internal reads was not worth it for a temporary fix.
-        if property_name in restricted_property_keys_for_table_type(table_type, self.context):
+        # when the target property is restricted. Any scope counts (matching the printer's direct-call guard, which
+        # fires on the calls this transform emits and cannot scope a generic argument) — over-conservative when only
+        # the person-scoped property is restricted, but that just leaves blanks blank for that user. Restricted
+        # sources need no guard and don't disable it: the restriction layer scrubs those reads to NULL, so recovery
+        # quietly misses without exposing them. Known accepted limitation: a user with `$ip` restricted keeps blank
+        # values even though the derived property is readable — punching the restriction boundary for the internal
+        # reads was not worth it for a temporary fix.
+        if any(name == property_name for name, _ptype in (self.context.restricted_properties or set())):
             return node
         return self._with_fallback(node, function_name)
 
