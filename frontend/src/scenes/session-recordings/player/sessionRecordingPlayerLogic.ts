@@ -1783,7 +1783,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // from (e.g. the initial full snapshot was lost at capture time), clamp the
             // seek forward to the first renderable position instead of letting the
             // player get stuck on an unrenderable frame.
-            const renderability = values.seekRenderability(timestamp)
+            // Despite the action's typing, some callers forward currentTimestamp while
+            // it still holds its initial null — seekRenderability would coerce that to
+            // 0 and clamp every normal recording to its first FullSnapshot, firing
+            // spurious telemetry on every player init.
+            const renderability: SeekRenderability =
+                timestamp == null ? { kind: 'renderable' } : values.seekRenderability(timestamp)
             if (renderability.kind === 'clampToFullSnapshot' && renderability.timestamp !== timestamp) {
                 posthog.capture('recording player seek clamped to next full snapshot', {
                     sessionId: values.sessionRecordingId,

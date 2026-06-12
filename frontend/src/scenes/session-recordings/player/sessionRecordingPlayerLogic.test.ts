@@ -531,6 +531,23 @@ describe('sessionRecordingPlayerLogic', () => {
             }
         )
 
+        it('does not clamp or capture when a null currentTimestamp is forwarded during player init', () => {
+            // Some callers (e.g. the setPlayer listener) forward currentTimestamp
+            // while it still holds its initial null — that must not be coerced to 0
+            // and clamped to the FullSnapshot with telemetry on every player init
+            seedRecording([inc(START), inc(START + 1000)], [fs(LATE_FS_TS)])
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            captureSpy.mockClear()
+
+            logic.actions.seekToTimestamp(null as unknown as number)
+
+            const clampCalls = captureSpy.mock.calls.filter(
+                ([eventName]) => eventName === 'recording player seek clamped to next full snapshot'
+            )
+            expect(clampCalls).toHaveLength(0)
+            expect(logic.values.currentTimestamp).not.toBe(LATE_FS_TS)
+        })
+
         it('buffers while earlier data that could contain a full snapshot is still loading', () => {
             // The first source is unloaded — it could still contain the window's
             // FullSnapshot, so a seek into the second source's FullSnapshot-less data
