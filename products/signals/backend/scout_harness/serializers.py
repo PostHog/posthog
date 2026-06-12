@@ -548,8 +548,8 @@ class UpdateReportRequestSerializer(serializers.Serializer):
         allow_null=True,
         max_length=MAX_SUGGESTED_REVIEWERS,
         help_text=(
-            f"Optional reviewers to suggest, max {MAX_SUGGESTED_REVIEWERS}. Replaces the effective list "
-            "(latest wins); pass an explicit empty list to clear stale suggestions."
+            f"Optional reviewers to suggest, max {MAX_SUGGESTED_REVIEWERS}. Replaces the report's reviewer "
+            "suggestions outright; pass an explicit empty list to clear them."
         ),
     )
 

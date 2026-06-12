@@ -440,7 +440,7 @@ export const SignalsScoutUpdateReportBody = /* @__PURE__ */ zod
             .max(signalsScoutUpdateReportBodySuggestedReviewersMax)
             .nullish()
             .describe(
-                'Optional reviewers to suggest, max 10. Replaces the effective list (latest wins); pass an explicit empty list to clear stale suggestions.'
+                "Optional reviewers to suggest, max 10. Replaces the report's reviewer suggestions outright; pass an explicit empty list to clear them."
             ),
     })
     .describe(

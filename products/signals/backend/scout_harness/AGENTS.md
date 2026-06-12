@@ -52,7 +52,9 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   - `reports.py` — direct report CRUD (`create_report_sync` / `update_report_sync`):
     mints READY `SignalReport` rows and edits existing ones, bypassing the matching
     pipeline. Gated by the same preflights as emit plus an inline safety filter on
-    scout-authored prose; judgments persist as attributed append-only artefacts.
+    scout-authored prose. Priority/actionability judgments persist as attributed
+    append-only artefacts (latest wins on read); reviewer suggestions replace the
+    existing artefact, because the list-filter predicates match any reviewer row.
   - `scratchpad.py` — `remember`, `forget`, and `search_scratchpad` tools backed by
     the `SignalScratchpad` model.
   - `profile.py` — `project_profile_*` tools that read the deterministic

@@ -27,8 +27,11 @@ Two guard layers run before any write:
 Judgment payloads are validated against the same pydantic schemas the summary workflow
 writes (`PriorityAssessment`, `ActionabilityAssessment` in `report_generation/research.py`)
 so `_load_previous_research` and the latest-wins serializer reads parse them unchanged.
-Artefacts are append-only — a scout "changing" priority appends a newer judgment, which is
-what every read path resolves; prior judgments persist as the audit trail.
+Priority/actionability artefacts are append-only — every read path for them is latest-wins,
+so prior judgments persist as the audit trail. Reviewer suggestions REPLACE the existing
+artefact instead (mirroring the summary workflow's delete-then-insert): the list-filter
+predicates in views.py match any reviewer artefact on the report, so a stale appended row
+would keep cleared users filtered in.
 """
 
 from __future__ import annotations
@@ -453,6 +456,19 @@ def update_report_sync(
             updated_fields.update(["summary", "updated_at"])
         if updated_fields:
             report.save(update_fields=list(updated_fields))
+
+        # Reviewers REPLACE rather than append: the list predicates in views.py
+        # (`?suggested_reviewers=`, `is_suggested_reviewer`) match ANY reviewer artefact on
+        # the report — not just the newest — so a lingering stale row would keep cleared
+        # users filtered in. Same delete-then-insert the summary workflow does on re-runs.
+        # Priority/actionability stay append-only: every read path for those is latest-wins,
+        # so prior judgments are a harmless (and useful) audit trail.
+        if parsed_reviewers is not None:
+            SignalReportArtefact.objects.filter(
+                team_id=team.id,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            ).delete()
 
         artefacts = _judgment_artefacts(
             team_id=team.id,

@@ -275,16 +275,16 @@ class TestScoutUpdateReportAPI(ScoutReportAPIBase):
                 format="json",
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        latest = (
+        # Replace, not append: the list-filter predicates match ANY reviewer artefact, so
+        # the stale row must actually be gone, not merely superseded.
+        artefacts = list(
             SignalReportArtefact.objects.filter(
                 report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
             )
-            .order_by("-created_at")
-            .first()
         )
-        assert latest is not None
-        assert latest.created_by_scout_run_id == run.id
-        assert json.loads(latest.content) == []
+        assert len(artefacts) == 1
+        assert artefacts[0].created_by_scout_run_id == run.id
+        assert json.loads(artefacts[0].content) == []
 
     def test_update_state_transition_writes_audit_artefact(self) -> None:
         # Scouts can transition any report on the team, so each transition must leave a

@@ -1183,7 +1183,7 @@ export interface UpdateReportRequestApi {
     /** Optional actionability judgment to append. Becomes the report's effective actionability (latest wins). */
     actionability?: ScoutReportActionabilityApi | null
     /**
-     * Optional reviewers to suggest, max 10. Replaces the effective list (latest wins); pass an explicit empty list to clear stale suggestions.
+     * Optional reviewers to suggest, max 10. Replaces the report's reviewer suggestions outright; pass an explicit empty list to clear them.
      * @maxItems 10
      * @nullable
      */
