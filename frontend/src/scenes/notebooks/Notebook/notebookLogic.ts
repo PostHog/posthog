@@ -936,6 +936,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             userName: presence.userName,
                             color: getSeriesColor(presence.userId),
                             position,
+                            version: presence.version,
                         })
                     }
                 }

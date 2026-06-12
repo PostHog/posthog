@@ -1458,8 +1458,14 @@ Repeated block`),
 
     it('moves the caret with the text when a collaborator inserts before it', () => {
         const onChange = jest.fn()
+        const onCaretChange = jest.fn()
         const { container, rerender } = render(
-            createElement(MarkdownNotebook, { value: '# Title\n\nHello', onChange, remoteValue: '# Title\n\nHello' })
+            createElement(MarkdownNotebook, {
+                value: '# Title\n\nHello',
+                onChange,
+                onCaretChange,
+                remoteValue: '# Title\n\nHello',
+            })
         )
         const blocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
         const paragraphBlock = blocks[blocks.length - 1] as HTMLElement
@@ -1472,6 +1478,7 @@ Repeated block`),
             createElement(MarkdownNotebook, {
                 value: '# Title\n\nHello',
                 onChange,
+                onCaretChange,
                 remoteValue: '# Title\n\nWell, Hello',
             })
         )
@@ -1486,6 +1493,13 @@ Repeated block`),
         expect(range?.collapsed).toBe(true)
         expect(range?.startContainer.textContent).toEqual('Well, Hello')
         expect(range?.startOffset).toEqual('Well, Hello'.length)
+
+        // The corrected caret is re-published right away so collaborators see it move too.
+        expect(onCaretChange).toHaveBeenCalledWith({
+            nodeIndex: 1,
+            offset: 'Well, Hello'.length,
+            listItemIndex: undefined,
+        })
     })
 
     it('keeps the caret in place when a collaborator inserts after it', () => {

@@ -98,6 +98,7 @@ export function MarkdownNotebookV2(): JSX.Element {
             <MarkdownNotebook
                 value={markdownEditorValue}
                 remoteValue={remoteMarkdown}
+                remoteVersion={notebook?.version}
                 mode={isEditable ? 'edit' : 'view'}
                 registry={NOTEBOOK_MARKDOWN_REGISTRY}
                 onChange={isEditable ? handleMarkdownEditorChange : undefined}

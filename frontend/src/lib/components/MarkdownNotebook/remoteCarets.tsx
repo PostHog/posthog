@@ -7,7 +7,9 @@ import {
     getSelectionClientRect,
 } from './domSelection'
 import { getListItemRefKey } from './listModel'
-import { NotebookBlockNode } from './types'
+import { getTextChanges, mapTextIndex } from './textChanges'
+import { NotebookBlockNode, NotebookDocument } from './types'
+import { getInlineText } from './utils'
 
 /**
  * A caret location in coordinates that transfer between clients. Node ids are
@@ -33,6 +35,67 @@ export type RemoteNotebookCaret = {
     userName: string
     color: string
     position: MarkdownNotebookCaretPosition
+    /** Notebook version the position was computed against, when known. */
+    version?: number
+}
+
+/**
+ * Re-map a remote caret through a local document change so it moves with the text it sits
+ * in — without this, a collaborator's caret stays parked at a fixed character offset while
+ * locally typed text slides past it, until their next presence ping arrives.
+ */
+export function mapRemoteCaretPositionThroughDocumentChange(
+    position: MarkdownNotebookCaretPosition,
+    previousDocument: NotebookDocument,
+    nextDocument: NotebookDocument
+): MarkdownNotebookCaretPosition {
+    const previousNode = previousDocument.nodes[position.nodeIndex]
+    if (!previousNode) {
+        return position
+    }
+    const nextNodeIndex = nextDocument.nodes.findIndex((node) => node.id === previousNode.id)
+    if (nextNodeIndex === -1) {
+        return position
+    }
+    const nextNode = nextDocument.nodes[nextNodeIndex]
+
+    let listItemIndex = position.listItemIndex
+    let previousText: string | null = null
+    let nextText: string | null = null
+
+    if (previousNode.type === 'list' && nextNode.type === 'list' && listItemIndex !== undefined) {
+        const previousItem = previousNode.items[listItemIndex]
+        const mappedItemIndex = previousItem?.id ? nextNode.items.findIndex((item) => item.id === previousItem.id) : -1
+        if (mappedItemIndex !== -1) {
+            listItemIndex = mappedItemIndex
+        }
+        const nextItem = nextNode.items[listItemIndex]
+        previousText = previousItem ? getInlineText(previousItem.children) : null
+        nextText = nextItem ? getInlineText(nextItem.children) : null
+    } else if (
+        (previousNode.type === 'paragraph' || previousNode.type === 'heading' || previousNode.type === 'blockquote') &&
+        (nextNode.type === 'paragraph' || nextNode.type === 'heading' || nextNode.type === 'blockquote')
+    ) {
+        previousText = getInlineText(previousNode.children)
+        nextText = getInlineText(nextNode.children)
+    } else if (previousNode.type === 'code' && nextNode.type === 'code') {
+        previousText = previousNode.text
+        nextText = nextNode.text
+    }
+
+    let offset = position.offset
+    if (offset !== undefined && previousText !== null && nextText !== null && previousText !== nextText) {
+        offset = mapTextIndex(offset, getTextChanges(previousText, nextText), 'right')
+    }
+
+    if (
+        nextNodeIndex === position.nodeIndex &&
+        offset === position.offset &&
+        listItemIndex === position.listItemIndex
+    ) {
+        return position
+    }
+    return { ...position, nodeIndex: nextNodeIndex, offset, listItemIndex }
 }
 
 export function getMarkdownNotebookCaretPosition(

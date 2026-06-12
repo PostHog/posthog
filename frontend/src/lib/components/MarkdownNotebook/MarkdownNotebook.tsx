@@ -170,6 +170,7 @@ import {
     RemoteNotebookCaret,
     getFocusedBlockCaretPosition,
     getMarkdownNotebookCaretPosition,
+    mapRemoteCaretPositionThroughDocumentChange,
 } from './remoteCarets'
 import { renderNode } from './renderNode'
 import {
@@ -208,6 +209,8 @@ export type MarkdownNotebookProps = {
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
     remoteValue?: string
+    /** Notebook version `remoteValue` corresponds to, for version-aware caret mapping. */
+    remoteVersion?: number
     deferRemoteValue?: boolean
     clientId?: string
     onConflict?: (conflicts: NotebookCollaborationConflict[]) => void
@@ -237,6 +240,17 @@ export type MarkdownNotebookAskAIRequest = {
 
 type CommitDocumentOptions = {
     addToHistory?: boolean
+    /** Set when the commit applies a remote merge: the notebook version being merged in.
+     * Remote caret pings already at this version reflect the change and must not be remapped. */
+    remoteMergeVersion?: number
+}
+
+type RemoteCaretAnchor = {
+    caret: RemoteNotebookCaret
+    /** The position as the sender reported it — a new ping re-anchors, a heartbeat does not. */
+    source: MarkdownNotebookCaretPosition
+    /** The position remapped through local document changes since the ping. */
+    position: MarkdownNotebookCaretPosition
 }
 
 type NotebookHistoryEntry = {
@@ -273,6 +287,7 @@ export function MarkdownNotebook({
     mode = 'edit',
     registry,
     remoteValue,
+    remoteVersion,
     deferRemoteValue = false,
     onConflict,
     onInteractionStateChange,
@@ -326,6 +341,10 @@ export function MarkdownNotebook({
     const lastBaseValueRef = useRef(remoteValue ?? value)
     const lastRemoteValueRef = useRef(remoteValue)
     const pendingRemoteValueRef = useRef<string | null>(null)
+    const remoteVersionRef = useRef(remoteVersion)
+    remoteVersionRef.current = remoteVersion
+    const remoteCaretAnchorsRef = useRef<Record<string, RemoteCaretAnchor>>({})
+    const [adjustedRemoteCarets, setAdjustedRemoteCarets] = useState<RemoteNotebookCaret[] | undefined>(remoteCarets)
     const initialInsertMenuAppliedRef = useRef(false)
     const emptyNodeRef = useRef<NotebookTextBlockNode>(makeEmptyParagraph('initial-empty'))
     const initializedComponentPanelNodeIdsRef = useRef<Set<string> | null>(null)
@@ -365,6 +384,44 @@ export function MarkdownNotebook({
         }
     }, [showDebug])
 
+    const mapRemoteCaretAnchors = useCallback(
+        (previousDocument: NotebookDocument, nextDocument: NotebookDocument, remoteMergeVersion?: number): void => {
+            const anchors = remoteCaretAnchorsRef.current
+            const clientIds = Object.keys(anchors)
+            if (!clientIds.length) {
+                return
+            }
+
+            let didChange = false
+            for (const clientIdKey of clientIds) {
+                const anchor = anchors[clientIdKey]
+                // A ping at or past the merged version already reflects the incoming change.
+                if (
+                    remoteMergeVersion !== undefined &&
+                    anchor.caret.version !== undefined &&
+                    anchor.caret.version >= remoteMergeVersion
+                ) {
+                    continue
+                }
+                const mapped = mapRemoteCaretPositionThroughDocumentChange(
+                    anchor.position,
+                    previousDocument,
+                    nextDocument
+                )
+                if (mapped !== anchor.position) {
+                    anchors[clientIdKey] = { ...anchor, position: mapped }
+                    didChange = true
+                }
+            }
+            if (didChange) {
+                setAdjustedRemoteCarets(
+                    Object.values(anchors).map((anchor) => ({ ...anchor.caret, position: anchor.position }))
+                )
+            }
+        },
+        []
+    )
+
     const rebaseHistoryThroughDocumentChange = useCallback(
         (previousDocument: NotebookDocument, nextDocument: NotebookDocument): void => {
             const incomingOps = diffNotebookDocuments(previousDocument, nextDocument)
@@ -395,6 +452,7 @@ export function MarkdownNotebook({
         // history over the incoming operations instead of clearing it, so CMD+Z keeps
         // reverting only this user's edits.
         rebaseHistoryThroughDocumentChange(previousDocument, reconciledDocument)
+        mapRemoteCaretAnchors(previousDocument, reconciledDocument)
         documentRef.current = reconciledDocument
         setDocument(reconciledDocument)
         if (restoreSelectionRequest) {
@@ -530,6 +588,8 @@ export function MarkdownNotebook({
             if (options.addToHistory ?? true) {
                 pushHistoryEntry(previousDocument, editableDocument)
             }
+            // Rendered remote carets ride along with the text they sit in.
+            mapRemoteCaretAnchors(previousDocument, editableDocument, options.remoteMergeVersion)
 
             const serialized = serializeMarkdownNotebook(editableDocument)
             documentRef.current = editableDocument
@@ -538,7 +598,7 @@ export function MarkdownNotebook({
             setDocument(editableDocument)
             onChange?.(serialized)
         },
-        [onChange, pushHistoryEntry]
+        [onChange, pushHistoryEntry, mapRemoteCaretAnchors]
     )
 
     const applyRemoteValue = useCallback(
@@ -574,19 +634,43 @@ export function MarkdownNotebook({
                 // Map the caret through the merged-in remote changes so it stays at the same
                 // place in the text — a collaborator typing at the start of this line must
                 // push the caret along with the text, not leave it at a stale offset.
-                restoreSelectionRef.current = mapRestoreSelectionThroughDocumentChange(
+                const mappedRequest = mapRestoreSelectionThroughDocumentChange(
                     restoreSelectionRequest,
                     previousDocument,
                     reconciledDocument
                 )
+                restoreSelectionRef.current = mappedRequest
+                // Re-publish the corrected caret right away, so collaborators see this
+                // client's caret at its mapped position instead of the stale offset.
+                if (mappedRequest && 'nodeId' in mappedRequest) {
+                    const nodeIndex = reconciledDocument.nodes.findIndex((node) => node.id === mappedRequest.nodeId)
+                    const node = reconciledDocument.nodes[nodeIndex]
+                    if (nodeIndex !== -1) {
+                        let listItemIndex = mappedRequest.listItemIndex
+                        if (node?.type === 'list' && mappedRequest.listItemId !== undefined) {
+                            const mappedItemIndex = node.items.findIndex((item) => item.id === mappedRequest.listItemId)
+                            if (mappedItemIndex !== -1) {
+                                listItemIndex = mappedItemIndex
+                            }
+                        }
+                        onCaretChange?.(
+                            mappedRequest.tableCell !== undefined
+                                ? { nodeIndex }
+                                : { nodeIndex, offset: mappedRequest.start, listItemIndex }
+                        )
+                    }
+                }
             }
-            commitDocument(reconciledDocument, { addToHistory: false })
+            commitDocument(reconciledDocument, {
+                addToHistory: false,
+                remoteMergeVersion: remoteVersionRef.current,
+            })
 
             if (mergeResult.conflicts.length) {
                 onConflict?.(mergeResult.conflicts)
             }
         },
-        [commitDocument, onConflict, rebaseHistoryThroughDocumentChange]
+        [commitDocument, onConflict, onCaretChange, rebaseHistoryThroughDocumentChange]
     )
 
     useEffect(() => {
@@ -607,6 +691,34 @@ export function MarkdownNotebook({
         pendingRemoteValueRef.current = null
         applyRemoteValue(nextRemoteValue)
     }, [remoteValue, deferRemoteValue, applyRemoteValue])
+
+    // Anchor incoming caret pings against the current document. Declared after the
+    // remoteValue effect on purpose: when a save event delivers content and the author's
+    // piggybacked caret together, the merge applies first and the fresh ping re-anchors
+    // against the post-merge document. Heartbeats re-delivering an unchanged ping keep
+    // the locally remapped position instead of resetting to the stale offset.
+    useEffect(() => {
+        const previousAnchors = remoteCaretAnchorsRef.current
+        const nextAnchors: Record<string, RemoteCaretAnchor> = {}
+        for (const caret of remoteCarets ?? []) {
+            const existingAnchor = previousAnchors[caret.clientId]
+            if (existingAnchor && JSON.stringify(existingAnchor.source) === JSON.stringify(caret.position)) {
+                nextAnchors[caret.clientId] = {
+                    caret,
+                    source: existingAnchor.source,
+                    position: existingAnchor.position,
+                }
+            } else {
+                nextAnchors[caret.clientId] = { caret, source: caret.position, position: caret.position }
+            }
+        }
+        remoteCaretAnchorsRef.current = nextAnchors
+        setAdjustedRemoteCarets(
+            remoteCarets?.length
+                ? Object.values(nextAnchors).map((anchor) => ({ ...anchor.caret, position: anchor.position }))
+                : remoteCarets
+        )
+    }, [remoteCarets])
 
     // The AI prompt keeps the insert menu open while a question is composed, but the question
     // lives in a real Prompt node — that's content, not transient UI, so it must keep syncing
@@ -4379,9 +4491,9 @@ export function MarkdownNotebook({
                             )
                         })}
                     </div>
-                    {remoteCarets?.length ? (
+                    {adjustedRemoteCarets?.length ? (
                         <RemoteCaretOverlay
-                            carets={remoteCarets}
+                            carets={adjustedRemoteCarets}
                             nodes={document.nodes}
                             blockRefs={blockRefs}
                             listItemRefs={listItemRefs}

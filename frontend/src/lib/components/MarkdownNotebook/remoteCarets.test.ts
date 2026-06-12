@@ -1,6 +1,12 @@
 import { getListItemRefKey } from './listModel'
-import { getFocusedBlockCaretPosition, resolveRemoteCaretLayout } from './remoteCarets'
-import { NotebookBlockNode } from './types'
+import { parseMarkdownNotebook } from './markdown'
+import { reconcileNotebookDocuments } from './reconcile'
+import {
+    getFocusedBlockCaretPosition,
+    mapRemoteCaretPositionThroughDocumentChange,
+    resolveRemoteCaretLayout,
+} from './remoteCarets'
+import { NotebookBlockNode, NotebookDocument } from './types'
 
 describe('remoteCarets', () => {
     const paragraph = (id: string, text: string): NotebookBlockNode => ({
@@ -98,6 +104,48 @@ describe('remoteCarets', () => {
         const element = makeElement('rendered query text', { top: 300, left: 16 })
         const layout = resolveRemoteCaretLayout({ nodeIndex: 0, offset: 4 }, nodes, { c1: element }, {}, container)
         expect(layout).toMatchObject({ top: 300, left: 16, width: 100, height: 20 })
+    })
+
+    describe('mapRemoteCaretPositionThroughDocumentChange', () => {
+        function evolve(markdown: string, nextMarkdown: string): [NotebookDocument, NotebookDocument] {
+            const previousDocument = parseMarkdownNotebook(markdown)
+            const nextDocument = reconcileNotebookDocuments(
+                previousDocument,
+                parseMarkdownNotebook(nextMarkdown)
+            ).document
+            return [previousDocument, nextDocument]
+        }
+
+        it('moves the caret right when text is inserted before it', () => {
+            const [previousDocument, nextDocument] = evolve('# Title\n\nHello', '# Title\n\nWell, Hello')
+            expect(
+                mapRemoteCaretPositionThroughDocumentChange({ nodeIndex: 1, offset: 5 }, previousDocument, nextDocument)
+            ).toEqual({ nodeIndex: 1, offset: 11, listItemIndex: undefined })
+        })
+
+        it('keeps the caret in place when text is inserted after it', () => {
+            const [previousDocument, nextDocument] = evolve('# Title\n\nHello', '# Title\n\nHello world')
+            const position = { nodeIndex: 1, offset: 0 }
+            expect(mapRemoteCaretPositionThroughDocumentChange(position, previousDocument, nextDocument)).toBe(position)
+        })
+
+        it('updates the node index when a block is inserted above', () => {
+            const [previousDocument, nextDocument] = evolve('# Title\n\nHello', '# Title\n\nNew paragraph\n\nHello')
+            expect(
+                mapRemoteCaretPositionThroughDocumentChange({ nodeIndex: 1, offset: 3 }, previousDocument, nextDocument)
+            ).toEqual({ nodeIndex: 2, offset: 3, listItemIndex: undefined })
+        })
+
+        it('follows a list item by id when items are inserted above it', () => {
+            const [previousDocument, nextDocument] = evolve('- one\n- two', '- zero\n- one\n- two')
+            expect(
+                mapRemoteCaretPositionThroughDocumentChange(
+                    { nodeIndex: 0, offset: 3, listItemIndex: 1 },
+                    previousDocument,
+                    nextDocument
+                )
+            ).toEqual({ nodeIndex: 0, offset: 3, listItemIndex: 2 })
+        })
     })
 
     describe('getFocusedBlockCaretPosition', () => {
