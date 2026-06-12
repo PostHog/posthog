@@ -306,9 +306,7 @@ def _classify_via_resolution(type_: ast.FieldType | ast.PropertyType, context: H
     try:
         if isinstance(type_, ast.FieldType):
             return classify_constant_type(type_.resolve_constant_type(context))
-        if (type_.joined_subquery is not None and type_.joined_subquery_field_name is not None) or isinstance(
-            type_.field_type.resolve_database_field(context), ast.StructDatabaseField
-        ):
+        if isinstance(type_.field_type.resolve_database_field(context), ast.StructDatabaseField):
             return classify_constant_type(type_.resolve_constant_type(context))
         metadata_type = metadata_constant_type(type_, context)
         if metadata_type is None:

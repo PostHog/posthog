@@ -212,8 +212,6 @@ class LazyDemandCollector(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         node_type = node.type
         if isinstance(node_type, ast.PropertyType):
-            if node_type.joined_subquery is not None:
-                return
             base = _unwrap_to_base_table_type(node_type.field_type.table_type)
             if isinstance(base, (ast.LazyJoinType, ast.LazyTableType)):
                 if self.context.within_non_hogql_query:

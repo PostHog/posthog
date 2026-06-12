@@ -47,9 +47,6 @@ class LogicalPropertyLowering(CloningVisitor):
         property_type = node.type
         if not isinstance(property_type, ast.PropertyType):
             return None
-        # A repointed person/group property is read as a plain aliased column from its joined subquery, not a property.
-        if property_type.joined_subquery is not None:
-            return None
         chain = property_type.chain
         base_field_type = property_type.field_type
         # Only lower reads off a JSON blob column (`properties` / `person_properties`). Struct/array warehouse columns

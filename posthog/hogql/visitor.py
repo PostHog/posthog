@@ -12,12 +12,11 @@ T_AST = TypeVar("T_AST", bound=AST)
 T_Expr = TypeVar("T_Expr", bound=Expr)
 
 
-def clone_expr(expr: T_AST, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> T_AST:
+def clone_expr(expr: T_AST, clear_types=False, clear_locations=False) -> T_AST:
     """Clone an expression node."""
     return CloningVisitor(
         clear_types=clear_types,
         clear_locations=clear_locations,
-        inline_subquery_field_names=inline_subquery_field_names,
     ).visit(expr)
 
 
@@ -512,11 +511,9 @@ class CloningVisitor(Visitor[Any]):
         self,
         clear_types: Optional[bool] = True,
         clear_locations: Optional[bool] = False,
-        inline_subquery_field_names: Optional[bool] = False,
     ):
         self.clear_types = clear_types
         self.clear_locations = clear_locations
-        self.inline_subquery_field_names = inline_subquery_field_names
 
     def visit_cte(self, node: ast.CTE):
         return ast.CTE(
@@ -784,21 +781,13 @@ class CloningVisitor(Visitor[Any]):
         )
 
     def visit_field(self, node: ast.Field):
-        field = ast.Field(
+        return ast.Field(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             chain=node.chain.copy(),
             from_asterisk=node.from_asterisk,
         )
-        if (
-            self.inline_subquery_field_names
-            and isinstance(node.type, ast.PropertyType)
-            and node.type.joined_subquery is not None
-            and node.type.joined_subquery_field_name is not None
-        ):
-            field.chain = [node.type.joined_subquery_field_name]
-        return field
 
     def visit_columns_expr(self, node: ast.ColumnsExpr):
         return ast.ColumnsExpr(
