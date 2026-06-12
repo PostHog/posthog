@@ -697,7 +697,17 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
     def _config(self):
         return mock.MagicMock(user="u", password="p", database="db", schema="", ssh_tunnel=None)
 
-    def test_foreign_key_discovery_failure_does_not_break_schema_listing(self, source):
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            psycopg.errors.OutOfMemory(
+                'out of memory\nDETAIL:  Failed on request of size 2048 in memory context "ExecutorState".'
+            ),
+            psycopg.OperationalError("connection refused"),
+            Exception("unexpected error"),
+        ],
+    )
+    def test_foreign_key_discovery_failure_does_not_break_schema_listing(self, source, exc):
         # A failing foreign-key lookup (e.g. the source DB OOMs on the information_schema join)
         # must degrade to empty foreign keys, not take down the whole schema listing.
         discovered = {
@@ -721,9 +731,7 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
             ),
             mock.patch(
                 "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
-                side_effect=psycopg.errors.OutOfMemory(
-                    'out of memory\nDETAIL:  Failed on request of size 2048 in memory context "ExecutorState".'
-                ),
+                side_effect=exc,
             ),
             # PK/index discovery opens its own connection; let it fail so the test needs no real DB.
             # That path is already guarded and defaults gracefully.
