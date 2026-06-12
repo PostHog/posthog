@@ -32,7 +32,7 @@ class TestUserInterviewAgentToolkit(TestCase):
             tool_class.__name__ for tool_class in _make_toolkit(ReadOnlyUserInterviewAgentToolkit).tools
         ]
 
-        self.assertEqual(tool_class_names, ["AnalyzeUserInterviewsTool"])
+        self.assertEqual(tool_class_names, ["AnalyzeUserInterviewsTool", "PreviewUserInterviewInviteTool"])
 
     def test_toolkit_has_trajectory_examples(self):
         examples = UserInterviewAgentToolkit.POSITIVE_TODO_EXAMPLES

@@ -589,7 +589,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     preview_user_interview_invite: {
         name: 'Preview interview invite',
         description:
-            'Preview the invitation email a targeted interviewee would receive — subject and body — without sending',
+            'Preview interview invite — see the subject and body of the invitation email a targeted interviewee would receive, without sending',
         product: Scene.UserInterviews,
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
         icon: iconForType('user_interview'),
