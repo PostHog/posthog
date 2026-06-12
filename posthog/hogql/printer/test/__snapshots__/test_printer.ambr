@@ -283,7 +283,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%@posthog.com'), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%@posthog.com'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -363,7 +363,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, 'hello@posthog.com'), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, 'hello@posthog.com'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -403,7 +403,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%null%'), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%null%'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -443,7 +443,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%'), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -483,7 +483,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, ''), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, ''), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -763,7 +763,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%@posthog.com')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%@posthog.com')), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -843,7 +843,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('hello@posthog.com')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('hello@posthog.com')), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -883,7 +883,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%null%')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%null%')), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -923,7 +923,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%')), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -963,7 +963,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('')), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1563,7 +1563,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1603,7 +1603,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has([''], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has([''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1643,7 +1643,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'null'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1683,7 +1683,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', ''], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', ''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1723,7 +1723,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'other_value'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'other_value'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1763,7 +1763,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['null'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1803,7 +1803,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['NULL'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1843,7 +1843,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['null', 'NULL'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['null', 'NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2203,7 +2203,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2243,7 +2243,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has([''], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has([''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2283,7 +2283,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'null'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2323,7 +2323,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', ''], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', ''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2363,7 +2363,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'other_value'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'other_value'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2403,7 +2403,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['null'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2443,7 +2443,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['NULL'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2483,7 +2483,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['null', 'NULL'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['null', 'NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2992,8 +2992,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (equals(events.mat_test_prop, 'target_value')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.mat_test_prop, 'target_value'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3073,8 +3072,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, 'mango')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, 'mango'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3094,8 +3092,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (greaterOrEquals(events.mat_test_prop, 'mango')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.mat_test_prop, 'mango'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3115,9 +3112,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, 'mango')
-                                            AND notEquals(events.mat_test_prop, '')
-                                            AND notEquals(events.mat_test_prop, 'null')))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, 'mango'), notEquals(events.mat_test_prop, ''), notEquals(events.mat_test_prop, 'null')))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3137,9 +3132,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (greaterOrEquals(events.mat_test_prop, 'mango')
-                                            AND notEquals(events.mat_test_prop, '')
-                                            AND notEquals(events.mat_test_prop, 'null')))
+  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.mat_test_prop, 'mango'), notEquals(events.mat_test_prop, ''), notEquals(events.mat_test_prop, 'null')))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -3373,10 +3366,10 @@
   'SELECT e.event AS event FROM (SELECT events.uuid AS uuid, events.event AS event, events.properties AS properties, toTimeZone(events.timestamp, %(hogql_val_3)s) AS timestamp, events.distinct_id AS distinct_id, events.elements_chain AS elements_chain, toTimeZone(events.created_at, %(hogql_val_4)s) AS created_at, events.`$session_id` AS `$session_id`, events.`$window_id` AS `$window_id`, events.person_mode AS person_mode, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, events.`$group_0` AS `$group_0`, events.`$group_1` AS `$group_1`, events.`$group_2` AS `$group_2`, events.`$group_3` AS `$group_3`, events.`$group_4` AS `$group_4`, events.elements_chain_href AS elements_chain_href, events.elements_chain_texts AS elements_chain_texts, events.elements_chain_ids AS elements_chain_ids, events.elements_chain_elements AS elements_chain_elements, events.person_id AS event_person_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_6)s) AS event_issue_id, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_7)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_8)s)) AS issue_id, events__fingerprint_issue_state.issue_id AS issue_id_v2, events__fingerprint_issue_state.issue_name AS issue_name, events__fingerprint_issue_state.issue_description AS issue_description, events__fingerprint_issue_state.issue_status AS issue_status, events__fingerprint_issue_state.assigned_user_id AS issue_assigned_user_id, events__fingerprint_issue_state.assigned_role_id AS issue_assigned_role_id, events__fingerprint_issue_state.first_seen AS issue_first_seen FROM events LEFT OUTER JOIN (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id, toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, %(hogql_val_0)s)), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen FROM error_tracking_fingerprint_issue_state WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999) GROUP BY fp_hash HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\')), events__fingerprint_issue_state.fp_hash) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint FROM error_tracking_issue_fingerprint_overrides WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint HAVING equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), \'\'), \'null\'), \'^"|"$\', \'\'), events__exception_issue_override.fingerprint) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE equals(person_distinct_id_overrides.team_id, 99999) GROUP BY person_distinct_id_overrides.distinct_id HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) WHERE equals(events.team_id, 99999)) AS e LEFT JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, 99999) GROUP BY person.id HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_9)s)), person.version), 1), plus(now64(6, %(hogql_val_10)s), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, e.person_id) LIMIT 50000'
 # ---
 # name: TestPrinter.test_projection_pushdown_preserves_where_columns_0_with_optimize_projections
-  'SELECT sub.event AS event FROM (SELECT events.event AS event, events.distinct_id AS distinct_id, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_4)s) AS event_issue_id, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_6)s)) AS issue_id, events__fingerprint_issue_state.issue_id AS issue_id_v2, events__fingerprint_issue_state.issue_name AS issue_name, events__fingerprint_issue_state.issue_description AS issue_description, events__fingerprint_issue_state.issue_status AS issue_status, events__fingerprint_issue_state.assigned_user_id AS issue_assigned_user_id, events__fingerprint_issue_state.assigned_role_id AS issue_assigned_role_id, events__fingerprint_issue_state.first_seen AS issue_first_seen FROM events LEFT OUTER JOIN (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id, toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, %(hogql_val_0)s)), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen FROM error_tracking_fingerprint_issue_state WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999) GROUP BY fp_hash HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\')), events__fingerprint_issue_state.fp_hash) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint FROM error_tracking_issue_fingerprint_overrides WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint HAVING equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), \'\'), \'null\'), \'^"|"$\', \'\'), events__exception_issue_override.fingerprint) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE equals(person_distinct_id_overrides.team_id, 99999) GROUP BY person_distinct_id_overrides.distinct_id HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) WHERE equals(events.team_id, 99999)) AS sub WHERE ifNull(equals(sub.distinct_id, %(hogql_val_7)s), 0) LIMIT 50000'
+  'SELECT sub.event AS event FROM (SELECT events.event AS event, events.distinct_id AS distinct_id, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_4)s) AS event_issue_id, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_6)s)) AS issue_id, events__fingerprint_issue_state.issue_id AS issue_id_v2, events__fingerprint_issue_state.issue_name AS issue_name, events__fingerprint_issue_state.issue_description AS issue_description, events__fingerprint_issue_state.issue_status AS issue_status, events__fingerprint_issue_state.assigned_user_id AS issue_assigned_user_id, events__fingerprint_issue_state.assigned_role_id AS issue_assigned_role_id, events__fingerprint_issue_state.first_seen AS issue_first_seen FROM events LEFT OUTER JOIN (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id, toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, %(hogql_val_0)s)), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen FROM error_tracking_fingerprint_issue_state WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999) GROUP BY fp_hash HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\')), events__fingerprint_issue_state.fp_hash) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint FROM error_tracking_issue_fingerprint_overrides WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint HAVING equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), \'\'), \'null\'), \'^"|"$\', \'\'), events__exception_issue_override.fingerprint) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE equals(person_distinct_id_overrides.team_id, 99999) GROUP BY person_distinct_id_overrides.distinct_id HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) WHERE equals(events.team_id, 99999)) AS sub WHERE equals(sub.distinct_id, %(hogql_val_7)s) LIMIT 50000'
 # ---
 # name: TestPrinter.test_projection_pushdown_preserves_where_columns_1_without_optimize_projections
-  'SELECT sub.event AS event FROM (SELECT events.uuid AS uuid, events.event AS event, events.properties AS properties, toTimeZone(events.timestamp, %(hogql_val_3)s) AS timestamp, events.distinct_id AS distinct_id, events.elements_chain AS elements_chain, toTimeZone(events.created_at, %(hogql_val_4)s) AS created_at, events.`$session_id` AS `$session_id`, events.`$window_id` AS `$window_id`, events.person_mode AS person_mode, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, events.`$group_0` AS `$group_0`, events.`$group_1` AS `$group_1`, events.`$group_2` AS `$group_2`, events.`$group_3` AS `$group_3`, events.`$group_4` AS `$group_4`, events.elements_chain_href AS elements_chain_href, events.elements_chain_texts AS elements_chain_texts, events.elements_chain_ids AS elements_chain_ids, events.elements_chain_elements AS elements_chain_elements, events.person_id AS event_person_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_6)s) AS event_issue_id, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_7)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_8)s)) AS issue_id, events__fingerprint_issue_state.issue_id AS issue_id_v2, events__fingerprint_issue_state.issue_name AS issue_name, events__fingerprint_issue_state.issue_description AS issue_description, events__fingerprint_issue_state.issue_status AS issue_status, events__fingerprint_issue_state.assigned_user_id AS issue_assigned_user_id, events__fingerprint_issue_state.assigned_role_id AS issue_assigned_role_id, events__fingerprint_issue_state.first_seen AS issue_first_seen FROM events LEFT OUTER JOIN (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id, toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, %(hogql_val_0)s)), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen FROM error_tracking_fingerprint_issue_state WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999) GROUP BY fp_hash HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\')), events__fingerprint_issue_state.fp_hash) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint FROM error_tracking_issue_fingerprint_overrides WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint HAVING equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), \'\'), \'null\'), \'^"|"$\', \'\'), events__exception_issue_override.fingerprint) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE equals(person_distinct_id_overrides.team_id, 99999) GROUP BY person_distinct_id_overrides.distinct_id HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) WHERE equals(events.team_id, 99999)) AS sub WHERE ifNull(equals(sub.distinct_id, %(hogql_val_9)s), 0) LIMIT 50000'
+  'SELECT sub.event AS event FROM (SELECT events.uuid AS uuid, events.event AS event, events.properties AS properties, toTimeZone(events.timestamp, %(hogql_val_3)s) AS timestamp, events.distinct_id AS distinct_id, events.elements_chain AS elements_chain, toTimeZone(events.created_at, %(hogql_val_4)s) AS created_at, events.`$session_id` AS `$session_id`, events.`$window_id` AS `$window_id`, events.person_mode AS person_mode, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, events.`$group_0` AS `$group_0`, events.`$group_1` AS `$group_1`, events.`$group_2` AS `$group_2`, events.`$group_3` AS `$group_3`, events.`$group_4` AS `$group_4`, events.elements_chain_href AS elements_chain_href, events.elements_chain_texts AS elements_chain_texts, events.elements_chain_ids AS elements_chain_ids, events.elements_chain_elements AS elements_chain_elements, events.person_id AS event_person_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_6)s) AS event_issue_id, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_7)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_8)s)) AS issue_id, events__fingerprint_issue_state.issue_id AS issue_id_v2, events__fingerprint_issue_state.issue_name AS issue_name, events__fingerprint_issue_state.issue_description AS issue_description, events__fingerprint_issue_state.issue_status AS issue_status, events__fingerprint_issue_state.assigned_user_id AS issue_assigned_user_id, events__fingerprint_issue_state.assigned_role_id AS issue_assigned_role_id, events__fingerprint_issue_state.first_seen AS issue_first_seen FROM events LEFT OUTER JOIN (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id, toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, %(hogql_val_0)s)), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen FROM error_tracking_fingerprint_issue_state WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999) GROUP BY fp_hash HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\')), events__fingerprint_issue_state.fp_hash) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint FROM error_tracking_issue_fingerprint_overrides WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint HAVING equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), \'\'), \'null\'), \'^"|"$\', \'\'), events__exception_issue_override.fingerprint) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE equals(person_distinct_id_overrides.team_id, 99999) GROUP BY person_distinct_id_overrides.distinct_id HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) WHERE equals(events.team_id, 99999)) AS sub WHERE equals(sub.distinct_id, %(hogql_val_9)s) LIMIT 50000'
 # ---
 # name: TestPrinter.test_projection_pushdown_simple_asterisk_subquery_0_with_optimize_projections
   'SELECT sub.event AS event FROM (SELECT events.event AS event, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_4)s) AS event_issue_id, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_6)s)) AS issue_id, events__fingerprint_issue_state.issue_id AS issue_id_v2, events__fingerprint_issue_state.issue_name AS issue_name, events__fingerprint_issue_state.issue_description AS issue_description, events__fingerprint_issue_state.issue_status AS issue_status, events__fingerprint_issue_state.assigned_user_id AS issue_assigned_user_id, events__fingerprint_issue_state.assigned_role_id AS issue_assigned_role_id, events__fingerprint_issue_state.first_seen AS issue_first_seen FROM events LEFT OUTER JOIN (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id, toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id, toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, %(hogql_val_0)s)), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen FROM error_tracking_fingerprint_issue_state WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999) GROUP BY fp_hash HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\')), events__fingerprint_issue_state.fp_hash) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint FROM error_tracking_issue_fingerprint_overrides WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint HAVING equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), \'\'), \'null\'), \'^"|"$\', \'\'), events__exception_issue_override.fingerprint) LEFT OUTER JOIN (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE equals(person_distinct_id_overrides.team_id, 99999) GROUP BY person_distinct_id_overrides.distinct_id HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) WHERE equals(events.team_id, 99999)) AS sub LIMIT 50000'

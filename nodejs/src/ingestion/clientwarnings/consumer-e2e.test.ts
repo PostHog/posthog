@@ -13,11 +13,7 @@ import {
 import { resetKafka } from '~/tests/helpers/kafka'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
-import {
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
-} from '../common/config'
+import { getDefaultKafkaDownstreamProducerEnvConfig, getDefaultKafkaUpstreamProducerEnvConfig } from '../common/config'
 import { KafkaProducerRegistryComponent } from '../common/outputs/registry'
 import { Component, newScope } from '../common/scopes'
 import { getDefaultIngestionOutputsConfig } from '../config'
@@ -92,9 +88,8 @@ describe('ClientWarnings consumer E2E', () => {
         // `kafka:9092`), which is the same broker the rest of the test suite
         // produces to — so the registry's warnings producer reaches ClickHouse.
         const registryConfig = {
-            ...getDefaultKafkaProducerEnvConfig(),
-            ...getDefaultKafkaWarpstreamProducerEnvConfig(),
-            ...getDefaultKafkaIngestionProducerEnvConfig(),
+            ...getDefaultKafkaUpstreamProducerEnvConfig(),
+            ...getDefaultKafkaDownstreamProducerEnvConfig(),
         }
         const sharedScope: ClientWarningsSharedScope = newScope('clientwarnings-e2e-shared', (b) =>
             b

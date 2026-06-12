@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import quote
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import requests
 import structlog
@@ -104,6 +105,11 @@ class GoogleSearchConsoleResumeConfig:
 
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
+    # Temporal activities run in a thread pool where Django DB connections can go
+    # stale between uses (Postgres closes the connection server-side). This is
+    # invoked lazily from inside `get_rows`, so the connection has often been idle
+    # for minutes by the time we reach it — drop any stale connection first.
+    close_old_connections()
     integration = Integration.objects.get(id=integration_id, team_id=team_id)
     return OAuthCredentials(
         token=None,
