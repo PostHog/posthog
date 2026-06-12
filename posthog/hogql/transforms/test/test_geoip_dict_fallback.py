@@ -69,3 +69,55 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
     def test_lookup_functions_render_for_direct_use(self) -> None:
         sql, _ = self._print_select("SELECT lookupGeoipCityName('89.160.20.129') FROM events", fallback=False)
         assert f"dictGetStringOrDefault('{get_geoip_city_postal_dict()}', 'city_name'" in sql
+
+    @parameterized.expand(
+        [
+            (
+                "subquery",
+                "SELECT city FROM (SELECT properties.$geoip_city_name AS city FROM events) GROUP BY city",
+                1,
+            ),
+            (
+                "cte",
+                "WITH geo AS (SELECT properties.$geoip_city_name AS city FROM events) SELECT city FROM geo",
+                1,
+            ),
+            (
+                "table alias",
+                "SELECT e.properties.$geoip_city_name FROM events AS e",
+                1,
+            ),
+            (
+                "group by breakdown",
+                "SELECT properties.$geoip_city_name AS city, count() FROM events GROUP BY city ORDER BY count() DESC",
+                1,
+            ),
+            (
+                "union all",
+                "SELECT properties.$geoip_city_name FROM events UNION ALL SELECT properties.$geoip_city_name FROM events",
+                2,
+            ),
+            (
+                "select and where both wrapped",
+                "SELECT properties.$geoip_city_name FROM events WHERE properties.$geoip_city_name != ''",
+                2,
+            ),
+        ]
+    )
+    def test_fallback_in_complex_query_shapes(self, _name: str, select: str, expected_lookups: int) -> None:
+        sql, _ = self._print_select(select)
+        assert sql.count("dictGetStringOrDefault") == expected_lookups
+
+    def test_fallback_in_join_only_wraps_the_events_side(self) -> None:
+        sql, _ = self._print_select(
+            "SELECT e.properties.$geoip_city_name, p.properties.$geoip_city_name "
+            "FROM events AS e LEFT JOIN persons AS p ON p.id = e.person_id"
+        )
+        # The events-side read gets the fallback; the persons-side read of the same property name is left alone.
+        assert sql.count("dictGetStringOrDefault") == 1
+
+    def test_person_properties_on_events_not_wrapped(self) -> None:
+        # person.properties reads off events resolve to the person_properties blob (or a joined subquery), neither of
+        # which is the events properties blob the incident affected.
+        sql, _ = self._print_select("SELECT person.properties.$geoip_city_name FROM events")
+        assert "dictGetStringOrDefault" not in sql
