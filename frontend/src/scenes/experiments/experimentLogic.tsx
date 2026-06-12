@@ -73,6 +73,8 @@ import {
 import {
     EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    EXPERIMENT_RESULTS_STALE_AFTER_MINUTES,
+    EXPERIMENT_RESULTS_WARMING_UP_STALE_AFTER_MINUTES,
     MetricInsightId,
 } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
@@ -533,6 +535,29 @@ export function isNewExperimentResponse(
     return 'baseline' in response && response.baseline !== null
 }
 
+/**
+ * Decides whether a launched experiment's freshest cached result is stale enough to
+ * warrant a forced refresh on page load. Returns true when there are no cached results
+ * yet (queries are cheap until an experiment has data, so we just refresh) or when the
+ * most recently refreshed metric is older than the staleness threshold (in minutes).
+ */
+export function experimentResultsAreStale(
+    results: CachedNewExperimentQueryResponse[],
+    staleAfterMinutes: number
+): boolean {
+    const refreshTimes = results
+        .filter((result): result is CachedNewExperimentQueryResponse => !!result?.last_refresh)
+        .map((result) => dayjs(result.last_refresh))
+
+    // No cached results yet — refresh to populate them (cheap while the experiment has no data).
+    if (refreshTimes.length === 0) {
+        return true
+    }
+
+    const freshest = refreshTimes.reduce((latest, current) => (current.isAfter(latest) ? current : latest))
+    return dayjs().diff(freshest, 'minute', true) >= staleAfterMinutes
+}
+
 const sharedMetricsToExperimentMetrics = (
     sharedMetrics: ExperimentSavedMetric[],
     type: 'primary' | 'secondary'
@@ -651,9 +676,14 @@ export const experimentLogic = kea<experimentLogicType>([
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
         setEndExperimentLoading: (loading: boolean) => ({ loading }),
         setEditExperiment: (editing: boolean) => ({ editing }),
-        refreshExperimentResults: (forceRefresh?: boolean, triggeredBy?: ExperimentTriggeredBy) => ({
+        refreshExperimentResults: (
+            forceRefresh?: boolean,
+            triggeredBy?: ExperimentTriggeredBy,
+            autoRefreshIfStale?: boolean
+        ) => ({
             forceRefresh,
             triggeredBy: triggeredBy ?? 'manual',
+            autoRefreshIfStale: !!autoRefreshIfStale,
         }),
         markRefreshStarted: (refreshId: string, triggeredBy: ExperimentTriggeredBy) => ({
             refreshId,
@@ -1427,9 +1457,12 @@ export const experimentLogic = kea<experimentLogicType>([
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
-            // Load metrics for launched experiments (will set up auto-refresh after load completes)
+            // Load metrics for launched experiments (will set up auto-refresh after load completes).
+            // Use cached results for a fast first paint, but force a one-shot refresh afterwards if
+            // those results have gone stale — auto-refresh only ticks while a tab is open, so results
+            // can otherwise sit unrefreshed overnight.
             if (experiment && isLaunched(experiment)) {
-                actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual')
+                actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual', true)
             }
         },
         launchExperiment: async () => {
@@ -1542,7 +1575,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to unarchive experiment')
             }
         },
-        refreshExperimentResults: async ({ forceRefresh, triggeredBy }) => {
+        refreshExperimentResults: async ({ forceRefresh, triggeredBy, autoRefreshIfStale }) => {
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
             const summaries: MetricLoadingSummary[] = []
@@ -1652,6 +1685,26 @@ export const experimentLogic = kea<experimentLogicType>([
                     values.isPageVisible
                 ) {
                     actions.resetAutoRefreshInterval()
+                }
+
+                // After the initial cached page load, kick off a one-shot forced refresh when the
+                // freshest result has gone stale (or there are none yet). The staleness window is
+                // tight until the experiment has the exposures it needs to show results, so a freshly
+                // launched experiment surfaces its first numbers fast; once results are showing the
+                // window widens, since recomputes over real data are expensive. Gated on `!forceRefresh`
+                // so the forced refresh we trigger here can't re-trigger itself.
+                if (
+                    autoRefreshIfStale &&
+                    !forceRefresh &&
+                    !caughtError &&
+                    experimentResultsAreStale(
+                        [...values.primaryMetricsResults, ...values.secondaryMetricsResults],
+                        values.hasMinimumExposureForResults
+                            ? EXPERIMENT_RESULTS_STALE_AFTER_MINUTES
+                            : EXPERIMENT_RESULTS_WARMING_UP_STALE_AFTER_MINUTES
+                    )
+                ) {
+                    actions.refreshExperimentResults(true, 'auto_refresh')
                 }
             }
         },
