@@ -350,6 +350,21 @@ def test_stripe_config():
     assert config.auth_method.stripe_secret_key == "api_key"
 
 
+def test_stripe_config_flat_auth_method_does_not_crash():
+    # A client may submit the `auth_method` select flat (the option value as a scalar with
+    # the option's fields as siblings) rather than nested. This passes `validate_dict`, so
+    # `from_dict` must not raise an unhandled TypeError on the scalar.
+    flat = {"auth_method": "oauth", "stripe_integration_id": 176624, "stripe_account_id": "acct_id"}
+
+    is_valid, errors = StripeSourceConfig.validate_dict(flat)
+    assert is_valid is True
+    assert errors == []
+
+    config = StripeSourceConfig.from_dict(flat)
+    assert config.stripe_account_id == "acct_id"
+    assert config.auth_method.stripe_integration_id == 176624
+
+
 def test_shopify_config():
     config = ShopifySourceConfig.from_dict(
         {"shopify_store_id": "store_id", "shopify_client_id": "client_id", "shopify_client_secret": "client_secret"}

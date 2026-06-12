@@ -320,6 +320,49 @@ def test_to_config_union_nested_configs_with_alias():
     assert a_cfg.inner.a == "test"
 
 
+def test_to_config_scalar_under_nested_config_key():
+    """A scalar under a nested-config key must not crash `to_config`.
+
+    A flat select payload (e.g. `auth_method: "oauth"` with the option's fields as
+    siblings, instead of the nested `auth_method: {"selection": "oauth", ...}`) puts a
+    scalar where a nested config dict is expected. `validate_config` already treats this
+    as a flat structure (it guards with `isinstance(..., dict)`), so `to_config` must do
+    the same and fall through to flat parsing instead of recursing into the scalar and
+    raising an unhandled `TypeError`.
+    """
+
+    @config.config
+    class AuthMethod:
+        selection: str = "api_key"
+        integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+
+    @config.config
+    class SourceConfig(config.Config):
+        auth_method: AuthMethod
+        account_id: str | None = None
+
+    config_dict = {"auth_method": "oauth", "integration_id": 123, "account_id": "acct_x"}
+
+    # Validation accepts the payload (`selection` has a default), so construction must
+    # not crash — the two functions have to agree.
+    is_valid, errors = SourceConfig.validate_dict(config_dict)
+    assert is_valid is True
+    assert errors == []
+
+    cfg = SourceConfig.from_dict(config_dict)
+    assert isinstance(cfg.auth_method, AuthMethod)
+    assert cfg.auth_method.integration_id == 123
+    assert cfg.account_id == "acct_x"
+
+    # The nested form keeps working unchanged.
+    nested = SourceConfig.from_dict(
+        {"auth_method": {"selection": "oauth", "integration_id": 456}, "account_id": "acct_y"}
+    )
+    assert nested.auth_method.selection == "oauth"
+    assert nested.auth_method.integration_id == 456
+    assert nested.account_id == "acct_y"
+
+
 def test_validate_dict():
     @config.config
     class TestConfig(config.Config):
