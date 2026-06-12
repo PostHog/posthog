@@ -1924,6 +1924,9 @@ class MaxNotebookContext(BaseModel):
         extra="forbid",
     )
     id: str
+    insertion_placeholder_block_id: str | None = None
+    insertion_placeholder_marker: str | None = None
+    markdown_with_insertion_placeholder: str | None = None
     name: str | None = None
     type: Literal["notebook"] = "notebook"
 
@@ -7999,9 +8002,10 @@ class AssistantDataVisualizationNode(BaseModel):
             "Visualization type. Defaults to `ActionsTable` when"
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
             " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or"
-            " `ActionsStackedBar`.\n- Two-dimensional aggregation →"
-            " `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
+            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
+            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise →"
+            " `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -21306,6 +21310,14 @@ class FunnelsFilter(BaseModel):
     showAnnotations: bool | None = Field(
         default=True,
         description=("Whether to render annotations on the chart. Only applies to historical-trends funnels."),
+    )
+    showLegend: bool | None = Field(
+        default=False,
+        description=(
+            "Whether to show a legend describing the series. The legend only renders"
+            " when the funnel has multiple series. Only applies to historical-trends"
+            " funnels."
+        ),
     )
     showTrendLines: bool | None = Field(
         default=None,
