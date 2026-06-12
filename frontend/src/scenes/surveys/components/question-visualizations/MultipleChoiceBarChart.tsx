@@ -17,9 +17,19 @@ import { ChoiceQuestionResponseData } from '~/types'
 const CATEGORY_LABEL_WIDTH = 280
 // Gap between the bar tip and its value label.
 const VALUE_LABEL_OFFSET = 6
-// Room beside each bar tip for the value label's text width plus its offset, so it floats rather
-// than overlapping the bar.
-const VALUE_LABEL_PADDING = 88 + VALUE_LABEL_OFFSET
+
+// Upper bound for the bar track: a bit past the longest bar, rounded up to a clean step — so the
+// hatched remainder reads as headroom rather than an empty axis (mirrors ToolErrorRateChart).
+function niceCountAxisMax(maxValue: number): number {
+    const padded = Math.max(1, maxValue) * 1.4
+    let step = Math.max(1, 10 ** Math.floor(Math.log10(padded)))
+    let axisMax = Math.ceil(padded / step) * step
+    if (axisMax / padded > 1.5 && step > 1) {
+        step /= 2
+        axisMax = Math.ceil(padded / step) * step
+    }
+    return axisMax
+}
 
 interface Props {
     chartData: ChoiceQuestionResponseData[]
@@ -55,12 +65,22 @@ export function MultipleChoiceBarChart({
     // rendered through the category-axis formatter instead.
     const labels = chartData.map((_, i) => String(i))
 
+    const axisMax = niceCountAxisMax(Math.max(0, ...chartData.map((d) => d.value)))
     const config: BarChartConfig = {
-        hideXAxis: true,
         axisOrientation: 'horizontal',
+        barLayout: 'grouped',
+        showGrid: false,
+        showAxisLines: false,
         maxCategoryLabelWidth: CATEGORY_LABEL_WIDTH,
         xTickFormatter: (_label, index) => chartData[index]?.label ?? '',
-        bars: { minBandSize: 32, bandPadding: 0.4, valuePadding: VALUE_LABEL_PADDING },
+        margins: { top: 4, right: 20, bottom: 22 },
+        bars: {
+            cornerRadius: 3,
+            minBandSize: 32,
+            bandPadding: 0.4,
+            track: { hover: false },
+            valueDomain: [0, axisMax],
+        },
         tooltip: { placement: 'cursor' },
     }
 
