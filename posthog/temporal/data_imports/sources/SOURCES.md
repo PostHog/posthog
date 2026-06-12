@@ -65,6 +65,7 @@ the row lists both.
 | confluence       | HTTP                        | requests                                                        | ✅                          |
 | chartmogul       | HTTP                        | requests                                                        | ✅                          |
 | circleci         | HTTP                        | requests                                                        | ✅                          |
+| clari            | HTTP                        | requests                                                        | ✅                          |
 | clerk            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickup          | HTTP                        | requests                                                        | ✅                          |
@@ -223,6 +224,7 @@ doesn't conflict with concurrent PRs.
 - campaign_manager_360
 - checkout_com
 - chorus
+- circleci
 - clari
 - cloudflare
 - cockroachdb
