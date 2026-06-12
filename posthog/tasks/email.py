@@ -618,11 +618,12 @@ EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC = 10
 def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]], omitted_count: int = 0) -> bool:
     """Email a per-team digest of failing external data source syncs.
 
-    Called inline from the sync failure path rather than as a task. The
-    MessagingRecord campaign key embeds the digest day, capping delivery at one
-    email per team per digest day — repeat calls the same day are no-ops.
+    Runs inside the digest Celery task (products/data_warehouse/backend/tasks.py),
+    so the send is synchronous. The MessagingRecord campaign key embeds the digest
+    day, capping delivery at one email per team per digest day — repeat calls the
+    same day are no-ops.
 
-    Returns whether the email was actually sent, so the caller can stamp the
+    Returns whether the email was actually delivered, so the caller can stamp the
     included schemas as notified.
     """
     if not is_email_available(with_absolute_urls=True):
@@ -670,8 +671,12 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     )
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
-    message.send()
-    return True
+    # Send synchronously and report delivery from MessagingRecord state: _send_email
+    # swallows SMTP/provider failures (capture_exception without re-raising), so its
+    # completion proves nothing — sent_at is only written after an actual delivery.
+    # Stamping on enqueue would permanently silence paused schemas if delivery failed.
+    message.send(send_async=False)
+    return MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists()
 
 
 @shared_task(ignore_result=True)

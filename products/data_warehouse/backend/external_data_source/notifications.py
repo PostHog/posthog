@@ -50,10 +50,10 @@ def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta
 def notify_external_data_sync_failures(team_id: int) -> None:
     """Email the team a digest of every currently-failing external data schema.
 
-    Called inline from the job-status update path, so it must never raise — a
-    notification problem can't be allowed to fail the status transition.
-    Throttling to one email per team per day happens in the email layer via the
-    MessagingRecord campaign key, so calling this on every failed job is safe.
+    Runs inside the digest Celery task; exceptions are swallowed so a notification
+    problem never crash-loops the task. Throttling to one email per team per digest
+    day happens in the email layer via the MessagingRecord campaign key, so
+    scheduling this for every failed job is safe.
     """
     try:
         failing_schemas = list(

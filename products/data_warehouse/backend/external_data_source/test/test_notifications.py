@@ -264,3 +264,16 @@ class TestGetTeamIdsWithRecentSyncFailures:
         )
 
         assert get_team_ids_with_recent_sync_failures() == [team.pk]
+
+    def test_only_returns_qualifying_teams(self):
+        qualifying = self._create_schema_with_job(
+            schema_status=ExternalDataSchema.Status.FAILED,
+            job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2),
+        )
+        # A different team whose schema recovered must not ride along.
+        self._create_schema_with_job(
+            schema_status=ExternalDataSchema.Status.COMPLETED,
+            job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2),
+        )
+
+        assert get_team_ids_with_recent_sync_failures() == [qualifying.pk]
