@@ -226,8 +226,6 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/session_recording_playlists': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/session_recordings': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/session_recordings': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/session_recordings': EMPTY_PAGINATED_RESPONSE,
-        '/api/environments/:team_id/session_recordings': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/session_recordings/:id/capture_diagnostics': { properties: null },
         '/api/environments/:team_id/session_recordings/:id/player_events': {
             session_events: { columns: [], results: [] },
