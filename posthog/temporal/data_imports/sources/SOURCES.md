@@ -46,6 +46,7 @@ the row lists both.
 | ---------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | aircall          | HTTP                        | requests                                                        | ✅                          |
 | airtable         | HTTP                        | requests                                                        | ✅                          |
+| amazon_ads       | HTTP                        | requests                                                        | ✅                          |
 | amplitude        | HTTP                        | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
@@ -207,7 +208,6 @@ doesn't conflict with concurrent PRs.
 - adp_workforce_now
 - adroll
 - adyen
-- amazon_ads
 - amazon_s3
 - amazon_selling_partner
 - apollo
