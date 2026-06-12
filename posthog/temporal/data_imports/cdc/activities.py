@@ -729,7 +729,7 @@ class CDCExtractActivity:
             unpause_external_data_schedule(str(schema.id))
             schema_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(schema.id))
         except Exception:
-            schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id))
+            schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id), exc_info=True)
 
     def _handle_no_changes(self, truncated_tables: list[str]) -> None:
         """Early-return path: no DML events were read."""
