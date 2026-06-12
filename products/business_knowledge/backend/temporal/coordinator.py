@@ -116,7 +116,7 @@ def _emit_one_document(doc: logic.DocumentToEmbed) -> int:
     the doc as emitted. Runs in a worker thread (sync Kafka produce + DB write).
 
     If any chunk produce raises, the exception propagates BEFORE the stamp, so
-    the doc stays unstamped and the next pass retries the whole doc.     Re-emitting
+    the doc stays unstamped and the next pass retries the whole doc. Re-emitting
     chunks that already landed is harmless — the shared table dedupes on
     (chunk_id, timestamp) via ReplacingMergeTree.
     """
