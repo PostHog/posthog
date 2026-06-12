@@ -48,6 +48,7 @@ def _make_canonical(
     body: str = "# Body\n",
     allowed_tools: tuple[str, ...] = (),
     files: tuple[CanonicalSkillFile, ...] = (),
+    default_run_interval_minutes: int | None = None,
 ) -> CanonicalSkill:
     """Build a CanonicalSkill for a unit test without going through disk + frontmatter."""
     return CanonicalSkill(
@@ -57,6 +58,7 @@ def _make_canonical(
         allowed_tools=allowed_tools,
         files=files,
         source_path=Path("/tmp/fake"),
+        default_run_interval_minutes=default_run_interval_minutes,
     )
 
 
@@ -194,6 +196,58 @@ class TestDiscoverCanonicalSkills:
         # Files outside the allowlist must not leak in — guards the consumer divergence.
         assert "assets/template.txt" not in files_by_path
         assert "extras/notes.txt" not in files_by_path
+
+    def test_parses_default_run_interval_from_metadata(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-daily",
+            frontmatter="""
+                ---
+                name: signals-scout-daily
+                description: daily skill
+                metadata:
+                  default-run-interval-minutes: 1440
+                ---
+            """,
+            body="# Daily\n",
+        )
+        (skill,) = discover_canonical_skills(tmp_path)
+        assert skill.default_run_interval_minutes == 1440
+
+    def test_default_run_interval_absent_is_none(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-plain",
+            frontmatter="""
+                ---
+                name: signals-scout-plain
+                description: plain skill
+                ---
+            """,
+            body="# Plain\n",
+        )
+        (skill,) = discover_canonical_skills(tmp_path)
+        assert skill.default_run_interval_minutes is None
+
+    @pytest.mark.parametrize("bad_value", ["daily", "5", "true", "99999"])
+    def test_invalid_default_run_interval_raises(self, tmp_path: Path, bad_value: str) -> None:
+        # Bounds mirror SignalScoutConfig.run_interval_minutes validators (10..43200);
+        # strings and booleans are rejected rather than coerced.
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bad-interval",
+            frontmatter=f"""
+                ---
+                name: signals-scout-bad-interval
+                description: bad interval skill
+                metadata:
+                  default-run-interval-minutes: {bad_value}
+                ---
+            """,
+            body="# Bad\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match="default-run-interval-minutes"):
+            discover_canonical_skills(tmp_path)
 
     def test_missing_frontmatter_raises(self, tmp_path: Path) -> None:
         skill_dir = tmp_path / "signals-scout-foo"
@@ -380,6 +434,24 @@ class TestComputeCanonicalHash:
         files = [LLMSkillFile(path=f.path, content=f.content, content_type=f.content_type) for f in canonical.files]
         assert _compute_canonical_hash(canonical) == _compute_row_hash(skill, files)
 
+    def test_default_run_interval_change_changes_hash(self) -> None:
+        # A cadence-only change must propagate to seeded rows like any content change.
+        a = _make_canonical("signals-scout-foo", default_run_interval_minutes=None)
+        b = _make_canonical("signals-scout-foo", default_run_interval_minutes=1440)
+        c = _make_canonical("signals-scout-foo", default_run_interval_minutes=60)
+        assert _compute_canonical_hash(a) != _compute_canonical_hash(b)
+        assert _compute_canonical_hash(b) != _compute_canonical_hash(c)
+
+    def test_default_run_interval_round_trips_through_row_hash(self) -> None:
+        canonical = _make_canonical("signals-scout-foo", default_run_interval_minutes=1440)
+        skill = LLMSkill(
+            description=canonical.description,
+            body=canonical.body,
+            allowed_tools=list(canonical.allowed_tools),
+            metadata={"default_run_interval_minutes": 1440},
+        )
+        assert _compute_canonical_hash(canonical) == _compute_row_hash(skill, [])
+
 
 class TestSyncCanonicalSkills(BaseTest):
     """End-to-end behavior of the canonical-sync function on a real DB.
@@ -407,6 +479,25 @@ class TestSyncCanonicalSkills(BaseTest):
         assert row.metadata["seeded_by"] == "signals_scout_harness"
         # Hash is now stamped at create time so future syncs can compare.
         assert row.metadata["canonical_hash"] == _compute_canonical_hash(canonical)
+
+    def test_create_persists_default_run_interval_in_metadata(self) -> None:
+        canonical = _make_canonical("signals-scout-daily", default_run_interval_minutes=1440)
+        with self._patch_canonicals((canonical,)):
+            sync_canonical_skills(self.team)
+
+        row = LLMSkill.objects.get(team=self.team, name="signals-scout-daily", is_latest=True, deleted=False)
+        assert row.metadata["default_run_interval_minutes"] == 1440
+
+    def test_update_drops_stale_default_run_interval(self) -> None:
+        with self._patch_canonicals((_make_canonical("signals-scout-daily", default_run_interval_minutes=1440),)):
+            sync_canonical_skills(self.team)
+        # Canonical drops its declared cadence; the seeded row must not keep the stale value.
+        with self._patch_canonicals((_make_canonical("signals-scout-daily", default_run_interval_minutes=None),)):
+            result = sync_canonical_skills(self.team)
+
+        assert result.updated_skill_names == ("signals-scout-daily",)
+        row = LLMSkill.objects.get(team=self.team, name="signals-scout-daily", is_latest=True, deleted=False)
+        assert "default_run_interval_minutes" not in row.metadata
 
     def test_no_op_when_team_row_already_matches_canonical(self) -> None:
         canonical = _make_canonical("signals-scout-alpha", body="initial")

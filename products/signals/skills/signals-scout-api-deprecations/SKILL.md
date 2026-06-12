@@ -20,6 +20,7 @@ compatibility: >
 metadata:
   owner_team: signals
   scope: api_deprecations
+  default-run-interval-minutes: 1440
 ---
 
 # Signals scout: API deprecations
@@ -43,8 +44,9 @@ Internalize the two discriminators:
 
 ## Quick close-out
 
-Code changes slowly; this scout is designed for daily-or-slower cadence, and the close-out keeps
-faster schedules cheap.
+Code changes slowly; this scout registers with a daily default cadence
+(`metadata.default-run-interval-minutes: 1440`), and the close-out keeps even faster schedules
+cheap.
 
 - `signals-scout-scratchpad-search` for `last-scan:api-deprecations`. If the recorded HEAD sha
   matches the repository's current HEAD (`git ls-remote <repo-url> HEAD` — no clone needed), and
@@ -67,8 +69,11 @@ faster schedules cheap.
   re-check date), `noise:` entries are known non-API URLs.
 - `signals-scout-runs-list` (last 14d) — what prior runs of this scout emitted or ruled out.
 - Get the code. Prefer a checkout the harness already placed under the working directory's
-  `repos/` tree. Otherwise shallow-clone the project's repository (public repos only):
-  `git clone --depth 1 --single-branch <repo-url> /tmp/repo`.
+  `repos/` tree. Otherwise resolve which repository to scan: a `config:api-dep:repo` scratchpad
+  entry takes precedence (operators set this per team via scratchpad — the parameter mechanism
+  until skills support params natively); failing that, the repository the project's GitHub
+  connection targets, if discoverable through available tools. Then shallow-clone it (public
+  repos only): `git clone --depth 1 --single-branch <repo-url> /tmp/repo`.
 
 ## Stage 1 — deterministic inventory (facts, not judgment)
 

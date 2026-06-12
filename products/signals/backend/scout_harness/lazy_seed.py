@@ -62,7 +62,10 @@ class CanonicalSkill:
     frontmatter. `allowed_tools` is optional in frontmatter — defaults to empty (no narrowing).
     The agentskills.io spec uses `allowed-tools` (hyphen); we accept both, preferring the
     spec form. `files` is the recursive content of the `_ALLOWED_BUNDLE_SUBDIRS` directories
-    alongside SKILL.md.
+    alongside SKILL.md. `default_run_interval_minutes` is optional frontmatter
+    (`metadata.default-run-interval-minutes`) letting a scout declare its own default cadence;
+    `register_missing_configs` applies it when auto-creating the scout's `SignalScoutConfig`
+    (operators can still retune the row afterwards).
     """
 
     name: str
@@ -71,6 +74,7 @@ class CanonicalSkill:
     allowed_tools: tuple[str, ...]
     files: tuple[CanonicalSkillFile, ...]
     source_path: Path
+    default_run_interval_minutes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -164,6 +168,20 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
             f"SKILL.md frontmatter 'allowed-tools'/'allowed_tools' must be a list of strings: {skill_file}"
         )
 
+    # Optional per-scout default cadence. The skills spec has no params, so this rides
+    # frontmatter `metadata`; bounds mirror SignalScoutConfig.run_interval_minutes validators.
+    metadata = frontmatter.get("metadata")
+    default_run_interval = metadata.get("default-run-interval-minutes") if isinstance(metadata, dict) else None
+    if default_run_interval is not None and (
+        isinstance(default_run_interval, bool)
+        or not isinstance(default_run_interval, int)
+        or not (10 <= default_run_interval <= 43200)
+    ):
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'metadata.default-run-interval-minutes' must be an integer "
+            f"between 10 and 43200: {skill_file}"
+        )
+
     body = raw[match.end() :]
     # Enforce the same per-skill limits the REST API uses (skill_services.py). The seed
     # bypasses `create_skill_file` (no service-layer "create from scratch with files"
@@ -207,6 +225,7 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
         allowed_tools=tuple(raw_allowed),
         files=tuple(files),
         source_path=skill_dir,
+        default_run_interval_minutes=default_run_interval,
     )
 
 
@@ -263,6 +282,10 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
         "allowed_tools": sorted(canonical.allowed_tools),
         "files": sorted([(f.path, f.content, f.content_type) for f in canonical.files]),
     }
+    # Included only when set, so introducing the field didn't change the hash of every skill
+    # that doesn't declare it (which would have version-bumped the whole fleet once).
+    if canonical.default_run_interval_minutes is not None:
+        payload["default_run_interval_minutes"] = canonical.default_run_interval_minutes
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
@@ -275,6 +298,9 @@ def _compute_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
         "allowed_tools": sorted(skill.allowed_tools or []),
         "files": sorted([(f.path, f.content, f.content_type) for f in files]),
     }
+    row_interval = (skill.metadata or {}).get("default_run_interval_minutes")
+    if row_interval is not None:
+        payload["default_run_interval_minutes"] = row_interval
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
@@ -287,17 +313,20 @@ def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonica
     caller swallows.
     """
     with transaction.atomic():
+        metadata: dict[str, object] = {
+            "seeded_by": "signals_scout_harness",
+            "source": "products/signals/skills",
+            "canonical_hash": canonical_hash,
+        }
+        if canonical.default_run_interval_minutes is not None:
+            metadata["default_run_interval_minutes"] = canonical.default_run_interval_minutes
         skill = LLMSkill.objects.create(
             team=team,
             name=canonical.name,
             description=canonical.description,
             body=canonical.body,
             allowed_tools=list(canonical.allowed_tools),
-            metadata={
-                "seeded_by": "signals_scout_harness",
-                "source": "products/signals/skills",
-                "canonical_hash": canonical_hash,
-            },
+            metadata=metadata,
             version=1,
             is_latest=True,
         )
@@ -341,6 +370,11 @@ def _update_skill_from_canonical(
         new_metadata["seeded_by"] = "signals_scout_harness"
         new_metadata["source"] = "products/signals/skills"
         new_metadata["canonical_hash"] = canonical_hash
+        # Mirror, don't merge: a canonical that dropped its declared cadence must not leave a
+        # stale default behind on the row.
+        new_metadata.pop("default_run_interval_minutes", None)
+        if canonical.default_run_interval_minutes is not None:
+            new_metadata["default_run_interval_minutes"] = canonical.default_run_interval_minutes
 
         new_skill = LLMSkill.objects.create(
             team=team,

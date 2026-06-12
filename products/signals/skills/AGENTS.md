@@ -164,8 +164,9 @@ will:
 
 - discover it via `lazy_seed.discover_canonical_skills()`,
 - create matching `LLMSkill` rows on each agent-enabled team,
-- auto-register an enabled, hourly-schedule `SignalScoutConfig` for it so the next
-  due tick dispatches it.
+- auto-register an enabled `SignalScoutConfig` for it so the next due tick
+  dispatches it — hourly by default, or the cadence the skill declares via
+  frontmatter `metadata.default-run-interval-minutes` (e.g. `1440` for daily).
 
 No coordinator-side code change is needed. Use `signals-scout-general` as the
 template if your scout is broad; pick a specialist as the template if it is

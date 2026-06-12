@@ -40,8 +40,11 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
 - `config_registry.py`
   `register_missing_configs(team_id)` — auto-creates an enabled, default-schedule
   `SignalScoutConfig` for any `signals-scout-*` skill lacking one ("author a skill, get a
-  scout"). Called by the coordinator tick; the HTTP surface registers explicitly via the
-  write-scoped config `create` endpoint instead (reads stay side-effect free).
+  scout"). The default cadence is hourly unless the skill's frontmatter declares
+  `metadata.default-run-interval-minutes` (persisted on the seeded row, applied only at
+  config creation — operator retuning is never overwritten). Called by the coordinator
+  tick; the HTTP surface registers explicitly via the write-scoped config `create`
+  endpoint instead (reads stay side-effect free).
 - `tools/`
   Implementations of the four harness-internal tools the agent calls during a run.
   The effective toolset for a run is the intersection of the skill's `allowed_tools`
