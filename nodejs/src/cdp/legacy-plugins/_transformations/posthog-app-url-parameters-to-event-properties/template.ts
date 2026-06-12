@@ -34,7 +34,7 @@ export const posthogAppUrlParametersToEventProperties: LegacyTransformationPlugi
                 type: 'dictionary',
                 default: {},
                 description:
-                    "Map a URL parameter to a custom property name e.g. map 'fid' to 'follower_id' to get fid -> follower_id. Parameters mapped here are captured automatically and stored under the custom name as-is, without the prefix and suffix.",
+                    "Capture URL parameters under custom property names. The key is the URL parameter and the value is the property name to store it as, e.g. key 'fid' with value 'follower_id' stores ?fid=123 as the property follower_id. Parameters listed here are captured even if they are not in 'URL query parameters to convert', and the prefix and suffix are not applied to them.",
             },
             {
                 key: 'prefix',
