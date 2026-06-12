@@ -51,7 +51,9 @@ describe('PersonCreateService', () => {
             mockOutputs,
             mockPersonStore,
             0,
-            createDefaultSyncMergeMode()
+            createDefaultSyncMergeMode(),
+            false,
+            false
         )
 
         personCreateService = new PersonCreateService(personContext)
