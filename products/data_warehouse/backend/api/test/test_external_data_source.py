@@ -1378,6 +1378,7 @@ class TestExternalDataSource(APIBaseTest):
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
                     "enabled_columns": None,
+                    "row_filters": None,
                     "available_columns": [],
                     "source": None,
                 }
