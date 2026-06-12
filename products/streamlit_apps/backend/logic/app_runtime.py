@@ -4,6 +4,7 @@ import os
 import time
 from collections.abc import Callable
 from io import BytesIO
+from urllib.parse import urlparse
 from zipfile import ZipFile
 
 from django.db import IntegrityError, transaction
@@ -95,6 +96,22 @@ def _get_otel_logs_config(callback_url: str) -> tuple[str, str]:
     return f"{callback_url.rstrip('/')}/i/v1/logs", "phc_local"
 
 
+def _outbound_allowlist(*urls: str) -> list[str] | None:
+    """Hostnames the sandbox may reach — everything else is fenced off by Modal.
+
+    User app code runs in the sandbox, so without this an app author could probe
+    internal/metadata endpoints on the runtime network. Loopback-style hosts are
+    dropped (Modal rejects them as invalid domains; the Docker provider has no
+    fence and ignores the field, so local dev is unaffected).
+    """
+    hosts: list[str] = []
+    for url in urls:
+        host = urlparse(url).hostname
+        if host and "." in host and host != "host.docker.internal" and host not in hosts:
+            hosts.append(host)
+    return hosts or None
+
+
 def _build_sandbox_config(app: StreamlitApp, version: StreamlitAppVersion) -> SandboxConfig:
     callback_url = _get_sandbox_callback_url()
     otel_endpoint, otel_token = _get_otel_logs_config(callback_url)
@@ -115,6 +132,9 @@ def _build_sandbox_config(app: StreamlitApp, version: StreamlitAppVersion) -> Sa
         # TODO: Ideally we'd add a auto_suspend config the user can set that defines the TTL.
         #       After X minutes of inactivity, kill the sandbox.
         ttl_seconds=60 * 15,
+        # Egress locked to the hosts the proxy itself needs (introspect/bridge +
+        # OTEL logs); per-app egress domains can be added as a feature later.
+        outbound_domain_allowlist=_outbound_allowlist(callback_url, otel_endpoint),
         # TODO: We might need to allow the creator of the Streamlit to add more env vars.
         environment_variables={
             "POSTHOG_SITE_URL": callback_url,

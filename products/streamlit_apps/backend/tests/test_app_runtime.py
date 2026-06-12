@@ -618,6 +618,28 @@ class TestBuildSandboxConfig(BaseTest):
         assert config.cpu_cores == expected_cpu
         assert config.memory_gb == expected_memory
 
+    @override_settings(SITE_URL="https://us.posthog.com")
+    @patch.dict("os.environ", {"STREAMLIT_SANDBOX_CALLBACK_URL": ""})
+    def test_config_locks_outbound_egress_to_posthog_hosts(self):
+        from products.streamlit_apps.backend.logic.app_runtime import _build_sandbox_config
+
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+
+        config = _build_sandbox_config(app, version)
+        assert config.outbound_domain_allowlist == ["us.posthog.com"]
+
+    @override_settings(SITE_URL="http://localhost:8000")
+    @patch.dict("os.environ", {"STREAMLIT_SANDBOX_CALLBACK_URL": ""})
+    def test_config_skips_allowlist_for_loopback_hosts(self):
+        from products.streamlit_apps.backend.logic.app_runtime import _build_sandbox_config
+
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+
+        config = _build_sandbox_config(app, version)
+        assert config.outbound_domain_allowlist is None
+
     def test_config_does_not_inject_bridge_env_vars(self):
         """The bridge token is delivered via /run/bridge_token (file-based),
         never as an env var. POSTHOG_BRIDGE_URL was removed too — the in-sandbox
