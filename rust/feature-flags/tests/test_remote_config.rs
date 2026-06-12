@@ -265,12 +265,23 @@ async fn test_remote_config_non_remote_config_flag_returns_404() {
 }
 
 #[tokio::test]
-async fn test_remote_config_rate_limited_returns_429() {
+async fn test_remote_config_personal_key_rate_limited_returns_429() {
     let mut config = Config::default_test_config();
     config.remote_config_default_rate_per_minute = 1; // burst of 1, so the 2nd call is limited
     let context = TestContext::new(Some(&config)).await;
-    let (team, secret_token, _) = context
-        .create_team_with_secret_token(None, None, None)
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_rl");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(user_id, "RC RL", vec!["feature_flag:read"], None, None)
         .await
         .unwrap();
     insert_rc_flag(&context, team.id, "rc-rl", "plain", true, false).await;
@@ -280,12 +291,40 @@ async fn test_remote_config_rate_limited_returns_429() {
     let get = || {
         client
             .get(url(&server.addr, team.id, "rc-rl"))
+            .header("Authorization", format!("Bearer {api_key}"))
+            .send()
+    };
+
+    // Django throttles personal-API-key requests, bucketed per credential.
+    assert_eq!(get().await.unwrap().status(), 200);
+    assert_eq!(get().await.unwrap().status(), 429);
+}
+
+#[tokio::test]
+async fn test_remote_config_secret_key_not_throttled() {
+    let mut config = Config::default_test_config();
+    config.remote_config_default_rate_per_minute = 1; // would 429 a throttled credential
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-sk", "plain", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+    let get = || {
+        client
+            .get(url(&server.addr, team.id, "rc-sk"))
             .header("Authorization", format!("Bearer {secret_token}"))
             .send()
     };
 
+    // Django's RemoteConfigThrottle only throttles personal keys, so secret-key requests are
+    // never limited even past the per-minute rate.
     assert_eq!(get().await.unwrap().status(), 200);
-    assert_eq!(get().await.unwrap().status(), 429);
+    assert_eq!(get().await.unwrap().status(), 200);
+    assert_eq!(get().await.unwrap().status(), 200);
 }
 
 #[tokio::test]

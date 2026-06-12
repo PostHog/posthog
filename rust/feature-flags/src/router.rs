@@ -38,7 +38,7 @@ use crate::{
         body_read_metrics::{record_body_read, MAX_FLAGS_BODY_BYTES},
         concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
-        flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
+        flag_definitions_rate_limiter::{FlagDefinitionsRateLimiter, RemoteConfigRateLimiter},
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
         remote_config,
     },
@@ -85,7 +85,7 @@ pub struct State {
     pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
     /// Per-team limiter for the remote_config endpoint (mirrors Django's
     /// RemoteConfigThrottle). Separate budget from flag definitions.
-    pub(crate) remote_config_limiter: FlagDefinitionsRateLimiter,
+    pub(crate) remote_config_limiter: RemoteConfigRateLimiter,
     pub config: Config,
     pub(crate) flags_rate_limiter: FlagsRateLimiter,
     pub(crate) ip_rate_limiter: IpRateLimiter,
@@ -178,11 +178,14 @@ pub fn router(
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
-    // Per-team limiter for the remote_config endpoint (mirrors Django's RemoteConfigThrottle).
-    let remote_config_limiter = FlagDefinitionsRateLimiter::new(
+    // Per-credential limiter for the remote_config endpoint (mirrors Django's
+    // RemoteConfigThrottle, which buckets per hashed bearer token). The team allowlist is
+    // applied by the handler, not the limiter, so this is constructed with an empty allowlist
+    // and no per-key overrides.
+    let remote_config_limiter = RemoteConfigRateLimiter::new(
         config.remote_config_default_rate_per_minute,
-        config.remote_config_rate_limits.0.clone(),
-        config.rate_limiting_allow_list_teams.0.clone(),
+        std::collections::HashMap::new(),
+        std::collections::HashSet::new(),
         REMOTE_CONFIG_REQUESTS_COUNTER,
         REMOTE_CONFIG_RATE_LIMITED_COUNTER,
         REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER,
@@ -512,7 +515,7 @@ fn spawn_rate_limiter_cleanup_task(
     flags_rate_limiter: FlagsRateLimiter,
     ip_rate_limiter: IpRateLimiter,
     flag_definitions_limiter: FlagDefinitionsRateLimiter,
-    remote_config_limiter: FlagDefinitionsRateLimiter,
+    remote_config_limiter: RemoteConfigRateLimiter,
     cleanup_interval_secs: u64,
 ) {
     tokio::spawn(async move {

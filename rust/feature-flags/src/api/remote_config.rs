@@ -44,8 +44,11 @@ pub struct RemoteConfigQuery {
 enum AuthOutcome {
     Authorized {
         should_decrypt: bool,
-        /// The team the request is scoped to, used as the throttle key.
+        /// The team the request is scoped to, used for the throttle allowlist bypass.
         team_id: i32,
+        /// Per-credential throttle key. `Some(pak_id)` for personal API keys (which Django
+        /// throttles), `None` for secret keys (which Django does not throttle).
+        rate_limit_key: Option<String>,
     },
     /// Credential is valid but not for this project (Django: 403 team mismatch).
     Forbidden,
@@ -97,19 +100,30 @@ pub async fn remote_config(
             }
         };
 
-    let (should_decrypt, team_id) =
+    let (should_decrypt, team_id, rate_limit_key) =
         match authenticate(&state, scope_team_id, resolved_team.as_ref(), &headers).await? {
-        AuthOutcome::Authorized {
-            should_decrypt,
-            team_id,
-        } => (should_decrypt, team_id),
-        AuthOutcome::Forbidden => return Ok(StatusCode::FORBIDDEN.into_response()),
-        AuthOutcome::ProjectNotFound => return Ok(StatusCode::NOT_FOUND.into_response()),
-    };
+            AuthOutcome::Authorized {
+                should_decrypt,
+                team_id,
+                rate_limit_key,
+            } => (should_decrypt, team_id, rate_limit_key),
+            AuthOutcome::Forbidden => return Ok(StatusCode::FORBIDDEN.into_response()),
+            AuthOutcome::ProjectNotFound => return Ok(StatusCode::NOT_FOUND.into_response()),
+        };
 
-    // Per-team throttle (mirrors Django's RemoteConfigThrottle). After auth so only
-    // authenticated callers count; before the DB lookup so it shields Postgres.
-    state.remote_config_limiter.check_rate_limit(team_id)?;
+    // Throttle mirroring Django's RemoteConfigThrottle: only personal-API-key requests are
+    // throttled, bucketed per credential, and allowlisted teams bypass. Secret-key requests
+    // carry no `rate_limit_key` and are not throttled. Runs before the DB lookup to shield PG.
+    if let Some(cred_key) = rate_limit_key {
+        if !state
+            .config
+            .rate_limiting_allow_list_teams
+            .0
+            .contains(&team_id)
+        {
+            state.remote_config_limiter.check_rate_limit(cred_key)?;
+        }
+    }
 
     // Flag lookup scoped to the project. 404 if missing or not a remote config flag.
     let Some((filters, is_remote_configuration, has_encrypted_payloads)) =
@@ -221,9 +235,11 @@ async fn authenticate(
                 Err(e) => Err(e),
             };
         }
+        // Secret-key requests are not throttled by Django's RemoteConfigThrottle.
         return Ok(AuthOutcome::Authorized {
             should_decrypt: false,
             team_id,
+            rate_limit_key: None,
         });
     }
 
@@ -246,6 +262,9 @@ async fn authenticate(
         };
         let pak_id =
             auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await?;
+        // Per-credential throttle bucket (Django keys on the hashed bearer token; the stable
+        // pak id is an equivalent per-credential identifier for our in-memory limiter).
+        let rate_limit_key = Some(pak_id.clone());
 
         // Track PAK usage like flag_definitions does, so a key used only for remote config
         // doesn't look dormant and get rotated as unused. Advisory: shared Redis (not the
@@ -260,6 +279,7 @@ async fn authenticate(
         return Ok(AuthOutcome::Authorized {
             should_decrypt: true,
             team_id: scope_team_id,
+            rate_limit_key,
         });
     }
 
