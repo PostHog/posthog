@@ -38,23 +38,30 @@ Use Visual review as the concrete reference implementation:
 Before changing code, get the baseline:
 
 ```bash
-hogli product:maturity <name>    # scores models, facade, presentation, boundaries, codegen
-hogli product:lint <name>        # structural lint + isolation chain (strict if facade/contracts.py exists)
-rg -n "from products\.<name>\.backend\.(models|logic|presentation|tasks|storage)" .
-rg -o --pcre2 "(from|import) products\.<name>\.backend\.(?!facade)" posthog ee | wc -l   # core-coupling count (internals only)
+hogli product:maturity <name>       # scores models, facade, presentation, boundaries, codegen
+hogli product:lint <name>           # structural lint + isolation chain (strict if facade/contracts.py exists)
+hogli product:isolate:scan <name>   # the recon: import map, coupling gate, preflight (see below)
 ```
 
-The `rg` output is your import map: every line is a caller that needs to migrate to the facade.
-Also search for the bare module paths, not just import statements — string references
-(`@patch("products.<name>.backend...")` mock paths, dotted names in config) move with the code too.
-The core-coupling count picks the PR strategy below: near zero means the whole migration fits
-the single-PR default; triple digits means the caller sweep needs slicing by owning team.
+The scan does the recon that would otherwise cost a dozen ad-hoc greps, and is the
+source of truth for the rest of the flow:
 
-`product:lint` switches from lenient to strict the moment `facade/contracts.py` exists, so check
-the strict structural requirements up front instead of discovering them mid-migration: root
-`tsconfig.json`, `tasks.py` at `tasks/tasks.py` (pin the celery task `name=` to its pre-move path
-so queued messages stay routable), and only canonical `backend/` subdirectories (`_KNOWN_DIRS` in
-`tools/hogli-commands/.../product/checks.py` — e.g. `templates/` is recognized, `prompts/` is not).
+- **References by kind** — every cross-boundary reference to the product's internals,
+  classified (model-access, query-runner, celery-task, temporal-wiring, test-fixture,
+  string-reference) with the facade pattern each kind maps to. This is the sweep
+  checklist; string references (`@patch(...)` mock paths, dotted names in config) are
+  included, which import-oriented grepping misses.
+- **Core-coupling count** — picks the PR strategy below: near zero means the whole
+  migration fits the single-PR default; triple digits means the caller sweep needs
+  slicing by owning team.
+- **Strict-lint preflight** — `product:lint` switches from lenient to strict the moment
+  `facade/contracts.py` exists; the scan runs the structural checks in forced-strict
+  mode so those demands (root `tsconfig.json`, `tasks.py` at `tasks/tasks.py`, only
+  canonical `backend/` subdirectories) surface up front instead of mid-migration.
+- **Thin/thick signal per view module** — the future `ignore_imports` allowlist size.
+
+`--json` emits the machine-readable recipe — keep it with the PR; regenerating the
+migration against fresh master starts from a fresh scan.
 
 ## Guardrails
 
@@ -116,8 +123,11 @@ so queued messages stay routable), and only canonical `backend/` subdirectories 
      surface without re-running the full suite. Compensating controls exist (the OpenAPI
      validation job runs on every backend PR, the product's own tests cover its views,
      master pushes run everything), but make the deferral a named decision in the PR.
-   - When moving modules, rewrite string references too (`@patch(...)` paths) — and use a
-     rewrite tool with real word boundaries (perl; BSD sed's `\b` silently no-ops).
+   - The mechanical share is one command: `hogli product:isolate:move <name>` (run
+     `--dry-run` first) moves the ViewSet modules into `presentation/views/` (auto-detected,
+     `--views` to override), `tasks.py` into a `tasks/` package with celery names pinned,
+     absolutizes relative imports, and rewrites the dotted paths repo-wide — imports and
+     string references (`@patch(...)` mock paths) alike, with tested word boundaries.
 6. Enforce boundaries and verify. This is a four-step chain — each step depends
    on the previous one, and `hogli product:lint` (via `IsolationChainCheck`)
    fails if any step is skipped:
@@ -172,8 +182,9 @@ and let commit structure — not PR boundaries — organize review.
    behavioral-parity tests. Pure additions; reviewers read this commit as the design.
 2. **Commit — sweep.** All caller migrations. Mechanical; reviewers sample, the
    verification chain carries it.
-3. **Commit — structure + chain.** Presentation move, strict-lint fixes, tach
-   interface, `backend:contract-check`, narrowed `turbo.json`.
+3. **Commit — structure + chain.** Presentation move and rewrites
+   (`hogli product:isolate:move`), strict-lint fixes, tach interface,
+   `backend:contract-check`, narrowed `turbo.json`.
 
 Don't split the facade into its own PR for reviewability: new files cannot conflict
 regardless of which PR they sit in, so a standalone design PR buys no conflict
