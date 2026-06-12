@@ -176,6 +176,7 @@
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
          "posthog_featureflag"."bucketing_identifier",
+         "posthog_featureflag"."evaluation_contexts_match_mode",
          "posthog_featureflag"."last_called_at"
   FROM "posthog_earlyaccessfeature"
   INNER JOIN "posthog_team" ON ("posthog_earlyaccessfeature"."team_id" = "posthog_team"."id")
@@ -637,6 +638,7 @@
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
          "posthog_featureflag"."bucketing_identifier",
+         "posthog_featureflag"."evaluation_contexts_match_mode",
          "posthog_featureflag"."last_called_at"
   FROM "posthog_earlyaccessfeature"
   INNER JOIN "posthog_team" ON ("posthog_earlyaccessfeature"."team_id" = "posthog_team"."id")
@@ -917,6 +919,7 @@
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
          "posthog_featureflag"."bucketing_identifier",
+         "posthog_featureflag"."evaluation_contexts_match_mode",
          "posthog_featureflag"."last_called_at"
   FROM "posthog_earlyaccessfeature"
   INNER JOIN "posthog_team" ON ("posthog_earlyaccessfeature"."team_id" = "posthog_team"."id")
@@ -1096,6 +1099,7 @@
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
          "posthog_featureflag"."bucketing_identifier",
+         "posthog_featureflag"."evaluation_contexts_match_mode",
          "posthog_featureflag"."last_called_at"
   FROM "posthog_earlyaccessfeature"
   INNER JOIN "posthog_team" ON ("posthog_earlyaccessfeature"."team_id" = "posthog_team"."id")

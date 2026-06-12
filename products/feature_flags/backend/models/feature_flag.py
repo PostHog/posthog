@@ -124,6 +124,25 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         help_text="Identifier used for bucketing users into rollout and variants",
     )
 
+    EVALUATION_CONTEXTS_MATCH_MODE_CHOICES = [
+        ("any", "Match any"),
+        ("all", "Match all"),
+    ]
+    # How declared evaluation contexts are matched against a request's contexts.
+    # "any" (default): evaluate when the SDK declares at least one of the flag's contexts.
+    # "all": evaluate only when the SDK declares every one of them.
+    # Matching itself is performed by the Rust /flags service; see collect_excluded_by_tags.
+    # db_default keeps a Postgres-level default so the Rust raw INSERT (test_utils) and the
+    # disable_migrations schema-from-models test path stay backwards compatible.
+    evaluation_contexts_match_mode = models.CharField(
+        max_length=10,
+        choices=EVALUATION_CONTEXTS_MATCH_MODE_CHOICES,
+        default="any",
+        db_default="any",
+        blank=True,
+        help_text="How the flag's evaluation contexts are matched against a request's declared contexts",
+    )
+
     # Cache projection: stored in Redis but not a DB field. Avoids N+1 queries
     # when accessing evaluation context names for many flags at once.
     _evaluation_tag_names: Optional[list[str]] = None
