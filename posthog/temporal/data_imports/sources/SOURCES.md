@@ -72,6 +72,7 @@ the row lists both.
 | confluence       | HTTP                        | requests                                                        | ✅                          |
 | chartmogul       | HTTP                        | requests                                                        | ✅                          |
 | circleci         | HTTP                        | requests                                                        | ✅                          |
+| clari            | HTTP                        | requests                                                        | ✅                          |
 | clerk            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickup          | HTTP                        | requests                                                        | ✅                          |
@@ -79,11 +80,14 @@ the row lists both.
 | convertkit       | HTTP                        | requests                                                        | ✅                          |
 | convex           | HTTP                        | requests                                                        | ✅                          |
 | copper           | HTTP                        | requests                                                        | ✅                          |
+| coupa            | HTTP                        | requests                                                        | ✅                          |
 | crunchbase       | HTTP                        | requests                                                        | ✅                          |
 | culture_amp      | HTTP                        | requests                                                        | ✅                          |
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog          | HTTP                        | requests                                                        | ✅                          |
+| deel             | HTTP                        | requests                                                        | ✅                          |
 | delighted        | HTTP                        | requests                                                        | ✅                          |
+| dixa             | HTTP                        | requests                                                        | ✅                          |
 | doit             | HTTP                        | requests                                                        | ✅                          |
 | drip             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk        | HTTP                        | requests                                                        | ✅                          |
@@ -94,6 +98,7 @@ the row lists both.
 | fullstory        | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | gitlab           | HTTP                        | requests                                                        | ✅                          |
+| gladly           | HTTP                        | requests                                                        | ✅                          |
 | gocardless       | HTTP                        | requests                                                        | ✅                          |
 | gong             | HTTP                        | requests                                                        | ✅                          |
 | google_ads       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
@@ -102,6 +107,7 @@ the row lists both.
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse       | HTTP                        | requests                                                        | ✅                          |
 | guru             | HTTP                        | requests                                                        | ✅                          |
+| hibob            | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | incident_io      | HTTP                        | requests                                                        | ✅                          |
 | intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -130,6 +136,7 @@ the row lists both.
 | notion           | HTTP                        | requests                                                        | ✅                          |
 | omnisend         | HTTP                        | requests                                                        | ✅                          |
 | ortto            | HTTP                        | requests                                                        | ✅                          |
+| outbrain         | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
 | optimizely       | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
@@ -183,6 +190,7 @@ the row lists both.
 | wrike            | HTTP                        | requests                                                        | ✅                          |
 | zendesk          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zoom             | HTTP                        | requests                                                        | ✅                          |
+| zuora            | HTTP                        | requests                                                        | ✅                          |
 
 ### Notes on partially-tracked sources
 
@@ -238,19 +246,15 @@ doesn't conflict with concurrent PRs.
 - campaign_manager_360
 - checkout_com
 - chorus
-- clari
 - cloudflare
 - cockroachdb
 - constant_contact
 - copper
 - cosmosdb
-- coupa
 - criteo
 - databricks
 - db2
-- deel
 - display_video_360
-- dixa
 - docusign
 - dropbox
 - dynamics365
@@ -261,7 +265,6 @@ doesn't conflict with concurrent PRs.
 - facebook_pages
 - firebase
 - freshbooks
-- gladly
 - google_ad_manager
 - google_analytics
 - google_cloud_storage
@@ -270,6 +273,7 @@ doesn't conflict with concurrent PRs.
 - heap
 - helpscout
 - hibob
+- incident_io
 - instagram
 - kafka
 - lever
@@ -282,7 +286,6 @@ doesn't conflict with concurrent PRs.
 - oracle
 - oracle_ebs
 - oracle_fusion
-- outbrain
 - outreach
 - pagerduty
 - pardot
@@ -310,7 +313,6 @@ doesn't conflict with concurrent PRs.
 - youtube_analytics
 - zoho_crm
 - zoominfo
-- zuora
 
 ---
 

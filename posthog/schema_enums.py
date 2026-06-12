@@ -1347,6 +1347,7 @@ class ExternalDataSourceType(StrEnum):
     AMAZON_SQS = "AmazonSQS"
     AMAZON_KINESIS = "AmazonKinesis"
     AMAZON_CLOUD_WATCH = "AmazonCloudWatch"
+    OPEN_AI_ADS = "OpenAIAds"
     CUSTOM = "Custom"
 
 
