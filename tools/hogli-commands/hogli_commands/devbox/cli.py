@@ -21,6 +21,7 @@ from typing import Any
 import click
 from hogli.manifest import get_manifest
 
+from . import mutagen
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
     DEFAULT_PRESET,
@@ -33,6 +34,7 @@ from .coder import (
     REGIONS,
     _diagnose_unreachable_coder,
     _fail,
+    _start_app_param,
     coder_authenticated,
     coder_installed,
     coder_reachable,
@@ -72,6 +74,7 @@ from .coder import (
     parse_workspace_target,
     port_forward_replace,
     print_setup_summary,
+    region_from_workspace_name,
     restart_workspace,
     server_supports_user_secrets,
     share_workspace,
@@ -120,6 +123,11 @@ WORKSPACE_STATUS_COLORS = {
 }
 PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
+# Printed whenever --start-app/--no-start-app is passed but cannot be applied:
+# the parameter is only pushed on the pre-start sync of a stopped workspace,
+# so the flag is dropped (not queued) on running/transitioning boxes.
+_START_APP_NOT_APPLIED_NOTE = "Note: --start-app/--no-start-app was not applied; re-run it once the devbox is stopped."
+
 
 def resolve_workspace_name(
     workspace: str | None, *, region: str | None = None
@@ -136,11 +144,13 @@ def resolve_workspace_name(
     when available, so callers can skip a second ``_list_workspaces`` call.
 
     ``region`` controls the region suffix used when constructing names for
-    workspaces that don't exist yet (e.g. ``devbox:start --region``). When
+    workspaces that don't exist yet (a bare ``devbox:start --region`` bypasses
+    this resolver and targets the region's default name directly). When
     resolving an OWN label against the user's actual workspaces, the region
     suffix is treated as a preference, not a constraint: if the preferred
     name doesn't exist but a workspace with the same label exists in another
-    region, that one is returned. This keeps a saved region pref from
+    region, that one is returned. The same fallback applies to the default
+    workspace in the multi-box case. This keeps a saved region pref from
     silently masking existing workspaces created before the pref was set.
     """
     effective_region = region if region is not None else _preferred_region()
@@ -161,10 +171,13 @@ def resolve_workspace_name(
     if len(workspaces) == 1:
         return workspaces[0]["name"], workspaces
 
-    # Multiple workspaces -- prefer default
-    default_name = get_workspace_name(region=effective_region)
-    for ws in workspaces:
-        if ws.get("name") == default_name:
+    # Multiple workspaces -- prefer the effective region's default, then
+    # defaults in other regions (a region pref should not mask the box the
+    # user actually has -- same philosophy as the label fallback above).
+    existing_names = {ws.get("name") for ws in workspaces}
+    for candidate_region in (effective_region, *(r for r in REGIONS if r != effective_region)):
+        default_name = get_workspace_name(region=candidate_region)
+        if default_name in existing_names:
             return default_name, workspaces
 
     # No default among multiple -- require explicit workspace argument
@@ -245,6 +258,10 @@ def _print_connection_info(name: str) -> None:
     for label, command in commands:
         click.echo(f"  {label:<8} hogli {command}{suffix}")
 
+    if not mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
+        click.echo()
+        click.echo(f"  Tip: run `hogli devbox:sync{suffix}` to mirror your local checkout to this devbox.")
+
 
 def _workspace_arg_suffix(name: str) -> str:
     """Return the optional CLI suffix for a named workspace."""
@@ -266,7 +283,41 @@ def _workspace_status_color(status: str) -> str:
     return WORKSPACE_STATUS_COLORS.get(status, "white")
 
 
-def _sync_workspace_parameters(name: str) -> None:
+def _ljust_styled(text: str, width: int) -> str:
+    """Left-justify a click-styled string to ``width`` *visible* columns.
+
+    A plain ``f"{text:<width}"`` counts the invisible ANSI escape codes toward
+    the width and under-pads colored cells; measure off the unstyled text so
+    columns line up with their (unstyled) headers.
+    """
+    return text + " " * max(0, width - len(click.unstyle(text)))
+
+
+def _render_sync_status(workspace_name: str) -> str:
+    """Return a single-line summary of the mutagen sync state for a workspace.
+
+    Reads the first session matching the workspace label. If multiple sessions
+    happen to share the label (shouldn't happen via hogli, but possible via
+    direct mutagen use), only the first is rendered -- intentionally simple.
+    """
+    sessions = mutagen.sync_list(label_selector=mutagen.workspace_label_selector(workspace_name))
+    if not sessions:
+        return click.style("○ not configured", fg="white")
+    session = sessions[0]
+    if session.get("paused"):
+        return click.style("⚠ paused", fg="yellow")
+    conflicts = mutagen.conflict_count(session)
+    if conflicts:
+        return click.style(f"⚠ {conflicts} conflict{'s' if conflicts != 1 else ''}", fg="red")
+    status = str(session.get("status", "")).strip() or "running"
+    # mutagen reports a stalled sync (box stopped, remote root gone) as a
+    # `disconnected`/`halted-*` status; a green dot there would read as healthy.
+    if status == "disconnected" or status.startswith("halted"):
+        return click.style(f"✗ {status}", fg="red")
+    return click.style(f"● {status}", fg="green")
+
+
+def _sync_workspace_parameters(name: str, extra: dict[str, str] | None = None) -> None:
     """Push local config (git identity, dotfiles) to workspace parameters before start.
 
     `workspace_region` is intentionally not forwarded: it is immutable, so Coder
@@ -286,24 +337,35 @@ def _sync_workspace_parameters(name: str) -> None:
     if dotfiles_uri:
         params[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
+    if extra:
+        params.update(extra)
+
     if params:
         update_workspace_parameters(name, params)
 
 
-def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: bool) -> None:
+def _start_existing_workspace(
+    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
+) -> None:
     """Handle `devbox:start` when the workspace already exists."""
     status = get_workspace_status(workspace)
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
+        if start_app is not None:
+            # Pushing the parameter needs `coder update`, which rebuilds a
+            # running workspace -- only safe on the pre-start sync below.
+            click.echo(_START_APP_NOT_APPLIED_NOTE)
         _print_connection_info(name)
         return
 
     if status in PENDING_WORKSPACE_STATES:
         click.echo(f"Devbox '{name}' is in state: {status}")
         click.echo("Wait for the current operation to complete.")
+        if start_app is not None:
+            click.echo(_START_APP_NOT_APPLIED_NOTE)
         return
 
-    _sync_workspace_parameters(name)
+    _sync_workspace_parameters(name, extra=_start_app_param(start_app))
 
     if status == "stopped":
         click.echo(f"Starting devbox '{name}'...")
@@ -543,17 +605,25 @@ def maybe_configure_git_signing(
     click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
 
 
+def _saved_region() -> str | None:
+    """Return the saved region preference, or ``None`` when absent or invalid.
+
+    A persisted value that's no longer in ``REGIONS`` (e.g. a stale entry
+    from a hand-edited config) reads as unset instead of poisoning every
+    downstream lookup.
+    """
+    saved = load_config().get("region")
+    return saved if saved in REGIONS else None
+
+
 def _preferred_region() -> str:
     """Return the saved preferred region, falling back to ``DEFAULT_REGION``.
 
     Centralized so every command path that needs the user's region
     preference reads the same value -- and so the fallback to the built-in
-    default lives in one place. A persisted value that's no longer in
-    ``REGIONS`` (e.g. a stale entry from a hand-edited config) falls back
-    to ``DEFAULT_REGION`` instead of poisoning every downstream lookup.
+    default lives in one place.
     """
-    saved = load_config().get("region")
-    return saved if saved in REGIONS else DEFAULT_REGION
+    return _saved_region() or DEFAULT_REGION
 
 
 def maybe_configure_region(configure_region: bool | None) -> None:
@@ -970,6 +1040,7 @@ def _confirm_run_setup() -> bool:
     click.echo("hogli devbox:setup will check or configure:")
     click.echo("  - Tailscale + Coder reachability")
     click.echo("  - Local SSH config for Coder hosts")
+    click.echo("  - File sync tooling (mutagen) for devbox:sync")
     click.echo("  - Git identity (name/email) for new workspaces")
     click.echo("  - Git commit signing key propagation")
     click.echo("  - Preferred region for new workspaces (optional)")
@@ -1053,6 +1124,13 @@ def devbox_setup(
         click.echo("Aborted. Re-run `hogli devbox:setup` when ready.")
         return
 
+    mutagen.ensure_mutagen_installed(verbose=verbose)
+    mutagen.ensure_daemon_with_shim()
+    click.echo(
+        "  Note: the mutagen daemon is left unregistered from login auto-start so devbox "
+        "sync can apply its ssh keepalive fix; it starts on demand the next time you sync."
+    )
+    mutagen.ensure_user_mutagen_config()
     maybe_configure_ssh(
         configure_ssh=configure_ssh,
         identity_agent_socket=_resolve_local_identity_agent_for_coder(),
@@ -1075,14 +1153,18 @@ def devbox_list() -> None:
     if not workspaces:
         click.echo("No devboxes found. Run 'hogli devbox:start' to create one.")
     else:
-        click.echo(f"{'LABEL':<16} {'STATUS':<12} {'REGION':<14} {'NAME'}")
+        click.echo(f"{'LABEL':<16} {'STATUS':<12} {'REGION':<14} {'SYNC':<18} {'NAME'}")
         for ws in workspaces:
             ws_name = ws.get("name", "")
             label = extract_workspace_label(ws_name) or "(default)"
             status = get_workspace_status(ws)
             region = get_workspace_region(ws) or "unknown"
             styled_status = click.style(status, fg=_workspace_status_color(status))
-            click.echo(f"  {label:<14} {styled_status:<20} {region:<14} {ws_name}")
+            sync_state = _render_sync_status(ws_name)
+            click.echo(
+                f"  {label:<14} {_ljust_styled(styled_status, 12)} "
+                f"{region:<14} {_ljust_styled(sync_state, 18)} {ws_name}"
+            )
 
     shared = list_shared_workspaces()
     if shared:
@@ -1202,6 +1284,24 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     click.echo(click.style("Restart your devbox for this to take effect.", fg="yellow"))
 
 
+def _maybe_hint_region_mismatch(name: str) -> None:
+    """On resuming a default box outside the saved region pref, say how to get one there.
+
+    Quiet for labeled boxes -- the pref only governs the default box. Callers
+    gate on a bare invocation (a label or ``--region`` is already a deliberate
+    choice).
+    """
+    saved = _saved_region()
+    if saved is None or extract_workspace_label(name) is not None:
+        return
+    box_region = region_from_workspace_name(name)
+    if box_region != saved:
+        click.echo(
+            f"Your devbox '{name}' is in {box_region}, but your saved region is {saved}. "
+            f"Create a {saved} devbox with `hogli devbox:start --region {saved}`."
+        )
+
+
 @click.command(name="devbox:start", help="Start or create your remote devbox")
 @workspace_argument
 @click.option(
@@ -1229,8 +1329,18 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     type=click.Choice(REGIONS),
     default=None,
     help=(
-        "Region to create the devbox in (set once at creation, cannot be changed later). "
-        "Defaults to the value saved by `devbox:setup --configure-region`, then us-east-1."
+        "Region whose default devbox to start, creating it if needed (a devbox's region is "
+        "set at creation and cannot change). Defaults to the value saved by "
+        "`devbox:setup --configure-region`, then us-east-1."
+    ),
+)
+@click.option(
+    "--start-app/--no-start-app",
+    "start_app",
+    default=None,
+    help=(
+        "Bring the PostHog app up in the background on every workspace start. "
+        "Sticky on the workspace until flipped with --no-start-app."
     ),
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
@@ -1240,19 +1350,27 @@ def devbox_start(
     template: str,
     preset: str,
     region: str | None,
+    start_app: bool | None,
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
     ensure_runtime_ready()
     effective_region = region or _preferred_region()
-    # Thread the effective region into name resolution so an explicit
-    # --region overrides the saved preference for both the new workspace's
-    # region AND its `-eu` name suffix.
-    name, workspaces = resolve_workspace_name(workspace, region=effective_region)
+    if workspace is None and region is not None:
+        # An explicit --region targets that region's default directly, so it
+        # can be created (or resumed) regardless of boxes in other regions.
+        name = get_workspace_name(region=effective_region)
+        workspaces: list[dict[str, Any]] | None = list_user_workspaces()
+    else:
+        # Resolution prefers the effective region's default but falls back to
+        # the box the user already has -- a saved pref alone never abandons it.
+        name, workspaces = resolve_workspace_name(workspace, region=effective_region)
     ws = get_workspace(name, workspaces)
 
     if ws is not None:
-        _start_existing_workspace(name, ws, verbose=verbose)
+        if workspace is None and region is None:
+            _maybe_hint_region_mismatch(name)
+        _start_existing_workspace(name, ws, start_app=start_app, verbose=verbose)
         return
 
     config = load_config()
@@ -1269,6 +1387,7 @@ def devbox_start(
         region=effective_region,
         template=template,
         preset=preset,
+        start_app=start_app,
         verbose=verbose,
     )
     click.echo("Created.")
@@ -1326,6 +1445,10 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
     click.echo(f"Updating '{name}' to the latest template...")
     update_workspace(name, parameters=params, verbose=verbose)
     click.echo("Updated.")
+    click.echo(
+        "Note: if your local lockfiles differ from the new AMI's baked versions, "
+        "expect a one-time dep re-install on next workspace start (2-5 min)."
+    )
     _print_connection_info(name)
 
 
@@ -1378,6 +1501,15 @@ def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool) ->
 
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
+
+    if (vscode or cursor) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
+        ide = "VS Code" if vscode else "Cursor"
+        click.echo(
+            click.style(
+                f"⚠ Sync is active for '{name}'. Editing in {ide} Remote can conflict with the local source of truth.",
+                fg="yellow",
+            )
+        )
 
     if vscode:
         click.echo(f"Opening '{name}' in VS Code...")
@@ -1584,6 +1716,16 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
         click.echo("Cancelled.")
         return
 
+    label = mutagen.workspace_label_selector(name)
+    if mutagen.sync_list(label_selector=label):
+        try:
+            mutagen.sync_terminate(label)
+            click.echo("Sync session terminated.")
+        except SystemExit:
+            # Best-effort: a stuck mutagen daemon should not block the user
+            # from destroying their devbox. The session ends with the remote.
+            click.echo(click.style("Warning: failed to terminate sync session; continuing.", fg="yellow"))
+
     delete_workspace(name, verbose=verbose)
     click.echo("Destroyed.")
 
@@ -1605,6 +1747,7 @@ def devbox_status(workspace: str | None) -> None:
     click.echo(f"  Name:    {name}")
     click.echo(f"  Status:  {click.style(status, fg=_workspace_status_color(status))}")
     click.echo(f"  Region:  {get_workspace_region(ws) or 'unknown'}")
+    click.echo(f"  Sync:    {_render_sync_status(name)}")
 
     if ws.get("outdated"):
         click.echo(click.style("  Update:  template update available", fg="yellow"))

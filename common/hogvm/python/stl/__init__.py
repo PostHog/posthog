@@ -456,7 +456,7 @@ def apply_interval_to_datetime(dt: dict, interval: dict) -> dict:
 
     zone = dt["zone"] if is_hog_datetime(dt) else "UTC"
     if is_hog_datetime(dt):
-        base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+        base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
         base_dt = pytz.timezone(zone).localize(base_dt)
     else:
         base_dt = datetime.datetime(dt["year"], dt["month"], dt["day"], tzinfo=pytz.timezone(zone))
@@ -544,7 +544,9 @@ def date_diff(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     def to_dt(obj):
         if is_hog_datetime(obj):
             z = obj["zone"]
-            return pytz.timezone(z).localize(datetime.datetime.utcfromtimestamp(obj["dt"]))
+            return pytz.timezone(z).localize(
+                datetime.datetime.fromtimestamp(obj["dt"], datetime.UTC).replace(tzinfo=None)
+            )
         elif is_hog_date(obj):
             return pytz.UTC.localize(datetime.datetime(obj["year"], obj["month"], obj["day"]))
         else:
@@ -584,7 +586,7 @@ def date_trunc(args: list[Any], team: Optional["Team"], stdout: Optional[list[st
         raise ValueError("Expected a DateTime for dateTrunc")
 
     zone = dt["zone"]
-    base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+    base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
     base_dt = pytz.timezone(zone).localize(base_dt)
 
     if unit == "year":
@@ -707,7 +709,9 @@ def extract(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
     def to_dt(obj):
         if is_hog_datetime(obj):
             z = obj["zone"]
-            return pytz.timezone(z).localize(datetime.datetime.utcfromtimestamp(obj["dt"]))
+            return pytz.timezone(z).localize(
+                datetime.datetime.fromtimestamp(obj["dt"], datetime.UTC).replace(tzinfo=None)
+            )
         elif is_hog_date(obj):
             return pytz.UTC.localize(datetime.datetime(obj["year"], obj["month"], obj["day"]))
         else:
@@ -813,7 +817,7 @@ def toStartOfWeek(args: list[Any], team: Optional["Team"], stdout: Optional[list
             dt = toDateTime(f"{dt['year']}-{dt['month']:02d}-{dt['day']:02d}")
         else:
             raise ValueError("Expected a Date or DateTime")
-    base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+    base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
     zone = dt["zone"]
     base_dt = pytz.timezone(zone).localize(base_dt)
     weekday = base_dt.isoweekday()  # Monday=1, Sunday=7

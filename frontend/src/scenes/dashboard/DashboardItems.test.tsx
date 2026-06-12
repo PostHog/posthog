@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -17,6 +17,7 @@ jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: jest.fn(),
     useActions: jest.fn(),
+    useAsyncActions: jest.fn(),
 }))
 
 jest.mock('scenes/dashboard/dashboardLogic', () => ({
@@ -140,6 +141,7 @@ jest.mock('@posthog/products-dashboards/frontend/components/DashboardWidgetItem/
 
 const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
+const mockedUseAsyncActions = useAsyncActions as jest.Mock
 
 describe('DashboardItems', () => {
     beforeEach(() => {
@@ -159,6 +161,7 @@ describe('DashboardItems', () => {
                         sm: [{ i: '1', x: 0, y: 0, w: 6, h: 5 }],
                     },
                     dashboardMode: DashboardMode.Edit,
+                    layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
                     isRefreshing: () => false,
@@ -195,7 +198,6 @@ describe('DashboardItems', () => {
                     duplicateTile: jest.fn(),
                     refreshDashboardItem: jest.fn(),
                     refreshDashboardWidgets: jest.fn(),
-                    updateWidgetTileMetadata: jest.fn(),
                     moveToDashboard: jest.fn(),
                     copyToDashboard: jest.fn(),
                     setTileOverride: jest.fn(),
@@ -223,6 +225,16 @@ describe('DashboardItems', () => {
 
             return {}
         })
+
+        mockedUseAsyncActions.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    updateWidgetTile: jest.fn(),
+                }
+            }
+
+            return {}
+        })
     })
 
     it('matches snapshot in edit mode with layout zoom enabled', () => {
@@ -230,7 +242,7 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
-    it('hides widget tiles on public dashboards', () => {
+    it('shows widget tiles on public dashboards', () => {
         const widgetTile = {
             id: 2,
             widget: { id: 1, widget_type: 'error_tracking_list', config: {} },
@@ -270,7 +282,7 @@ describe('DashboardItems', () => {
             return {}
         })
 
-        const { queryByTestId } = render(<DashboardItems />)
-        expect(queryByTestId('widget-card')).not.toBeInTheDocument()
+        const { getByTestId } = render(<DashboardItems />)
+        expect(getByTestId('widget-card')).toBeInTheDocument()
     })
 })

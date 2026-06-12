@@ -7,7 +7,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
@@ -62,7 +62,7 @@ class FailMaterializationInputs:
     update_node: bool = True
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     # strip hostnames from error for user-facing storage while preserving original for logging
     sanitized_error = strip_hostname_from_error(inputs.error)
@@ -93,14 +93,14 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     return node, job
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_saved_query_for_job(job: DataModelingJob) -> DataWarehouseSavedQuery | None:
     if not job.saved_query_id:
         return None
     return DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(id=job.saved_query_id).first()
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _maybe_pause_schedule_on_timeout(job: DataModelingJob, saved_query: DataWarehouseSavedQuery) -> bool:
     """Pause the schedule only if the previous N jobs all failed due to timeouts.
 
@@ -119,7 +119,7 @@ def _maybe_pause_schedule_on_timeout(job: DataModelingJob, saved_query: DataWare
     return True
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _revert_materialization_on_unknown_table(job: DataModelingJob, saved_query: DataWarehouseSavedQuery) -> None:
     saved_query.revert_materialization()
     # we can use this specific language in the error to add these jobs to the daily email digest later

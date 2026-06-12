@@ -1,5 +1,5 @@
-import { computeSeriesNonZeroMax } from 'lib/hog-charts'
-import type { Series } from 'lib/hog-charts'
+import { computeSeriesNonZeroMax } from '@posthog/quill-charts'
+import type { Series } from '@posthog/quill-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 

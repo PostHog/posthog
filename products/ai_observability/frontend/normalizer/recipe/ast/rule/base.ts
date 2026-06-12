@@ -16,7 +16,7 @@ export abstract class Rule {
         const messages: CompatMessage[] = []
         for (const followup of this.followups) {
             if (followup.kind === 'static') {
-                const msg = engine.coercer.buildMessage(followup.emit, scope)
+                const msg = engine.coercer.buildMessage(followup.emit, scope, /* allowDrop */ true)
                 if (msg) {
                     messages.push(msg)
                 }

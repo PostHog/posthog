@@ -4,7 +4,6 @@
 # block plus a synthetic tool_calls message) via delegateEach + followups.
 
 id: anthropic
-priority: 50
 
 rules:
     - on:
@@ -82,7 +81,6 @@ rules:
               where: { type: tool_use }
       followups:
           - role: $.role
-            content: ''
             toolCalls: $.tool_calls
 
     - on:

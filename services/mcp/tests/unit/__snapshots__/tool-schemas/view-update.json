@@ -52,7 +52,7 @@
             "type": "string"
         },
         "query": {
-            "description": "HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT * FROM events LIMIT 100\"}",
+            "description": "HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}",
             "properties": {
                 "kind": {
                     "default": "HogQLQuery",

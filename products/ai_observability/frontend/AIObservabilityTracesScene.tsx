@@ -21,6 +21,7 @@ import { isTracesQuery } from '~/queries/utils'
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { normalizeMessages } from './messageNormalization'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
@@ -31,7 +32,6 @@ import {
     formatLLMUsage,
     getTraceTimestamp,
     LLM_TRACES_PAGE_SIZE,
-    normalizeMessages,
     sanitizeTraceUrlSearchParams,
 } from './utils'
 
@@ -88,12 +88,13 @@ export function AIObservabilityTraces(): JSX.Element {
 
 function TracesOptionsMenu(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { showInputOutputColumns } = useValues(aiObservabilityTracesTabLogic)
-    const { setShowInputOutputColumns } = useActions(aiObservabilityTracesTabLogic)
+    const { showInputOutputColumns, showSentimentColumn } = useValues(aiObservabilityTracesTabLogic)
+    const { setShowInputOutputColumns, setShowSentimentColumn } = useActions(aiObservabilityTracesTabLogic)
 
     const showInputOutputToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
+    const showSentimentToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
-    if (!showInputOutputToggleEnabled) {
+    if (!showInputOutputToggleEnabled && !showSentimentToggleEnabled) {
         return null
     }
 
@@ -103,14 +104,26 @@ function TracesOptionsMenu(): JSX.Element | null {
             placement="bottom-end"
             overlay={
                 <div className="flex flex-col gap-2 py-1 px-2 min-w-64">
-                    <LemonSwitch
-                        checked={showInputOutputColumns}
-                        onChange={setShowInputOutputColumns}
-                        label="Show input/output"
-                        fullWidth
-                        tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
-                        data-attr="llm-traces-show-input-output-toggle"
-                    />
+                    {showInputOutputToggleEnabled && (
+                        <LemonSwitch
+                            checked={showInputOutputColumns}
+                            onChange={setShowInputOutputColumns}
+                            label="Show input/output"
+                            fullWidth
+                            tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
+                            data-attr="llm-traces-show-input-output-toggle"
+                        />
+                    )}
+                    {showSentimentToggleEnabled && (
+                        <LemonSwitch
+                            checked={showSentimentColumn}
+                            onChange={setShowSentimentColumn}
+                            label="Show sentiment"
+                            fullWidth
+                            tooltip="Show the sentiment column. Turn off to skip computing sentiment for traces in the table."
+                            data-attr="llm-traces-show-sentiment-toggle"
+                        />
+                    )}
                 </div>
             }
         >
@@ -390,7 +403,7 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
 
-type NormalizedMessage = ReturnType<typeof normalizeMessages>[number]
+type NormalizedMessage = ReturnType<typeof normalizeMessages>['messages'][number]
 
 function hasDisplayableContent(message: NormalizedMessage): boolean {
     const { content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
@@ -487,13 +500,13 @@ function safeNormalize(
     raw: unknown,
     defaultRole: string,
     { strict }: { strict: boolean } = { strict: false }
-): ReturnType<typeof normalizeMessages> {
+): NormalizedMessage[] {
     const unwrapped = unwrapMessageContainer(raw, strict)
     if (unwrapped == null) {
         return []
     }
     try {
-        return normalizeMessages(unwrapped, defaultRole)
+        return normalizeMessages(unwrapped, defaultRole).messages
     } catch (e) {
         console.warn('Error normalizing trace messages', e)
         return []

@@ -9,6 +9,7 @@ from litellm import model_cost_map_url
 from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
 from llm_gateway.rate_limiting.cost_refresh import set_litellm_model_cost
+from llm_gateway.rate_limiting.model_cost_overrides import apply_model_cost_overrides
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +48,12 @@ class ModelCost(TypedDict, total=False):
     """Whether the model supports image/vision input."""
     mode: str
     """Model mode (e.g., "chat", "completion", "embedding")."""
+    cache_read_input_token_cost: float
+    """Cost in USD per cached input token read."""
+    cache_creation_input_token_cost: float
+    """Cost in USD per input token written to the cache."""
+    supports_prompt_caching: bool
+    """Whether the model supports prompt caching."""
 
 
 class ModelCostService:
@@ -77,6 +84,7 @@ class ModelCostService:
     def _refresh_cache(self) -> None:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
+            apply_model_cost_overrides(model_cost)
             set_litellm_model_cost(model_cost)
             # Keep provider sets in sync — see cost_refresh.py.
             litellm.add_known_models(model_cost)

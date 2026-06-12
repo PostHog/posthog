@@ -6,14 +6,15 @@ use std::sync::Arc;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogService;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
-    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
-    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
-    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
-    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
-    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
+    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -259,6 +260,13 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<GetGroupTypeMappingsByProjectIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         route_request!(self, get_group_type_mappings_by_project_ids, request)
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        request: Request<CountGroupTypeMappingsRequest>,
+    ) -> Result<Response<CountGroupTypeMappingsResponse>, Status> {
+        route_request!(self, count_group_type_mappings, request)
     }
 
     async fn get_group_type_mapping_by_dashboard_id(

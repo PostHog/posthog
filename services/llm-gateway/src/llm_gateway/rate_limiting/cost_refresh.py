@@ -8,6 +8,8 @@ import structlog
 from litellm import model_cost_map_url
 from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
+from llm_gateway.rate_limiting.model_cost_overrides import apply_model_cost_overrides
+
 logger = structlog.get_logger(__name__)
 
 CACHE_TTL_SECONDS = 300
@@ -84,6 +86,7 @@ class CostRefreshService:
     def refresh(self) -> None:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
+            apply_model_cost_overrides(model_cost)
             set_litellm_model_cost(model_cost)
             # Re-register provider sets (anthropic_models, etc.); else they stay frozen at import time.
             litellm.add_known_models(model_cost)

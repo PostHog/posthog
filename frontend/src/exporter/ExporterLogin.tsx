@@ -1,4 +1,4 @@
-import '../scenes/authentication/Login.scss'
+import '../scenes/authentication/login/Login.scss'
 
 import clsx from 'clsx'
 import { actions, kea, path, reducers, useValues } from 'kea'
@@ -9,8 +9,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { ERROR_MESSAGES } from 'scenes/authentication/Login'
-import { SupportModalButton } from 'scenes/authentication/SupportModalButton'
+import { ERROR_MESSAGES } from 'scenes/authentication/login/Login'
+import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 
 import type { loginLogicType } from './ExporterLoginType'
 

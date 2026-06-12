@@ -8,6 +8,7 @@ import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -49,6 +50,7 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
+    useMountedLogic(autofillReleaseLogic)
 
     useThemedHtml()
 

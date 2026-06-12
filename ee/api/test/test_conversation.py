@@ -30,8 +30,9 @@ from posthog.models.user import User
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.api.conversation import ConversationViewSet
-from ee.models.assistant import Conversation
 
 
 async def _async_generator():

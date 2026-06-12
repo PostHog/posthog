@@ -25,6 +25,9 @@ CLOUDFLARE_CONFIGURED = bool(CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID)
 TEST_IMAGE_URL = "https://posthog.com/brand/posthog-logo.png"
 
 
+pytestmark = pytest.mark.xfail(strict=False, reason="Anthropic may be rate-limited or temporarily unavailable")
+
+
 def _get_text_block(response) -> TextBlock:
     """Extract the first TextBlock from a response, skipping ThinkingBlocks."""
     for block in response.content:

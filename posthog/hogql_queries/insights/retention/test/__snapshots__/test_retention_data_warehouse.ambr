@@ -27,7 +27,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC')), toIntervalDay(1))), less(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(events.event, tuple('paid', 'posthog_test_warehouse_event_mix_signups')), or(equals(events.event, 'posthog_test_warehouse_event_mix_signups'), equals(events.event, 'paid')))
         GROUP BY actor_id) AS retention_events
      GROUP BY actor_id
@@ -45,6 +45,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
+                        optimize_rewrite_aggregate_function_with_if=0,
+                        optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
                         use_hive_partitioning=0
   '''
@@ -87,6 +89,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
+                        optimize_rewrite_aggregate_function_with_if=0,
+                        optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
                         use_hive_partitioning=0
   '''
@@ -129,6 +133,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
+                        optimize_rewrite_aggregate_function_with_if=0,
+                        optimize_min_inequality_conjunction_chain_length=4294967295,
                         allow_experimental_join_condition=1,
                         use_hive_partitioning=0
   '''

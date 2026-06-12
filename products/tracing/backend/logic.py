@@ -49,6 +49,16 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+# Day-range bound on time_bucket, pinned to UTC. With convertToProjectTimezone=False the date
+# constants print UTC-pinned, while bare DateTime columns read in the session tz; pinning both
+# sides keeps them on the same day grid so a non-UTC session can't drop same-day rows (which
+# previously emptied keyset page 2).
+TIME_BUCKET_DATE_RANGE_WHERE = (
+    "toStartOfDay(time_bucket, 'UTC') >= toStartOfDay({date_from}, 'UTC') "
+    "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
+)
+
+
 def _normalise_to_base64(value: str) -> str:
     try:
         int(value, 16)
@@ -185,7 +195,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
         exprs.append(
             parse_expr(
-                "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
+                TIME_BUCKET_DATE_RANGE_WHERE,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                 },
@@ -347,6 +357,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 # Per-trace pagination key (earliest matching-span timestamp); identical for every
                 # span of a trace. Falls back to this row's timestamp on the off chance it is null.
                 "trace_start": (result[13] or result[8]).replace(tzinfo=ZoneInfo("UTC")),
+                # OTel span attributes the user set, as a key-value map.
+                "attributes": result[14],
+                # Per-trace duration key (max matching-span duration); the offset-pagination key for
+                # the slowest/fastest sorts. Falls back to this row's own duration.
+                "trace_duration": result[15] if result[15] is not None else result[10],
             }
             results.append(row)
 
@@ -356,6 +371,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         response = super().run(*args, **kwargs)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
         return response
+
+    @property
+    def _by_duration(self) -> bool:
+        """Ordering by duration paginates via offset; ordering by timestamp via the time keyset."""
+        return self.query.orderBy == "duration"
 
     def _parse_after_cursor(self) -> tuple[dt.datetime, str] | None:
         """Decode the opaque `after` cursor into (trace_start_ts, trace_id_base64).
@@ -375,36 +395,53 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         return cursor_ts, cursor_trace_id_b64
 
     def to_query(self) -> ast.SelectQuery:
-        order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
+        by_duration = self._by_duration
+        order_dir = "ASC" if self.query.orderDirection == "ASC" else "DESC"
         limit_by_n = self.query.prefetchSpans or 1
 
-        # The list paginates by trace, ordered by each trace's start time (its earliest span, i.e.
-        # the root). We GROUP BY trace_id so the keyset cursor lands on a stable per-trace key —
-        # `LIMIT 1 BY trace_id` can't keyset cleanly because a multi-span trace straddling the
-        # cursor would be re-selected via its other spans.
-        cursor = self._parse_after_cursor()
-        op = ">" if self.query.orderBy == "earliest" else "<"
-        ts_op = ">=" if self.query.orderBy == "earliest" else "<="
+        # The list paginates by trace. We GROUP BY trace_id so the page key lands on a stable
+        # per-trace value — `LIMIT 1 BY trace_id` can't paginate cleanly because a multi-span trace
+        # straddling the boundary would be re-selected via its other spans. Time sorts order by each
+        # trace's start time (`min(timestamp)`) and keyset on it; duration sorts order by trace
+        # duration (`max(duration_nano)`) and offset-paginate (the time index can't prune a duration
+        # order, so keyset would pay its cost for none of its benefit).
+        sort_key_sql = "max(duration_nano)" if by_duration else "min(timestamp)"
+
+        # rootSpans is opt-in and gated on `is True` (not truthiness): the frontend never sends it
+        # (None), so its prefetch-driven waterfall is untouched. An explicit True narrows the
+        # trace-selection subquery to `is_root_span = 1`, so we only pick traces whose root matches
+        # the filter. The outer fetch is deliberately left unfiltered — it still prefetches every
+        # span of the selected traces so the waterfall gets its children.
+        root_only = self.query.rootSpans is True
 
         subquery_where_exprs: list[ast.Expr] = [self.where()]
+        if root_only:
+            subquery_where_exprs.append(parse_expr("is_root_span = 1"))
+
         having_expr: ast.Expr | None = None
-        if cursor is not None:
-            cursor_ts, cursor_trace_id = cursor
-            # Scalar bound on time_bucket lets ClickHouse prune parts via the primary index;
-            # min(timestamp) of any kept trace is always within this bound.
-            subquery_where_exprs.append(
-                parse_expr(
-                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
-                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+        if not by_duration:
+            cursor = self._parse_after_cursor()
+            op = ">" if order_dir == "ASC" else "<"
+            ts_op = ">=" if order_dir == "ASC" else "<="
+            if cursor is not None:
+                cursor_ts, cursor_trace_id = cursor
+                # Coarse day bound on time_bucket lets ClickHouse prune parts via the primary index.
+                # Pin both sides to UTC for the same reason as the where() date bound: the cursor
+                # constant prints UTC-pinned, so an unpinned toStartOfDay would truncate on the
+                # session-tz day grid and drop same-day rows under a non-UTC session.
+                subquery_where_exprs.append(
+                    parse_expr(
+                        f"toStartOfDay(time_bucket, 'UTC') {ts_op} toStartOfDay({{cursor_ts}}, 'UTC')",
+                        placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                    )
                 )
-            )
-            having_expr = parse_expr(
-                f"(min(timestamp), trace_id) {op} ({{cursor_ts}}, {{cursor_trace_id}})",
-                placeholders={
-                    "cursor_ts": ast.Constant(value=cursor_ts),
-                    "cursor_trace_id": ast.Constant(value=cursor_trace_id),
-                },
-            )
+                having_expr = parse_expr(
+                    f"(min(timestamp), trace_id) {op} ({{cursor_ts}}, {{cursor_trace_id}})",
+                    placeholders={
+                        "cursor_ts": ast.Constant(value=cursor_ts),
+                        "cursor_trace_id": ast.Constant(value=cursor_trace_id),
+                    },
+                )
 
         subquery_where = (
             subquery_where_exprs[0] if len(subquery_where_exprs) == 1 else ast.And(exprs=subquery_where_exprs)
@@ -427,18 +464,25 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
 
         assert isinstance(trace_id_query, ast.SelectQuery)
         trace_id_query.order_by = [
-            parse_order_expr(f"min(timestamp) {order_dir}"),
+            parse_order_expr(f"{sort_key_sql} {order_dir}"),
             parse_order_expr(f"trace_id {order_dir}"),
         ]
         if having_expr is not None:
             trace_id_query.having = having_expr
+        if by_duration and self.query.offset:
+            trace_id_query.offset = ast.Constant(value=self.query.offset)
 
-        # `trace_start` is the per-trace pagination key — the earliest timestamp among the spans
-        # matching the filters, i.e. exactly what the subquery's `min(timestamp)` HAVING/ORDER BY
-        # uses. Computing it here as a window over the (untruncated) span set lets the view read the
-        # SQL key directly instead of re-deriving min() over the prefetched spans, which is wrong
-        # for a trace whose earliest span isn't in the prefetched slice (e.g. a rootless trace with
-        # prefetchSpans > 1 and orderBy="latest").
+        # `trace_start` / `trace_duration` are the per-trace keys the view paginates and re-sorts on.
+        # They MUST aggregate over the same rows the trace-selection subquery grouped, or the keys
+        # diverge from the set the subquery picked — e.g. under root_only the subquery orders traces
+        # by `max(duration_nano)` over root spans, so a window over *all* spans would rank a trace by
+        # a long child the subquery never considered, corrupting the order and offset page boundaries.
+        # Scope the key windows to match the subquery (cursor/time bounds are deliberately excluded —
+        # the key is a property of the whole trace, not of the current page).
+        key_predicate: ast.Expr = self.where()
+        if root_only:
+            key_predicate = ast.And(exprs=[self.where(), parse_expr("is_root_span = 1")])
+
         query = parse_select(
             """
             SELECT
@@ -455,25 +499,38 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 duration_nano,
                 is_root_span,
                 {where} as matched_filter,
-                min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start
+                min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
+                {attributes},
+                max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration
             FROM posthog.trace_spans
             WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,
             placeholders={
                 "where": self.where(),
-                "where_for_start": self.where(),
+                "where_for_start": key_predicate,
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
                 "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                # The attribute map dominates payload size (db.statement holds multi-KB SQL). When
+                # excluded we still SELECT a column so the positional result mapping stays stable —
+                # an empty map instead of the real one.
+                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
             },
         )
         assert isinstance(query, ast.SelectQuery)
 
-        query.order_by = [
-            parse_order_expr("is_root_span DESC"),
-            parse_order_expr("matched_filter DESC"),
-            parse_order_expr(f"timestamp {order_dir}"),
-        ]
+        # Root rows drive the displayed list order. Time sorts order them by timestamp; duration sorts
+        # by the per-trace duration window (constant within a trace, so spans of a trace stay grouped).
+        base_order = [parse_order_expr("is_root_span DESC"), parse_order_expr("matched_filter DESC")]
+        if by_duration:
+            query.order_by = [
+                *base_order,
+                parse_order_expr(f"trace_duration {order_dir}"),
+                parse_order_expr(f"trace_id {order_dir}"),
+                parse_order_expr("timestamp ASC"),
+            ]
+        else:
+            query.order_by = [*base_order, parse_order_expr(f"timestamp {order_dir}")]
 
         query.limit_by = ast.LimitByExpr(
             n=ast.Constant(value=limit_by_n),
@@ -499,7 +556,7 @@ def run_service_names_query(
 
     exprs: list[ast.Expr] = [
         parse_expr(
-            "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
+            TIME_BUCKET_DATE_RANGE_WHERE,
             placeholders={**query_date_range.to_placeholders()},
         ),
         ast.Placeholder(expr=ast.Field(chain=["filters"])),
