@@ -135,6 +135,7 @@ class TestScoutCreateReportAPI(ScoutReportAPIBase):
 
     def test_create_skipped_when_scout_emit_disabled(self) -> None:
         run = _make_run(self.team)
+        assert run.scout_config is not None
         run.scout_config.emit = False
         run.scout_config.save(update_fields=["emit"])
         with _safety_filter() as mock_filter:
@@ -361,6 +362,7 @@ class TestScoutUpdateReportAPI(ScoutReportAPIBase):
 
     def test_update_skipped_when_scout_emit_disabled(self) -> None:
         run = _make_run(self.team)
+        assert run.scout_config is not None
         run.scout_config.emit = False
         run.scout_config.save(update_fields=["emit"])
         report = self._make_report()

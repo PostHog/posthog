@@ -1,0 +1,151 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "actionability": {
+            "anyOf": [
+                {
+                    "description": "An actionability judgment to append to the report. Stored as an `actionability_judgment`\nartefact; latest-wins on read, same as priority.",
+                    "properties": {
+                        "actionability": {
+                            "description": "Whether the issue can be acted on as-is: `immediately_actionable` (a coding agent or engineer could start now), `requires_human_input` (needs a product/priority decision first), or `not_actionable` (informational only).\n\n* `immediately_actionable` - immediately_actionable\n* `requires_human_input` - requires_human_input\n* `not_actionable` - not_actionable",
+                            "enum": ["immediately_actionable", "requires_human_input", "not_actionable"],
+                            "type": "string"
+                        },
+                        "already_addressed": {
+                            "default": false,
+                            "description": "Whether the core issue appears to have already been fixed in recent code changes.",
+                            "type": "boolean"
+                        },
+                        "explanation": {
+                            "description": "2-3 sentence evidence-grounded explanation of the actionability assessment.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["actionability", "explanation"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional actionability judgment to append. Becomes the report's effective actionability (latest wins)."
+        },
+        "new_state": {
+            "anyOf": [
+                {
+                    "description": "* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved",
+                    "enum": ["suppressed", "potential", "resolved"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional state transition: `suppressed` dismisses the report from the inbox, `potential` snoozes it back into the pipeline, `resolved` closes it as fixed. Illegal transitions from the report's current status return 409.\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved"
+        },
+        "priority": {
+            "anyOf": [
+                {
+                    "description": "A priority judgment to append to the report. Stored as a `priority_judgment` artefact;\nthe newest artefact of that type is what the inbox list/detail/sort reads.",
+                    "properties": {
+                        "explanation": {
+                            "description": "2-3 sentence justification for the priority level, referencing quantified user impact, error frequency, or scope of affected code paths.",
+                            "type": "string"
+                        },
+                        "priority": {
+                            "description": "Priority level, P0 (most urgent) to P4.\n\n* `P0` - P0\n* `P1` - P1\n* `P2` - P2\n* `P3` - P3\n* `P4` - P4",
+                            "enum": ["P0", "P1", "P2", "P3", "P4"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["priority", "explanation"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional priority judgment to append. Becomes the report's effective priority (latest wins)."
+        },
+        "report_id": {
+            "description": "UUID of the report to update. Must belong to this project.",
+            "type": "string"
+        },
+        "run_id": {
+            "description": "UUID of the `SignalScoutRun` bridge row.",
+            "type": "string"
+        },
+        "snooze_for": {
+            "anyOf": [
+                {
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only honored with `new_state=potential`: number of additional signals before re-promotion."
+        },
+        "suggested_reviewers": {
+            "anyOf": [
+                {
+                    "items": {
+                        "description": "One suggested reviewer. Stored in a `suggested_reviewers` artefact keyed on\n`github_login`; PostHog-user enrichment happens at read time.",
+                        "properties": {
+                            "github_login": {
+                                "description": "GitHub username to suggest as a reviewer for this report.",
+                                "type": "string"
+                            },
+                            "github_name": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Optional display name from GitHub."
+                            }
+                        },
+                        "required": ["github_login"],
+                        "type": "object"
+                    },
+                    "maxItems": 10,
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional reviewers to suggest, max 10. Replaces the effective list (latest wins)."
+        },
+        "summary": {
+            "anyOf": [
+                {
+                    "maxLength": 50000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "New report summary. Omit to leave unchanged — this replaces the whole summary, it does not append."
+        },
+        "title": {
+            "anyOf": [
+                {
+                    "maxLength": 500,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "New report title. Omit to leave unchanged."
+        }
+    },
+    "required": ["run_id", "report_id"],
+    "type": "object"
+}
