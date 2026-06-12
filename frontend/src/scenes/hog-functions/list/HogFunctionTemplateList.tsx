@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconClock, IconLive, IconMegaphone, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -13,8 +13,8 @@ import { SourceReleaseTag } from 'products/data_warehouse/frontend/shared/compon
 import { isManagedSourceTemplate } from 'products/data_warehouse/frontend/utils'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
-import { getHogFunctionDeliveryType } from '../hog-function-utils'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
+import { DELIVERY_TYPE_FILTER_OPTIONS, DeliveryTypeTag } from './DeliveryTypeTag'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionTemplateListLogicProps, hogFunctionTemplateListLogic } from './hogFunctionTemplateListLogic'
 
@@ -53,11 +53,7 @@ export function HogFunctionTemplateList({
                         size="small"
                         value={filters.deliveryType ?? null}
                         onChange={(value) => setFilters({ deliveryType: value ?? undefined })}
-                        options={[
-                            { label: 'All types', value: null },
-                            { label: 'Realtime', value: 'realtime' },
-                            { label: 'Batch', value: 'batch' },
-                        ]}
+                        options={DELIVERY_TYPE_FILTER_OPTIONS}
                     />
                 )}
                 {extraControls}
@@ -118,15 +114,7 @@ export function HogFunctionTemplateList({
                                   title: 'Type',
                                   width: 0,
                                   render: function RenderDeliveryType(_: any, template: HogFunctionTemplateType) {
-                                      return getHogFunctionDeliveryType(template) === 'batch' ? (
-                                          <LemonTag type="completion" icon={<IconClock />} className="text-xs">
-                                              Batch
-                                          </LemonTag>
-                                      ) : (
-                                          <LemonTag type="highlight" icon={<IconLive />} className="text-xs">
-                                              Realtime
-                                          </LemonTag>
-                                      )
+                                      return <DeliveryTypeTag item={template} />
                                   },
                               },
                           ]

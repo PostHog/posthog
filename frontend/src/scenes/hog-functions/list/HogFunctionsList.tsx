@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
-import { IconBell, IconClock, IconLive } from '@posthog/icons'
+import { IconBell } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
@@ -28,9 +28,10 @@ import { urls } from 'scenes/urls'
 import { HogFunctionConfigurationContextId, HogFunctionType } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
-import { getHogFunctionDeliveryType, humanizeHogFunctionType } from '../hog-function-utils'
+import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
+import { DELIVERY_TYPE_FILTER_OPTIONS, DeliveryTypeTag } from './DeliveryTypeTag'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
@@ -282,15 +283,7 @@ export function HogFunctionList({
                 key: 'deliveryType',
                 width: 0,
                 render: function RenderDeliveryType(_, hogFunction) {
-                    return getHogFunctionDeliveryType(hogFunction) === 'batch' ? (
-                        <LemonTag type="completion" icon={<IconClock />} className="text-xs">
-                            Batch
-                        </LemonTag>
-                    ) : (
-                        <LemonTag type="highlight" icon={<IconLive />} className="text-xs">
-                            Realtime
-                        </LemonTag>
-                    )
+                    return <DeliveryTypeTag item={hogFunction} />
                 },
             })
         }
@@ -355,11 +348,7 @@ export function HogFunctionList({
                         size="small"
                         value={filters.deliveryType ?? null}
                         onChange={(value) => setFilters({ deliveryType: value ?? undefined })}
-                        options={[
-                            { label: 'All types', value: null },
-                            { label: 'Realtime', value: 'realtime' },
-                            { label: 'Batch', value: 'batch' },
-                        ]}
+                        options={DELIVERY_TYPE_FILTER_OPTIONS}
                     />
                 )}
                 <LemonCheckbox
