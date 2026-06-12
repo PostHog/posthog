@@ -172,6 +172,16 @@ pub const MERGE_REKEY_PRODUCE_FAILURE_TOTAL: &str = "merge_rekey_produce_failure
 /// Cross-partition redirects that hit the `redirect_hops` cap and were processed inline (counter).
 /// Non-zero means a corrupt tombstone cycle.
 pub const MERGE_REDIRECT_HOP_CAPPED_TOTAL: &str = "merge_redirect_hop_capped_total";
+/// State transfers re-targeted at apply time because `new_person_uuid` was itself tombstoned (a
+/// chained merge `A → B → C` where `B → C` drained before `A → B` applied), labelled by `path`
+/// (`inline`|`re_keyed`). `inline` = the resolved survivor co-resides on this partition and the
+/// transfer applied there directly; `re_keyed` = the survivor lives on another partition and the
+/// transfer was forwarded on `cohort_merge_state_transfer`, counted only after the forward ack.
+pub const MERGE_TRANSFER_FORWARDS_TOTAL: &str = "merge_transfer_forwards_total";
+/// Transfer forwards that hit the [`crate::merge::apply_handler::MAX_TRANSFER_FORWARD_HOPS`] cap and
+/// were not forwarded (counter). Non-zero means a corrupt tombstone cycle, same class as
+/// [`MERGE_REDIRECT_HOP_CAPPED_TOTAL`].
+pub const MERGE_FORWARD_HOP_CAPPED_TOTAL: &str = "merge_forward_hop_capped_total";
 /// Per-leaf merge work dropped, labelled by `reason` (counter).
 pub const MERGE_LEAVES_DROPPED_TOTAL: &str = "merge_leaves_dropped_total";
 /// Transfer produces that exhausted the inline retry budget (counter). The packaged state stays in

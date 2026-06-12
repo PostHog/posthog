@@ -751,6 +751,7 @@ async fn keyed_produces_agree_with_partition_of_live() {
                 source_partition: 0,
                 source_offset: n as i64,
                 leaves: vec![],
+                forward_hops: 0,
             })
             .collect();
         let acks = transfer_sink.produce(transfers).await;

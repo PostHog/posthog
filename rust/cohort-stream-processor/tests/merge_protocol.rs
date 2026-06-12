@@ -7,10 +7,12 @@
 use chrono_tz::UTC;
 use cohort_stream_processor::consumers::CohortStreamEvent;
 use cohort_stream_processor::filters::{CohortId, TeamFilters, TeamFiltersBuilder, TeamId};
-use cohort_stream_processor::merge::apply_handler::{handle_transfer, ApplyOutcome};
+use cohort_stream_processor::merge::apply_handler::{
+    handle_transfer, ApplyOutcome, MAX_TRANSFER_FORWARD_HOPS,
+};
 use cohort_stream_processor::merge::drain_handler::{handle_merge_event, DrainOutcome};
 use cohort_stream_processor::merge::transfer::{
-    MergeStateTransfer, PendingTransfer, PersonMergeEvent, MERGE_EVENT_SCHEMA_VERSION,
+    MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, MERGE_EVENT_SCHEMA_VERSION,
 };
 use cohort_stream_processor::partitions::{partition_of, COHORT_PARTITION_COUNT};
 use cohort_stream_processor::producer::{now_last_updated, MembershipStatus};
@@ -152,6 +154,20 @@ fn person_not_on(avoid: u16) -> Uuid {
         .map(Uuid::from_u128)
         .find(|p| part(*p) != avoid)
         .unwrap()
+}
+
+/// Three persons `(A, B, C)` on three pairwise-distinct partitions, so every hop of a chain
+/// `A → B → C` is cross-partition.
+fn chain_persons() -> (Uuid, Uuid, Uuid) {
+    let a = Uuid::from_u128(0xA);
+    let a_part = part(a);
+    let b = person_not_on(a_part);
+    let b_part = part(b);
+    let c = (1u128..)
+        .map(Uuid::from_u128)
+        .find(|p| part(*p) != a_part && part(*p) != b_part)
+        .unwrap();
+    (a, b, c)
 }
 
 /// Resolve the `LeafStateKey` for a behavioral variant: all three leaves share `BEHAVIORAL_HASH` but
@@ -938,4 +954,376 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
         matches!(&reclaimed_redrain, DrainOutcome::Drained { transfer } if transfer.leaves.is_empty()),
         "after GC the marker no longer dedupes; the replay re-drains (empty), got {reclaimed_redrain:?}",
     );
+}
+
+/// Drain `old → new` on `old`'s partition and return the staged cross-partition transfer.
+fn drain_cross(
+    store: &CohortStore,
+    filters: &TeamFilters,
+    old: Uuid,
+    new: Uuid,
+    coords: (i32, i64),
+) -> MergeStateTransfer {
+    let mut queue = EvictionQueue::<Stage1Key>::new();
+    match handle_merge_event(
+        part(old),
+        store,
+        filters,
+        &merge_event(old, new),
+        coords,
+        &mut queue,
+    )
+    .unwrap()
+    {
+        DrainOutcome::Drained { transfer } => transfer,
+        other => panic!("expected a cross-partition Drained for {old}->{new}, got {other:?}"),
+    }
+}
+
+/// Chained merge `A → B → C` where the downstream `B → C` drain runs before the upstream `A → B`
+/// transfer applies: the `A → B` transfer lands on B's partition where B is already tombstoned to C,
+/// so the apply forwards A's state to C (hops=1) instead of stranding it on the drained B. Applying
+/// the forwarded transfer at C leaves C with A + B + C contributions.
+#[test]
+fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermediate_to_the_survivor(
+) {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = build_filters();
+    let (a, b, c) = chain_persons();
+    let (a_part, b_part, c_part) = (part(a), part(b), part(c));
+
+    // A: 1 pageview; B: 1; C: 1 — each on its own partition.
+    fold_pageview(&store, &filters, a_part, a, 10, 0);
+    fold_pageview(&store, &filters, b_part, b, 20, 0);
+    fold_pageview(&store, &filters, c_part, c, 30, 0);
+
+    // 1) B → C drains first and applies at C → C now has B + C (daily sum 2). B is tombstoned to C.
+    let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
+    let mut c_queue = EvictionQueue::<Stage1Key>::new();
+    assert!(matches!(
+        handle_transfer(c_part, &store, &filters, &b_to_c, (5, 71), &mut c_queue).unwrap(),
+        ApplyOutcome::Applied { .. }
+    ));
+    assert!(store
+        .get_tombstone(&TombstoneKey {
+            partition_id: b_part,
+            team_id: TEAM as u64,
+            person: b,
+        })
+        .unwrap()
+        .is_some());
+
+    // 2) A → B drains; its transfer is keyed by B and would apply on B's partition.
+    let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
+
+    // 3) Apply A → B on B's partition: B is tombstoned to C (cross-partition) → Forward to C, hops=1.
+    let mut b_queue = EvictionQueue::<Stage1Key>::new();
+    let forwarded =
+        match handle_transfer(b_part, &store, &filters, &a_to_b, (5, 80), &mut b_queue).unwrap() {
+            ApplyOutcome::Forward { transfer } => *transfer,
+            other => panic!("expected Forward, got {other:?}"),
+        };
+    assert_eq!(
+        forwarded.new_person_uuid, c,
+        "forwarded transfer is re-keyed to C"
+    );
+    assert_eq!(forwarded.forward_hops, 1, "one forward hop taken");
+    assert_eq!(
+        forwarded.source_partition, a_to_b.source_partition,
+        "the source coords (the apply-side dedup key) are preserved across the forward",
+    );
+    assert_eq!(forwarded.source_offset, a_to_b.source_offset);
+    assert_eq!(
+        forwarded.old_person_uuid, a,
+        "old_person stays A (the ancestor)"
+    );
+
+    // B's slice gained no resurrected stage1 rows for the forwarded leaves — A did not strand at B.
+    let (b_single, b_daily, b_compressed) = behavioral_states(&store, &filters, b_part, b);
+    assert!(
+        b_single.is_none() && b_daily.is_none() && b_compressed.is_none(),
+        "B stays drained — no resurrected orphan state",
+    );
+
+    // 4) Apply the forwarded transfer at C → C = A + B + C.
+    let applied =
+        handle_transfer(c_part, &store, &filters, &forwarded, (5, 81), &mut c_queue).unwrap();
+    assert!(matches!(applied, ApplyOutcome::Applied { .. }));
+
+    let (single, daily, compressed) = behavioral_states(&store, &filters, c_part, c);
+    assert!(matches!(
+        single,
+        Some(Stage1State::BehavioralSingle {
+            has_match: true,
+            ..
+        })
+    ));
+    assert_eq!(
+        daily_sum(&daily.unwrap()),
+        3,
+        "C's daily buckets summed A + B + C contributions",
+    );
+    assert_eq!(compressed_sum(&compressed.unwrap()), 3);
+
+    // The marker is written under C with A → B's source coords (so a redelivered copy dedups).
+    assert!(store
+        .get_merge_applied(&MergeAppliedKey {
+            partition_id: c_part,
+            team_id: TEAM as u64,
+            new_person: c,
+            source_partition: a_to_b.source_partition,
+            source_offset: a_to_b.source_offset,
+        })
+        .unwrap()
+        .is_some());
+}
+
+/// The ordered case: `A → B` applies *before* `B → C` drains, so the marker is written under B and a
+/// redelivery of the `A → B` transfer dedups on B's marker — no forward, no double-count at C.
+#[test]
+fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = build_filters();
+    let (a, b, c) = chain_persons();
+    let (a_part, b_part, c_part) = (part(a), part(b), part(c));
+
+    fold_pageview(&store, &filters, a_part, a, 10, 0);
+    fold_pageview(&store, &filters, b_part, b, 20, 0);
+    fold_pageview(&store, &filters, c_part, c, 30, 0);
+
+    // 1) A → B applies at B first (B not yet tombstoned) → marker under B.
+    let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
+    let mut b_queue = EvictionQueue::<Stage1Key>::new();
+    assert!(matches!(
+        handle_transfer(b_part, &store, &filters, &a_to_b, (5, 80), &mut b_queue).unwrap(),
+        ApplyOutcome::Applied { .. }
+    ));
+
+    // 2) B → C drains (B now carries A + B) and applies at C → C has A + B + C.
+    let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
+    let mut c_queue = EvictionQueue::<Stage1Key>::new();
+    assert!(matches!(
+        handle_transfer(c_part, &store, &filters, &b_to_c, (5, 71), &mut c_queue).unwrap(),
+        ApplyOutcome::Applied { .. }
+    ));
+    let (_, c_daily, _) = behavioral_states(&store, &filters, c_part, c);
+    assert_eq!(
+        daily_sum(&c_daily.unwrap()),
+        3,
+        "ordered chain reaches C correctly"
+    );
+
+    // 3) Redeliver the A → B transfer at B → the B marker (written before the tombstone) absorbs it:
+    // AlreadyApplied, no forward, no double-count at C.
+    let redelivered =
+        handle_transfer(b_part, &store, &filters, &a_to_b, (61, 999), &mut b_queue).unwrap();
+    assert_eq!(
+        redelivered,
+        ApplyOutcome::AlreadyApplied,
+        "the original-target marker absorbs the ordered-case redelivery",
+    );
+    let (_, c_daily_after, _) = behavioral_states(&store, &filters, c_part, c);
+    assert_eq!(
+        daily_sum(&c_daily_after.unwrap()),
+        3,
+        "redelivery did not double-count at C",
+    );
+}
+
+/// After a raced forward, redelivering the original `A → B` transfer resolves to C again; C's marker
+/// (written by the forwarded apply) is present → AlreadyApplied, exactly-once.
+#[test]
+fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = build_filters();
+    let (a, b, c) = chain_persons();
+    let (a_part, b_part, c_part) = (part(a), part(b), part(c));
+
+    fold_pageview(&store, &filters, a_part, a, 10, 0);
+    fold_pageview(&store, &filters, b_part, b, 20, 0);
+    fold_pageview(&store, &filters, c_part, c, 30, 0);
+
+    let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
+    let mut c_queue = EvictionQueue::<Stage1Key>::new();
+    handle_transfer(c_part, &store, &filters, &b_to_c, (5, 71), &mut c_queue).unwrap();
+
+    let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
+    let mut b_queue = EvictionQueue::<Stage1Key>::new();
+    let forwarded =
+        match handle_transfer(b_part, &store, &filters, &a_to_b, (5, 80), &mut b_queue).unwrap() {
+            ApplyOutcome::Forward { transfer } => *transfer,
+            other => panic!("expected Forward, got {other:?}"),
+        };
+    handle_transfer(c_part, &store, &filters, &forwarded, (5, 81), &mut c_queue).unwrap();
+    let (_, c_daily, _) = behavioral_states(&store, &filters, c_part, c);
+    assert_eq!(daily_sum(&c_daily.unwrap()), 3);
+
+    // Redeliver the *original* A → B transfer at B → resolves to C again → Forward; applying the
+    // re-forwarded copy at C dedups on the survivor marker (no double-count).
+    let reforwarded =
+        match handle_transfer(b_part, &store, &filters, &a_to_b, (62, 1000), &mut b_queue).unwrap()
+        {
+            ApplyOutcome::Forward { transfer } => *transfer,
+            other => panic!("expected Forward on redelivery, got {other:?}"),
+        };
+    let outcome = handle_transfer(
+        c_part,
+        &store,
+        &filters,
+        &reforwarded,
+        (62, 1001),
+        &mut c_queue,
+    )
+    .unwrap();
+    assert_eq!(
+        outcome,
+        ApplyOutcome::AlreadyApplied,
+        "the survivor marker absorbs the re-forwarded copy",
+    );
+    let (_, c_daily_after, _) = behavioral_states(&store, &filters, c_part, c);
+    assert_eq!(
+        daily_sum(&c_daily_after.unwrap()),
+        3,
+        "the forwarded-copy redelivery did not double-count at C",
+    );
+}
+
+/// Drain-side same-slice assist: a merge `A → B` where B is already tombstoned to a *same-partition*
+/// C folds straight into C in one drain (the fast path with the assist), skipping a hop.
+#[test]
+fn drain_assist_folds_into_a_same_partition_tombstoned_target_directly() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = build_filters();
+
+    // A on one partition; B and C colocated on another so the A → B drain's effective target is C and
+    // the assist routes A's state to C in the same slice as B.
+    let a = Uuid::from_u128(0xA);
+    let a_part = part(a);
+    let b = person_not_on(a_part);
+    let b_part = part(b);
+    let c = (1u128..)
+        .map(Uuid::from_u128)
+        .find(|p| part(*p) == b_part && *p != b)
+        .unwrap();
+
+    fold_pageview(&store, &filters, a_part, a, 10, 0);
+    fold_pageview(&store, &filters, b_part, b, 20, 0);
+    fold_pageview(&store, &filters, b_part, c, 30, 0);
+
+    // B → C is a same-partition fast-path merge → B tombstoned to C, C has B + C.
+    let mut bc_queue = EvictionQueue::<Stage1Key>::new();
+    assert!(matches!(
+        handle_merge_event(
+            b_part,
+            &store,
+            &filters,
+            &merge_event(b, c),
+            (5, 200),
+            &mut bc_queue
+        )
+        .unwrap(),
+        DrainOutcome::FastPath { .. }
+    ));
+
+    // A → B: the effective target resolves to C (cross-partition from A's view, but B and C colocate),
+    // so the transfer is keyed to C and applies on C's (= B's) partition.
+    let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
+    assert_eq!(
+        a_to_b.new_person_uuid, b,
+        "A and B differ in partition, so the assist did not retarget at A's drain (B's tombstone lives on B's slice, not A's)",
+    );
+    let mut c_queue = EvictionQueue::<Stage1Key>::new();
+    // B and C colocate → the apply-side resolution is Inline, folding into C directly.
+    assert!(matches!(
+        handle_transfer(b_part, &store, &filters, &a_to_b, (5, 81), &mut c_queue).unwrap(),
+        ApplyOutcome::Applied { .. }
+    ));
+
+    // C carries A + B + C; B has no resurrected state.
+    let (_, c_daily, _) = behavioral_states(&store, &filters, b_part, c);
+    assert_eq!(daily_sum(&c_daily.unwrap()), 3, "A + B + C folded into C");
+    let (b_single, b_daily, b_compressed) = behavioral_states(&store, &filters, b_part, b);
+    assert!(b_single.is_none() && b_daily.is_none() && b_compressed.is_none());
+}
+
+/// A corrupt cross-partition tombstone cycle: the apply forwards until `forward_hops` hits the cap,
+/// then drops without forwarding (the offset is marked by the caller so the partition does not wedge).
+#[test]
+fn transfer_forward_stops_at_the_hop_cap_on_a_corrupt_tombstone_cycle() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = build_filters();
+
+    let a = Uuid::from_u128(0xA);
+    let a_part = part(a);
+    let b = person_not_on(a_part);
+    let b_part = part(b);
+    let c = (1u128..)
+        .map(Uuid::from_u128)
+        .find(|p| part(*p) != a_part && part(*p) != b_part)
+        .unwrap();
+
+    fold_pageview(&store, &filters, a_part, a, 10, 0);
+
+    // Write a corrupt cross-partition tombstone cycle B ↔ C on their own slices.
+    write_tombstone(&store, b_part, b, c);
+    write_tombstone(&store, part(c), c, b);
+
+    let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
+
+    // Walk the forward: B → C → B → ... until the hop cap. The cap-1'th apply at the cycle drops.
+    let mut transfer = a_to_b;
+    let mut queue = EvictionQueue::<Stage1Key>::new();
+    let mut hops = 0u8;
+    loop {
+        let on_part = part(transfer.new_person_uuid);
+        match handle_transfer(
+            on_part,
+            &store,
+            &filters,
+            &transfer,
+            (5, 80 + hops as i64),
+            &mut queue,
+        )
+        .unwrap()
+        {
+            ApplyOutcome::Forward { transfer: next } => {
+                hops += 1;
+                transfer = *next;
+                assert_eq!(
+                    transfer.forward_hops, hops,
+                    "forward_hops increments per hop"
+                );
+                assert!(
+                    hops <= MAX_TRANSFER_FORWARD_HOPS,
+                    "must not exceed the cap before stopping"
+                );
+            }
+            ApplyOutcome::HopCapped => break,
+            other => panic!("expected Forward/HopCapped on a cycle, got {other:?}"),
+        }
+    }
+    assert_eq!(
+        hops, MAX_TRANSFER_FORWARD_HOPS,
+        "the forward took exactly the cap before dropping",
+    );
+}
+
+fn write_tombstone(store: &CohortStore, on_partition: u16, old: Uuid, new: Uuid) {
+    let key = TombstoneKey {
+        partition_id: on_partition,
+        team_id: TEAM as u64,
+        person: old,
+    };
+    let value = Tombstone {
+        new_person: new,
+        merged_at_ms: MERGED_AT,
+    };
+    store
+        .write_batch(|b| b.put_tombstone(&key, &value.encode()))
+        .unwrap();
 }

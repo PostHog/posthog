@@ -84,6 +84,7 @@ mod tests {
             source_partition: 3,
             source_offset: 9,
             leaves: vec![],
+            forward_hops: 0,
         }
     }
 

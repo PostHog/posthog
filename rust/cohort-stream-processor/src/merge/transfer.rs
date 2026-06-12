@@ -58,6 +58,12 @@ pub struct MergeStateTransfer {
     pub source_partition: i32,
     pub source_offset: i64,
     pub leaves: Vec<TransferLeaf>,
+    /// Cross-partition forward hops taken so far when `new_person_uuid` was itself tombstoned at
+    /// apply time (chained merge `A → B → C` where `B → C` drained before `A → B` applied). Bounded
+    /// by [`crate::merge::apply_handler::MAX_TRANSFER_FORWARD_HOPS`]. `#[serde(default)]`: a message
+    /// without the field decodes to `0`, so the field is JSON-compatible both ways.
+    #[serde(default)]
+    pub forward_hops: u8,
 }
 
 /// Staged transfer in `cf_pending_transfers`. Survives a crash between the drain batch and the
@@ -228,6 +234,7 @@ mod tests {
             source_partition: 17,
             source_offset: 12_345,
             leaves: vec![TransferLeaf::new(LeafStateKey([0xAB; 16]), single_record())],
+            forward_hops: 0,
         };
         let decoded = MergeStateTransfer::decode(&transfer.encode()).unwrap();
         assert_eq!(decoded, transfer);
@@ -235,6 +242,25 @@ mod tests {
             decoded.leaves[0].record,
             single_record(),
             "the leaf's StatefulRecord transfers whole, so redirect_dedup chains for free",
+        );
+    }
+
+    #[test]
+    fn transfer_without_forward_hops_decodes_to_zero_for_wire_compat() {
+        // A transfer JSON that omits `forward_hops` must decode to `0` (`#[serde(default)]`).
+        let json = serde_json::json!({
+            "team_id": 7,
+            "old_person_uuid": uuid(0xAAAA).to_string(),
+            "new_person_uuid": uuid(0xBBBB).to_string(),
+            "merged_at_ms": 1_716_800_000_000_i64,
+            "source_partition": 17,
+            "source_offset": 12_345,
+            "leaves": [],
+        });
+        let decoded = MergeStateTransfer::decode(&serde_json::to_vec(&json).unwrap()).unwrap();
+        assert_eq!(
+            decoded.forward_hops, 0,
+            "missing forward_hops defaults to 0"
         );
     }
 
@@ -248,6 +274,7 @@ mod tests {
             source_partition: 3,
             source_offset: 4,
             leaves: vec![],
+            forward_hops: 0,
         };
         let pending = PendingTransfer {
             transfer,

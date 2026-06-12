@@ -1610,6 +1610,7 @@ mod tests {
             source_partition: source.0,
             source_offset: source.1,
             leaves,
+            forward_hops: 0,
         }
     }
 

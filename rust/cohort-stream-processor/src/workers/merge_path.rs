@@ -21,8 +21,9 @@ use crate::merge::transfer::{MergeStateTransfer, PendingTransfer, PersonMergeEve
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, MERGE_APPLY_DURATION_SECONDS,
     MERGE_DRAIN_DURATION_SECONDS, MERGE_OUTBOX_CLEAR_FAILURE_TOTAL, MERGE_PENDING_TRANSFERS_GAUGE,
-    MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL, MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL,
-    OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS, STAGE1_TRANSITIONS,
+    MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL, MERGE_TRANSFER_FORWARDS_TOTAL,
+    MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL, OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS,
+    STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::producer::{
@@ -259,6 +260,16 @@ pub(crate) async fn handle_apply(
         Ok(ApplyOutcome::AlreadyApplied) => {
             mark_processed(&merge.transfer_tracker, partition_id, offset);
         }
+        Ok(ApplyOutcome::Forward {
+            transfer: forwarded,
+        }) => {
+            forward_transfer(partition_id, merge, &forwarded, offset).await;
+        }
+        Ok(ApplyOutcome::HopCapped) => {
+            // No state and no marker were written; mark so a corrupt tombstone cycle does not wedge
+            // the partition (the counter already fired in the handler).
+            mark_processed(&merge.transfer_tracker, partition_id, offset);
+        }
         Err(error) => {
             warn!(
                 partition_id,
@@ -269,6 +280,34 @@ pub(crate) async fn handle_apply(
             );
         }
     }
+}
+
+/// Forward a re-targeted transfer to the survivor's partition (the raced chained-merge case).
+///
+/// A **single** produce attempt on the transfer sink (not the inline retry budget — the apply path
+/// must not hold the worker): a failed produce holds the transfer offset (no mark) so redelivery
+/// re-resolves and re-produces. The forward writes no state, so the hold is self-healing. The
+/// transfer offset is marked only after the ack, and the forward is counted post-ack (`re_keyed`).
+async fn forward_transfer(
+    partition_id: u16,
+    merge: &MergeWorkerDeps,
+    forwarded: &MergeStateTransfer,
+    offset: i64,
+) {
+    let acks = merge.transfer_sink.produce(vec![forwarded.clone()]).await;
+    if !acks.iter().all(Result::is_ok) {
+        warn!(
+            partition_id,
+            team_id = forwarded.team_id,
+            old_person = %forwarded.old_person_uuid,
+            target = %forwarded.new_person_uuid,
+            forward_hops = forwarded.forward_hops,
+            "transfer forward produce failed; holding the transfer offset for redelivery",
+        );
+        return;
+    }
+    counter!(MERGE_TRANSFER_FORWARDS_TOTAL, "path" => "re_keyed").increment(1);
+    mark_processed(&merge.transfer_tracker, partition_id, offset);
 }
 
 /// Max entries to re-produce per redrive tick.
@@ -570,6 +609,7 @@ mod tests {
             source_partition: 0,
             source_offset: 0,
             leaves: vec![],
+            forward_hops: 0,
         };
 
         let acked =
@@ -595,6 +635,7 @@ mod tests {
             source_partition: 0,
             source_offset: 0,
             leaves: vec![],
+            forward_hops: 0,
         };
 
         let acked =
@@ -646,6 +687,7 @@ mod tests {
                     AppliedOffsets::default(),
                 ),
             )],
+            forward_hops: 0,
         };
         let key = PendingTransferKey {
             partition_id: REDRIVE_PARTITION,
@@ -817,5 +859,60 @@ mod tests {
         for key in &staged {
             assert!(store.get_pending_transfer(key).unwrap().is_none());
         }
+    }
+
+    const FORWARD_PARTITION: u16 = 5;
+
+    fn forwarded_transfer() -> MergeStateTransfer {
+        MergeStateTransfer {
+            team_id: 7,
+            old_person_uuid: Uuid::from_u128(0xA),
+            new_person_uuid: Uuid::from_u128(0xC),
+            merged_at_ms: 1,
+            source_partition: 9,
+            source_offset: 100,
+            leaves: vec![],
+            forward_hops: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn forward_produce_failure_holds_the_transfer_offset_until_redelivery_succeeds() {
+        let forwarded = forwarded_transfer();
+
+        // First attempt: the sink fails → nothing produced, offset not marked. A separate fresh sink
+        // models the recovered attempt below.
+        let failing_sink = CaptureTransferSink::failing_always();
+        let failing = capture_deps(failing_sink.clone());
+        forward_transfer(FORWARD_PARTITION, &failing, &forwarded, 80).await;
+        assert!(
+            failing_sink.transfers().is_empty(),
+            "a failed forward produced nothing",
+        );
+        assert!(
+            failing.transfer_tracker.committable_offsets().is_empty(),
+            "a failed forward marks no offset",
+        );
+
+        // Redelivery against a working sink: produced once, offset marked once.
+        let working_sink = CaptureTransferSink::new();
+        let working = capture_deps(working_sink.clone());
+        working
+            .transfer_tracker
+            .mark_dispatched(FORWARD_PARTITION as i32, 81);
+        forward_transfer(FORWARD_PARTITION, &working, &forwarded, 80).await;
+        assert_eq!(
+            working_sink.transfers(),
+            vec![forwarded],
+            "the redelivery forwarded exactly once",
+        );
+        assert_eq!(
+            working
+                .transfer_tracker
+                .committable_offsets()
+                .get(&(FORWARD_PARTITION as i32)),
+            Some(&81),
+            "the transfer offset is marked only after the ack",
+        );
     }
 }

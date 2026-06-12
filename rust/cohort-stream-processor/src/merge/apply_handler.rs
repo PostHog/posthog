@@ -4,6 +4,12 @@
 //! one atomic `WriteBatch` (merged puts, `cf_person_index` appends, and the `cf_merge_applied`
 //! idempotence marker), schedules P_new's eviction deadlines, and returns the membership transitions
 //! for the caller to compose Stage 2 and produce.
+//!
+//! Before applying, the target `new_person_uuid` is resolved through the local slice's tombstones:
+//! in a chained merge `A → B → C` where `B → C` drained before `A → B` applies, P_new (= B) is
+//! already tombstoned, so applying A's state into B would strand it. Resolving the target sends A's
+//! state to the live survivor instead — inline when the survivor co-resides on this partition,
+//! forwarded on `cohort_merge_state_transfer` when it lives on another.
 
 use metrics::counter;
 use uuid::Uuid;
@@ -11,9 +17,11 @@ use uuid::Uuid;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
 use crate::merge::rules::merge_records;
+use crate::merge::tombstone_redirect::{resolve, Resolution};
 use crate::merge::transfer::{ApplyStamp, MergeStateTransfer};
 use crate::observability::metrics::{
-    MERGE_APPLIES_SKIPPED_REPLAY_TOTAL, MERGE_LEAVES_DROPPED_TOTAL,
+    MERGE_APPLIES_SKIPPED_REPLAY_TOTAL, MERGE_FORWARD_HOP_CAPPED_TOTAL, MERGE_LEAVES_DROPPED_TOTAL,
+    MERGE_TRANSFER_FORWARDS_TOTAL,
 };
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 use crate::stage1::state::StatefulRecord;
@@ -21,20 +29,34 @@ use crate::stage1::transition::LeafTransition;
 use crate::store::{CohortStore, IndexOp, MergeAppliedKey, PersonIndexKey, StoreError};
 use crate::sweep::EvictionQueue;
 use crate::workers::event_path::schedule_deadline;
+use tracing::warn;
+
+/// Bound on cross-partition transfer-forward hops (`forward_hops` on the wire). Mirrors the
+/// event-path [`crate::merge::tombstone_redirect::MAX_CROSS_PARTITION_REDIRECT_HOPS`] — prevents
+/// infinite re-production between partitions in case of a corrupt cross-partition tombstone cycle.
+pub const MAX_TRANSFER_FORWARD_HOPS: u8 = 8;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApplyOutcome {
-    /// Transfer applied; `transitions` are P_new's per-leaf membership flips.
+    /// Transfer applied; `transitions` are the resolved survivor's per-leaf membership flips.
     Applied { transitions: Vec<LeafTransition> },
     /// Idempotence hit — this transfer was already applied (replay / crash-recovery).
     AlreadyApplied,
+    /// `new_person_uuid` is tombstoned to a survivor on a different partition. The caller forwards
+    /// `transfer` (already rewritten to the survivor, `forward_hops` incremented) on the transfer
+    /// topic. No state and no marker are written here — redelivery re-resolves and re-produces, and
+    /// the final target's marker is the dedup (the same ReKey posture the straggler re-key uses).
+    Forward { transfer: Box<MergeStateTransfer> },
+    /// The forward hop cap was hit (a corrupt tombstone cycle). No state written; the caller marks
+    /// the offset so the partition does not wedge. Never expected in a clean system.
+    HopCapped,
 }
 
-/// Apply `transfer` on P_new's worker (`partition_id` owns P_new).
+/// Apply `transfer` on the worker that owns `transfer.new_person_uuid` (`partition_id`).
 ///
 /// Idempotence is keyed by the *source merge message's* coordinates (not the transfer message's
-/// own), because duplicate transfer copies (redrive, crash-retry) arrive at fresh transfer-topic
-/// offsets but share the same source pair.
+/// own), because duplicate transfer copies (redrive, crash-retry, forward) arrive at fresh
+/// transfer-topic offsets but share the same source pair.
 pub fn handle_transfer(
     partition_id: u16,
     store: &CohortStore,
@@ -43,18 +65,88 @@ pub fn handle_transfer(
     _transfer_coords: (i32, i64),
     queue: &mut EvictionQueue<Stage1Key>,
 ) -> Result<ApplyOutcome, StoreError> {
-    let team_u64 = transfer.team_id as u64;
+    let team_id = transfer.team_id;
+    let team_u64 = team_id as u64;
     let new_person = transfer.new_person_uuid;
-    let old_person = transfer.old_person_uuid;
 
-    let applied_key = MergeAppliedKey {
+    // Original-target idempotence: absorbs the ordered-case redelivery (marker written under B
+    // before B was tombstoned), before the chain is resolved.
+    if store
+        .get_merge_applied(&applied_key(partition_id, team_u64, new_person, transfer))?
+        .is_some()
+    {
+        counter!(MERGE_APPLIES_SKIPPED_REPLAY_TOTAL).increment(1);
+        return Ok(ApplyOutcome::AlreadyApplied);
+    }
+
+    // Resolve the target through the local slice: if P_new is itself tombstoned (the raced chain),
+    // the state belongs to the survivor, not to the drained P_new.
+    match resolve(store, partition_id, TeamId(team_id), new_person)? {
+        Resolution::NotMerged => {
+            apply_into(partition_id, store, filters, transfer, new_person, queue)
+        }
+        Resolution::Inline { final_person, .. } => {
+            counter!(MERGE_TRANSFER_FORWARDS_TOTAL, "path" => "inline").increment(1);
+            apply_into(partition_id, store, filters, transfer, final_person, queue)
+        }
+        Resolution::CrossPartition { target_person, .. } => {
+            if transfer.forward_hops >= MAX_TRANSFER_FORWARD_HOPS {
+                counter!(MERGE_FORWARD_HOP_CAPPED_TOTAL).increment(1);
+                warn!(
+                    partition_id,
+                    team_id,
+                    new_person = %new_person,
+                    target_person = %target_person,
+                    forward_hops = transfer.forward_hops,
+                    "transfer forward hit the hop cap; dropping and marking the offset (corrupt tombstone cycle)",
+                );
+                return Ok(ApplyOutcome::HopCapped);
+            }
+            let mut forwarded = transfer.clone();
+            forwarded.new_person_uuid = target_person;
+            forwarded.forward_hops = transfer.forward_hops + 1;
+            Ok(ApplyOutcome::Forward {
+                transfer: Box::new(forwarded),
+            })
+        }
+    }
+}
+
+/// The `cf_merge_applied` key for `target` under this merge's source coordinates.
+fn applied_key(
+    partition_id: u16,
+    team_u64: u64,
+    target: Uuid,
+    transfer: &MergeStateTransfer,
+) -> MergeAppliedKey {
+    MergeAppliedKey {
         partition_id,
         team_id: team_u64,
-        new_person,
+        new_person: target,
         source_partition: transfer.source_partition,
         source_offset: transfer.source_offset,
-    };
-    if store.get_merge_applied(&applied_key)?.is_some() {
+    }
+}
+
+/// Apply `transfer`'s leaves into `target` (the resolved survivor, co-resident on `partition_id`),
+/// commit the merged puts + person-index appends + the `cf_merge_applied` marker keyed by `target`,
+/// schedule deadlines, and return the survivor's transitions. For the `NotMerged` case `target` is
+/// just `new_person_uuid`.
+fn apply_into(
+    partition_id: u16,
+    store: &CohortStore,
+    filters: &TeamFilters,
+    transfer: &MergeStateTransfer,
+    target: Uuid,
+    queue: &mut EvictionQueue<Stage1Key>,
+) -> Result<ApplyOutcome, StoreError> {
+    let team_u64 = transfer.team_id as u64;
+    let old_person = transfer.old_person_uuid;
+
+    // A forwarded copy may already have applied under the survivor at these source coords.
+    let target_applied_key = applied_key(partition_id, team_u64, target, transfer);
+    if target != transfer.new_person_uuid && store.get_merge_applied(&target_applied_key)?.is_some()
+    {
         counter!(MERGE_APPLIES_SKIPPED_REPLAY_TOTAL).increment(1);
         return Ok(ApplyOutcome::AlreadyApplied);
     }
@@ -69,20 +161,22 @@ pub fn handle_transfer(
         }
     }
 
+    // `old_person` stays as the transfer's original P_old so `compose_ancestor_dedup` registers it
+    // as the ancestor of `target`, keeping the dedup chain walkable.
     let apply = apply_leaves(
         partition_id,
         store,
         filters,
         transfer.team_id,
         old_person,
-        new_person,
+        target,
         &leaves,
     )?;
 
-    let p_new_index = PersonIndexKey {
+    let target_index = PersonIndexKey {
         partition_id,
         team_id: team_u64,
-        person_id: new_person,
+        person_id: target,
     };
     let stamp = ApplyStamp {
         applied_at_ms: transfer.merged_at_ms,
@@ -92,9 +186,9 @@ pub fn handle_transfer(
             batch.put_stage1(key, bytes);
         }
         for lsk in &apply.appends {
-            batch.merge_person_index(&p_new_index, IndexOp::Append(*lsk));
+            batch.merge_person_index(&target_index, IndexOp::Append(*lsk));
         }
-        batch.put_merge_applied(&applied_key, &stamp.encode());
+        batch.put_merge_applied(&target_applied_key, &stamp.encode());
     })?;
 
     for (key, deadline) in &apply.schedules {

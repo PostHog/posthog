@@ -12,10 +12,12 @@
 //! are built from the catalog (no reads needed; deleting an absent key is a no-op).
 
 use metrics::counter;
+use uuid::Uuid;
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{CohortId, TeamId};
 use crate::merge::apply_handler::apply_leaves;
+use crate::merge::tombstone_redirect::{resolve, Resolution};
 use crate::merge::transfer::{
     DrainStamp, MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, TransferLeaf,
 };
@@ -135,7 +137,21 @@ pub fn handle_merge_event(
         })
         .collect();
 
-    let partition_new = partition_of(TeamId(team_id), &new_person, COHORT_PARTITION_COUNT) as u16;
+    // Same-slice assist: if P_new is itself tombstoned in *this* slice, drain straight to the live
+    // survivor, skipping a hop the apply-side resolution would otherwise take. Only the routing/apply
+    // target advances — P_old's stored tombstone still records `new_person` as the merge event gave
+    // it, so the chain stays walkable hop-by-hop.
+    let effective_new_person = match resolve(store, partition_id, TeamId(team_id), new_person)? {
+        Resolution::NotMerged => new_person,
+        Resolution::Inline { final_person, .. } => final_person,
+        Resolution::CrossPartition { target_person, .. } => target_person,
+    };
+
+    let partition_new = partition_of(
+        TeamId(team_id),
+        &effective_new_person,
+        COHORT_PARTITION_COUNT,
+    ) as u16;
 
     if partition_new == partition_id {
         return fast_path(
@@ -143,6 +159,7 @@ pub fn handle_merge_event(
             store,
             filters,
             event,
+            effective_new_person,
             &drain_key,
             &drain_stamp,
             &tombstone_key,
@@ -159,6 +176,7 @@ pub fn handle_merge_event(
         partition_id,
         store,
         event,
+        effective_new_person,
         msg_coords,
         &drain_key,
         &drain_stamp,
@@ -179,6 +197,7 @@ fn fast_path(
     store: &CohortStore,
     filters: &TeamFilters,
     event: &PersonMergeEvent,
+    effective_new_person: Uuid,
     drain_key: &MergeDrainKey,
     drain_stamp: &DrainStamp,
     tombstone_key: &TombstoneKey,
@@ -198,14 +217,14 @@ fn fast_path(
         filters,
         event.team_id,
         event.old_person_uuid,
-        event.new_person_uuid,
+        effective_new_person,
         present_leaves,
     )?;
 
     let new_index = PersonIndexKey {
         partition_id,
         team_id: team_u64,
-        person_id: event.new_person_uuid,
+        person_id: effective_new_person,
     };
     store.write_batch(|batch| {
         for key in old_keys {
@@ -243,6 +262,7 @@ fn slow_path(
     partition_id: u16,
     store: &CohortStore,
     event: &PersonMergeEvent,
+    effective_new_person: Uuid,
     msg_coords: (i32, i64),
     drain_key: &MergeDrainKey,
     drain_stamp: &DrainStamp,
@@ -260,7 +280,7 @@ fn slow_path(
     let transfer = MergeStateTransfer {
         team_id: event.team_id,
         old_person_uuid: event.old_person_uuid,
-        new_person_uuid: event.new_person_uuid,
+        new_person_uuid: effective_new_person,
         merged_at_ms: event.merged_at_ms,
         source_partition: msg_coords.0,
         source_offset: msg_coords.1,
@@ -268,6 +288,7 @@ fn slow_path(
             .iter()
             .map(|(lsk, record)| TransferLeaf::new(*lsk, record.clone()))
             .collect(),
+        forward_hops: 0,
     };
     // An empty transfer is never staged: a duplicate merge event at fresh coordinates could
     // overwrite a still-pending, never-produced transfer with an empty payload.

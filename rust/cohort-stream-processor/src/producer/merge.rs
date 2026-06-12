@@ -258,6 +258,7 @@ mod tests {
                     AppliedOffsets::default(),
                 ),
             )],
+            forward_hops: 0,
         }
     }
 
