@@ -593,7 +593,7 @@ class FrontSourceConfig(config.Config):
 
 @config.config
 class FullStorySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

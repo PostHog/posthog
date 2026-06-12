@@ -84,6 +84,7 @@ the row lists both.
 | elasticsearch    | HTTP                        | requests                                                        | ✅                          |
 | eventbrite       | HTTP                        | requests                                                        | ✅                          |
 | front            | HTTP                        | requests                                                        | ✅                          |
+| fullstory        | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | gitlab           | HTTP                        | requests                                                        | ✅                          |
 | gocardless       | HTTP                        | requests                                                        | ✅                          |
@@ -250,7 +251,6 @@ doesn't conflict with concurrent PRs.
 - facebook_pages
 - firebase
 - freshbooks
-- fullstory
 - gladly
 - google_ad_manager
 - google_analytics
