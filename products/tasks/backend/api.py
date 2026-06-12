@@ -14,7 +14,7 @@ from django.conf import settings
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Q, Subquery
 from django.db.models.functions import JSONObject
-from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
 import requests as http_requests
@@ -32,6 +32,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
@@ -2845,10 +2846,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     duration = asyncio.get_running_loop().time() - connection_started_at
                     observe_stream_connection_closed(origin_product, outcome, duration)
 
-        return StreamingHttpResponse(
-            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
-            content_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        # Releases the request-thread DB connection (auth, get_object) before the
+        # long-lived stream begins — see sse_streaming_response. The stream body is
+        # Redis-only, so it never re-acquires one.
+        return sse_streaming_response(
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream())
         )
 
     @staticmethod
