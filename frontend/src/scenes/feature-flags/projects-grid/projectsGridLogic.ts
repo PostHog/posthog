@@ -5,21 +5,33 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { FeatureFlagType, OrganizationFeatureFlag, OrganizationType } from '~/types'
+import { FeatureFlagFilters, OrganizationFeatureFlag, OrganizationType } from '~/types'
 
 import type { projectsGridLogicType } from './projectsGridLogicType'
 
 export const PAGE_SIZE = 25
+
+/**
+ * One row in the comparison grid: a distinct flag key found in at least one of the compared
+ * projects, plus a representative flag (used for the row's name and link).
+ */
+export interface ProjectsGridRow {
+    key: string
+    name: string
+    flag_id: number
+    team_id: number
+    filters: FeatureFlagFilters
+    active: boolean
+}
 
 export interface LoadFlagsResult {
     offset: number
     search: string
     count: number
     next: string | null
-    results: FeatureFlagType[]
+    results: ProjectsGridRow[]
 }
 
 const storageKey = (teamId: number): string => `ff-projects-grid.picked-teams.${teamId}`
@@ -27,14 +39,7 @@ const storageKey = (teamId: number): string => `ff-projects-grid.picked-teams.${
 export const projectsGridLogic = kea<projectsGridLogicType>([
     path(['scenes', 'feature-flags', 'projects-grid', 'projectsGridLogic']),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            organizationLogic,
-            ['currentOrganization'],
-            projectLogic,
-            ['currentProjectId'],
-        ],
+        values: [teamLogic, ['currentTeamId'], organizationLogic, ['currentOrganization']],
     })),
     actions({
         setSearch: (search: string) => ({ search }),
@@ -52,11 +57,13 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
         flags: [
-            [] as FeatureFlagType[],
+            [] as ProjectsGridRow[],
             {
                 loadFlagsPageSuccess: (state, { flagsPage }: { flagsPage: LoadFlagsResult }) =>
                     flagsPage.offset === 0 ? flagsPage.results : [...state, ...flagsPage.results],
                 setSearch: () => [],
+                setPickedTeamIds: () => [],
+                resetPickedTeamIds: () => [],
             },
         ],
         flagsOffset: [
@@ -65,6 +72,8 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                 loadFlagsPageSuccess: (_, { flagsPage }: { flagsPage: LoadFlagsResult }) =>
                     flagsPage.offset + flagsPage.results.length,
                 setSearch: () => 0,
+                setPickedTeamIds: () => 0,
+                resetPickedTeamIds: () => 0,
             },
         ],
         flagsHasMore: [
@@ -72,6 +81,8 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
             {
                 loadFlagsPageSuccess: (_, { flagsPage }: { flagsPage: LoadFlagsResult }) => flagsPage.next !== null,
                 setSearch: () => true,
+                setPickedTeamIds: () => true,
+                resetPickedTeamIds: () => true,
             },
         ],
         siblingsByFlagKey: [
@@ -87,6 +98,8 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                 siblingsLoaded: (state, { flagKey }) => state.filter((k) => k !== flagKey),
                 siblingsFailed: (state, { flagKey }) => state.filter((k) => k !== flagKey),
                 setSearch: () => [],
+                setPickedTeamIds: () => [],
+                resetPickedTeamIds: () => [],
             },
         ],
         siblingQueue: [
@@ -98,6 +111,8 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                 },
                 startSiblingFetch: (state, { flagKey }) => state.filter((k) => k !== flagKey),
                 setSearch: () => [],
+                setPickedTeamIds: () => [],
+                resetPickedTeamIds: () => [],
             },
         ],
         pickedTeamIds: [
@@ -113,9 +128,16 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
             null as LoadFlagsResult | null,
             {
                 loadFlagsPage: async ({ offset, search }: { offset: number; search: string }) => {
-                    const params = toParams({ limit: PAGE_SIZE, offset, search })
+                    const orgId = values.currentOrganization?.id
+                    const params = toParams({
+                        limit: PAGE_SIZE,
+                        offset,
+                        search,
+                        team_ids: values.visibleColumns.join(','),
+                        ...(values.currentTeamId ? { current_team_id: values.currentTeamId } : {}),
+                    })
                     const response = await api.get<Omit<LoadFlagsResult, 'offset' | 'search'>>(
-                        `api/projects/${values.currentProjectId}/feature_flags/?${params}`
+                        `api/organizations/${orgId}/feature_flags/keys/?${params}`
                     )
                     return { offset, search, ...response }
                 },
@@ -160,9 +182,12 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
         },
         setPickedTeamIds: ({ teamIds }) => {
             localStorage.setItem(storageKey(getCurrentTeamId()), JSON.stringify(teamIds))
+            // The compared projects changed, so the set of rows does too — reload from the top.
+            actions.loadFlagsPage({ offset: 0, search: values.search })
         },
         resetPickedTeamIds: () => {
             localStorage.removeItem(storageKey(getCurrentTeamId()))
+            actions.loadFlagsPage({ offset: 0, search: values.search })
         },
     })),
     afterMount(({ actions }) => {
@@ -170,8 +195,10 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
         if (raw) {
             try {
                 const parsed = JSON.parse(raw)
-                if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'number')) {
+                if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((x) => typeof x === 'number')) {
+                    // Hydrating picks triggers the initial load through the setPickedTeamIds listener.
                     actions.setPickedTeamIds(parsed)
+                    return
                 }
             } catch {
                 // ignore malformed entry

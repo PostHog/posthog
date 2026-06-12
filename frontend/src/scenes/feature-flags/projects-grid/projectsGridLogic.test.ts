@@ -5,19 +5,21 @@ import { initKeaTests } from '~/test/init'
 
 import { projectsGridLogic } from './projectsGridLogic'
 
-interface MockFlag {
-    id: number
+interface MockRow {
     key: string
     name: string
+    flag_id: number
+    team_id: number
     filters: { groups: [] }
     active: boolean
 }
 
-function buildFlag(i: number): MockFlag {
+function buildRow(i: number): MockRow {
     return {
-        id: i,
         key: `flag_${i}`,
         name: `Flag ${i}`,
+        flag_id: i,
+        team_id: 1,
         filters: { groups: [] },
         active: true,
     }
@@ -27,10 +29,16 @@ describe('projectsGridLogic', () => {
     let logic: ReturnType<typeof projectsGridLogic.build>
 
     describe('rows and pagination', () => {
+        let lastRequestedTeamIds: string | null
+
         beforeEach(() => {
+            lastRequestedTeamIds = null
             useMocks({
                 get: {
-                    '/api/projects/:team/feature_flags/': (req) => {
+                    // `keys/` must be registered before the `:key/` sibling route so it isn't
+                    // swallowed by the single-segment path parameter.
+                    '/api/organizations/:org/feature_flags/keys/': (req) => {
+                        lastRequestedTeamIds = req.url.searchParams.get('team_ids')
                         const offset = Number(req.url.searchParams.get('offset') ?? 0)
                         const count = 40
                         const remaining = Math.max(0, count - offset)
@@ -40,7 +48,8 @@ describe('projectsGridLogic', () => {
                             {
                                 count,
                                 next: offset + pageSize < count ? 'next' : null,
-                                results: Array.from({ length: pageSize }, (_, i) => buildFlag(offset + i + 1)),
+                                previous: offset > 0 ? 'prev' : null,
+                                results: Array.from({ length: pageSize }, (_, i) => buildRow(offset + i + 1)),
                             },
                         ]
                     },
@@ -74,6 +83,27 @@ describe('projectsGridLogic', () => {
             expect(logic.values.flags.length).toBeGreaterThan(0)
             expect(logic.values.flagsOffset).toBeLessThanOrEqual(25)
         })
+
+        it('reloads rows from the top when the compared projects change', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadMoreFlags()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.flagsOffset).toBe(40)
+
+            logic.actions.setPickedTeamIds([2])
+            await expectLogic(logic).toFinishAllListeners()
+            // The row set changed, so pagination restarts from the first page.
+            expect(logic.values.flags).toHaveLength(25)
+            expect(logic.values.flagsOffset).toBe(25)
+        })
+
+        it('requests keys for the visible columns', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setPickedTeamIds([7, 9])
+            await expectLogic(logic).toFinishAllListeners()
+            // Current team is always first, followed by the picked teams.
+            expect(lastRequestedTeamIds).toBe(`${logic.values.currentTeamId},7,9`)
+        })
     })
 
     describe('sibling queue (serial)', () => {
@@ -88,10 +118,11 @@ describe('projectsGridLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/projects/:team/feature_flags/': {
+                    '/api/organizations/:org/feature_flags/keys/': {
                         count: 3,
                         next: null,
-                        results: [buildFlag(1), buildFlag(2), buildFlag(3)],
+                        previous: null,
+                        results: [buildRow(1), buildRow(2), buildRow(3)],
                     },
                     '/api/organizations/:org/feature_flags/:key/': async (req) => {
                         const key = req.params.key as string
@@ -133,7 +164,7 @@ describe('projectsGridLogic', () => {
             localStorage.clear()
             useMocks({
                 get: {
-                    '/api/projects/:team/feature_flags/': { count: 0, next: null, results: [] },
+                    '/api/organizations/:org/feature_flags/keys/': { count: 0, next: null, previous: null, results: [] },
                     '/api/organizations/:org/feature_flags/:key/': [],
                 },
             })

@@ -2,10 +2,12 @@ import copy
 from typing import cast
 
 import structlog
+from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.response import Response
+from rest_framework.utils.urls import remove_query_param, replace_query_param
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import _FallbackSerializer, extend_schema
@@ -65,6 +67,9 @@ class CopyFlagsResponseSerializer(serializers.Serializer):
 
 logger = structlog.get_logger(__name__)
 
+KEYS_DEFAULT_LIMIT = 25
+KEYS_MAX_LIMIT = 100
+
 
 class OrganizationFeatureFlagView(
     TeamAndOrgViewSetMixin,
@@ -117,6 +122,109 @@ class OrganizationFeatureFlagView(
         ]
 
         return Response(flags_data)
+
+    # Excluded from the public OpenAPI spec: this is an INTERNAL endpoint consumed only by the
+    # "Projects" comparison grid via a handwritten client, so it doesn't need generated types.
+    @extend_schema(exclude=True)
+    @action(detail=False, methods=["get"], url_path="keys", pagination_class=None)
+    def keys(self, request, *args, **kwargs):
+        """
+        Lists the distinct feature flag keys across the selected projects, paginated.
+
+        The list-level "Projects" comparison grid uses this so its rows span every flag in the
+        compared projects, not just the flags that happen to exist in the user's current project.
+
+        Query params: ``team_ids`` (comma-separated; defaults to all accessible teams),
+        ``current_team_id`` (preferred when picking each key's representative flag, so row links
+        stay in the current project), ``search``, ``limit`` (max 100), and ``offset``.
+        """
+        # Only consider teams the user can access within this organization.
+        user_permissions = UserPermissions(user=request.user)
+        accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
+        org_team_ids = set(self.organization.teams.values_list("id", flat=True))
+        allowed_team_ids = org_team_ids & accessible_team_ids
+
+        requested_team_ids = request.GET.get("team_ids")
+        if requested_team_ids:
+            try:
+                requested = {int(part) for part in requested_team_ids.split(",") if part.strip()}
+            except ValueError:
+                return Response(
+                    {"error": "team_ids must be a comma-separated list of integers."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            team_ids = list(allowed_team_ids & requested)
+        else:
+            team_ids = list(allowed_team_ids)
+
+        try:
+            limit = min(int(request.GET.get("limit", KEYS_DEFAULT_LIMIT)), KEYS_MAX_LIMIT)
+            offset = max(int(request.GET.get("offset", 0)), 0)
+        except ValueError:
+            return Response(
+                {"error": "limit and offset must be integers."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if limit <= 0:
+            limit = KEYS_DEFAULT_LIMIT
+
+        current_team_id = None
+        raw_current_team_id = request.GET.get("current_team_id")
+        if raw_current_team_id:
+            try:
+                current_team_id = int(raw_current_team_id)
+            except ValueError:
+                current_team_id = None
+
+        base_qs = FeatureFlag.objects.filter(team_id__in=team_ids, deleted=False)
+        search = request.GET.get("search", "").strip()
+        if search:
+            base_qs = base_qs.filter(Q(key__icontains=search) | Q(name__icontains=search))
+
+        distinct_keys = base_qs.order_by("key").values_list("key", flat=True).distinct()
+        count = distinct_keys.count()
+        page_keys = list(distinct_keys[offset : offset + limit])
+
+        # Pick one representative flag per key for the name + link, preferring the current project
+        # when it has the key so the row's link opens where the user is.
+        representatives: dict[str, FeatureFlag] = {}
+        page_flags = FeatureFlag.objects.filter(team_id__in=team_ids, key__in=page_keys, deleted=False).order_by(
+            "key", "team_id"
+        )
+        for flag in page_flags:
+            existing = representatives.get(flag.key)
+            prefers_current = (
+                current_team_id is not None
+                and flag.team_id == current_team_id
+                and (existing is None or existing.team_id != current_team_id)
+            )
+            if existing is None or prefers_current:
+                representatives[flag.key] = flag
+
+        results = [
+            {
+                "key": flag.key,
+                "name": flag.name or "",
+                "flag_id": flag.id,
+                "team_id": flag.team_id,
+                "filters": flag.get_filters(),
+                "active": flag.active,
+            }
+            for flag in (representatives[key] for key in page_keys)
+        ]
+
+        url = request.build_absolute_uri()
+        next_url = replace_query_param(url, "offset", offset + limit) if offset + limit < count else None
+        previous_url = None
+        if offset > 0:
+            previous_offset = max(0, offset - limit)
+            previous_url = (
+                remove_query_param(url, "offset")
+                if previous_offset == 0
+                else replace_query_param(url, "offset", previous_offset)
+            )
+
+        return Response({"count": count, "next": next_url, "previous": previous_url, "results": results})
 
     @extend_schema(
         request=CopyFlagsRequestSerializer,

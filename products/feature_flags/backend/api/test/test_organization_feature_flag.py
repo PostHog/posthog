@@ -133,6 +133,84 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data[0]["team_id"], self.team_1.id)
 
 
+class TestOrganizationFeatureFlagKeys(APIBaseTest):
+    def setUp(self):
+        self.team_1 = self.team
+        self.team_2 = Team.objects.create(organization=self.organization)
+
+        # Shared key in both projects, plus a key unique to each project.
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="shared", name="Shared flag")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="shared", name="Shared flag in team 2")
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="only-team-1")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="only-team-2")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="deleted", deleted=True)
+
+        super().setUp()
+
+    def _url(self, query: str = "") -> str:
+        return f"/api/organizations/{self.organization.id}/feature_flags/keys{query}"
+
+    def test_returns_union_of_keys_across_selected_projects(self):
+        # Core fix: the union spans both projects, not just the current one.
+        response = self.client.get(self._url(f"?team_ids={self.team_1.id},{self.team_2.id}"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        body = response.json()
+        self.assertEqual(body["count"], 3)
+        self.assertEqual([row["key"] for row in body["results"]], ["only-team-1", "only-team-2", "shared"])
+
+    def test_excludes_deleted_flags(self):
+        response = self.client.get(self._url(f"?team_ids={self.team_2.id}"))
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertNotIn("deleted", keys)
+
+    def test_team_ids_filters_to_selected_projects(self):
+        response = self.client.get(self._url(f"?team_ids={self.team_2.id}"))
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertEqual(keys, ["only-team-2", "shared"])
+        self.assertNotIn("only-team-1", keys)
+
+    def test_search_filters_by_key(self):
+        response = self.client.get(self._url(f"?team_ids={self.team_1.id},{self.team_2.id}&search=only-team-1"))
+        self.assertEqual([row["key"] for row in response.json()["results"]], ["only-team-1"])
+
+    def test_representative_prefers_current_team(self):
+        response = self.client.get(
+            self._url(f"?team_ids={self.team_1.id},{self.team_2.id}&current_team_id={self.team_1.id}")
+        )
+        shared = next(row for row in response.json()["results"] if row["key"] == "shared")
+        self.assertEqual(shared["team_id"], self.team_1.id)
+        self.assertEqual(shared["name"], "Shared flag")
+
+    def test_pagination(self):
+        response = self.client.get(self._url(f"?team_ids={self.team_1.id},{self.team_2.id}&limit=2&offset=0"))
+        body = response.json()
+        self.assertEqual(body["count"], 3)
+        self.assertEqual(len(body["results"]), 2)
+        self.assertIsNotNone(body["next"])
+        self.assertIsNone(body["previous"])
+
+        response = self.client.get(self._url(f"?team_ids={self.team_1.id},{self.team_2.id}&limit=2&offset=2"))
+        body = response.json()
+        self.assertEqual(len(body["results"]), 1)
+        self.assertIsNone(body["next"])
+        self.assertIsNotNone(body["previous"])
+
+    def test_defaults_to_all_accessible_teams(self):
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 3)
+
+    def test_invalid_team_ids_returns_400(self):
+        response = self.client.get(self._url("?team_ids=not-an-int"))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_unauthorized(self):
+        self.client.logout()
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
 class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def setUp(self):
         self.team_1 = self.team

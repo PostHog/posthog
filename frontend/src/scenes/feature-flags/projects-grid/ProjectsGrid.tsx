@@ -7,19 +7,17 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { FeatureFlagType, OrganizationFeatureFlag } from '~/types'
+import { OrganizationFeatureFlag } from '~/types'
 
 import { CellState, ProjectsGridCell } from './ProjectsGridCell'
-import { projectsGridLogic } from './projectsGridLogic'
+import { ProjectsGridRow, projectsGridLogic } from './projectsGridLogic'
 import { ProjectsGridToolbar } from './ProjectsGridToolbar'
 
 function cellStateFor(
-    flag: FeatureFlagType,
+    row: ProjectsGridRow,
     teamId: number,
-    currentTeamId: number,
     accessibleTeamIds: Set<number>,
     siblings: OrganizationFeatureFlag[] | undefined,
     siblingsLoading: boolean
@@ -29,18 +27,18 @@ function cellStateFor(
         return { kind: 'present', sibling: siblingForTeam }
     }
 
-    // Before siblings load, render the current team's cell from the flag directly
-    // (eval count unavailable until siblings arrive).
-    if (teamId === currentTeamId) {
+    // Before siblings load, render the representative project's cell directly so it doesn't flash
+    // a skeleton (eval count is unavailable until siblings arrive).
+    if (teamId === row.team_id) {
         return {
             kind: 'present',
             sibling: {
-                flag_id: flag.id,
+                flag_id: row.flag_id,
                 team_id: teamId,
-                created_by: flag.created_by ?? null,
-                filters: flag.filters,
-                created_at: flag.created_at ?? '',
-                active: flag.active,
+                created_by: null,
+                filters: row.filters,
+                created_at: '',
+                active: row.active,
             },
         }
     }
@@ -98,16 +96,16 @@ export function ProjectsGrid(): JSX.Element {
 
     const columnWidth = `${100 / (visibleColumns.length + 1)}%`
 
-    const columns: LemonTableColumns<FeatureFlagType> = [
+    const columns: LemonTableColumns<ProjectsGridRow> = [
         {
             title: 'Flag',
             key: 'flag',
             width: columnWidth,
-            render: (_, flag) => (
+            render: (_, row) => (
                 <LemonTableLink
-                    to={urls.featureFlag(flag.id as number)}
-                    title={flag.name || flag.key}
-                    description={flag.key}
+                    to={`/project/${row.team_id}/feature_flags/${row.flag_id}`}
+                    title={row.name || row.key}
+                    description={row.key}
                 />
             ),
         },
@@ -122,15 +120,14 @@ export function ProjectsGrid(): JSX.Element {
             ),
             key: `project-${teamId}`,
             width: columnWidth,
-            render: (_: unknown, flag: FeatureFlagType) => (
+            render: (_: unknown, row: ProjectsGridRow) => (
                 <ProjectsGridCell
                     state={cellStateFor(
-                        flag,
+                        row,
                         teamId,
-                        currentTeamId,
                         accessibleTeamIds,
-                        siblingsByFlagKey[flag.key],
-                        siblingsLoadingKeys.includes(flag.key)
+                        siblingsByFlagKey[row.key],
+                        siblingsLoadingKeys.includes(row.key)
                     )}
                 />
             ),
@@ -146,7 +143,7 @@ export function ProjectsGrid(): JSX.Element {
             <LemonTable
                 columns={columns}
                 dataSource={flags}
-                rowKey="id"
+                rowKey="key"
                 loading={flagsPageLoading && flags.length === 0}
                 emptyState="No flags match your search."
                 data-attr="projects-grid-table"
