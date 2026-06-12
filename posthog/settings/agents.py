@@ -1,6 +1,6 @@
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.settings.utils import get_from_env
+from posthog.settings.utils import get_from_env, get_list
 
 # Agent janitor service — Django proxies session list/detail/cancel requests here.
 AGENT_JANITOR_BASE_URL = get_from_env("AGENT_JANITOR_BASE_URL", "http://localhost:3031")
@@ -26,3 +26,12 @@ AGENT_INGRESS_PUBLIC_URL = get_from_env("AGENT_INGRESS_PUBLIC_URL", "")
 # default fails safe: the janitor client skips the mint and the receiver 401s,
 # surfacing the misconfig instead of signing with a baked-in dev string.
 AGENT_INTERNAL_SIGNING_KEY = get_from_env("AGENT_INTERNAL_SIGNING_KEY", "")
+
+# Teams allowed to set an agent's slug explicitly on create. Everyone else gets
+# a server-minted globally-unique slug (the slug is a single global namespace —
+# see AgentApplication). This is our escape hatch so first-party agents (e.g.
+# the concierge) keep a stable, human-readable slug across environments.
+# Comma-separated team ids; empty (default) → no team may set an explicit slug.
+AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS: set[int] = {
+    int(team_id) for team_id in get_list(get_from_env("AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS", ""))
+}

@@ -7141,10 +7141,11 @@ export namespace Schemas {
       /** @maxLength 255 */
       name: string;
       /**
+         * Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).
          * @maxLength 63
          * @pattern ^[-a-zA-Z0-9_]+$
          */
-      slug: string;
+      slug?: string;
       description?: string;
       /** @nullable */
       readonly live_revision: string | null;
@@ -7170,6 +7171,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_interactivity_url: string | null;
+      /**
+         * Mode-aware base URL the agent's trigger routes hang off — append `/webhook`, `/run`, `/mcp`, etc. Domain mode: `https://<slug><suffix>`; path mode: `<public_url>/agents/<slug>`. Same source + null behaviour as `slack_events_url` (null when no public ingress URL is configured).
+         * @nullable
+         */
+      readonly ingress_base_url: string | null;
     }
 
     /**
@@ -30166,6 +30172,7 @@ export namespace Schemas {
       /** @maxLength 255 */
       name?: string;
       /**
+         * Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).
          * @maxLength 63
          * @pattern ^[-a-zA-Z0-9_]+$
          */
@@ -30195,6 +30202,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_interactivity_url?: string | null;
+      /**
+         * Mode-aware base URL the agent's trigger routes hang off — append `/webhook`, `/run`, `/mcp`, etc. Domain mode: `https://<slug><suffix>`; path mode: `<public_url>/agents/<slug>`. Same source + null behaviour as `slack_events_url` (null when no public ingress URL is configured).
+         * @nullable
+         */
+      readonly ingress_base_url?: string | null;
     }
 
     /**
