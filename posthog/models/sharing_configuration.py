@@ -136,6 +136,9 @@ class SharingConfiguration(models.Model):
             return keep
 
     def _lock_resource_for_rotation(self) -> None:
+        # Resource models are imported locally: this module is loaded mid-``Team`` initialization
+        # (via product_analytics' insight_caching_state), so importing them at module level would
+        # cycle through ``posthog.models.team``.
         if self.dashboard_id:
             from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -147,7 +150,7 @@ class SharingConfiguration(models.Model):
 
             Notebook.objects.select_for_update().get(pk=self.notebook_id, team_id=self.team_id)
         elif self.recording_id:
-            from posthog.models import SessionRecording
+            from posthog.session_recordings.models.session_recording import SessionRecording
 
             SessionRecording.objects.select_for_update().get(session_id=self.recording_id, team_id=self.team_id)
         elif self.interviewee_context_id:
