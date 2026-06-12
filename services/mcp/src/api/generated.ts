@@ -26994,6 +26994,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `up` - up
+     * * `down` - down
+     * * `flat` - flat
+     */
+    export type MetricAnomalyDirectionEnum = typeof MetricAnomalyDirectionEnum[keyof typeof MetricAnomalyDirectionEnum];
+
+
+    export const MetricAnomalyDirectionEnum = {
+      Up: 'up',
+      Down: 'down',
+      Flat: 'flat',
+    } as const;
+
+    /**
      * * `resource` - resource
      * * `attribute` - attribute
      * * `auto` - auto
@@ -48576,7 +48590,10 @@ export namespace Schemas {
        * * `regex` - regex
        * * `not_regex` - not_regex */
       op?: OpEnum;
-      /** Value to compare against. For regex operators this is the pattern. */
+      /**
+         * Value to compare against. For regex operators this is the pattern.
+         * @maxLength 1024
+         */
       value: string;
       /** Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.
        *
@@ -48639,20 +48656,6 @@ export namespace Schemas {
       change_ratio: number;
     }
 
-    /**
-     * * `up` - up
-     * * `down` - down
-     * * `flat` - flat
-     */
-    export type _MetricAnomalyReportDirectionEnum = typeof _MetricAnomalyReportDirectionEnum[keyof typeof _MetricAnomalyReportDirectionEnum];
-
-
-    export const _MetricAnomalyReportDirectionEnum = {
-      Up: 'up',
-      Down: 'down',
-      Flat: 'flat',
-    } as const;
-
     export interface _MetricQueryPoint {
       /** Bucket start as ISO 8601 timestamp. */
       time: string;
@@ -48712,7 +48715,7 @@ export namespace Schemas {
        * * `up` - up
        * * `down` - down
        * * `flat` - flat */
-      direction: _MetricAnomalyReportDirectionEnum;
+      direction: MetricAnomalyDirectionEnum;
       /**
          * First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.
          * @nullable
@@ -48827,7 +48830,7 @@ export namespace Schemas {
        * * `day` - day
        * * `week` - week */
       interval?: MetricQueryIntervalEnum | null;
-      /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'. */
+      /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum 10). Mutually exclusive with 'metricName'. */
       clauses?: _MetricClause[];
       /**
          * Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.
@@ -52611,7 +52614,7 @@ export namespace Schemas {
 
     export type EnvironmentsMetricsValuesRetrieveParams = {
     /**
-     * Max number of names to return. Defaults to 100, capped at 1000.
+     * Max number of names to return. Defaults to 100; maximum 1000.
      */
     limit?: number;
     /**
@@ -58860,7 +58863,7 @@ export namespace Schemas {
 
     export type MetricsValuesRetrieveParams = {
     /**
-     * Max number of names to return. Defaults to 100, capped at 1000.
+     * Max number of names to return. Defaults to 100; maximum 1000.
      */
     limit?: number;
     /**
