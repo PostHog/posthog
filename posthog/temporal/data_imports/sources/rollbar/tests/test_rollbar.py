@@ -53,7 +53,8 @@ class TestExtractItems:
         assert _extract_items({"err": 0, "result": {"items": [{"id": 1}]}}, "items") == [{"id": 1}]
 
     def test_bare_list_result(self):
-        assert _extract_items({"err": 0, "result": [{"id": 1}]}, "environments") == [{"id": 1}]
+        # Defensive: a `result` that is itself a list is returned as-is regardless of data_key.
+        assert _extract_items({"err": 0, "result": [{"id": 1}]}, "items") == [{"id": 1}]
 
     @pytest.mark.parametrize(
         "body",
@@ -123,10 +124,10 @@ class TestGetRowsPagePagination:
         assert parse_qs(urlparse(url).query)["page"] == ["7"]
 
     @mock.patch("posthog.temporal.data_imports.sources.rollbar.rollbar.make_tracked_session")
-    def test_environments_bare_list_result(self, mock_session):
+    def test_environments_keyed_result(self, mock_session):
         mock_session.return_value.get.side_effect = [
-            _response(None, [{"id": 1, "environment": "production"}]),
-            _response(None, []),
+            _response("environments", [{"id": 1, "environment": "production"}]),
+            _response("environments", []),
         ]
 
         manager = _make_manager()

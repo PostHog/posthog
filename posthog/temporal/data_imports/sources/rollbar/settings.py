@@ -8,8 +8,9 @@ from products.data_warehouse.backend.types import IncrementalField, IncrementalF
 class RollbarEndpointConfig:
     name: str
     path: str
-    # Key the rows live under inside the response `result` (None when `result`
-    # is itself the list, e.g. environments).
+    # Key the rows live under inside the response `result`. Every Rollbar list
+    # endpoint nests its rows under a key (e.g. `result.environments`); `None`
+    # is only for the defensive case where `result` is itself a bare list.
     data_key: Optional[str]
     primary_key: str = "id"
     pagination: Literal["page", "keyset"] = "page"

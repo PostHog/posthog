@@ -122,7 +122,7 @@ def get_rows(
             items = _extract_items(body, config.data_key)
 
             if watermark is not None:
-                items = [item for item in items if (_to_int(item.get("id")) or 0) > watermark]
+                items = [item for item in items if (_to_int(item["id"]) or 0) > watermark]
 
             if items:
                 yield items
@@ -132,7 +132,7 @@ def get_rows(
                 # watermark (filtered rows out).
                 break
 
-            last_id = min((_to_int(item.get("id")) or 0) for item in items)
+            last_id = min((_to_int(item["id"]) or 0) for item in items)
             # Save state AFTER yielding the page so a crash re-yields the last
             # page (merge dedupes on primary key) rather than skipping it.
             resumable_source_manager.save_state(RollbarResumeConfig(last_id=last_id))
