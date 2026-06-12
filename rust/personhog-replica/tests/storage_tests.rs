@@ -2063,8 +2063,9 @@ async fn test_split_person_creates_new_persons(#[case] num_splits: usize) {
 
     assert_eq!(results.len(), num_splits);
 
-    for result in &results {
-        assert!(split_dids.contains(&result.distinct_id));
+    for (i, result) in results.iter().enumerate() {
+        // Results come back in request order
+        assert_eq!(result.distinct_id, split_dids[i]);
         assert_eq!(result.new_person_version, 101); // original version 0 + 101
         assert_eq!(result.pdi_version, 101); // original PDI version 0 + 101
 
@@ -2076,6 +2077,7 @@ async fn test_split_person_creates_new_persons(#[case] num_splits: usize) {
             .expect("Lookup should succeed")
             .expect("New person should exist");
         assert_eq!(new_person.version, Some(101));
+        assert_eq!(new_person.created_at, result.new_person_created_at);
 
         // PDI should now point to the new person
         let looked_up = ctx
@@ -2261,6 +2263,73 @@ async fn test_split_person_idempotent() {
 }
 
 #[tokio::test]
+async fn test_split_person_preserves_created_at_of_existing_person() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("preexist_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "preexist_split@example.com")
+        .await
+        .unwrap();
+
+    // Pre-create the person the split will upsert into (same deterministic
+    // UUIDv5), with a created_at in the past.
+    let namespace = Uuid::from_bytes([
+        0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc,
+        0x22,
+    ]);
+    let split_uuid = Uuid::new_v5(
+        &namespace,
+        format!("{}:preexist_split@example.com", ctx.team_id).as_bytes(),
+    );
+    let old_created_at = chrono::DateTime::parse_from_rfc3339("2020-01-02T03:04:05Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let existing_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified, is_user_id)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', $4, 3, false, NULL)"#,
+    )
+    .bind(existing_id)
+    .bind(split_uuid)
+    .bind(ctx.team_id)
+    .bind(old_created_at)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["preexist_split@example.com".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    // The upsert keeps the existing person's created_at; the response must
+    // report it so callers publish the value that matches Postgres.
+    assert_eq!(results[0].new_person_uuid, split_uuid);
+    assert_eq!(results[0].new_person_created_at, old_created_at);
+    assert_eq!(results[0].new_person_version, 101); // source person version 0 + 101
+
+    let upserted = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, split_uuid)
+        .await
+        .expect("Lookup should succeed")
+        .expect("Upserted person should exist");
+    assert_eq!(upserted.created_at, old_created_at);
+    assert_eq!(upserted.version, Some(101));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_split_person_not_found_unknown_distinct_id() {
     let ctx = TestContext::new().await;
     let person = ctx
@@ -2386,7 +2455,7 @@ async fn test_split_person_transaction_rollback_on_partial_failure() {
         .unwrap();
 
     // Request includes one valid and one invalid distinct_id.
-    // The pre-transaction validation should reject the whole request.
+    // Ownership validation under the lock should reject the whole request.
     let err = ctx
         .storage
         .split_person(

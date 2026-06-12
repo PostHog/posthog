@@ -406,15 +406,17 @@ class SplitPersonRequest(_message.Message):
     ) -> None: ...
 
 class SplitResult(_message.Message):
-    __slots__ = ("distinct_id", "new_person_uuid", "new_person_version", "pdi_version")
+    __slots__ = ("distinct_id", "new_person_uuid", "new_person_version", "pdi_version", "new_person_created_at_ms")
     DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
     NEW_PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
     NEW_PERSON_VERSION_FIELD_NUMBER: _ClassVar[int]
     PDI_VERSION_FIELD_NUMBER: _ClassVar[int]
+    NEW_PERSON_CREATED_AT_MS_FIELD_NUMBER: _ClassVar[int]
     distinct_id: str
     new_person_uuid: str
     new_person_version: int
     pdi_version: int
+    new_person_created_at_ms: int
 
     def __init__(
         self,
@@ -422,6 +424,7 @@ class SplitResult(_message.Message):
         new_person_uuid: _Optional[str] = ...,
         new_person_version: _Optional[int] = ...,
         pdi_version: _Optional[int] = ...,
+        new_person_created_at_ms: _Optional[int] = ...,
     ) -> None: ...
 
 class SplitPersonResponse(_message.Message):

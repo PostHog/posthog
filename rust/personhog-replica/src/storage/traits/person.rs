@@ -72,14 +72,16 @@ pub trait PersonLookup: Send + Sync {
 
     /// Atomically split distinct_ids off a person onto new persons.
     ///
-    /// Within a single transaction:
-    /// 1. Locks the specified PersonDistinctId rows with SELECT FOR UPDATE
-    /// 2. Creates new persons via upsert (deterministic UUIDv5, version = original + 101)
-    /// 3. Reassigns PDIs to new persons (version = original PDI version + 101)
+    /// Within a single transaction (constant statement count, set-based):
+    /// 1. Locks the specified PersonDistinctId rows with SELECT FOR UPDATE and
+    ///    validates ownership under the lock
+    /// 2. Creates new persons via one bulk upsert (deterministic UUIDv5,
+    ///    version = original person version + 101)
+    /// 3. Reassigns PDIs to new persons in one bulk update
+    ///    (version = original PDI version + 101)
     ///
-    /// Returns NOT_FOUND (via StorageError::Query) if any distinct_id doesn't
-    /// belong to the person. Returns FAILED_PRECONDITION if locked PDI count
-    /// doesn't match (race condition).
+    /// Returns StorageError::NotFound if the person doesn't exist or any
+    /// distinct_id doesn't belong to it.
     async fn split_person(
         &self,
         team_id: i64,

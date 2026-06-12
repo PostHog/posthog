@@ -185,12 +185,15 @@ message DeletePersonsBatchForTeamResponse {
 
 // SplitPersonRequest splits specific distinct_ids off of a person onto new persons.
 // Each distinct_id gets a new person with a deterministic UUID (UUIDv5 from team_id:distinct_id).
-// The operation is atomic: all splits succeed or none do.
+// The operation is atomic per request: all splits succeed or none do.
 // Python resolves which distinct IDs to split before calling this RPC.
+// Limited to 250 distinct_ids per request (server-enforced) to bound row-lock
+// hold time and message size — callers batch larger splits across requests,
+// which is safe because the deterministic UUIDs make each request idempotent.
 message SplitPersonRequest {
   int64 team_id = 1;
   int64 person_id = 2;
-  // Distinct IDs to split off. Must all belong to the specified person.
+  // Distinct IDs to split off. Must all belong to the specified person; duplicates are rejected.
   repeated string distinct_ids_to_split = 3;
 }
 
@@ -200,8 +203,13 @@ message SplitResult {
   string new_person_uuid = 2;
   int64 new_person_version = 3;
   int64 pdi_version = 4;
+  // Epoch millis. For pre-existing persons (idempotent re-split) this is the
+  // original created_at, not the time of this request — callers publish it
+  // downstream (e.g. to ClickHouse) so it must match the Postgres row.
+  int64 new_person_created_at_ms = 5;
 }
 
 message SplitPersonResponse {
+  // Results are in the same order as distinct_ids_to_split in the request.
   repeated SplitResult splits = 1;
 }

@@ -6,7 +6,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
@@ -50,7 +50,9 @@ const MAX_BATCH_LOOKUP_SIZE: usize = 250;
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
 const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
 const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
-const MAX_SPLIT_BATCH_SIZE: usize = 2_500;
+// Splits run in a single all-or-nothing transaction holding row locks, so the
+// cap bounds both lock-hold time and payload size — same order as batch lookups.
+const MAX_SPLIT_BATCH_SIZE: usize = 250;
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
@@ -1234,6 +1236,17 @@ impl PersonHogReplica for PersonHogReplicaService {
             )));
         }
 
+        let unique_dids: HashSet<&str> = req
+            .distinct_ids_to_split
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        if unique_dids.len() != req.distinct_ids_to_split.len() {
+            return Err(Status::invalid_argument(
+                "Duplicate distinct_ids in split_person request",
+            ));
+        }
+
         let results = self
             .storage
             .split_person(req.team_id, req.person_id, &req.distinct_ids_to_split)
@@ -1254,6 +1267,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                     new_person_uuid: r.new_person_uuid.to_string(),
                     new_person_version: r.new_person_version,
                     pdi_version: r.pdi_version,
+                    new_person_created_at_ms: r.new_person_created_at.timestamp_millis(),
                 })
                 .collect(),
         }))
