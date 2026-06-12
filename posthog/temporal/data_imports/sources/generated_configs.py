@@ -368,7 +368,8 @@ class CircleCISourceConfig(config.Config):
 
 @config.config
 class ClariSourceConfig(config.Config):
-    pass
+    api_key: str
+    forecast_id: str
 
 
 @config.config
