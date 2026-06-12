@@ -3527,11 +3527,34 @@ class TestIntegrationDeletionWorkflowGuard:
         nested: dict = {"integrationId": self.integration.id}
         for _ in range(1500):
             nested = {"_x": nested}
-        self._create_flow(actions=[{"id": "action_function_1", "name": "Evil", "type": "function", "config": nested}])
+        self._create_flow(
+            actions=[{"id": "action_function_1", "name": "Evil", "type": "function", "config": {"inputs": nested}}]
+        )
 
         with patch("posthog.api.integration.EmailIntegration"):
             response = self._delete(client)
 
         # The reference sits beyond the traversal depth cap: deletion proceeds rather than 500ing
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    @pytest.mark.parametrize(
+        "action_type,config",
+        [
+            # Non-function actions don't consume integrations
+            ("delay", {"duration": "5m"}),
+            # Function actions only consume integrations via config.inputs
+            ("function", {"template_id": "template-unknown", "inputs": {}}),
+        ],
+    )
+    def test_destroy_allowed_when_integration_id_in_non_consuming_config(
+        self, action_type: str, config: dict, client: HttpClient
+    ):
+        config = {**config, "integrationId": self.integration.id}
+        self._create_flow(actions=[{"id": "action_1", "name": "Planted", "type": action_type, "config": config}])
+
+        with patch("posthog.api.integration.EmailIntegration"):
+            response = self._delete(client)
+
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=self.integration.id).exists()

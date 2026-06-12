@@ -48,11 +48,13 @@ def _function_action_references_integration(action: dict, integration_id: int, t
 
 
 def _action_references_integration(action: dict, integration_id: int, template_cache: _TemplateCache) -> bool:
-    if _node_references_integration(action.get("config"), integration_id):
+    # Integrations are only consumed by function-style actions, via config.inputs — scanning
+    # wider would let a planted integrationId in an unused field block deletion.
+    if "function" not in (action.get("type") or ""):
+        return False
+    if _node_references_integration((action.get("config") or {}).get("inputs"), integration_id):
         return True
-    if "function" in (action.get("type") or ""):
-        return _function_action_references_integration(action, integration_id, template_cache)
-    return False
+    return _function_action_references_integration(action, integration_id, template_cache)
 
 
 def get_active_hog_flows_using_integration(team_id: int, integration_id: int) -> list[HogFlow]:
