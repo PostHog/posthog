@@ -12,6 +12,9 @@ tools:
     engineering-analytics-ci-cards:
         operation: engineering_analytics_ci_cards
         enabled: false
+    engineering-analytics-quarantine:
+        operation: engineering_analytics_quarantine
+        enabled: false
     pr-lifecycle:
         operation: engineering_analytics_pr_lifecycle
         enabled: true
