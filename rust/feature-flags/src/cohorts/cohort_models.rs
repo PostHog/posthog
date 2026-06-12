@@ -100,14 +100,26 @@ pub struct CohortProperty {
 pub struct InnerCohortProperty {
     #[serde(rename = "type")]
     pub prop_type: CohortPropertyType,
-    pub values: Vec<CohortValues>,
+    pub values: Vec<CohortValuesItem>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CohortValues {
     #[serde(rename = "type")]
     pub prop_type: String,
-    pub values: Vec<PropertyFilter>,
+    pub values: Vec<CohortValuesItem>,
+}
+
+/// A single entry inside a cohort property group: either a nested group or a leaf
+/// property filter. Mirrors `FilterOrGroup` in posthog/api/cohort.py — the cohort UI
+/// always wraps filters in an inner group, but the API contract allows filters
+/// directly in a group and arbitrarily deep nesting, so evaluation must accept both.
+/// Untagged is unambiguous: groups have `values` and no `key`, filters require `key`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum CohortValuesItem {
+    Group(CohortValues),
+    Filter(PropertyFilter),
 }
 
 #[cfg(test)]
