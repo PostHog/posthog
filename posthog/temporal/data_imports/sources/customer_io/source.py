@@ -198,6 +198,7 @@ class CustomerIOSource(
                 supports_incremental=False,
                 supports_append=False,
                 supports_webhooks=True,
+                webhook_only=True,
                 incremental_fields=[],
             )
             for name in CIO_WEBHOOK_SCHEMA_NAMES
