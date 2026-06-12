@@ -2161,11 +2161,12 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
             source_type=ExternalDataSourceType.POSTGRES,
             job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
         )
+        # schema_metadata is a read-only property backed by sync_type_config.
         return ExternalDataSchema.objects.create(
             name="Customers",
             team=self.team,
             source=source,
-            schema_metadata=self.SCHEMA_METADATA,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
         )
 
     def _patch(self, schema: ExternalDataSchema, row_filters: Any):
