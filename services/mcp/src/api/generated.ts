@@ -17744,23 +17744,10 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
-    export type ExternalDataSchemaRowFiltersItemOperator = typeof ExternalDataSchemaRowFiltersItemOperator[keyof typeof ExternalDataSchemaRowFiltersItemOperator];
-
-
-    export const ExternalDataSchemaRowFiltersItemOperator = {
-      '': '>',
-      '': '>=',
-      '': '<',
-      '': '<=',
-      '': '=',
-      '': '!=',
-      In: 'IN',
-      NotIn: 'NOT IN',
-    } as const;
-
     export type ExternalDataSchemaRowFiltersItem = {
       column: string;
-      operator: ExternalDataSchemaRowFiltersItemOperator;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
       /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
       value: unknown;
     };
@@ -17942,23 +17929,10 @@ export namespace Schemas {
       readonly source: ExternalDataSchemaSource;
     }
 
-    export type ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator = typeof ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator[keyof typeof ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator];
-
-
-    export const ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator = {
-      '': '>',
-      '': '>=',
-      '': '<',
-      '': '<=',
-      '': '=',
-      '': '!=',
-      In: 'IN',
-      NotIn: 'NOT IN',
-    } as const;
-
     export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
       column: string;
-      operator: ExternalDataSourceBulkUpdateSchemaRowFiltersItemOperator;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
       /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
       value: unknown;
     };
@@ -30675,23 +30649,10 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
-    export type PatchedExternalDataSchemaRowFiltersItemOperator = typeof PatchedExternalDataSchemaRowFiltersItemOperator[keyof typeof PatchedExternalDataSchemaRowFiltersItemOperator];
-
-
-    export const PatchedExternalDataSchemaRowFiltersItemOperator = {
-      '': '>',
-      '': '>=',
-      '': '<',
-      '': '<=',
-      '': '=',
-      '': '!=',
-      In: 'IN',
-      NotIn: 'NOT IN',
-    } as const;
-
     export type PatchedExternalDataSchemaRowFiltersItem = {
       column: string;
-      operator: PatchedExternalDataSchemaRowFiltersItemOperator;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
       /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
       value: unknown;
     };
