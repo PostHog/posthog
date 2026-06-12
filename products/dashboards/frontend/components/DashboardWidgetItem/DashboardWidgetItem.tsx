@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
+import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
@@ -66,7 +67,7 @@ type DashboardWidgetItemProps = {
     toggleShowDescription?: () => void
     showResizeHandles?: boolean
     canEnterEditModeFromEdge?: boolean
-    onEnterEditModeFromEdge?: () => void
+    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     showEditingControls?: boolean
     onDuplicate?: () => void

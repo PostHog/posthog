@@ -1,3 +1,4 @@
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -6,6 +7,8 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.observability import (
     HogQLTypeObservability,
     classify_constant_type,
@@ -16,8 +19,14 @@ from posthog.hogql.observability import (
     create_hogql_type_observability,
     emit_hogql_type_observability,
 )
+from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver import resolve_types
+from posthog.hogql.transforms.property_types import build_property_swapper
 
 from posthog.clickhouse.query_tagging import Product
+from posthog.models import PropertyDefinition
+
+from products.event_definitions.backend.models.property_definition import PropertyType as PropertyDefinitionType
 
 
 def _metric(name: str, labels: dict[str, str]) -> float:
@@ -192,3 +201,78 @@ class TestHogQLTypeObservability(SimpleTestCase):
     )
     def test_function_groups_are_bounded(self, name, expected):
         self.assertEqual(classify_function_group(name), expected)
+
+
+class TestTypeCoverageResolution(BaseTest):
+    """Reference types (columns, properties) only resolve to a concrete scalar against a context."""
+
+    def setUp(self):
+        super().setUp()
+        self.database = Database.create_for(team=self.team)
+        self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
+
+    def _resolved_column_type(self, query: str) -> ast.Type | None:
+        node = parse_select(query)
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert isinstance(node, ast.SelectQuery)
+        # Populates context.property_swapper, which the property metadata path reads from.
+        build_property_swapper(node, self.context)
+        column_type = node.select[0].type
+        # Selected columns are wrapped in a FieldAliasType; unwrap to the underlying reference.
+        if isinstance(column_type, ast.FieldAliasType):
+            return column_type.type
+        return column_type
+
+    def test_bare_field_with_typed_column_is_precise(self):
+        field_type = self._resolved_column_type("SELECT timestamp FROM events")
+        self.assertIsInstance(field_type, ast.FieldType)
+
+        self.assertEqual(classify_expr_type(field_type, self.context), "precise")
+        # No context → cannot resolve → partial.
+        self.assertEqual(classify_expr_type(field_type), "partial")
+
+    def test_property_with_metadata_is_precise(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="foo",
+            property_type=PropertyDefinitionType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        property_type = self._resolved_column_type("SELECT properties.foo FROM events")
+        self.assertIsInstance(property_type, ast.PropertyType)
+
+        self.assertEqual(classify_expr_type(property_type, self.context), "precise")
+
+    def test_property_without_metadata_is_partial_not_string_fallback(self):
+        property_type = self._resolved_column_type("SELECT properties.unknown_prop FROM events")
+        assert isinstance(property_type, ast.PropertyType)
+
+        # Resolution falls back to the blob's String type (classify_constant_type would call that
+        # precise); the special-casing returns partial instead, since metadata is missing.
+        self.assertEqual(classify_constant_type(property_type.resolve_constant_type(self.context)), "precise")
+        self.assertEqual(classify_expr_type(property_type, self.context), "partial")
+
+    def test_unresolvable_field_classifies_partial_without_raising(self):
+        before_errors = _metric("hogql_type_observability_errors_total", {"stage": "collect_hogql_type_coverage"})
+
+        # events.person is a lazy join, not a DatabaseField — resolve_constant_type raises.
+        field_type = ast.FieldType(name="person", table_type=ast.TableType(table=self.database.get_table("events")))
+
+        self.assertEqual(classify_expr_type(field_type, self.context), "partial")
+        # An expected unresolvable reference must not inflate the error counter.
+        self.assertEqual(
+            _metric("hogql_type_observability_errors_total", {"stage": "collect_hogql_type_coverage"}), before_errors
+        )
+
+    @parameterized.expand(
+        [
+            ("array_of_string", ast.ArrayType(item_type=ast.StringType()), "precise"),
+            ("array_of_unknown", ast.ArrayType(item_type=ast.UnknownType()), "unknown"),
+            ("tuple_all_known", ast.TupleType(item_types=[ast.StringType(), ast.IntegerType()]), "precise"),
+            ("tuple_with_unknown", ast.TupleType(item_types=[ast.StringType(), ast.UnknownType()]), "unknown"),
+        ]
+    )
+    def test_constant_types_recurse_unchanged_with_context(self, _name, type_, expected):
+        # A threaded context must not change how constant types already classify.
+        self.assertEqual(classify_expr_type(type_, self.context), expected)
+        self.assertEqual(classify_expr_type(type_), expected)

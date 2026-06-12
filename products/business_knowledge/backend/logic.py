@@ -13,6 +13,7 @@ from operator import or_
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import (
     connection as db_connection,
@@ -23,6 +24,7 @@ from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.helpers.full_text_search import process_query
@@ -293,6 +295,43 @@ def _unsafe_documents_subquery() -> Exists:
     )
 
 
+def _pending_embedding_documents_subquery() -> Exists:
+    """
+    Live docs that are still on their way into the semantic index: either
+    awaiting safety classification (with retries left — docs past the attempt
+    cap stay excluded forever, so they're not "pending"), or already SAFE with
+    chunks but not yet produced to the embedding pipeline. Mirrors the
+    eligibility rules of `_embeddable_documents_qs` so the API never reports
+    "pending" for a doc the coordinator will never pick up.
+    """
+    has_chunks = Exists(KnowledgeChunk.objects.filter(document_id=OuterRef("pk")))
+    return Exists(
+        KnowledgeDocument.objects.filter(source_id=OuterRef("pk"), tombstoned_at__isnull=True).filter(
+            Q(safety_verdict=SafetyVerdict.UNKNOWN, classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS)
+            | (Q(safety_verdict=SafetyVerdict.SAFE, embeddings_emitted_at__isnull=True) & Q(has_chunks))
+        )
+    )
+
+
+def has_pending_embeddings(source_id: UUID) -> bool:
+    """Standalone DB check — same logic as the annotation subquery."""
+    return (
+        KnowledgeDocument.objects.filter(
+            source_id=source_id,
+            tombstoned_at__isnull=True,
+        )
+        .filter(
+            Q(safety_verdict=SafetyVerdict.UNKNOWN, classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS)
+            | Q(
+                safety_verdict=SafetyVerdict.SAFE,
+                embeddings_emitted_at__isnull=True,
+                chunks__isnull=False,
+            )
+        )
+        .exists()
+    )
+
+
 @with_team_scope(canonical=True)
 def list_for_team(team_id: int) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
@@ -302,6 +341,8 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
             _document_count=Count("documents", distinct=True),
             _chunk_count=Count("chunks", distinct=True),
             _has_unsafe_documents=_unsafe_documents_subquery(),
+            _has_pending_embeddings=_pending_embedding_documents_subquery(),
+            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
         )
         .order_by("-created_at")
     )
@@ -314,6 +355,8 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
             _document_count=Count("documents", distinct=True),
             _chunk_count=Count("chunks", distinct=True),
             _has_unsafe_documents=_unsafe_documents_subquery(),
+            _has_pending_embeddings=_pending_embedding_documents_subquery(),
+            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
         ).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
@@ -1493,6 +1536,25 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 def has_ready_sources(team_id: int) -> bool:
     """True when the team has at least one READY source (READY implies chunks exist)."""
     return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
+
+
+def has_feature_flag(team: Team) -> bool:
+    """The `product-business-knowledge` flag check, org-keyed. Canonical home for the
+    check — `ee/hogai/utils/feature_flags.py` delegates here."""
+    if settings.DEBUG:
+        return True
+    return posthoganalytics.feature_enabled(
+        "product-business-knowledge",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+def is_available_for_team(team: Team) -> bool:
+    """Feature flag + ready sources — the full "should agents use BK?" predicate."""
+    return has_feature_flag(team) and has_ready_sources(team.id)
 
 
 _SEARCH_LIMIT_CAP = 20

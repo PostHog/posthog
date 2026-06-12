@@ -74,8 +74,8 @@ def WRITABLE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL(on_cluster=True):
 
 
 # This table is responsible for reading from session_replay_embeddings on a cluster setting
-DISTRIBUTED_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = (
-    lambda on_cluster=True: SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL.format(
+DISTRIBUTED_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = lambda on_cluster=True: (
+    SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name="session_replay_embeddings",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(

@@ -77,7 +77,7 @@ def prepare_and_print_ast(
                 context.type_observability.result = "empty"
             return "", None
 
-        collect_hogql_type_coverage(prepared_ast, context.type_observability)
+        collect_hogql_type_coverage(prepared_ast, context.type_observability, context)
         collect_hogql_sql_shape(prepared_ast, context.type_observability)
 
         printed = print_prepared_ast(

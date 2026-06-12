@@ -102,3 +102,25 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(res.status_code, 200, res.content)
         # One root span named process_query_model per trace.
         self.assertEqual(res.json(), {"count": NUM_TRACES})
+
+    @parameterized.expand(
+        [
+            # Seed: every span is status_code=0 (Unset), kind=2 (Server). A status_code/kind
+            # filter must RESTRICT the count, never silently match every row.
+            ("status_code_int_2_matches_no_errors", "status_code", 2, 0),
+            ("status_code_str_2_matches_no_errors", "status_code", "2", 0),
+            ("status_code_int_0_matches_all_unset", "status_code", 0, NUM_TRACES * 3),
+            ("kind_str_3_matches_no_clients", "kind", "3", 0),
+            ("kind_int_2_matches_all_servers", "kind", 2, NUM_TRACES * 3),
+        ]
+    )
+    def test_count_status_code_and_kind_filters_restrict(self, _name, key, value, expected_count):
+        body = {
+            "query": {
+                "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                "filterGroup": [{"key": key, "type": "span", "operator": "exact", "value": value}],
+            }
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/count/", body, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json(), {"count": expected_count})

@@ -96,8 +96,8 @@ def PERFORMANCE_EVENT_DATA_TABLE():
     return "sharded_performance_events"
 
 
-PERFORMANCE_EVENTS_TABLE_BASE_SQL = (
-    lambda: """
+PERFORMANCE_EVENTS_TABLE_BASE_SQL = lambda: (
+    """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     {columns}
@@ -179,8 +179,7 @@ def WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-PERFORMANCE_EVENTS_TABLE_MV_SQL = (
-    lambda: """
+PERFORMANCE_EVENTS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
@@ -188,12 +187,11 @@ AS SELECT
 ,{extra_fields}
 FROM {database}.kafka_performance_events
 """.format(
-        columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
-        target_table="writeable_performance_events",
-        cluster=settings.CLICKHOUSE_CLUSTER,
-        database=settings.CLICKHOUSE_DATABASE,
-        extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
-    )
+    columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
+    target_table="writeable_performance_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
+    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
 )
 
 # TODO this should probably be a materialized view
