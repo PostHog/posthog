@@ -790,6 +790,70 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.emit is True
         assert config.run_interval_minutes == 120
 
+    _CAP_PATCH = "products.signals.backend.scout_harness.views.MAX_ENABLED_SCOUTS_PER_TEAM"
+
+    def test_create_rejects_enable_past_team_cap(self) -> None:
+        self._make_skill("signals-scout-first")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+
+        with patch(self._CAP_PATCH, 1):
+            response = self.client.post(self._list_url(), data={"skill_name": "signals-scout-second"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "enabled scouts" in response.json()["detail"]
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-second").exists()
+
+    def test_create_disabled_config_is_allowed_at_team_cap(self) -> None:
+        self._make_skill("signals-scout-first")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+
+        with patch(self._CAP_PATCH, 1):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-second", "enabled": False}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-second")
+        assert config.enabled is False
+
+    def test_create_upsert_reasserting_enabled_at_team_cap_is_allowed(self) -> None:
+        # The already-enabled scout is excluded from its own cap count — re-asserting
+        # `enabled=True` on it must not read as exceeding the cap.
+        self._make_skill("signals-scout-first")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+
+        with patch(self._CAP_PATCH, 1):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-first", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_partial_update_rejects_enable_past_team_cap(self) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        disabled = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second", enabled=False)
+
+        with patch(self._CAP_PATCH, 1):
+            response = self.client.patch(self._detail_url(str(disabled.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        disabled.refresh_from_db()
+        assert disabled.enabled is False
+
+    def test_partial_update_of_enabled_scout_is_allowed_at_team_cap(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+
+        with patch(self._CAP_PATCH, 1):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"run_interval_minutes": 120}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.run_interval_minutes == 120
+
     @parameterized.expand(
         [
             ("unknown_skill", "signals-scout-nonexistent"),
