@@ -652,6 +652,11 @@ export const CreatedViaEnumApi = {
  * * `SapSuccessFactors` - SapSuccessFactors
  * * `OracleEbs` - OracleEbs
  * * `OracleFusion` - OracleFusion
+ * * `AmazonSNS` - AmazonSNS
+ * * `AmazonEventBridge` - AmazonEventBridge
+ * * `AmazonSQS` - AmazonSQS
+ * * `AmazonKinesis` - AmazonKinesis
+ * * `AmazonCloudWatch` - AmazonCloudWatch
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -884,6 +889,11 @@ export const ExternalDataSourceTypeEnumApi = {
     SapSuccessFactors: 'SapSuccessFactors',
     OracleEbs: 'OracleEbs',
     OracleFusion: 'OracleFusion',
+    AmazonSNS: 'AmazonSNS',
+    AmazonEventBridge: 'AmazonEventBridge',
+    AmazonSQS: 'AmazonSQS',
+    AmazonKinesis: 'AmazonKinesis',
+    AmazonCloudWatch: 'AmazonCloudWatch',
     Custom: 'Custom',
 } as const
 
@@ -1210,6 +1220,11 @@ export interface ExternalDataSourceCreateApi {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -1629,6 +1644,11 @@ export interface DatabaseSchemaRequestApi {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }

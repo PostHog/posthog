@@ -6162,6 +6162,11 @@ export const externalDataSources = [
     'SapSuccessFactors',
     'OracleEbs',
     'OracleFusion',
+    'AmazonSNS',
+    'AmazonEventBridge',
+    'AmazonSQS',
+    'AmazonKinesis',
+    'AmazonCloudWatch',
     'Custom',
 ] as const
 
