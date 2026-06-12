@@ -51,6 +51,8 @@ export interface AlertDefinitionSectionProps {
     hogqlPreview: HogQLAlertPreview | null
     /** Result column names of the SQL insight, for the column pickers. */
     hogqlColumns: string[] | null
+    /** The subset of result columns with numeric cells — the valid evaluated-column picks. */
+    hogqlNumericColumns: string[] | null
     anomalyDetectionEnabled: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
@@ -264,6 +266,7 @@ export function AlertDefinitionSection({
     funnelStepCount,
     hogqlPreview,
     hogqlColumns,
+    hogqlNumericColumns,
     anomalyDetectionEnabled,
     investigationAgentEnabled,
     simulationResult,
@@ -282,7 +285,25 @@ export function AlertDefinitionSection({
         (isFunnelAlert && 'Funnel alerts only support absolute value conditions') ||
         (isHogQLAnyRow(alertForm) && 'Any-row SQL alerts only support absolute value conditions')
     const hogqlHasMultipleColumns = (hogqlColumns?.length ?? 0) > 1
-    const hogqlColumnOptions = (hogqlColumns ?? []).map((column) => ({ label: column, value: column }))
+    // Only numeric columns are valid evaluated-column picks, and the label can be any other
+    // column. Fall back to all columns when numericness is undetectable (result not loaded),
+    // and keep a stored pick visible even when it's no longer a valid option so the user can
+    // see what's wrong and change it.
+    const storedHogqlColumn = isHogQLAlertConfig(alertForm.config) ? (alertForm.config.column ?? null) : null
+    const storedHogqlLabelColumn = isHogQLAlertConfig(alertForm.config) ? (alertForm.config.label_column ?? null) : null
+    const withStored = (columns: string[], stored: string | null): string[] =>
+        stored && !columns.includes(stored) ? [...columns, stored] : columns
+    const toOptions = (columns: string[]): { label: string; value: string }[] =>
+        columns.map((column) => ({ label: column, value: column }))
+    const hogqlValueColumnOptions = toOptions(
+        withStored(hogqlNumericColumns?.length ? hogqlNumericColumns : (hogqlColumns ?? []), storedHogqlColumn)
+    )
+    const hogqlLabelColumnOptions = toOptions(
+        withStored(
+            (hogqlColumns ?? []).filter((column) => column !== storedHogqlColumn),
+            storedHogqlLabelColumn
+        )
+    )
     return (
         <>
             {isBreakdownValid && (
@@ -391,13 +412,13 @@ export function AlertDefinitionSection({
                             </LemonField>
                             {hogqlHasMultipleColumns && (
                                 <LemonField name="column" className="flex-auto">
-                                    {/* Prefilled with the resolved column by alertFormLogic; the placeholder
-                                        only shows when the result is ambiguous and the user must pick. */}
+                                    {/* Prefilled with the last numeric column by alertFormLogic; the
+                                        placeholder only shows when nothing numeric is detectable. */}
                                     <LemonSelect
                                         fullWidth
                                         data-attr="alertForm-hogql-column"
                                         placeholder="select column to evaluate"
-                                        options={hogqlColumnOptions}
+                                        options={hogqlValueColumnOptions}
                                     />
                                 </LemonField>
                             )}
@@ -405,24 +426,20 @@ export function AlertDefinitionSection({
                     </div>
                     {isHogQLAnyRow(alertForm) && hogqlHasMultipleColumns && (
                         <div className="flex gap-3 items-center">
-                            <Tooltip title="Names the breaching row in notifications and the check history. Defaults to the first column that isn't being evaluated.">
+                            <Tooltip title="Names the breaching row in notifications and the check history.">
                                 <div className="flex items-center gap-1">
                                     Labeled by <IconInfo className="text-muted" />
                                 </div>
                             </Tooltip>
                             <Group name={['config']}>
                                 <LemonField name="label_column" className="flex-auto">
-                                    {({ value, onChange }) => (
-                                        <LemonSelect
-                                            fullWidth
-                                            allowClear
-                                            data-attr="alertForm-hogql-label-column"
-                                            placeholder="auto (first other column)"
-                                            value={value ?? null}
-                                            onChange={onChange}
-                                            options={hogqlColumnOptions}
-                                        />
-                                    )}
+                                    {/* Prefilled with the first non-evaluated column by alertFormLogic. */}
+                                    <LemonSelect
+                                        fullWidth
+                                        data-attr="alertForm-hogql-label-column"
+                                        placeholder="select label column"
+                                        options={hogqlLabelColumnOptions}
+                                    />
                                 </LemonField>
                             </Group>
                         </div>

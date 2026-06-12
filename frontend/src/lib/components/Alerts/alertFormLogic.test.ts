@@ -313,7 +313,7 @@ describe('alertFormLogic', () => {
 
         it.each([
             [
-                'prefills the single numeric column when none is picked',
+                'prefills the single numeric column when none is picked (no label in last-row mode)',
                 {},
                 {
                     columns: ['day', 'count'],
@@ -322,21 +322,56 @@ describe('alertFormLogic', () => {
                         ['2026-06-02', 2],
                     ],
                 },
-                'count',
+                { column: 'count', labelColumn: undefined },
             ],
-            ['keeps an explicit pick', { column: 'a' }, { columns: ['a', 'b'], results: [[1, 2]] }, 'a'],
-            ['does not prefill when columns are ambiguous', {}, { columns: ['a', 'b'], results: [[1, 2]] }, undefined],
+            [
+                'keeps an explicit pick',
+                { column: 'a' },
+                { columns: ['a', 'b'], results: [[1, 2]] },
+                { column: 'a', labelColumn: undefined },
+            ],
+            [
+                'prefills the last numeric column when several are numeric',
+                {},
+                { columns: ['a', 'b'], results: [[1, 2]] },
+                { column: 'b', labelColumn: undefined },
+            ],
+            [
+                'skips a trailing non-numeric column when picking the last numeric one',
+                {},
+                { columns: ['value', 'day'], results: [[5, '2026-06-01']] },
+                { column: 'value', labelColumn: undefined },
+            ],
+            [
+                'does not prefill when no column is numeric',
+                {},
+                { columns: ['a', 'b'], results: [['x', 'y']] },
+                { column: undefined, labelColumn: undefined },
+            ],
             [
                 'does not prefill single-column results (picker hidden, auto keeps working on rename)',
                 {},
                 { columns: ['count'], results: [[5]] },
-                undefined,
+                { column: undefined, labelColumn: undefined },
             ],
-        ])('%s', async (_name, configOverrides, insightData, expectedColumn) => {
+            [
+                'prefills the first non-evaluated column as the label in any-row mode',
+                { evaluation: 'any_row' },
+                { columns: ['day', 'count'], results: [['2026-06-01', 1]] },
+                { column: 'count', labelColumn: 'day' },
+            ],
+            [
+                'keeps an explicit label pick',
+                { evaluation: 'any_row', label_column: 'a' },
+                { columns: ['day', 'a', 'b'], results: [['2026-06-01', 1, 2]] },
+                { column: 'b', labelColumn: 'a' },
+            ],
+        ])('%s', async (_name, configOverrides, insightData, expected) => {
             const logic = mountHogqlForm(configOverrides)
             insightDataLogic(insightLogicProps).actions.setInsightData(insightData)
             await expectLogic(logic).toFinishAllListeners()
-            expect((logic.values.alertForm.config as any).column).toEqual(expectedColumn)
+            expect((logic.values.alertForm.config as any).column).toEqual(expected.column)
+            expect((logic.values.alertForm.config as any).label_column).toEqual(expected.labelColumn)
         })
     })
 
