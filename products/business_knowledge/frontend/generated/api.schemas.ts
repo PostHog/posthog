@@ -8,6 +8,55 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * One chunk in a drill-down window over a single knowledge document.
+ *
+ * Output-only — the rows come from the `get_document_window` logic helper
+ * (a `KnowledgeSearchResult` dataclass), not the ORM, so this is a plain
+ * read serializer rather than a `ModelSerializer`.
+ */
+export interface KnowledgeDocumentWindowApi {
+    /** Stable identifier of this chunk. Same value used in search results. */
+    readonly chunk_id: string
+    /** Zero-based position of this chunk within its document. Use it as `around_ordinal` to recenter the window. */
+    readonly ordinal: number
+    /** The chunk's text content. */
+    readonly content: string
+    /** Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure. */
+    readonly heading_path: string
+    /** Human label of the knowledge source this chunk belongs to. */
+    readonly source_name: string
+    /** Title of the document this chunk belongs to. */
+    readonly document_title: string
+}
+
+/**
+ * One ranked chunk from a business knowledge search.
+ *
+ * Output-only — the rows come from the ``search_knowledge_for_team`` logic
+ * helper (a ``KnowledgeSearchResult`` dataclass), not the ORM.
+ */
+export interface KnowledgeSearchResultApi {
+    /** Stable identifier of this chunk. */
+    readonly chunk_id: string
+    /** ID of the parent document. Pass to the document-window endpoint with `around_ordinal` to drill down. */
+    readonly document_id: string
+    /** Zero-based position of this chunk within its document. Use as `around_ordinal` in the document-window endpoint. */
+    readonly ordinal: number
+    /** ID of the knowledge source this chunk belongs to. */
+    readonly source_id: string
+    /** Human label of the knowledge source this chunk belongs to. */
+    readonly source_name: string
+    /** Source type (text, url, or file). */
+    readonly source_type: string
+    /** Title of the document this chunk belongs to. */
+    readonly document_title: string
+    /** Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure. */
+    readonly heading_path: string
+    /** The chunk's text content. */
+    readonly content: string
+}
+
+/**
  * * `text` - Text
  * * `url` - URL
  * * `file` - File
@@ -148,6 +197,28 @@ export interface PatchedUpdateTextSourceApi {
     name?: string
     /** Replacement text. Omit to keep the existing content. */
     text?: string
+}
+
+export type BusinessKnowledgeDocumentsWindowListParams = {
+    /**
+     * Zero-based chunk ordinal to center the window on (from a search result).
+     */
+    around_ordinal: number
+    /**
+     * Number of chunks before and after the center to include. Defaults to 5, clamped to [0, 15].
+     */
+    radius?: number
+}
+
+export type BusinessKnowledgeDocumentsSearchListParams = {
+    /**
+     * Maximum number of ranked chunks to return. Defaults to 10, capped at 20.
+     */
+    limit?: number
+    /**
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
+     */
+    query: string
 }
 
 export type BusinessKnowledgeSourcesListParams = {

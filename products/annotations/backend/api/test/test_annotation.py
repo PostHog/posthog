@@ -19,7 +19,7 @@ from products.product_analytics.backend.models.insight import Insight
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
-    @patch("products.annotations.backend.api.annotation.report_user_action")
+    @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_retrieving_annotation(self, mock_capture: MagicMock) -> None:
         Annotation.objects.create(
             organization=self.organization,
@@ -35,7 +35,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert len(response["results"]) == 1
         assert response["results"][0]["content"] == "hello world!"
 
-    @patch("products.annotations.backend.api.annotation.report_user_action")
+    @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture: MagicMock) -> None:
         with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
@@ -105,7 +105,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response_2.status_code == 200
         assert response_2.json()["results"] == []
 
-    @patch("products.annotations.backend.api.annotation.report_user_action")
+    @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_creating_annotation(self, mock_capture: MagicMock) -> None:
         team2 = Organization.objects.bootstrap(None)[2]
 
@@ -136,7 +136,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             {"scope": "organization", "date_marker": date_marker},
         )
 
-    @patch("products.annotations.backend.api.annotation.report_user_action")
+    @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_can_create_annotations_as_a_bot(self, mock_capture: MagicMock) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
@@ -156,7 +156,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         get_created_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{instance.id}/")
         assert get_created_response.json()["creation_type"] == "GIT"
 
-    @patch("products.annotations.backend.api.annotation.report_user_action")
+    @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture: MagicMock) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")
         test_annotation = Annotation.objects.create(

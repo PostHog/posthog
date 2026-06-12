@@ -24,8 +24,10 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.api.embedding_worker import generate_embedding
 from posthog.helpers.full_text_search import process_query
 from posthog.models.scoping import with_team_scope
+from posthog.models.team.team import Team
 from posthog.security.url_validation import is_url_allowed
 
 from . import crawl, discover, file_parse, html_parse, url_fetch
@@ -46,6 +48,8 @@ from .constants import (
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
+    EMBEDDING_STABLE_TS_MAX_AGE,
+    EMBEDDING_TTL_REFRESH_WINDOW,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
@@ -53,6 +57,7 @@ from .constants import (
     PENDING_EMBEDDING_SCAN_CAP,
     RECONCILE_EMBEDDING_GRACE,
     RECONCILE_EMBEDDING_SCAN_CAP,
+    REEMIT_EMBEDDING_SCAN_CAP,
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
@@ -1758,6 +1763,28 @@ def search_knowledge(
     ]
 
 
+def search_knowledge_for_team(
+    team: Team,
+    query: str,
+    *,
+    limit: int = 10,
+) -> list[KnowledgeSearchResult]:
+    """
+    Sync orchestration of hybrid BK search: embed the query, then call
+    ``search_knowledge``. Falls back to FTS-only on any embedding failure.
+
+    Used by the DRF search endpoint (sync view). The async PHAI tool path
+    uses ``async_generate_embedding`` directly — they share ``search_knowledge``
+    as the common layer, not this wrapper.
+    """
+    embedding: list[float] | None = None
+    try:
+        embedding = generate_embedding(team, query, model=BK_EMBEDDING_MODEL).embedding
+    except Exception:
+        logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
+    return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
+
+
 # ---------------------------------------------------------------------------
 # Drill-down: wider context window for a single document
 # ---------------------------------------------------------------------------
@@ -2002,9 +2029,13 @@ class DocumentToEmbed:
 
     team_id: int
     document_id: UUID
-    # The document's stable `created_at`, passed as the embedding row `timestamp`
-    # so a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
+    # The embedding row `timestamp`. Young docs use the stable `created_at` so
+    # a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
     # partition instead of duplicating under a later `toDate(timestamp)`.
+    # Old docs (created_at older than EMBEDDING_STABLE_TS_MAX_AGE) and the
+    # TTL-refresh path use `now()` so the row survives until the refresh cron
+    # fires, instead of expiring under `TTL timestamp + 3 MONTH` first. The
+    # extra row is correctness-safe via the read-path re-join.
     timestamp: datetime.datetime
     chunks: list[ChunkToEmbed]
 
@@ -2077,7 +2108,18 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
     backfills every existing SAFE doc across all teams, so the cap is what lets
     the hourly coordinator drain that over many passes. Cross-team — coordinator
     only.
+
+    Timestamp strategy: young docs use the stable ``created_at`` so a re-emit
+    collapses onto one ClickHouse sort key. Old docs (``created_at`` older than
+    ``EMBEDDING_STABLE_TS_MAX_AGE``) use ``now()``: a stable timestamp is only
+    safe if the row survives until the TTL-refresh cron re-emits the doc at
+    ``emitted_at + EMBEDDING_TTL_REFRESH_WINDOW`` — beyond the max age the row
+    would expire first (in the worst case it lands already expired,
+    reconciliation re-nulls it, and the next pass re-emits with ``created_at``
+    again: a token-burning loop while the doc silently serves FTS-only forever).
     """
+    now = timezone.now()
+    ttl_cutoff = now - EMBEDDING_STABLE_TS_MAX_AGE
     rows = list(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=True)
@@ -2088,7 +2130,7 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
-            timestamp=created_at,
+            timestamp=now if created_at < ttl_cutoff else created_at,
             chunks=chunks_by_doc.get(document_id, []),
         )
         for team_id, document_id, created_at in rows
@@ -2130,6 +2172,45 @@ def list_documents_for_embedding_reconciliation(
     ]
 
 
+def list_documents_for_embedding_refresh(
+    *,
+    now: datetime.datetime | None = None,
+    window: datetime.timedelta = EMBEDDING_TTL_REFRESH_WINDOW,
+    limit: int = REEMIT_EMBEDDING_SCAN_CAP,
+) -> list[DocumentToEmbed]:
+    """
+    Return already-emitted SAFE docs (oldest-emitted first) whose vectors are
+    aging toward the 3-month ClickHouse TTL, so their chunks can be re-emitted
+    before the rows expire and the doc silently drops to FTS-only.
+
+    The returned ``DocumentToEmbed.timestamp`` is ``now`` (NOT the doc's
+    ``created_at``): the shared table TTLs on the embedding row ``timestamp``,
+    so the re-emit must carry a fresh timestamp to actually reset the clock —
+    re-emitting under the old ``created_at`` would land an already-/soon-expired
+    row and keep losing vectors. The extra row this creates is correctness-safe:
+    the read path always re-joins to Postgres and dedups candidates by chunk_id.
+    Cross-team — coordinator only.
+    """
+    now = now or timezone.now()
+    cutoff = now - window
+    rows = list(
+        _embeddable_documents_qs()
+        .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+        .order_by("embeddings_emitted_at")
+        .values_list("team_id", "id")[:limit]
+    )
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id in rows])
+    return [
+        DocumentToEmbed(
+            team_id=team_id,
+            document_id=document_id,
+            timestamp=now,
+            chunks=chunks_by_doc.get(document_id, []),
+        )
+        for team_id, document_id in rows
+    ]
+
+
 @with_team_scope(canonical=True)
 def mark_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
     """
@@ -2145,6 +2226,26 @@ def mark_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None
         id=document_id,
         safety_verdict=SafetyVerdict.SAFE,
         embeddings_emitted_at__isnull=True,
+    ).update(embeddings_emitted_at=timezone.now(), updated_at=timezone.now())
+
+
+@with_team_scope(canonical=True)
+def restamp_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
+    """
+    Bump ``embeddings_emitted_at`` to now after a TTL-refresh re-emit.
+
+    Unlike ``mark_document_embeddings_emitted`` (gated on NULL, for first
+    emission), this re-stamps an ALREADY-stamped doc so it drops out of the
+    refresh window for another full cycle. Still gated on the doc being SAFE
+    AND already stamped: a content change that flipped it to ``unknown``
+    mid-pass NULLs the stamp, and that new (unembedded) content must go through
+    the normal pending-emit path rather than being re-stamped here.
+    """
+    KnowledgeDocument.objects.filter(
+        team_id=team_id,
+        id=document_id,
+        safety_verdict=SafetyVerdict.SAFE,
+        embeddings_emitted_at__isnull=False,
     ).update(embeddings_emitted_at=timezone.now(), updated_at=timezone.now())
 
 

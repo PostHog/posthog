@@ -322,6 +322,7 @@ class Team(UUIDTClassicModel):
     onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
     ingested_production_event = models.BooleanField(default=False, db_default=False)
+    ingested_production_event_last_checked_at = models.DateTimeField(null=True, blank=True)
 
     person_processing_opt_out = field_access_control(models.BooleanField(null=True, default=False), "project", "admin")
     secret_api_token = models.CharField(

@@ -15,7 +15,7 @@ class HogQLPrinter(BasePrinter):
 
     DIALECT_NAME: ClassVar[HogQLDialect] = "hogql"
 
-    def visit_cte(self, node: ast.CTE):
+    def visit_cte(self, node: ast.CTE) -> str:
         materialization_hint = (
             "" if node.materialized is None else ("MATERIALIZED " if node.materialized else "NOT MATERIALIZED ")
         )
@@ -32,6 +32,14 @@ class HogQLPrinter(BasePrinter):
             return f"{self._print_identifier(node.name)}{columns_sql}{using_key_sql} AS {materialization_hint}{self.visit(node.expr)}"
 
         return super().visit_cte(node)
+
+    def visit_property_access(self, node: ast.PropertyAccess) -> str:
+        # A lowered `properties.$x` read prints back as the HogQL property chain it came from, not the ClickHouse
+        # `JSONExtractRaw(...)` form the base renderer emits — so `dialect="hogql"` stays valid, re-parseable HogQL
+        # (e.g. the stored batch-export `hogql_query`). The keys join onto the blob field as chain access.
+        parts = [self.visit(node.expr)]
+        parts.extend(self._print_identifier(str(key)) for key in node.keys)
+        return ".".join(parts)
 
     def _render_aggregation_name(self, node: ast.Call, func_meta) -> str:
         return node.name

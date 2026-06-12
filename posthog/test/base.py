@@ -722,7 +722,7 @@ class PostHogTestCase(SimpleTestCase):
             yield value
 
     @contextmanager
-    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
+    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None]:
         for attempt in range(max_retries):
             try:
                 yield  # Only yield once per context manager instance
@@ -1167,6 +1167,7 @@ def materialized(
     property,
     create_minmax_index: bool = False,
     is_nullable: bool = False,
+    column_type: str | None = None,
     create_bloom_filter_index: bool = False,
     create_ngram_lower_index: bool = False,
     create_bloom_filter_lower_index: bool = False,
@@ -1190,6 +1191,7 @@ def materialized(
             property,
             create_minmax_index=create_minmax_index,
             is_nullable=is_nullable,
+            column_type=column_type,
             create_bloom_filter_index=create_bloom_filter_index,
             create_ngram_lower_index=create_ngram_lower_index,
             create_bloom_filter_lower_index=create_bloom_filter_lower_index,

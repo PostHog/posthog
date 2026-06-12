@@ -18,6 +18,7 @@ from posthog.hogql.query import (
     HogQLQueryExecutor,
     LenientDirectPostgresDateLoader,
     direct_postgres_session_setup_sql,
+    ensure_single_direct_postgres_statement,
     get_runtime_direct_postgres_connection_metadata,
     parse_lenient_direct_postgres_date,
     postgres_error_to_message,
@@ -1098,6 +1099,62 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with("SELECT current_database(), version()")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
+
+    @parameterized.expand(
+        [
+            ("explicit_read_write", "COMMIT; BEGIN READ WRITE; UPDATE t SET a = 1; COMMIT;"),
+            ("set_then_write", "SET default_transaction_read_only = off; UPDATE t SET a = 1;"),
+            ("two_selects", "SELECT 1; SELECT 2"),
+        ]
+    )
+    def test_ensure_single_direct_postgres_statement_rejects_multi_statement(self, _name: str, sql: str):
+        with self.assertRaises(ExposedHogQLError):
+            ensure_single_direct_postgres_statement(sql)
+
+    @parameterized.expand(
+        [
+            ("plain_select", "SELECT 1 AS value"),
+            ("trailing_semicolon", "SELECT 1 AS value;"),
+            ("stray_empty_statements", "SELECT 1 AS value;   ;  "),
+            ("percent_literal", "SELECT name FROM t WHERE name LIKE '%admin%'"),
+            ("semicolon_in_literal", "SELECT 'a;b' AS value"),
+            ("dollar_quoted", "SELECT $$a;b;c$$ AS value"),
+        ]
+    )
+    def test_ensure_single_direct_postgres_statement_allows_single_statement(self, _name: str, sql: str):
+        self.assertEqual(ensure_single_direct_postgres_statement(sql), sql)
+
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_send_raw_query_rejects_multi_statement_before_execution(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="COMMIT; BEGIN READ WRITE; UPDATE t SET a = 1; COMMIT;",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            executor.execute()
+
+        mock_connect.assert_not_called()
 
     def test_selected_connection_rejects_disabled_direct_tables(self):
         source = ExternalDataSource.objects.create(

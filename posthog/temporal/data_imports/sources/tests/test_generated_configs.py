@@ -1,3 +1,5 @@
+import pytest
+
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQuerySourceConfig,
     ChargebeeSourceConfig,
@@ -313,6 +315,30 @@ def test_snowflake_config():
     assert config.auth_type.password == "password"
     assert config.auth_type.private_key == ""
     assert config.auth_type.passphrase == ""
+
+
+@pytest.mark.parametrize(
+    "schema_override,expected_schema",
+    [
+        # A blank schema flips the source into multi-schema discovery; the config stores the raw
+        # value (absent/""/whitespace) verbatim — drivers normalize it via `normalize_namespace`.
+        ({}, None),
+        ({"schema": ""}, ""),
+        ({"schema": "   "}, "   "),
+    ],
+)
+def test_snowflake_config_without_schema(schema_override, expected_schema):
+    config = SnowflakeSourceConfig.from_dict(
+        {
+            "account_id": "account_id",
+            "database": "database",
+            "warehouse": "warehouse",
+            "auth_type": {"selection": "password", "user": "user", "password": "password"},
+            **schema_override,
+        }
+    )
+
+    assert config.schema == expected_schema
 
 
 def test_stripe_config():
