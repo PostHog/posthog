@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable/PropertiesTable'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import type { Dayjs } from 'lib/dayjs'
@@ -323,11 +322,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <div className="space-y-3 xl:col-span-2 flex flex-col min-h-0">
                                         <LemonLabel>Condition analysis</LemonLabel>
 
-                                        <ScrollableShadows
-                                            direction="vertical"
-                                            className="flex-1 min-h-96"
-                                            contentClassName="space-y-3"
-                                        >
+                                        <div className="flex-1 min-h-96 space-y-3">
                                             {enrichedConditions.map((condition) => {
                                                 const styles = CONDITION_DISPLAY_STYLES[condition.display.tone]
 
@@ -378,19 +373,25 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                     </div>
                                                 )
                                             })}
-                                        </ScrollableShadows>
+                                        </div>
                                     </div>
                                 )}
 
                                 {/* Right Column - Person Properties */}
-                                <div className="space-y-3 xl:col-span-3 flex flex-col min-h-0">
+                                <div
+                                    className={`space-y-3 ${
+                                        result.conditions && result.conditions.length > 0
+                                            ? 'xl:col-span-3'
+                                            : 'xl:col-span-5'
+                                    } flex flex-col min-h-0`}
+                                >
                                     <div>
                                         <LemonLabel>
                                             Person properties {formData.timestamp ? 'at evaluation time' : '(current)'}
                                         </LemonLabel>
                                     </div>
 
-                                    <ScrollableShadows className="flex-1 min-h-96">
+                                    <div className="flex-1 min-h-96">
                                         <PropertiesTable
                                             properties={result.person_properties}
                                             type={PropertyDefinitionType.Person}
@@ -400,7 +401,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                             highlightVariant="subtle"
                                             embedded={true}
                                         />
-                                    </ScrollableShadows>
+                                    </div>
                                 </div>
                             </div>
                         </div>
