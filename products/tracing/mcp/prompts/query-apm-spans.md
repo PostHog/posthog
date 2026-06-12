@@ -24,7 +24,7 @@ Use property filters via the `query.filterGroup` field to narrow results. Only i
 When using a property filter, you should:
 
 - **Choose the right type.** Span property types are:
-  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code).
+  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span).
   - `span_attribute` — filters span-level attributes (e.g. "http.method", "http.status_code").
   - `span_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).
 - **Use `apm-attributes-list` to discover available attribute keys** before building filters.
