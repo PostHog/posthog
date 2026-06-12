@@ -1,6 +1,6 @@
 import uuid
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -9,9 +9,11 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
+from posthog.settings import SITE_URL
 
 from products.conversations.backend.events import (
     EVENT_SOURCE,
+    _resolve_groups_from_analytics,
     capture_message_received,
     capture_message_sent,
     capture_ticket_assigned,
@@ -717,3 +719,102 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_type"] == "external"
         assert call_kwargs["properties"]["actor_id"] is None
         assert call_kwargs["properties"]["actor_email"] is None
+
+
+class TestResolveGroupsFromAnalyticsClickHouse(ClickhouseTestMixin, APIBaseTest):
+    """End-to-end coverage of the cross-region fallback against real ClickHouse events.
+
+    The fallback exists to recover an org from a customer's analytics events when the
+    region-local OrganizationMembership lookup misses. These events carry $group_N but
+    deliberately NO $groupidentify — the common case where an app calls
+    posthog.group(type, key) without properties — to prove resolution doesn't depend on
+    $groupidentify and reads the org/customer group columns by their per-project index.
+    """
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    @patch(
+        "products.conversations.backend.events.get_group_types_for_project",
+        return_value=[
+            {"group_type": "project", "group_type_index": 0},
+            {"group_type": "organization", "group_type_index": 1},
+            {"group_type": "customer", "group_type_index": 2},
+        ],
+    )
+    def test_resolves_groups_from_event_columns_without_groupidentify(self, _mock_group_types):
+        # Plain $pageview events (not $groupidentify) stamped with the customer's groups.
+        # Org is at index 1, customer at index 2 — proving column selection follows the
+        # project's group-type mapping rather than assuming $group_0.
+        for _ in range(3):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="eu-user-did",
+                properties={"$group_1": "org-eu-123", "$group_2": "cus_456"},
+            )
+        flush_persons_and_events()
+
+        groups = _resolve_groups_from_analytics(self.team, ["eu-user-did"])
+
+        assert groups == {
+            "instance": SITE_URL,
+            "project": str(self.team.uuid),
+            "organization": "org-eu-123",
+            "customer": "cus_456",
+        }
+
+    @patch(
+        "products.conversations.backend.events.get_group_types_for_project",
+        return_value=[
+            {"group_type": "project", "group_type_index": 0},
+            {"group_type": "organization", "group_type_index": 1},
+        ],
+    )
+    def test_resolves_org_without_customer_group_type(self, _mock_group_types):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="eu-user-did",
+            properties={"$group_1": "org-eu-123"},
+        )
+        flush_persons_and_events()
+
+        groups = _resolve_groups_from_analytics(self.team, ["eu-user-did"])
+
+        assert groups == {"instance": SITE_URL, "project": str(self.team.uuid), "organization": "org-eu-123"}
+
+    @patch(
+        "products.conversations.backend.events.get_group_types_for_project",
+        return_value=[
+            {"group_type": "project", "group_type_index": 0},
+            {"group_type": "organization", "group_type_index": 1},
+        ],
+    )
+    def test_no_org_group_on_events_returns_none(self, _mock_group_types):
+        # Events exist but never carried an organization group → nothing to recover.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="eu-user-did",
+            properties={"$group_0": "project:1"},
+        )
+        flush_persons_and_events()
+
+        assert _resolve_groups_from_analytics(self.team, ["eu-user-did"]) is None
+
+    @patch(
+        "products.conversations.backend.events.get_group_types_for_project",
+        return_value=[{"group_type": "organization", "group_type_index": 1}],
+    )
+    def test_lookup_is_scoped_to_the_passed_distinct_ids(self, _mock_group_types):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="someone-else",
+            properties={"$group_1": "org-other"},
+        )
+        flush_persons_and_events()
+
+        assert _resolve_groups_from_analytics(self.team, ["eu-user-did"]) is None

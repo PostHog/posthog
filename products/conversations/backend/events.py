@@ -63,20 +63,23 @@ def _get_actor_distinct_id(
 # to use for organization attribution.
 _EMAIL_FALLBACK_CHANNELS = frozenset({Channel.EMAIL.value, Channel.SLACK.value, Channel.TEAMS.value})
 
-# Latest organization/customer group keys from the customer's recent $groupidentify events.
-# $groupidentify is what posthog.group() emits on every SDK, so it exists whenever a person's
-# events carry groups at all — unlike $pageview/$screen, which are platform-specific. Filtering
-# by event also lets ClickHouse prune granules via the sort key (team_id, toDate(timestamp),
-# event, ...) instead of scanning all of the team's events for the date range; $groupidentify
-# volume is tiny, so the unmaterialized property reads are cheap.
+# Latest organization/customer group keys from the customer's recent events. We read the
+# dedicated $group_N columns (set on every event that carries $groups) rather than filtering on
+# $groupidentify events: posthog.group(type, key) called without properties associates the group
+# with all subsequent events but emits no $groupidentify (the documented SDK behavior), and even
+# newer SDKs only re-emit it for newly-seen groups. A $groupidentify filter would therefore
+# silently miss exactly the cross-region customers this fallback exists for — those whose apps
+# don't pass group properties, or whose last group identify predates the 30-day window.
+# {org_col}/{customer_select} are interpolated from this project's own group-type indexes (see
+# _resolve_groups_from_analytics); column names can't be HogQL placeholders.
 GROUPS_FROM_EVENTS_QUERY = """
 SELECT
-    argMaxIf(properties.$group_key, timestamp, properties.$group_type = 'organization'),
-    argMaxIf(properties.$group_key, timestamp, properties.$group_type = 'customer')
+    argMax({org_col}, timestamp),
+    {customer_select}
 FROM events
-WHERE event = '$groupidentify'
-  AND distinct_id IN {distinct_ids}
+WHERE distinct_id IN {{distinct_ids}}
   AND timestamp >= now() - INTERVAL 30 DAY
+  AND {org_col} != ''
 """
 
 
@@ -101,15 +104,30 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
     if cached is not None:
         return cached or None  # {} is the negative-cache sentinel
 
-    # Cheap guard: skip the ClickHouse query entirely for projects without org group analytics.
-    group_type_names = {gtm["group_type"] for gtm in get_group_types_for_project(team.project_id)}
-    if "organization" not in group_type_names:
+    # The $group_N column index is per-project, so resolve the org/customer indexes from this
+    # project's group-type mapping. Doubles as a cheap guard: bail (and negative-cache) for
+    # projects without an organization group type before touching ClickHouse.
+    group_type_index = {
+        gtm["group_type"]: gtm["group_type_index"] for gtm in get_group_types_for_project(team.project_id)
+    }
+    org_index = group_type_index.get("organization")
+    if org_index is None:
         set_cached_resolved_groups(team.id, distinct_ids, None)
         return None
+    customer_index = group_type_index.get("customer")
+
+    # Indexes are trusted ints (0-4) from the project's own mapping; safe to interpolate.
+    org_col = f"`$group_{org_index}`"
+    customer_select = (
+        f"argMaxIf(`$group_{customer_index}`, timestamp, `$group_{customer_index}` != '')"
+        if customer_index is not None
+        else "''"
+    )
+    query = GROUPS_FROM_EVENTS_QUERY.format(org_col=org_col, customer_select=customer_select)
 
     with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
         response = execute_hogql_query(
-            GROUPS_FROM_EVENTS_QUERY,
+            query,
             placeholders={"distinct_ids": ast.Constant(value=distinct_ids)},
             team=team,
             query_type="conversations_groups_lookup",
