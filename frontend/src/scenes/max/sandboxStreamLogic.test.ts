@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -899,6 +900,7 @@ describe('sandboxStreamLogic', () => {
         it('keeps the card pending and surfaces an error when the reply POST fails', async () => {
             jest.spyOn(api.conversations, 'permission').mockRejectedValue({ status: 502 })
             const exceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
             logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
 
             await expectLogic(logic, () => {
@@ -910,10 +912,12 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
-            expect(logic.values.sseStatus).toEqual('error')
-            // The in-flight flag resets so the surviving card's buttons re-enable for a retry.
+            // A failed reply POST must not tear down the live stream — the run is still alive and
+            // blocked on this approval; only the card's buttons re-enable for a retry.
+            expect(logic.values.sseStatus).not.toEqual('error')
             expect(logic.values.respondingToPermission).toEqual(false)
             expect(exceptionSpy).toHaveBeenCalled()
+            expect(toastSpy).toHaveBeenCalled()
         })
 
         it('ignores a replayed permission_request envelope once the request is resolved', async () => {

@@ -31,10 +31,11 @@ export function SidebarQuestionInput({
         pendingApprovalProposalId,
         pendingApprovalsData,
         resolvedApprovalStatuses,
-        conversation,
         pendingSandboxPermissionRequest,
     } = useValues(maxThreadLogic)
-    const hasSandboxPermissionToShow = conversation?.agent_runtime === 'sandbox' && !!pendingSandboxPermissionRequest
+    // A pending sandbox request only originates from the sandbox stream, so its presence alone is
+    // enough — gating on `agent_runtime` would strand approvals on as-yet-unresolved conversations.
+    const hasSandboxPermissionToShow = !!pendingSandboxPermissionRequest
 
     // Check if there's a pending (not yet resolved) approval to show
     const hasApprovalToShow = useMemo(() => {

@@ -517,7 +517,6 @@ export function InputFormArea(): JSX.Element | null {
         pendingApprovalProposalId,
         pendingApprovalsData,
         resolvedApprovalStatuses,
-        conversation,
         conversationId,
         pendingSandboxPermissionRequest,
     } = useValues(maxThreadLogic)
@@ -546,8 +545,10 @@ export function InputFormArea(): JSX.Element | null {
     }, [pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses])
 
     // Sandbox permission requests take precedence in the input area, mirroring the LangGraph
-    // dangerous-operation flow but driven by sandboxStreamLogic.
-    if (conversation?.agent_runtime === 'sandbox' && pendingSandboxPermissionRequest) {
+    // dangerous-operation flow but driven by sandboxStreamLogic. A pending request only ever
+    // originates from the sandbox stream, so its presence is sufficient — gating on `agent_runtime`
+    // would strand approvals on new conversations whose runtime isn't resolved yet.
+    if (pendingSandboxPermissionRequest) {
         return (
             <SandboxPermissionInput
                 key={pendingSandboxPermissionRequest.requestId}

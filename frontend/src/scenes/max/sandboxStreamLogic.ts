@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
@@ -762,9 +763,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 })
                 actions.markPermissionRequestResolved(requestId)
             } catch (error) {
+                // A failed reply POST does not mean the run died — the agent is still alive and
+                // blocked on this same approval. Keep the failure local to the card (re-enable its
+                // buttons for a retry) instead of tearing down the stream, which would release the
+                // chat lock and hide the still-pending request behind the normal input.
                 posthog.captureException(error)
                 actions.permissionResponseFailed()
-                actions.handleStreamError({ errorTitle: 'Failed to send approval', retryable: true })
+                lemonToast.error('Failed to send approval. Please try again.')
             }
         },
         handleTerminalStatus: ({ status }) => {
