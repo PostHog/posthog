@@ -8519,13 +8519,54 @@ export namespace Schemas {
       readonly notification_suppressed_by_agent: boolean;
     }
 
+    export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
+
+
+    export const TrendsAlertConfigType = {
+      TrendsAlertConfig: 'TrendsAlertConfig',
+    } as const;
+
     export interface TrendsAlertConfig {
       /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
       check_ongoing_interval?: boolean | null;
       /** Zero-based index of the series in the insight's query to monitor. */
       series_index: number;
-      type?: 'TrendsAlertConfig';
+      type: TrendsAlertConfigType;
     }
+
+    export type HogQLAlertEvaluation = typeof HogQLAlertEvaluation[keyof typeof HogQLAlertEvaluation];
+
+
+    export const HogQLAlertEvaluation = {
+      LastRow: 'last_row',
+      AnyRow: 'any_row',
+    } as const;
+
+    export type HogQLAlertConfigType = typeof HogQLAlertConfigType[keyof typeof HogQLAlertConfigType];
+
+
+    export const HogQLAlertConfigType = {
+      HogQLAlertConfig: 'HogQLAlertConfig',
+    } as const;
+
+    export interface HogQLAlertConfig {
+      /** Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column). */
+      column?: string | null;
+      /** How to read the result rows. Defaults to `last_row`. */
+      evaluation?: HogQLAlertEvaluation | null;
+      /** In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number. */
+      label_column?: string | null;
+      type: HogQLAlertConfigType;
+    }
+
+    /**
+     * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
+     * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
+     *
+     * ``FunnelsAlertConfig`` is deliberately absent until the funnel-alert backend lands; the
+     * funnel frontend on this branch is flag-gated and inert.
+     */
+    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig;
 
     export interface PreprocessingConfig {
       /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -8773,8 +8814,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total: number | null;
-      /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-      config?: TrendsAlertConfig | null;
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
@@ -33397,8 +33438,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total?: number | null;
-      /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-      config?: TrendsAlertConfig | null;
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *

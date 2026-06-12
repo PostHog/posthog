@@ -40,7 +40,8 @@ export const AlertsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const alertsCreateBodyConfigOneTypeDefault = `TrendsAlertConfig`
+export const alertsCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
+export const alertsCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -122,23 +123,48 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
     config: zod
         .union([
-            zod.object({
-                check_ongoing_interval: zod
-                    .union([zod.boolean(), zod.null()])
-                    .optional()
-                    .describe(
-                        'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
-                    ),
-                series_index: zod
-                    .number()
-                    .describe("Zero-based index of the series in the insight's query to monitor."),
-                type: zod.literal('TrendsAlertConfig').default(alertsCreateBodyConfigOneTypeDefault),
-            }),
+            zod
+                .union([
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
+                            ),
+                        series_index: zod
+                            .number()
+                            .describe("Zero-based index of the series in the insight's query to monitor."),
+                        type: zod.enum(['TrendsAlertConfig']).default(alertsCreateBodyConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).'
+                            ),
+                        evaluation: zod
+                            .union([zod.enum(['last_row', 'any_row']), zod.null()])
+                            .optional()
+                            .describe('How to read the result rows. Defaults to `last_row`.'),
+                        label_column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number.'
+                            ),
+                        type: zod.enum(['HogQLAlertConfig']).default(alertsCreateBodyConfigOneTwoTypeDefault),
+                    }),
+                ])
+                .describe(
+                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.\n\n``FunnelsAlertConfig`` is deliberately absent until the funnel-alert backend lands; the\nfunnel frontend on this branch is flag-gated and inert.'
+                ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval).'
+            "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row)."
         ),
     detector_config: zod
         .union([
@@ -1288,7 +1314,8 @@ export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const alertsPartialUpdateBodyConfigOneTypeDefault = `TrendsAlertConfig`
+export const alertsPartialUpdateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
+export const alertsPartialUpdateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -1373,23 +1400,48 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
     config: zod
         .union([
-            zod.object({
-                check_ongoing_interval: zod
-                    .union([zod.boolean(), zod.null()])
-                    .optional()
-                    .describe(
-                        'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
-                    ),
-                series_index: zod
-                    .number()
-                    .describe("Zero-based index of the series in the insight's query to monitor."),
-                type: zod.literal('TrendsAlertConfig').default(alertsPartialUpdateBodyConfigOneTypeDefault),
-            }),
+            zod
+                .union([
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
+                            ),
+                        series_index: zod
+                            .number()
+                            .describe("Zero-based index of the series in the insight's query to monitor."),
+                        type: zod.enum(['TrendsAlertConfig']).default(alertsPartialUpdateBodyConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).'
+                            ),
+                        evaluation: zod
+                            .union([zod.enum(['last_row', 'any_row']), zod.null()])
+                            .optional()
+                            .describe('How to read the result rows. Defaults to `last_row`.'),
+                        label_column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number.'
+                            ),
+                        type: zod.enum(['HogQLAlertConfig']).default(alertsPartialUpdateBodyConfigOneTwoTypeDefault),
+                    }),
+                ])
+                .describe(
+                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.\n\n``FunnelsAlertConfig`` is deliberately absent until the funnel-alert backend lands; the\nfunnel frontend on this branch is flag-gated and inert.'
+                ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval).'
+            "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row)."
         ),
     detector_config: zod
         .union([

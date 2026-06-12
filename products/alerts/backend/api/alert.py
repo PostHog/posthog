@@ -1,10 +1,15 @@
 import uuid
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from django.db.models import OuterRef, QuerySet, Subquery
 
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
+from pydantic import (
+    Field as PydanticField,
+    RootModel,
+)
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -15,6 +20,7 @@ from posthog.schema import (
     AlertCondition,
     AlertState,
     DetectorConfig,
+    HogQLAlertConfig,
     InsightThreshold,
     TrendsAlertConfig,
 )
@@ -67,8 +73,18 @@ class AlertConditionField(serializers.JSONField):
     pass
 
 
-@extend_schema_field(TrendsAlertConfig)  # type: ignore[arg-type]
-class TrendsAlertConfigField(serializers.JSONField):
+class AlertConfigUnion(RootModel):
+    """Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
+    generated frontend types and MCP tool schemas) in sync with every kind alerts support.
+
+    ``FunnelsAlertConfig`` is deliberately absent until the funnel-alert backend lands; the
+    funnel frontend on this branch is flag-gated and inert."""
+
+    root: Annotated[TrendsAlertConfig | HogQLAlertConfig, PydanticField(discriminator="type")]
+
+
+@extend_schema_field(AlertConfigUnion)  # type: ignore[arg-type]
+class AlertConfigField(serializers.JSONField):
     pass
 
 
@@ -198,10 +214,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         allow_null=True,
         help_text="Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.",
     )
-    config = TrendsAlertConfigField(
+    config = AlertConfigField(
         required=False,
         allow_null=True,
-        help_text="Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval).",
+        help_text=(
+            "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index "
+            "(which series to monitor) and check_ongoing_interval (whether to check the current incomplete "
+            "interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to "
+            "the single numeric column), evaluation ('last_row' checks the latest value, 'any_row' fires if any "
+            "row breaches), and label_column (labels rows in breach messages for any_row)."
+        ),
     )
     detector_config = DetectorConfigField(required=False, allow_null=True)
     insight = TeamScopedPrimaryKeyRelatedField(
