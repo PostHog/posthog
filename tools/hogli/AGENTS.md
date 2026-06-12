@@ -86,7 +86,7 @@ Anti-patterns flagged during PR review (don't re-introduce):
 
 If you're about to add code to `tools/hogli/` and you're not sure whether it's generic enough: it probably isn't. Ask first, or write it in `tools/hogli-commands/` and we can promote it later if multiple consumers want it.
 
-## HOGLI_* environment variable namespace
+## HOGLI\_\* environment variable namespace
 
 Core and consumers share the `HOGLI_` env prefix; check both lists before minting a new name.
 
