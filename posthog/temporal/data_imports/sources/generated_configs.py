@@ -965,7 +965,8 @@ class PendoSourceConfig(config.Config):
 
 @config.config
 class PersonioSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
 
 
 @config.config
