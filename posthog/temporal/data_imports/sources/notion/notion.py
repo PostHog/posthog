@@ -33,6 +33,13 @@ MAX_BLOCK_DEPTH = 2
 MAX_CHILD_PAGES_PER_PARENT = 50
 
 MAX_RETRY_WAIT_SECONDS = 30.0
+# Notion can ask us to back off for several minutes via Retry-After under sustained load (values
+# of 5+ minutes are common). Honor that instruction up to this bound instead of retrying early and
+# getting throttled again — retrying inside the penalty window just burns attempts and can extend
+# the penalty. Blocking this long is safe: the import activity has a week-long timeout and
+# heartbeats on an independent timer, so a waiting request won't trip the heartbeat. The bound is a
+# backstop against a pathologically large Retry-After.
+MAX_RETRY_AFTER_SECONDS = 600.0
 
 
 class NotionRetryableError(Exception):
@@ -76,7 +83,7 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     # Honor Notion's Retry-After on 429s; fall back to exponential backoff otherwise.
     exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
     if isinstance(exc, NotionRetryableError) and exc.retry_after is not None:
-        return min(exc.retry_after, MAX_RETRY_WAIT_SECONDS)
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
     return _wait_exponential(retry_state)
 
 
