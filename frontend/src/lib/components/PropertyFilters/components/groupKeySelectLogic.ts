@@ -14,30 +14,44 @@ export interface GroupKeySelectLogicProps {
     value: string[]
 }
 
-export async function resolveGroupNames(
+export async function findGroups(
     teamId: number | null,
     groupTypeIndex: GroupTypeIndex,
     groupKeys: string[]
-): Promise<Record<string, string>> {
+): Promise<Record<string, Group>> {
     if (!teamId || groupKeys.length === 0) {
         return {}
     }
     const results = await Promise.all(
         groupKeys.map(async (groupKey) => {
             try {
-                const response = await api.get(
+                const response: Group = await api.get(
                     `api/environments/${teamId}/groups/find/?${new URLSearchParams({
                         group_type_index: String(groupTypeIndex),
                         group_key: groupKey,
                     }).toString()}`
                 )
-                return [groupKey, groupDisplayId(response.group_key, response.group_properties)] as const
+                return [groupKey, response] as const
             } catch {
                 return null
             }
         })
     )
-    return Object.fromEntries(results.filter((r): r is readonly [string, string] => r !== null))
+    return Object.fromEntries(results.filter((r): r is readonly [string, Group] => r !== null))
+}
+
+export async function resolveGroupNames(
+    teamId: number | null,
+    groupTypeIndex: GroupTypeIndex,
+    groupKeys: string[]
+): Promise<Record<string, string>> {
+    const groups = await findGroups(teamId, groupTypeIndex, groupKeys)
+    return Object.fromEntries(
+        Object.entries(groups).map(([groupKey, group]) => [
+            groupKey,
+            groupDisplayId(group.group_key, group.group_properties),
+        ])
+    )
 }
 
 export const groupKeySelectLogic = kea<groupKeySelectLogicType>([
