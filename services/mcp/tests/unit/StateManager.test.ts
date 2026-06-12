@@ -493,6 +493,102 @@ describe('StateManager', () => {
         )
     })
 
+    describe('getAiConsentGiven', () => {
+        it.each([
+            [true, true],
+            [false, false],
+            [null, false],
+        ])('returns consent from the fetched org when the org is resolvable (flag %s)', async (flag, expected) => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue({
+                id: 'org-1',
+                name: 'Org 1',
+                is_ai_data_processing_approved: flag,
+            } as any)
+            const userSpy = vi.spyOn(stateManager, 'getCachedOrFetchUser')
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBe(expected)
+            expect(userSpy).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            [true, true],
+            [false, false],
+        ])(
+            'falls back to users/@me consent when the org is unreachable and the current org owns the active project (flag %s)',
+            async (flag, expected) => {
+                // Team-scoped tokens (e.g. sandbox OAuth tokens) can never fetch
+                // `/api/organizations/{id}/`, so getCachedOrFetchOrg yields undefined.
+                vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+                vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                    ...mockUser,
+                    organization: { id: 'org-1', name: 'Org 1', is_ai_data_processing_approved: flag },
+                })
+                vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                    id: 456,
+                    organization: 'org-1',
+                } as any)
+
+                const result = await stateManager.getAiConsentGiven()
+
+                expect(result).toBe(expected)
+            }
+        )
+
+        it("returns undefined when the user's current org does not own the active project", async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                ...mockUser,
+                organization: { id: 'org-other', name: 'Other Org', is_ai_data_processing_approved: true },
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                organization: 'org-1',
+            } as any)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBeUndefined()
+        })
+
+        it('returns undefined when the user has no current org', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({ ...mockUser, organization: null })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                organization: 'org-1',
+            } as any)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBeUndefined()
+        })
+
+        it('returns undefined when no project is resolvable', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                ...mockUser,
+                organization: { id: 'org-1', name: 'Org 1', is_ai_data_processing_approved: true },
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBeUndefined()
+        })
+
+        it('returns undefined (fail closed) when the fallback fetches throw', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockRejectedValue(new Error('boom'))
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBeUndefined()
+        })
+    })
+
     describe('getProjectId', () => {
         it('should return cached projectId if available', async () => {
             await cache.set('projectId', 'cached-project-id')

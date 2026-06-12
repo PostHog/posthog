@@ -34126,6 +34126,10 @@ export namespace Schemas {
       placeholder?: string;
       shuffleQuestions?: boolean;
       surveyPopupDelaySeconds?: number;
+      /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
+      allowGoBack?: boolean;
+      /** Optional override for the back button label. Defaults to 'Back'. */
+      backButtonText?: string;
       widgetType?: WidgetTypeEnum;
       widgetSelector?: string;
       widgetLabel?: string;
@@ -43904,7 +43908,7 @@ export namespace Schemas {
     } as const;
 
     export interface _SpanPropertyFilter {
-      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
       key: string;
       /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
        *
@@ -45407,6 +45411,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type EnvironmentsGroupsRelatedRetrieveParams = {
@@ -51249,6 +51257,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type GroupsRelatedRetrieveParams = {

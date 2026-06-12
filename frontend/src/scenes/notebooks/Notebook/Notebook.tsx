@@ -129,7 +129,8 @@ export function Notebook({
                 <div
                     className={clsx(
                         'Notebook',
-                        !isExpanded && 'Notebook--compact',
+                        // Markdown notebooks have no width toggle — they always fill the content width.
+                        !isExpanded && !isMarkdownNotebook && 'Notebook--compact',
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
                         isEditable && 'Notebook--editable',

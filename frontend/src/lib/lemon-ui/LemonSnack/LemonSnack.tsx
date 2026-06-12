@@ -6,7 +6,7 @@ import { IconX } from '@posthog/icons'
 // eslint-disable-next-line import/no-cycle
 import { LemonButton } from '@posthog/lemon-ui'
 
-export interface LemonSnackProps {
+export interface LemonSnackProps extends React.HTMLAttributes<HTMLSpanElement> {
     type?: 'regular' | 'pill'
     children?: React.ReactNode
     onClick?: React.MouseEventHandler
@@ -18,11 +18,17 @@ export interface LemonSnackProps {
 }
 
 export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttributes<HTMLSpanElement>> = forwardRef(
-    function LemonSnack({ type = 'regular', children, wrap, onClick, onClose, title, className }, ref): JSX.Element {
+    function LemonSnack(
+        { type = 'regular', children, wrap, onClick, onClose, title, className, ...rest },
+        ref
+    ): JSX.Element {
         const isRegular = type === 'regular'
         const isClickable = !!onClick
         return (
             <span
+                // Spread first so wrappers like Tooltip can attach their trigger
+                // handlers; the explicit props below take precedence.
+                {...rest}
                 ref={ref}
                 className={twMerge(
                     'inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5',
