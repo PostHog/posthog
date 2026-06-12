@@ -91,16 +91,26 @@ v0 = read-only internal coding agents, deployable. Order:
 4. **Stop/cancel end-to-end** — client stop → supervisor `cancel` → verify in-flight model call
    halts → hard-kill backstop (`docker rm -f` / Modal terminate). Proxy rejects further inference
    for stopped sessions (ties into 1).
-5. **Modal pool** — `ModalCodingSandboxPool` behind the same `CodingSandboxPool` interface.
+5. **Per-session cost cap at the proxy** — assuming the gateway scoped-tokens RFC
+   (`gateway-scoped-tokens.md` / RFC repo PR #1167) does NOT land, the proxy is the permanent
+   budget choke point: add `spec.limits.max_cost_usd`; the proxy auth middleware already loads
+   the session row per request, so reject when `usage_total.cost_total` exceeds it. Granularity
+   is per-turn (usage persists at turn end) — acceptable since wall limits + `max_output_tokens`
+   bound a single turn. Pairs with (4): together they complete the kill-switch story.
+6. **Modal pool** — `ModalCodingSandboxPool` behind the same `CodingSandboxPool` interface.
    Gates fleet deploy; until then v0 can run on a Docker-capable VM if we accept that interim.
+
+No-gateway-change caveat: the proxy also becomes production-load-bearing — every coding-agent
+inference stream is a long-lived SSE connection through ingress pods. Fine at internal scale;
+needs a capacity look (or its own deploy knob) before broad rollout.
 
 ——— v0 cut-line ———
 
-6. **Approval gating end-to-end** (#3) — `permission_request` → existing approval queue/resume
+7. **Approval gating end-to-end** (#3) — `permission_request` → existing approval queue/resume
    machinery; human principal only. Gates any write-capable profile (v1).
-7. **Tier-3 custom-tool MCP broker + skills file-delivery** (#2) — broker endpoint on the
+8. **Tier-3 custom-tool MCP broker + skills file-delivery** (#2) — broker endpoint on the
    supervisor fronting the existing `SecretBroker`/tier-3 sandbox; skills written into the
    workspace at boot.
-8. **Workspace provisioning + snapshot/resume** (#4 rest) — repo clone at pinned ref in the
+9. **Workspace provisioning + snapshot/resume** (#4 rest) — repo clone at pinned ref in the
    driver path; sandbox snapshot on suspend/complete, restore on re-claim (replaces the interim
    conversation-replay preamble's "fresh environment" caveat).
