@@ -91,6 +91,8 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        if not settings.DEBUG:
+            raise CommandError("This command can only be run with DEBUG=True (local/dev only).")
         if not settings.OBJECT_STORAGE_ENABLED or not settings.OBJECT_STORAGE_ACCESS_KEY_ID:
             raise CommandError("Object storage is not configured — start the dev stack first (hogli start).")
         try:
