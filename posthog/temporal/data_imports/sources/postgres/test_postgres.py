@@ -39,12 +39,14 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
+    PostgresDiscoveredSchema,
     PostgresImplementation,
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
     _build_count_query,
     _build_query,
+    _connect_with_dropped_retry,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
@@ -61,6 +63,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _normalize_function_names,
     _rls_active_from_conn,
     _role_subject_to_rls,
+    _statement_timeout_as_non_retryable,
     filter_postgres_incremental_fields,
     get_foreign_keys,
     get_leading_index_columns,
@@ -233,6 +236,97 @@ class TestIsConnectionDroppedError:
     )
     def test_unrelated_errors_are_not_detected(self, error):
         assert _is_connection_dropped_error(error) is False
+
+
+class TestConnectWithDroppedRetry:
+    @pytest.fixture
+    def logger(self):
+        return structlog.get_logger()
+
+    def test_retries_dropped_connection_then_succeeds(self, logger):
+        good_conn = mock.MagicMock()
+        connect = mock.MagicMock(
+            side_effect=[
+                # The exact error surfaced in production: a mid-stream SSL EOF on
+                # the reconnect that bootstraps offset-chunking recovery.
+                psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected"),
+                psycopg.OperationalError("server closed the connection unexpectedly"),
+                good_conn,
+            ]
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert result is good_conn
+        assert connect.call_count == 3
+
+    def test_permanent_error_is_not_retried(self, logger):
+        connect = mock.MagicMock(
+            side_effect=psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            )
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with pytest.raises(psycopg.OperationalError):
+                _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert connect.call_count == 1
+
+    def test_gives_up_after_max_attempts(self, logger):
+        connect = mock.MagicMock(
+            side_effect=psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected")
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with pytest.raises(psycopg.OperationalError):
+                _connect_with_dropped_retry(connect, logger, max_attempts=3)
+
+        assert connect.call_count == 3
+
+
+class TestStatementTimeoutAsNonRetryable:
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,incremental_field,expected_substr",
+        [
+            # Incremental syncs map the timeout to a non-retryable QueryTimeoutException.
+            (True, "updated_at", "updated_at"),
+            # Full-table syncs must re-raise the raw QueryCanceled so a fresh re-sync can
+            # reorder rows; we only short-circuit incremental reads.
+            (False, None, None),
+        ],
+    )
+    def test_statement_timeout_mapping(self, should_use_incremental_field, incremental_field, expected_substr):
+        result = _statement_timeout_as_non_retryable(
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
+        )
+        if expected_substr is None:
+            assert result is None
+        else:
+            assert isinstance(result, QueryTimeoutException)
+            assert expected_substr in str(result)
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.ProtocolViolation("server conn crashed?"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.errors.SerializationFailure("due to conflict with recovery"),
+            Exception("canceling statement due to statement timeout"),
+        ],
+    )
+    def test_non_statement_timeout_errors_are_not_mapped(self, error):
+        assert (
+            _statement_timeout_as_non_retryable(
+                error,
+                should_use_incremental_field=True,
+                incremental_field="updated_at",
+            )
+            is None
+        )
 
 
 class TestPostgresSourceForPipelineSchemaResolution:
@@ -716,6 +810,64 @@ class TestPostgresSchemaDiscovery:
 
         assert row_counts == {}
         patch_connect_to_postgres.assert_not_called()
+
+
+class TestPostgresSourceGetSchemasDegradesGracefully:
+    @pytest.fixture
+    def source(self):
+        return PostgresSource()
+
+    def _config(self):
+        return mock.MagicMock(user="u", password="p", database="db", schema="", ssh_tunnel=None)
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            psycopg.errors.OutOfMemory(
+                'out of memory\nDETAIL:  Failed on request of size 2048 in memory context "ExecutorState".'
+            ),
+            psycopg.OperationalError("connection refused"),
+            Exception("unexpected error"),
+        ],
+    )
+    def test_foreign_key_discovery_failure_does_not_break_schema_listing(self, source, exc):
+        # A failing foreign-key lookup (e.g. the source DB OOMs on the information_schema join)
+        # must degrade to empty foreign keys, not take down the whole schema listing.
+        discovered = {
+            "public.users": PostgresDiscoveredSchema(
+                source_catalog=None,
+                source_schema="public",
+                source_table_name="users",
+                columns=[("id", "integer", False)],
+            )
+        }
+
+        tunnel_cm = mock.MagicMock()
+        tunnel_cm.__enter__.return_value = ("localhost", 5432)
+        tunnel_cm.__exit__.return_value = None
+
+        with (
+            mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                return_value=discovered,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                side_effect=exc,
+            ),
+            # PK/index discovery opens its own connection; let it fail so the test needs no real DB.
+            # That path is already guarded and defaults gracefully.
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.pg_connection",
+                side_effect=psycopg.OperationalError("no db in test"),
+            ),
+        ):
+            schemas = source.get_schemas(self._config(), team_id=1)
+
+        assert len(schemas) == 1
+        assert schemas[0].name == "public.users"
+        assert schemas[0].foreign_keys == []
 
 
 class TestGetSslmode:

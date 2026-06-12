@@ -10,9 +10,6 @@ from typing import Literal
 
 import structlog
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
 from posthog.api.capture_dispatch import capture_internal_routed
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups as build_groups
@@ -26,7 +23,6 @@ from posthog.settings import SITE_URL
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel
-from products.conversations.backend.person_lookup import _get_persons_by_email
 
 logger = structlog.get_logger(__name__)
 
@@ -125,6 +121,11 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
     )
     query = GROUPS_FROM_EVENTS_QUERY.format(org_col=org_col, customer_select=customer_select)
 
+    # Deferred: hogql.query pulls the whole query-runner layer, and this module loads
+    # at django.setup() via the conversations signal wiring.
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
     with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
         response = execute_hogql_query(
             query,
@@ -188,6 +189,10 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
 
     email = (ticket.anonymous_traits or {}).get("email") or ticket.email_from
     if email:
+        # person_lookup pulls the HogQL query layer; this module loads at django.setup()
+        # via the conversations signal wiring, so import it lazily.
+        from products.conversations.backend.person_lookup import _get_persons_by_email  # noqa: PLC0415
+
         person = _get_persons_by_email(team, [email]).get(email.lower())
         if person is not None and person.distinct_ids:
             membership = (

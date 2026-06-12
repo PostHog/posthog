@@ -17,7 +17,6 @@ import { initSuperProperties } from '~/utils/posthog'
 function createServer(): NodeServer {
     switch (defaultConfig.PLUGIN_SERVER_MODE) {
         case PluginServerMode.ingestion_v2:
-        case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
             return new IngestionGeneralServer()
 

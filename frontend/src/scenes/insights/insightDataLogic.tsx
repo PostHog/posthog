@@ -14,7 +14,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
 import { DataVisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
@@ -199,6 +199,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     // Web Analytics insights don't have traditional defaults, they come from tiles
                     // and should always be considered "changed" for URL hash purposes
                     if (isWebAnalyticsInsightQuery(query.source)) {
+                        return true
+                    }
+                    // Source kinds without a product analytics default (e.g. a TracesQuery from an
+                    // AI-generated link) have no default to compare against, so treat as changed
+                    if (!(query.source.kind in nodeKindToInsightType)) {
                         return true
                     }
                     const insightType = nodeKindToInsightType[query.source.kind]
