@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import api, { ApiError } from 'lib/api'
@@ -479,6 +480,7 @@ describe('maxThreadLogic', () => {
 
         it('waits for the open dashboard to load before sending the first message (regression for #61414)', async () => {
             jest.useFakeTimers()
+            const captureSpy = jest.spyOn(posthog, 'capture')
             try {
                 const streamSpy = mockStream()
                 const fakeDashboardLogic = mockLoadingDashboardScene()
@@ -506,6 +508,36 @@ describe('maxThreadLogic', () => {
                         }),
                     }),
                     expect.any(Object)
+                )
+                // A normal load must NOT report a timeout.
+                expect(captureSpy).not.toHaveBeenCalledWith('max dashboard context wait timed out', expect.anything())
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('reports a telemetry event and still sends if the dashboard never loads within the cap', async () => {
+            jest.useFakeTimers()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            try {
+                const streamSpy = mockStream()
+                mockLoadingDashboardScene() // dashboard stays null past the wait cap
+
+                maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+                logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+                logic.mount()
+
+                logic.actions.askMax('what am I seeing on this dashboard?')
+
+                // Advance past the 8s wait cap without the dashboard ever loading.
+                await jest.advanceTimersByTimeAsync(8100)
+
+                // The cap must never block the user — the message still sends...
+                expect(streamSpy).toHaveBeenCalledTimes(1)
+                // ...but we record that the wait timed out, so the cap's impact is observable in prod.
+                expect(captureSpy).toHaveBeenCalledWith(
+                    'max dashboard context wait timed out',
+                    expect.objectContaining({ dashboard_id: 1, waited_ms: 8000 })
                 )
             } finally {
                 jest.useRealTimers()

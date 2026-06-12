@@ -1027,6 +1027,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 await breakpoint(DASHBOARD_CONTEXT_POLL_INTERVAL_MS)
                 waitedForDashboard += DASHBOARD_CONTEXT_POLL_INTERVAL_MS
             }
+            if (isDashboardSceneLoading()) {
+                // We hit the wait cap while the dashboard was still loading, so the message ships
+                // without dashboard context (the original "Max can't see this dashboard" symptom).
+                // Capture it so we can tell whether the cap is ever the binding constraint in prod.
+                const activeLoadedScene = sceneLogic.values.activeLoadedScene
+                const sceneProps = activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || {}
+                posthog.capture('max dashboard context wait timed out', {
+                    waited_ms: waitedForDashboard,
+                    dashboard_id: (sceneProps as { id?: number | string }).id,
+                    conversation_id: values.conversation?.id || values.conversationId,
+                })
+            }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
             // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
             // not just when active. Otherwise a typed turn following a spoken one inherits
