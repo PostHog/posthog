@@ -92,6 +92,9 @@ class SessionRecording(UUIDTModel):
     summary_outcome: Optional[dict] = None
     expiry_time: Optional[datetime] = None
     recording_ttl: Optional[int] = None
+    # False when this recording was included in listing results via session_recording_id
+    # despite not matching the listing filters
+    matches_filters: Optional[bool] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None

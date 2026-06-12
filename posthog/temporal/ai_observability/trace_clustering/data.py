@@ -101,7 +101,7 @@ def fetch_item_embeddings_for_clustering(
         placeholders["document_type_legacy"] = ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY)
         placeholders["rendering_legacy"] = ast.Constant(value=constants.LLMA_TRACE_RENDERING_LEGACY)
 
-    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
         result = execute_hogql_query(
             query_type="ItemEmbeddingsForClustering",
             query=query,
@@ -204,7 +204,7 @@ def fetch_item_summaries(
     # Build item_ids tuple for IN clause
     item_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in item_ids])
 
-    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
         result = execute_hogql_query(
             query_type="ItemSummariesForClustering",
             query=query,
@@ -311,7 +311,7 @@ def fetch_item_metrics(
             WHERE event = '$ai_generation'
                 AND timestamp >= {start_dt}
                 AND timestamp < {end_dt}
-                AND toString(uuid) IN {item_ids}
+                AND uuid IN {item_ids}
             LIMIT {max_rows}
             """
         )
@@ -347,7 +347,7 @@ def fetch_item_metrics(
     if not is_generation:
         placeholders["trace_id_prop"] = ast.Field(chain=["properties", "$ai_trace_id"])
 
-    with tags_context(product=Product.LLM_ANALYTICS):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
         result = execute_hogql_query(
             query_type="ClusterItemMetrics",
             query=query,

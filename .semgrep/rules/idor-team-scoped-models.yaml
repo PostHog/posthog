@@ -71,6 +71,9 @@ rules:
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
+                              |CodePrSnapshot
+                              |CodeWorkflowConfig
+                              |CodeWorkstream
                               |Cohort
                               |Comment
                               |Conversation
@@ -121,6 +124,7 @@ rules:
                               |Evaluation
                               |Experiment
                               |ExperimentHoldout
+                              |ExperimentMetricsRecalculation
                               |ExperimentSavedMetric
                               |ExportedAsset
                               |ExportedRecording
@@ -133,6 +137,7 @@ rules:
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
                               |FileSystem
+                              |FileSystemFolderInstructions
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -204,6 +209,7 @@ rules:
                               |SignalSourceConfig
                               |SignalScoutConfig
                               |SignalScoutRun
+                              |SignalScoutEmission
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -262,6 +268,8 @@ rules:
               - '**/management/**'
               - '**/.semgrep/**'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # Combined pattern rule: any lookup without team filter
     - id: idor-lookup-without-team
@@ -306,6 +314,9 @@ rules:
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob
+                        |CodePrSnapshot
+                        |CodeWorkflowConfig
+                        |CodeWorkstream
                         |Cohort
                         |Comment
                         |Conversation
@@ -356,6 +367,7 @@ rules:
                         |Evaluation
                         |Experiment
                         |ExperimentHoldout
+                        |ExperimentMetricsRecalculation
                         |ExperimentSavedMetric
                         |ExportedAsset
                         |ExportedRecording
@@ -368,6 +380,7 @@ rules:
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
                         |FileSystem
+                        |FileSystemFolderInstructions
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -435,6 +448,7 @@ rules:
                         |SignalSourceConfig
                         |SignalScoutConfig
                         |SignalScoutRun
+                        |SignalScoutEmission
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -507,6 +521,8 @@ rules:
               - '**/models/**'
               - '**/signals.py'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # Organization-scoped model taint rule
     - id: idor-taint-user-input-to-org-model
@@ -562,6 +578,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
                               |RoleMembership
@@ -591,6 +608,8 @@ rules:
               - '**/management/**'
               - '**/.semgrep/**'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # Organization-scoped model lookup rule
     - id: idor-lookup-without-org
@@ -626,6 +645,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference
                         |RoleMembership
@@ -669,6 +689,8 @@ rules:
               - '**/models/**'
               - '**/signals.py'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # User-scoped model taint rule
     - id: idor-taint-user-input-to-user-model
@@ -740,6 +762,8 @@ rules:
               - '**/management/**'
               - '**/.semgrep/**'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # User-scoped model lookup rule
     - id: idor-lookup-without-user
@@ -805,6 +829,8 @@ rules:
               - '**/models/**'
               - '**/signals.py'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # Composite user+team scoped model taint rule
     - id: idor-taint-user-input-to-user-team-model
@@ -894,6 +920,8 @@ rules:
               - '**/management/**'
               - '**/.semgrep/**'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # Composite user+team scoped model lookup rule
     - id: idor-lookup-without-user-and-team
@@ -976,3 +1004,5 @@ rules:
               - '**/models/**'
               - '**/signals.py'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'

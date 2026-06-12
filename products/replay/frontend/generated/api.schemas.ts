@@ -23,13 +23,13 @@ export interface SessionSummariesApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -78,7 +78,7 @@ export interface UserBasicApi {
 
 /**
  * * `collection` - Collection
- * `filters` - Filters
+ * * `filters` - Filters
  */
 export type SessionRecordingPlaylistTypeEnumApi =
     (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
@@ -118,9 +118,9 @@ export interface SessionRecordingPlaylistApi {
     readonly last_modified_by: UserBasicApi
     readonly recordings_counts: SessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
-
-  * `collection` - Collection
-  * `filters` - Filters */
+     *
+     * * `collection` - Collection
+     * * `filters` - Filters */
     type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
@@ -168,9 +168,9 @@ export interface PatchedSessionRecordingPlaylistApi {
     readonly last_modified_by?: UserBasicApi
     readonly recordings_counts?: PatchedSessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
-
-  * `collection` - Collection
-  * `filters` - Filters */
+     *
+     * * `collection` - Collection
+     * * `filters` - Filters */
     type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
@@ -259,6 +259,8 @@ export interface SessionRecordingApi {
     readonly summary_outcome: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
+    /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+    readonly matches_filters: boolean
 }
 
 export interface PaginatedSessionRecordingListApi {
@@ -319,6 +321,8 @@ export interface PatchedSessionRecordingApi {
     readonly summary_outcome?: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
+    /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+    readonly matches_filters?: boolean
 }
 
 /**

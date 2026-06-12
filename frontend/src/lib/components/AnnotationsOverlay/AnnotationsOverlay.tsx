@@ -322,7 +322,13 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
         >
             {annotations.length ? (
                 singleEmoji ? (
-                    <LemonBadge content={singleEmoji} status="data" size="small" active={active && isDateLocked} />
+                    <LemonBadge
+                        content={singleEmoji}
+                        status="data"
+                        size="small"
+                        active={active && isDateLocked}
+                        className="AnnotationsBadge__emoji"
+                    />
                 ) : (
                     <LemonBadge.Number
                         count={annotations.length}

@@ -285,7 +285,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                 <LemonBanner type="warning">
                     <div className="space-y-2">
                         <p>
-                            This evaluation uses API key{' '}
+                            This evaluation is paused because API key{' '}
                             <span className="font-semibold">{evaluationProviderKeyIssue.name}</span> (
                             {providerLabel(evaluationProviderKeyIssue.provider)}){' '}
                             {providerKeyStateIssueDescription(evaluationProviderKeyIssue.state)}.

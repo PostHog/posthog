@@ -1,6 +1,6 @@
 import json
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 from unittest.mock import patch
@@ -65,6 +65,17 @@ class TestAccountRequests(ProvisioningTestBase):
         user = User.objects.get(email="newuser@example.com")
         assert user.organization is not None
         assert user.team is not None
+
+    def test_new_user_auth_code_cached_with_issued_at(self):
+        payload = self._account_request_payload()
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        code = res.json()["oauth"]["code"]
+        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
+        assert code_data is not None
+        # Without issued_at the code exchange fails closed once the app is ever session-revoked,
+        # which would block every new user. See _exchange_authorization_code's revoke guard.
+        assert "issued_at" in code_data
+        datetime.fromisoformat(code_data["issued_at"])
 
     def test_existing_user_returns_oauth_type_with_code(self):
         User.objects.create_and_join(
@@ -286,6 +297,19 @@ class TestAccountRequests(ProvisioningTestBase):
         # Stripe HMAC path has no OAuthApplication partner, so there's no client to attribute.
         assert kwargs["partner"] is None
 
+    @patch("ee.api.agentic_provisioning.views.report_user_signed_up")
+    def test_new_user_emits_signup_event(self, mock_signup):
+        payload = self._account_request_payload(email="signupevent@example.com")
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
+
+        assert mock_signup.call_count == 1
+        kwargs = mock_signup.call_args.kwargs
+        assert kwargs["backend_processor"] == "AgenticProvisioning"
+        assert kwargs["is_organization_first_user"] is True
+        # Stripe HMAC path has no OAuthApplication, so no client name.
+        assert kwargs["social_provider"] == ""
+
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
@@ -400,6 +424,18 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         ]
         assert len(new_user_calls) == 1
         assert new_user_calls[0].kwargs["partner"] == self.pkce_partner
+
+    @patch("ee.api.agentic_provisioning.views.report_user_signed_up")
+    def test_pkce_partner_new_user_emits_signup_event_with_client(self, mock_signup):
+        payload = self._account_request_payload(email="pkce_signup@example.com")
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+
+        assert mock_signup.call_count == 1
+        kwargs = mock_signup.call_args.kwargs
+        assert kwargs["backend_processor"] == "AgenticProvisioning"
+        assert kwargs["is_organization_first_user"] is True
+        assert kwargs["social_provider"] == self.pkce_partner.name
 
     def test_pkce_partner_with_skip_consent_existing_user_gets_direct_code(self):
         self.pkce_partner.provisioning_skip_existing_user_consent = True

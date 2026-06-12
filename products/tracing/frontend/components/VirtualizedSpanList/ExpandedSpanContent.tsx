@@ -1,13 +1,19 @@
-import { formatDuration } from '../../TraceFlameChart'
+import { formatDuration } from '../../TraceWaterfallView'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
 import { SpanAttributes } from './SpanAttributes'
 
 export interface ExpandedSpanContentProps {
     span: Span
+    /**
+     * Render the "Span details" KVP table alongside the attributes. The drawer's summary header
+     * already surfaces these facts, so it passes false; the span-list expand-row (no header) keeps
+     * the default. @default true
+     */
+    showDetails?: boolean
 }
 
-export function ExpandedSpanContent({ span }: ExpandedSpanContentProps): JSX.Element {
+export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanContentProps): JSX.Element {
     const status = STATUS_CODE_LABELS[span.status_code]
 
     // The OTel attributes the user set on the span — the thing the row is here to surface.
@@ -29,7 +35,7 @@ export function ExpandedSpanContent({ span }: ExpandedSpanContentProps): JSX.Ele
     return (
         <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
             <SpanAttributes title="Attributes" attributes={attributes} emptyLabel="No attributes set on this span" />
-            <SpanAttributes title="Span details" attributes={details} />
+            {showDetails && <SpanAttributes title="Span details" attributes={details} />}
         </div>
     )
 }

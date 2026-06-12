@@ -15,8 +15,10 @@ export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
 export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
 export const FEATURE_FLAG_TESTING_RESOURCE_URI = 'ui://posthog/feature-flag-testing.html'
 export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
+export const INVITE_EMAIL_PREVIEW_RESOURCE_URI = 'ui://posthog/invite-email-preview.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
+export const RENDER_UI_RESOURCE_URI = 'ui://posthog/render-ui.html'
 export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
 export const SESSION_SUMMARY_RESOURCE_URI = 'ui://posthog/session-summary.html'
 export const SURVEY_RESOURCE_URI = 'ui://posthog/survey.html'
@@ -45,8 +47,10 @@ export type UiAppKey =
     | 'feature-flag-list'
     | 'feature-flag-testing'
     | 'insight-actors'
+    | 'invite-email-preview'
     | 'llm-costs'
     | 'query-results'
+    | 'render-ui'
     | 'session-recording'
     | 'session-summary'
     | 'survey'
@@ -75,8 +79,10 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'feature-flag-list': FEATURE_FLAG_LIST_RESOURCE_URI,
     'feature-flag-testing': FEATURE_FLAG_TESTING_RESOURCE_URI,
     'insight-actors': INSIGHT_ACTORS_RESOURCE_URI,
+    'invite-email-preview': INVITE_EMAIL_PREVIEW_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
+    'render-ui': RENDER_UI_RESOURCE_URI,
     'session-recording': SESSION_RECORDING_RESOURCE_URI,
     'session-summary': SESSION_SUMMARY_RESOURCE_URI,
     survey: SURVEY_RESOURCE_URI,
@@ -89,6 +95,39 @@ export const URI_MAP: Record<UiAppKey, string> = {
     workflow: WORKFLOW_RESOURCE_URI,
     'workflow-list': WORKFLOW_LIST_RESOURCE_URI,
 }
+
+/**
+ * App keys with a generated detail/list view that the `render-ui` umbrella tool
+ * can render. Excludes custom apps, which have no convention view component.
+ */
+export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
+    'action',
+    'action-list',
+    'cohort',
+    'cohort-list',
+    'error-details',
+    'error-issue',
+    'error-issue-list',
+    'experiment',
+    'experiment-list',
+    'experiment-results',
+    'feature-flag',
+    'feature-flag-list',
+    'feature-flag-testing',
+    'insight-actors',
+    'invite-email-preview',
+    'llm-costs',
+    'session-recording',
+    'session-summary',
+    'survey',
+    'survey-global-stats',
+    'survey-list',
+    'survey-stats',
+    'trace-span',
+    'trace-span-list',
+    'workflow',
+    'workflow-list',
+]
 
 export const UI_APPS: Array<{
     name: string
@@ -187,6 +226,12 @@ export const UI_APPS: Array<{
         appDir: 'generated/insight-actors',
     },
     {
+        name: 'PostHog Invite Email Preview',
+        uri: INVITE_EMAIL_PREVIEW_RESOURCE_URI,
+        description: 'Invite Email Preview detail view',
+        appDir: 'generated/invite-email-preview',
+    },
+    {
         name: 'PostHog Llm Costs',
         uri: LLM_COSTS_RESOURCE_URI,
         description: 'Llm Costs detail view',
@@ -197,6 +242,12 @@ export const UI_APPS: Array<{
         uri: QUERY_RESULTS_RESOURCE_URI,
         description: 'Interactive visualization for PostHog query results',
         appDir: 'query-results',
+    },
+    {
+        name: 'PostHog Render UI',
+        uri: RENDER_UI_RESOURCE_URI,
+        description: 'Renders the visualization for a PostHog MCP tool result',
+        appDir: 'render-ui',
     },
     {
         name: 'PostHog Session Recording',

@@ -10,8 +10,8 @@ from parameterized import parameterized
 from posthog.schema import DateRange, ErrorTrackingQuery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
 
+from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
 from ee.hogai.eval.sandboxed.error_tracking.seeders import _EVAL_DISTINCT_IDS, seed_error_tracking_issues
