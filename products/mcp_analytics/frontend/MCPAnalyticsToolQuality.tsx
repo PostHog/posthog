@@ -1,71 +1,56 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
+import { IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { type ChartTheme } from '@posthog/quill-charts'
+import { Card, CardContent } from '@posthog/quill-primitives'
+
+import { buildTheme } from 'lib/charts/utils/theme'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyDuration } from 'lib/utils'
+import { formatPercentage } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { Query } from '~/queries/Query/Query'
-import { isHogQLQuery } from '~/queries/utils'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { Card } from './dashboard/Card'
+import { formatMs, formatNumber } from './dashboard/formatters'
 import { mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
+import { ToolQualityCharts } from './tool-quality/ToolQualityCharts'
+import { ToolQualityTable } from './tool-quality/ToolQualityTable'
 
-const COLLECTION_ID = 'mcp-analytics-tool-quality'
-
-function renderSortableTitle(
-    column: string,
-    title: string,
-    currentSort: { column: string; direction: 'ASC' | 'DESC' },
-    setSort: (column: string, direction: 'ASC' | 'DESC') => void
-): JSX.Element {
-    const isSorted = currentSort.column === column
-    const handleClick = (): void => {
-        const next = isSorted && currentSort.direction === 'DESC' ? 'ASC' : 'DESC'
-        setSort(column, next)
-    }
-    return (
-        <span
-            onClick={handleClick}
-            style={{ cursor: 'pointer', userSelect: 'none' }}
-            className="flex items-center gap-1"
-        >
-            {title}
-            {isSorted ? (currentSort.direction === 'DESC' ? ' ▼' : ' ▲') : ''}
-        </span>
-    )
-}
-
-function formatMs(value: unknown): string {
-    if (value === null || value === undefined || value === '' || Number.isNaN(Number(value))) {
-        return '—'
-    }
-    return humanFriendlyDuration(Number(value) / 1000, { secondsFixed: 2 })
-}
-
-function errorRateClass(rate: number): string {
-    if (rate <= 0) {
-        return 'text-success'
-    }
-    if (rate < 5) {
-        return 'text-warning'
-    }
-    return 'text-danger'
-}
-
-function CategoryScopeBar(): JSX.Element {
-    const { availableCategories, availableCategoriesLoading, selectedCategories, scopeShare } =
-        useValues(mcpAnalyticsToolQualityLogic)
-    const { setSelectedCategories } = useActions(mcpAnalyticsToolQualityLogic)
+function FilterBar(): JSX.Element {
+    const {
+        availableCategories,
+        availableCategoriesLoading,
+        selectedCategories,
+        scopeShare,
+        selectedTool,
+        toolOptions,
+        toolRowsLoading,
+        dateFilter,
+    } = useValues(mcpAnalyticsToolQualityLogic)
+    const { setSelectedCategories, setSelectedTool, setDateFilter } = useActions(mcpAnalyticsToolQualityLogic)
 
     const hasScope = selectedCategories.length > 0
     const sharePct = scopeShare.pct === null ? null : Math.round(scopeShare.pct * 10) / 10
 
     return (
         <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-[280px] flex-1 max-w-[480px]">
+            <div className="w-[280px]">
+                <LemonInputSelect
+                    mode="single"
+                    value={selectedTool ? [selectedTool] : []}
+                    onChange={(value) => setSelectedTool(value[0] ?? null)}
+                    options={toolOptions.map((tool) => ({ key: tool, label: tool }))}
+                    loading={toolRowsLoading}
+                    placeholder="Drill down into a tool…"
+                    data-attr="mcp-tool-quality-tool-select"
+                />
+            </div>
+            <div className="min-w-[220px] max-w-[420px] flex-1">
                 <LemonInputSelect
                     mode="multiple"
                     value={selectedCategories}
@@ -76,6 +61,11 @@ function CategoryScopeBar(): JSX.Element {
                     data-attr="mcp-tool-quality-category-scope"
                 />
             </div>
+            <DateFilter
+                dateFrom={dateFilter.dateFrom}
+                dateTo={dateFilter.dateTo}
+                onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+            />
             {hasScope && sharePct !== null ? (
                 <Tooltip
                     title={`${scopeShare.inScope.toLocaleString()} of ${scopeShare.total.toLocaleString()} MCP tool calls in the last 7 days were in the selected categories`}
@@ -89,140 +79,82 @@ function CategoryScopeBar(): JSX.Element {
     )
 }
 
-export function MCPAnalyticsToolQuality(): JSX.Element {
-    const { toolQualityQuery, toolQualitySort, topToolsQuery, errorTrendQuery, durationTrendQuery } =
-        useValues(mcpAnalyticsToolQualityLogic)
-    const { setToolQualitySort, setDateFilter } = useActions(mcpAnalyticsToolQualityLogic)
+function ToolStat({ label, value }: { label: string; value: string }): JSX.Element {
+    return (
+        <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-wider text-secondary">{label}</span>
+            <span className="text-base font-semibold leading-tight">{value}</span>
+        </div>
+    )
+}
+
+// Compact summary of the selected tool over the active date range, sourced from
+// the already-loaded table row — no extra query.
+function SelectedToolStrip(): JSX.Element | null {
+    const { selectedTool, selectedRow } = useValues(mcpAnalyticsToolQualityLogic)
+    const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
+
+    if (!selectedTool) {
+        return null
+    }
 
     return (
-        <div className="flex flex-col gap-4">
-            <CategoryScopeBar />
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <Card title="Top tools by calls" className="flex min-h-[260px] flex-col">
-                    <div className="flex-1">
-                        <Query query={topToolsQuery} readOnly />
-                    </div>
-                </Card>
-                <Card title="Errors over time" className="flex min-h-[260px] flex-col">
-                    <div className="flex-1">
-                        <Query query={errorTrendQuery} readOnly />
-                    </div>
-                </Card>
-                <Card title="Duration over time" className="flex min-h-[260px] flex-col">
-                    <div className="flex-1">
-                        <Query query={durationTrendQuery} readOnly />
-                    </div>
-                </Card>
-            </div>
-            <DataTable
-                query={toolQualityQuery}
-                setQuery={(query) => {
-                    if (!isHogQLQuery(query.source)) {
-                        return
-                    }
-                    const filters = query.source.filters ?? {}
-                    const dateRange = filters.dateRange ?? {}
-                    setDateFilter(dateRange.date_from ?? null, dateRange.date_to ?? null)
-                }}
-                context={{
-                    columns: {
-                        tool: {
-                            title: 'Tool',
-                            render: function RenderTool({ value }) {
-                                if (!value || value === 'null') {
-                                    return <span className="text-muted">Unknown tool</span>
-                                }
-                                const toolName = String(value)
-                                return (
-                                    <Link
-                                        to={urls.mcpAnalyticsTool(toolName)}
-                                        className="font-mono text-sm"
-                                        data-attr="mcp-tool-quality-tool-link"
-                                    >
-                                        {toolName}
-                                    </Link>
-                                )
-                            },
-                        },
-                        total_calls: {
-                            renderTitle: () => (
-                                <Tooltip title="Total number of times this tool was called">
-                                    {renderSortableTitle(
-                                        'total_calls',
-                                        'Total calls',
-                                        toolQualitySort,
-                                        setToolQualitySort
-                                    )}
-                                </Tooltip>
-                            ),
-                        },
-                        error_rate_pct: {
-                            renderTitle: () => (
-                                <Tooltip title="Percentage of calls that returned $mcp_is_error = true">
-                                    {renderSortableTitle(
-                                        'error_rate_pct',
-                                        'Error rate',
-                                        toolQualitySort,
-                                        setToolQualitySort
-                                    )}
-                                </Tooltip>
-                            ),
-                            render: function RenderErrorRate({ value }) {
-                                const numeric = Number(value)
-                                if (Number.isNaN(numeric)) {
-                                    return <span className="text-muted">—</span>
-                                }
-                                return <span className={errorRateClass(numeric)}>{numeric}%</span>
-                            },
-                        },
-                        p95_duration_ms: {
-                            renderTitle: () => (
-                                <Tooltip title="95th-percentile $mcp_duration_ms">
-                                    {renderSortableTitle(
-                                        'p95_duration_ms',
-                                        'p95 duration',
-                                        toolQualitySort,
-                                        setToolQualitySort
-                                    )}
-                                </Tooltip>
-                            ),
-                            render: ({ value }) => <span>{formatMs(value)}</span>,
-                        },
-                        p50_duration_ms: {
-                            renderTitle: () => (
-                                <Tooltip title="Median $mcp_duration_ms">
-                                    {renderSortableTitle(
-                                        'p50_duration_ms',
-                                        'p50 duration',
-                                        toolQualitySort,
-                                        setToolQualitySort
-                                    )}
-                                </Tooltip>
-                            ),
-                            render: ({ value }) => <span>{formatMs(value)}</span>,
-                        },
-                        users: {
-                            renderTitle: () => (
-                                <Tooltip title="Unique users who invoked this tool">
-                                    {renderSortableTitle('users', 'Users', toolQualitySort, setToolQualitySort)}
-                                </Tooltip>
-                            ),
-                        },
-                        sessions: {
-                            renderTitle: () => (
-                                <Tooltip title="Unique sessions where this tool was called">
-                                    {renderSortableTitle('sessions', 'Sessions', toolQualitySort, setToolQualitySort)}
-                                </Tooltip>
-                            ),
-                        },
-                        last_seen: {
-                            renderTitle: () =>
-                                renderSortableTitle('last_seen', 'Last seen', toolQualitySort, setToolQualitySort),
-                        },
-                    },
-                }}
-                uniqueKey={COLLECTION_ID}
-            />
+        <Card size="sm">
+            <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-3">
+                <span className="truncate font-mono text-sm font-semibold" title={selectedTool}>
+                    {selectedTool}
+                </span>
+                <ToolStat label="Calls" value={selectedRow ? formatNumber(selectedRow.total_calls) : '—'} />
+                <ToolStat
+                    label="Error rate"
+                    value={selectedRow ? formatPercentage(selectedRow.error_rate_pct, { compact: true }) : '—'}
+                />
+                <ToolStat label="p95 latency" value={selectedRow ? formatMs(selectedRow.p95_duration_ms) : '—'} />
+                <ToolStat label="p99 latency" value={selectedRow ? formatMs(selectedRow.p99_duration_ms) : '—'} />
+                <ToolStat label="Users" value={selectedRow ? formatNumber(selectedRow.users) : '—'} />
+                <ToolStat label="Sessions" value={selectedRow ? formatNumber(selectedRow.sessions) : '—'} />
+                <div className="ml-auto flex items-center gap-1">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={urls.mcpAnalyticsTool(selectedTool)}
+                        data-attr="mcp-tool-quality-full-report"
+                    >
+                        Full tool report
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        icon={<IconX />}
+                        onClick={() => setSelectedTool(null)}
+                        tooltip="Clear tool selection"
+                        data-attr="mcp-tool-quality-clear-tool"
+                    />
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
+
+export function MCPAnalyticsToolQuality(): JSX.Element {
+    const { dailyChartData, dailyStatsLoading, selectedTool } = useValues(mcpAnalyticsToolQualityLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
+    const { timezone } = useValues(teamLogic)
+
+    // buildTheme() reads CSS vars from the DOM; isDarkModeOn is the dep that forces a recompute when
+    // the theme flips (it isn't passed as an argument).
+    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+
+    return (
+        <div className="flex flex-col gap-4" data-quill>
+            <FilterBar />
+            <SelectedToolStrip />
+            {!selectedTool ? (
+                <div className="text-xs text-secondary">
+                    Trends across all tools in scope — select a tool to drill down.
+                </div>
+            ) : null}
+            <ToolQualityCharts data={dailyChartData} loading={dailyStatsLoading} theme={theme} timezone={timezone} />
+            <ToolQualityTable />
         </div>
     )
 }

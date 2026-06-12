@@ -1,19 +1,14 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import { hogqlQuery } from '~/queries/query'
-import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import {
-    type AnyPropertyFilter,
-    BaseMathType,
-    ChartDisplayType,
-    PropertyFilterType,
-    PropertyMathType,
-    PropertyOperator,
-} from '~/types'
+import { type AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import toolQualityQueryTemplate from '../backend/templates/tool_quality.sql?raw'
 import type { mcpAnalyticsToolQualityLogicType } from './mcpAnalyticsToolQualityLogicType'
@@ -66,8 +61,71 @@ export interface DateFilter {
     dateTo: string | null
 }
 
+// One row per tool from tool_quality.sql, parsed into a typed shape so the
+// quill table and the selected-tool strip can render without re-querying.
+export interface ToolQualityRow {
+    tool: string
+    total_calls: number
+    errors: number
+    error_rate_pct: number
+    p50_duration_ms: number
+    p95_duration_ms: number
+    p99_duration_ms: number
+    users: number
+    sessions: number
+    first_seen: string
+    last_seen: string
+}
+
+export interface DailyToolStat {
+    day: string
+    calls: number
+    errors: number
+    p50: number
+    p95: number
+    p99: number
+}
+
+// Pivoted per-day series feeding the three trend charts.
+export interface DailyChartData {
+    labels: string[]
+    calls: number[]
+    errors: number[]
+    successRate: number[]
+    p50: number[]
+    p95: number[]
+    p99: number[]
+}
+
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 const DEFAULT_SORT: SortState = { column: 'total_calls', direction: 'DESC' }
+
+const EMPTY_CHART_DATA: DailyChartData = {
+    labels: [],
+    calls: [],
+    errors: [],
+    successRate: [],
+    p50: [],
+    p95: [],
+    p99: [],
+}
+
+function escapeHogQLString(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
+function sortToolRows(rows: ToolQualityRow[], sort: SortState): ToolQualityRow[] {
+    const direction = sort.direction === 'ASC' ? 1 : -1
+    const column = sort.column as keyof ToolQualityRow
+    return [...rows].sort((a, b) => {
+        const aValue = a[column]
+        const bValue = b[column]
+        if (typeof aValue === 'number' && typeof bValue === 'number') {
+            return (aValue - bValue) * direction
+        }
+        return String(aValue).localeCompare(String(bValue)) * direction
+    })
+}
 
 export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsToolQualityLogic']),
@@ -76,6 +134,8 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
         setToolQualitySort: (column: string, direction: SortDirection) => ({ column, direction }),
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSelectedCategories: (categories: string[]) => ({ categories }),
+        setSelectedTool: (tool: string | null) => ({ tool }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
 
     reducers({
@@ -97,9 +157,21 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 setSelectedCategories: (_, { categories }): string[] => categories,
             },
         ],
+        selectedTool: [
+            null as string | null,
+            {
+                setSelectedTool: (_, { tool }): string | null => tool,
+            },
+        ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }): string => searchTerm,
+            },
+        ],
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         availableCategories: [
             [] as string[],
             {
@@ -121,7 +193,91 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 },
             },
         ],
-    }),
+        toolRows: [
+            [] as ToolQualityRow[],
+            {
+                loadToolRows: async (_: void, breakpoint): Promise<ToolQualityRow[]> => {
+                    await breakpoint(100)
+                    // Fixed server-side order; column sorting happens client-side on the loaded set.
+                    const query = toolQualityQueryTemplate
+                        .replace('__ORDER_BY__', 'total_calls')
+                        .replace('__ORDER_DIRECTION__', 'DESC')
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query,
+                        filters: {
+                            dateRange: {
+                                date_from: values.dateFilter.dateFrom,
+                                date_to: values.dateFilter.dateTo,
+                            },
+                            ...(values.categoryProperties.length > 0 ? { properties: values.categoryProperties } : {}),
+                        },
+                    })) as HogQLQueryResponse
+                    breakpoint()
+                    return ((response.results as unknown[][]) ?? []).map((r) => ({
+                        tool: String(r[0] ?? ''),
+                        total_calls: Number(r[1] ?? 0),
+                        errors: Number(r[2] ?? 0),
+                        error_rate_pct: Number(r[3] ?? 0),
+                        p50_duration_ms: Number(r[4] ?? 0),
+                        p95_duration_ms: Number(r[5] ?? 0),
+                        p99_duration_ms: Number(r[6] ?? 0),
+                        users: Number(r[7] ?? 0),
+                        sessions: Number(r[8] ?? 0),
+                        first_seen: String(r[9] ?? ''),
+                        last_seen: String(r[10] ?? ''),
+                    }))
+                },
+            },
+        ],
+        dailyStats: [
+            [] as DailyToolStat[],
+            {
+                loadDailyStats: async (_: void, breakpoint): Promise<DailyToolStat[]> => {
+                    await breakpoint(100)
+                    const toolClause = values.selectedTool
+                        ? `AND properties.$mcp_tool_name = '${escapeHogQLString(values.selectedTool)}'`
+                        : ''
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: `
+SELECT
+    toDate(timestamp) AS day,
+    count() AS calls,
+    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
+    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
+    round(quantile(0.99)(toFloat(properties.$mcp_duration_ms))) AS p99
+FROM events
+WHERE event = 'mcp_tool_call'
+    AND properties.$mcp_tool_name IS NOT NULL
+    AND properties.$mcp_tool_name != ''
+    ${toolClause}
+    AND {filters}
+GROUP BY day
+ORDER BY day
+`,
+                        filters: {
+                            dateRange: {
+                                date_from: values.dateFilter.dateFrom,
+                                date_to: values.dateFilter.dateTo,
+                            },
+                            ...(values.categoryProperties.length > 0 ? { properties: values.categoryProperties } : {}),
+                        },
+                    })) as HogQLQueryResponse
+                    breakpoint()
+                    return ((response.results as unknown[][]) ?? []).map((r) => ({
+                        day: String(r[0] ?? ''),
+                        calls: Number(r[1] ?? 0),
+                        errors: Number(r[2] ?? 0),
+                        p50: Number(r[3] ?? 0),
+                        p95: Number(r[4] ?? 0),
+                        p99: Number(r[5] ?? 0),
+                    }))
+                },
+            },
+        ],
+    })),
 
     selectors({
         // Event property filter applied to every query so the whole tab scopes to
@@ -151,150 +307,79 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 return { inScope, total, pct: total > 0 ? (inScope / total) * 100 : null }
             },
         ],
-        toolQualityQuery: [
-            (s) => [s.dateFilter, s.toolQualitySort, s.categoryProperties],
-            (dateFilter: DateFilter, sort: SortState, categoryProperties: AnyPropertyFilter[]): DataTableNode => {
-                const query = toolQualityQueryTemplate
-                    .replace('__ORDER_BY__', sort.column)
-                    .replace('__ORDER_DIRECTION__', sort.direction)
-
+        toolOptions: [(s) => [s.toolRows], (toolRows: ToolQualityRow[]): string[] => toolRows.map((row) => row.tool)],
+        selectedRow: [
+            (s) => [s.toolRows, s.selectedTool],
+            (toolRows: ToolQualityRow[], selectedTool: string | null): ToolQualityRow | null =>
+                selectedTool ? (toolRows.find((row) => row.tool === selectedTool) ?? null) : null,
+        ],
+        filteredRows: [
+            (s) => [s.toolRows, s.toolQualitySort, s.searchTerm],
+            (toolRows: ToolQualityRow[], sort: SortState, searchTerm: string): ToolQualityRow[] => {
+                const term = searchTerm.trim().toLowerCase()
+                const filtered = term ? toolRows.filter((row) => row.tool.toLowerCase().includes(term)) : toolRows
+                return sortToolRows(filtered, sort)
+            },
+        ],
+        dailyChartData: [
+            (s) => [s.dailyStats],
+            (dailyStats: DailyToolStat[]): DailyChartData => {
+                if (dailyStats.length === 0) {
+                    return EMPTY_CHART_DATA
+                }
                 return {
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.HogQLQuery,
-                        query,
-                        filters: {
-                            dateRange: {
-                                date_from: dateFilter.dateFrom,
-                                date_to: dateFilter.dateTo,
-                            },
-                            ...(categoryProperties.length > 0 ? { properties: categoryProperties } : {}),
-                        },
-                    },
-                    columns: [
-                        'tool',
-                        'total_calls',
-                        'error_rate_pct',
-                        'p95_duration_ms',
-                        'p50_duration_ms',
-                        'users',
-                        'sessions',
-                        'last_seen',
-                    ],
-                    showDateRange: true,
-                    showReload: true,
-                    showSearch: true,
-                    showPropertyFilter: [
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                    ],
-                    showExport: true,
-                    showColumnConfigurator: true,
-                    allowSorting: true,
+                    labels: dailyStats.map((r) => r.day),
+                    calls: dailyStats.map((r) => r.calls),
+                    errors: dailyStats.map((r) => r.errors),
+                    successRate: dailyStats.map((r) => (r.calls ? ((r.calls - r.errors) / r.calls) * 100 : 0)),
+                    p50: dailyStats.map((r) => r.p50),
+                    p95: dailyStats.map((r) => r.p95),
+                    p99: dailyStats.map((r) => r.p99),
                 }
             },
         ],
-        topToolsQuery: [
-            (s) => [s.dateFilter, s.categoryProperties],
-            (dateFilter: DateFilter, categoryProperties: AnyPropertyFilter[]): InsightVizNode => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: 'mcp_tool_call',
-                            name: 'mcp_tool_call',
-                            math: BaseMathType.TotalCount,
-                        },
-                    ],
-                    properties: categoryProperties,
-                    breakdownFilter: {
-                        breakdown_type: 'event',
-                        breakdown: '$mcp_tool_name',
-                        breakdown_limit: 10,
-                    },
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsPie,
-                        showLegend: false,
-                        showValuesOnSeries: true,
-                        showPercentStackView: true,
-                    },
-                    dateRange: {
-                        date_from: dateFilter.dateFrom,
-                        date_to: dateFilter.dateTo,
-                    },
-                },
-                vizSpecificOptions: { ActionsPie: { hideAggregation: true } },
-            }),
-        ],
-        errorTrendQuery: [
-            (s) => [s.dateFilter, s.categoryProperties],
-            (dateFilter: DateFilter, categoryProperties: AnyPropertyFilter[]): InsightVizNode => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: 'mcp_tool_call',
-                            name: 'mcp_tool_call',
-                            math: BaseMathType.TotalCount,
-                        },
-                    ],
-                    properties: categoryProperties,
-                    breakdownFilter: {
-                        breakdown_type: 'event',
-                        breakdown: '$mcp_is_error',
-                    },
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                    },
-                    dateRange: {
-                        date_from: dateFilter.dateFrom,
-                        date_to: dateFilter.dateTo,
-                    },
-                },
-            }),
-        ],
-        durationTrendQuery: [
-            (s) => [s.dateFilter, s.categoryProperties],
-            (dateFilter: DateFilter, categoryProperties: AnyPropertyFilter[]): InsightVizNode => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: 'mcp_tool_call',
-                            name: 'p95 duration (ms)',
-                            math: PropertyMathType.P95,
-                            math_property: '$mcp_duration_ms',
-                        },
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: 'mcp_tool_call',
-                            name: 'p50 duration (ms)',
-                            math: PropertyMathType.Median,
-                            math_property: '$mcp_duration_ms',
-                        },
-                    ],
-                    properties: categoryProperties,
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                    },
-                    dateRange: {
-                        date_from: dateFilter.dateFrom,
-                        date_to: dateFilter.dateTo,
-                    },
-                },
-            }),
-        ],
     }),
+
+    listeners(({ actions }) => ({
+        setDateFilter: () => {
+            actions.loadToolRows()
+            actions.loadDailyStats()
+        },
+        setSelectedCategories: () => {
+            actions.loadToolRows()
+            actions.loadDailyStats()
+        },
+        setSelectedTool: () => {
+            actions.loadDailyStats()
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        setSelectedTool: () => {
+            const { currentLocation } = router.values
+            const searchParams = { ...currentLocation.searchParams }
+            if (values.selectedTool) {
+                searchParams.tool = values.selectedTool
+            } else {
+                delete searchParams.tool
+            }
+            return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.mcpAnalyticsToolQuality()]: (_, searchParams) => {
+            const tool = typeof searchParams.tool === 'string' && searchParams.tool ? searchParams.tool : null
+            if (tool !== values.selectedTool) {
+                actions.setSelectedTool(tool)
+            }
+        },
+    })),
 
     afterMount(({ actions }) => {
         actions.loadAvailableCategories()
         actions.loadCategoryCounts()
+        actions.loadToolRows()
+        actions.loadDailyStats()
     }),
 ])
