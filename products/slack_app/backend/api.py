@@ -35,6 +35,7 @@ from posthog.models.integration import (
     validate_slack_request,
 )
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.ai.posthog_code_slack_interactivity import (
@@ -65,7 +66,14 @@ from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unf
 
 logger = structlog.get_logger(__name__)
 
-HANDLED_EVENT_TYPES = ["app_mention", "link_shared", "message", "member_joined_channel"]
+HANDLED_EVENT_TYPES = [
+    "app_mention",
+    "link_shared",
+    "message",
+    "member_joined_channel",
+    "assistant_thread_started",
+    "assistant_thread_context_changed",
+]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
@@ -1665,6 +1673,220 @@ def _start_posthog_code_workflow(
     )
 
 
+_ASSISTANT_EVENT_TYPES = frozenset({"message", "assistant_thread_started", "assistant_thread_context_changed"})
+_ASSISTANT_FEATURE_FLAG = "slack-app-assistant"
+_ASSISTANT_CONTEXT_TTL_SECONDS = 60 * 60
+_ASSISTANT_SUGGESTED_PROMPTS = [
+    {"title": "Fix a bug", "message": "Open a PR to fix a bug in my connected repo"},
+    {"title": "Investigate an issue", "message": "Investigate why one of my insights is slow"},
+    {"title": "Work an inbox item", "message": "Pick up a signals inbox item that needs a code fix"},
+]
+_ASSISTANT_WELCOME = (
+    "Hi! I'm PostHog Code, an AI agent. DM me to investigate issues or open PRs in your connected "
+    "repos. I act on your behalf and can make mistakes — review my work before merging."
+)
+_ASSISTANT_INSTALL_WELCOME = (
+    "Thanks for adding PostHog Code! :tada: I'm an AI agent — DM me here or @mention me in a channel "
+    "to investigate issues or open PRs in your connected repos. I act on your behalf and can make "
+    "mistakes, so review my work before merging."
+)
+_ASSISTANT_UNAVAILABLE = (
+    "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
+    "email matches your PostHog account and that a repo is connected, then try again."
+)
+
+
+def _assistant_enabled(team: Team) -> bool:
+    # Evaluated on the workspace's team (a stable key) so the flag is a true kill-switch we can
+    # check before resolving the DMing user — i.e. the feature stays dark when off.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                _ASSISTANT_FEATURE_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id)},
+            )
+        )
+    except Exception:
+        logger.warning("assistant_feature_flag_eval_failed", exc_info=True)
+        return False
+
+
+def _assistant_event_fields(event: dict) -> tuple[str, str | None, str | None, str | None]:
+    """(slack_user_id, dm_channel_id, thread_ts, viewed_channel_id) for assistant events.
+
+    For `message` events the fields live at the top level; for `assistant_thread_*` events
+    they live under `assistant_thread` (with the viewed channel under `context`).
+    """
+    if event.get("type") == "message":
+        ts = event.get("thread_ts") or event.get("ts")
+        return (
+            str(event.get("user") or ""),
+            event.get("channel") if isinstance(event.get("channel"), str) else None,
+            ts if isinstance(ts, str) else None,
+            None,
+        )
+    thread = event.get("assistant_thread") or {}
+    ctx = thread.get("context") or {}
+    return (
+        str(thread.get("user_id") or ""),
+        thread.get("channel_id") if isinstance(thread.get("channel_id"), str) else None,
+        thread.get("thread_ts") if isinstance(thread.get("thread_ts"), str) else None,
+        ctx.get("channel_id") if isinstance(ctx.get("channel_id"), str) else None,
+    )
+
+
+def _assistant_context_cache_key(integration_id: int, channel_id: str, thread_ts: str) -> str:
+    return f"slack_assistant_ctx:{integration_id}:{channel_id}:{thread_ts}"
+
+
+def _store_assistant_channel_context(
+    integration_id: int, channel_id: str, thread_ts: str, viewed_channel_id: str | None
+) -> None:
+    if viewed_channel_id:
+        cache.set(
+            _assistant_context_cache_key(integration_id, channel_id, thread_ts),
+            viewed_channel_id,
+            timeout=_ASSISTANT_CONTEXT_TTL_SECONDS,
+        )
+
+
+def _get_assistant_channel_context(integration_id: int, channel_id: str, thread_ts: str) -> str | None:
+    value = cache.get(_assistant_context_cache_key(integration_id, channel_id, thread_ts))
+    return value if isinstance(value, str) else None
+
+
+def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, thread_ts: str) -> str:
+    """Greet the user and offer suggested prompts when they open the agent container."""
+    try:
+        slack.client.assistant_threads_setSuggestedPrompts(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            title="What can I help you ship?",
+            prompts=_ASSISTANT_SUGGESTED_PROMPTS,
+        )
+        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_WELCOME)
+    except Exception as e:
+        logger.warning("assistant_thread_started_failed", error=str(e))
+    return ROUTE_HANDLED_LOCALLY
+
+
+def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread_ts: str) -> None:
+    try:
+        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_UNAVAILABLE)
+    except Exception as e:
+        logger.warning("assistant_unavailable_post_failed", error=str(e))
+
+
+def send_assistant_install_welcome(integration: Integration) -> None:
+    """DM the installing user the moment the app is added, when the assistant is enabled for their team."""
+    if not _assistant_enabled(integration.team):
+        return
+    slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
+    if not slack_user_id:
+        return
+    try:
+        SlackIntegration(integration).client.chat_postMessage(channel=slack_user_id, text=_ASSISTANT_INSTALL_WELCOME)
+    except Exception as e:
+        logger.warning("assistant_install_welcome_failed", error=str(e))
+
+
+# The DM/agent surface needs the base coding-agent scopes plus the assistant container scopes.
+# Kept separate from POSTHOG_CODE_REQUIRED_SLACK_SCOPES so the mention flow isn't gated on im:history.
+_ASSISTANT_REQUIRED_SLACK_SCOPES = POSTHOG_CODE_REQUIRED_SLACK_SCOPES | frozenset({"assistant:write", "im:history"})
+
+
+def _handle_assistant_dm_message(
+    event: dict, integration: Integration, slack_team_id: str, event_id: str | None, channel_id: str, thread_ts: str
+) -> str:
+    slack = SlackIntegration(integration)
+    missing = slack.missing_scopes(_ASSISTANT_REQUIRED_SLACK_SCOPES)
+    if missing:
+        _notify_missing_slack_scopes(slack, event, missing)
+        return ROUTE_HANDLED_LOCALLY
+
+    try:
+        slack.client.assistant_threads_setStatus(channel_id=channel_id, thread_ts=thread_ts, status="Working on it…")
+    except Exception as e:
+        logger.warning("assistant_set_status_failed", error=str(e))
+
+    # Carry the channel the user was viewing (from assistant_thread_context_changed) so the agent
+    # can ground a "look into this" DM in that channel's context.
+    viewed = _get_assistant_channel_context(integration.id, channel_id, thread_ts)
+    agent_event = {**event, "assistant_viewed_channel_id": viewed} if viewed else event
+    return _start_mention_workflow(agent_event, integration, slack_team_id, event_id)
+
+
+def _route_assistant_event(
+    request: HttpRequest,
+    event: dict,
+    slack_team_id: str,
+    event_id: str | None,
+    *,
+    proxied: bool,
+    incoming_host: str,
+    other_domain: str,
+    can_defer: bool,
+) -> str:
+    """Route DM / agent-container events through the same region + project resolution as mentions."""
+    event_type = event.get("type")
+    slack_user_id, channel_id, thread_ts, ctx_channel = _assistant_event_fields(event)
+
+    # Only first-party human DMs proceed — ignore channel messages, bot echoes, and edits.
+    if event_type == "message" and (
+        event.get("channel_type") != "im"
+        or event.get("bot_id")
+        or event.get("subtype")
+        or not str(event.get("text") or "").strip()
+    ):
+        return ROUTE_HANDLED_LOCALLY
+    if not (slack_user_id and channel_id and thread_ts):
+        return ROUTE_HANDLED_LOCALLY
+
+    result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=[SLACK_INTEGRATION_KIND],
+        slack_user_id=slack_user_id,
+        user=None,
+        channel=channel_id,
+        thread_ts=thread_ts,
+    )
+    if not result.candidates:
+        return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+    if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer, incoming_host):
+        return _proxy_event_and_return_route(request, other_domain)
+
+    candidates = result.candidates
+    target = result.integration if result.integration in candidates else None
+    probe = target or candidates[0]
+
+    # Kill-switch first: stay fully dark (no user resolution, no Slack reply) when the flag is off.
+    if not _assistant_enabled(probe.team):
+        return ROUTE_HANDLED_LOCALLY
+
+    user = _resolve_posthog_user_from_event(
+        slack_user_id=slack_user_id, probe_integration=probe, candidate_integrations=candidates
+    )
+    if user is None:
+        # Flag is on but the Slack user isn't a resolvable org member — tell them why (DMs only).
+        if event_type == "message":
+            _post_assistant_unavailable(SlackIntegration(probe), channel_id, thread_ts)
+        return ROUTE_HANDLED_LOCALLY
+
+    if event_type == "assistant_thread_started":
+        return _handle_assistant_thread_started(SlackIntegration(probe), channel_id, thread_ts)
+    if event_type == "assistant_thread_context_changed":
+        _store_assistant_channel_context(probe.id, channel_id, thread_ts, ctx_channel)
+        return ROUTE_HANDLED_LOCALLY
+
+    # message.im — run the agent against the user's default project, else ask them to pick one.
+    mention_target = target or (candidates[0] if len(candidates) == 1 else None)
+    if mention_target is None:
+        _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
+        return ROUTE_HANDLED_LOCALLY
+    return _handle_assistant_dm_message(event, mention_target, slack_team_id, event_id, channel_id, thread_ts)
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -1868,6 +2090,7 @@ def route_posthog_code_event_to_relevant_region(
             untagged_followup=untagged_followup_mapping is not None,
         )
 
+<<<<<<< HEAD
     if event_type == "member_joined_channel":
         return _route_member_joined_channel(
             request,
@@ -1878,6 +2101,18 @@ def route_posthog_code_event_to_relevant_region(
             can_defer_to_other_region=can_defer_to_other_region,
             incoming_host=incoming_host,
             is_ext_shared_channel=is_ext_shared_channel,
+=======
+    if event_type in _ASSISTANT_EVENT_TYPES:
+        return _route_assistant_event(
+            request,
+            event,
+            slack_team_id,
+            event_id,
+            proxied=proxied,
+            incoming_host=incoming_host,
+            other_domain=other_domain,
+            can_defer=can_defer_to_other_region,
+>>>>>>> 91487015bbb (feat(slack): assistant + DM support)
         )
 
     # link_shared (unfurl) works with either integration kind.
@@ -3204,8 +3439,9 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and dismiss_integration_id:
-        # Any reviewer who can see the inbox-item message may dismiss it (team-shared channels),
-        # so this isn't gated on a specific Slack user — only on owning the integration locally.
+        # Routing/region-ownership only — this just claims the workspace's integration locally.
+        # Authorization (report-team match + org-member gate) is enforced in _handle_signals_dismiss_report.
+        # Intended trust boundary for dismiss is org membership (any org member can dismiss the org's reports).
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=dismiss_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
