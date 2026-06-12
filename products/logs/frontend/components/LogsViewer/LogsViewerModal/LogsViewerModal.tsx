@@ -5,9 +5,9 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
-import { useKeepMountedWhileOpen } from 'products/logs/frontend/hooks/useKeepMountedWhileOpen'
 
 import { logsViewerModalLogic } from './logsViewerModalLogic'
 

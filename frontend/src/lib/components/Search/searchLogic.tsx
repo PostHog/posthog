@@ -1152,24 +1152,30 @@ export const searchLogic = kea<searchLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        void import('~/scenes/settings/SettingsMap').then(({ SETTINGS_MAP }) => {
-            actions.setSettingsSections(
-                SETTINGS_MAP.map((section) => ({
-                    id: section.id,
-                    level: section.level,
-                    titleString: typeof section.title === 'string' ? section.title : null,
-                    hideFromNavigation: section.hideFromNavigation,
-                    flag: section.flag,
-                    to: section.to,
-                    settings: section.settings.map((setting) => ({
-                        id: setting.id,
-                        hasTitle: !!setting.title,
-                        titleString: typeof setting.title === 'string' ? setting.title : null,
-                        descriptionString: typeof setting.description === 'string' ? setting.description : null,
-                        keywords: setting.keywords,
-                    })),
-                }))
-            )
-        })
+        import('~/scenes/settings/SettingsMap')
+            .then(({ SETTINGS_MAP }) => {
+                actions.setSettingsSections(
+                    SETTINGS_MAP.map((section) => ({
+                        id: section.id,
+                        level: section.level,
+                        titleString: typeof section.title === 'string' ? section.title : null,
+                        hideFromNavigation: section.hideFromNavigation,
+                        flag: section.flag,
+                        to: section.to,
+                        settings: section.settings.map((setting) => ({
+                            id: setting.id,
+                            // A JSX-titled setting has no title string to search but must stay
+                            // findable via its id token — hasTitle preserves that distinction.
+                            hasTitle: !!setting.title,
+                            titleString: typeof setting.title === 'string' ? setting.title : null,
+                            descriptionString: typeof setting.description === 'string' ? setting.description : null,
+                            keywords: setting.keywords,
+                        })),
+                    }))
+                )
+            })
+            .catch((error) => {
+                console.error('Failed to load SETTINGS_MAP for settings search:', error)
+            })
     }),
 ])

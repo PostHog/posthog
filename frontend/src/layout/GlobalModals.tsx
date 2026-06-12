@@ -10,6 +10,7 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
@@ -50,6 +51,9 @@ export function GlobalModals(): JSX.Element {
     const { hideCreateOrganizationModal, hideCreateProjectModal } = useActions(globalModalsLogic)
     const { activeSessionRecording } = useValues(sessionPlayerModalLogic)
     const { isOpen: isLogsViewerModalOpen } = useValues(logsViewerModalLogic)
+    // Grace-extended so the modals' exit animations finish before the lazy subtree unmounts.
+    const shouldRenderSessionPlayerModal = useKeepMountedWhileOpen(!!activeSessionRecording)
+    const shouldRenderLogsViewerModal = useKeepMountedWhileOpen(isLogsViewerModalOpen)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
@@ -65,12 +69,12 @@ export function GlobalModals(): JSX.Element {
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
             <UpgradeModal />
             <TimeSensitiveAuthenticationModal />
-            {activeSessionRecording ? (
+            {shouldRenderSessionPlayerModal ? (
                 <Suspense fallback={null}>
                     <SessionPlayerModal />
                 </Suspense>
             ) : null}
-            {isLogsViewerModalOpen ? (
+            {shouldRenderLogsViewerModal ? (
                 <Suspense fallback={null}>
                     <LogsViewerModal />
                 </Suspense>
