@@ -87,9 +87,9 @@ field). No architectural refactor.
 ## What the agent platform side becomes
 
 - `coding-driver` at sandbox acquisition: `POST /v1/tokens`
-  (ttl = wall limit + slack, max*spend = session budget, pinned ids =
-  session id) → hand `phs*`to the harness;`LLM_GATEWAY_URL` points at the
-  gateway directly.
+  (ttl = wall limit + slack, `max_spend` = session budget, pinned ids =
+  session id) → hand the `phs_` token to the harness; `LLM_GATEWAY_URL`
+  points at the gateway directly.
 - Session stop/cancel/complete → `DELETE /v1/tokens/{id}`. Strictly better
   than today's liveness check: revocation also stops in-flight admission, and
   the budget cap bounds the damage even if the revoke is missed.
@@ -104,9 +104,9 @@ field). No architectural refactor.
 
 Session liveness ("is this session row `running`?") is platform state the
 gateway shouldn't know about. The replacement posture is: short TTL +
-max_spend + explicit revoke on every terminal transition. That bounds a
-leaked/stale token by _dollars and minutes_ instead of by _state_, which is
-the more meaningful bound anyway.
+`max_spend` + explicit revoke on every terminal transition. That bounds a
+leaked/stale token by dollars and minutes instead of by state, which is the
+more meaningful bound anyway.
 
 ## Sequencing
 
