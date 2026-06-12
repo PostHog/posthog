@@ -1801,7 +1801,14 @@ _ASSISTANT_REQUIRED_SLACK_SCOPES = POSTHOG_CODE_REQUIRED_SLACK_SCOPES | frozense
 
 
 def _handle_assistant_dm_message(
-    event: dict, integration: Integration, slack_team_id: str, event_id: str | None, channel_id: str, thread_ts: str
+    event: dict,
+    integration: Integration,
+    slack_team_id: str,
+    event_id: str | None,
+    channel_id: str,
+    thread_ts: str,
+    *,
+    posthog_user: User,
 ) -> str:
     slack = SlackIntegration(integration)
     missing = slack.missing_scopes(_ASSISTANT_REQUIRED_SLACK_SCOPES)
@@ -1818,7 +1825,7 @@ def _handle_assistant_dm_message(
     # can ground a "look into this" DM in that channel's context.
     viewed = _get_assistant_channel_context(integration.id, channel_id, thread_ts)
     agent_event = {**event, "assistant_viewed_channel_id": viewed} if viewed else event
-    return _start_mention_workflow(agent_event, integration, slack_team_id, event_id)
+    return _start_mention_workflow(agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user)
 
 
 def _route_assistant_event(
@@ -1887,6 +1894,7 @@ def _route_assistant_event(
         if event_type == "message":
             _post_assistant_unavailable(SlackIntegration(probe), channel_id, thread_ts)
         return ROUTE_HANDLED_LOCALLY
+    posthog_user = resolution.user
 
     if event_type == "assistant_thread_started":
         return _handle_assistant_thread_started(SlackIntegration(probe), channel_id, thread_ts)
@@ -1900,7 +1908,9 @@ def _route_assistant_event(
     if mention_target is None:
         _post_pick_a_project_hint(SlackIntegration(accessible[0]), accessible, event)
         return ROUTE_HANDLED_LOCALLY
-    return _handle_assistant_dm_message(event, mention_target, slack_team_id, event_id, channel_id, thread_ts)
+    return _handle_assistant_dm_message(
+        event, mention_target, slack_team_id, event_id, channel_id, thread_ts, posthog_user=posthog_user
+    )
 
 
 def route_posthog_code_event_to_relevant_region(
