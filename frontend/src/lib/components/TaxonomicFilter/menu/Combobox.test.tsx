@@ -732,6 +732,47 @@ describe('MenuFilterCombobox', () => {
         })
     })
 
+    it('offers a jump to All when a single category comes up empty, and clicking it switches scope', async () => {
+        const user = userEvent.setup()
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.Events],
+            searchQuery: 'zzz_no_match',
+        })
+
+        // Narrow to a single category so the cross-category jump becomes relevant
+        await user.click(screen.getByRole('combobox', { name: 'Filter category' }))
+        await user.click(await screen.findByRole('option', { name: 'Cohorts' }))
+
+        const jumpButton = await screen.findByRole('button', { name: 'Check for results in other categories' })
+        await user.click(jumpButton)
+
+        expect(captureMock).toHaveBeenCalledWith(
+            'taxonomic filter menu category changed',
+            expect.objectContaining({ toChip: 'all', via: 'empty-state' })
+        )
+        // Back on the All scope, the jump no longer applies
+        await waitFor(() => {
+            expect(screen.getByRole('combobox', { name: 'Filter category' })).toHaveTextContent('All')
+            expect(
+                screen.queryByRole('button', { name: 'Check for results in other categories' })
+            ).not.toBeInTheDocument()
+        })
+    })
+
+    it('does not offer the jump on the All scope', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.Events],
+            searchQuery: 'zzz_no_match',
+        })
+
+        await waitFor(() => expect(screen.getByTestId('menu-filter-empty')).toBeInTheDocument())
+        expect(screen.queryByRole('button', { name: 'Check for results in other categories' })).not.toBeInTheDocument()
+    })
+
     describe('reveal barrier', () => {
         it('hides stale results during a refetch and reveals once it settles', async () => {
             const user = userEvent.setup()
