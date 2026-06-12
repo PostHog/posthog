@@ -125,8 +125,11 @@ def parse_created_by_ids(value: Any) -> list[int]:
         if text.startswith("["):
             try:
                 value = json.loads(text)
-            except (json.JSONDecodeError, ValueError):
-                value = text.split(",")
+            except (json.JSONDecodeError, ValueError, RecursionError):
+                # Looks like a JSON list but doesn't parse — treat as no valid IDs
+                # rather than comma-splitting, which would half-apply malformed input
+                # (e.g. "[1,2" -> ["[1", "2"] -> silently filters by user 2).
+                return []
         else:
             value = text.split(",")
     if not isinstance(value, list):

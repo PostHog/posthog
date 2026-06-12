@@ -68,27 +68,28 @@ export function MemberMultiSelect({
         }
     }, [showPopover]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    // When the filter is pre-populated (e.g. from a `?created_by_id=...` URL) the popover may never open,
-    // so load members on mount to resolve the selected user(s) into a meaningful button label.
+    // Load members when the selection is non-empty even before the popover opens, so a value
+    // pre-populated from the URL resolves to a name rather than falling back to the default label.
     useEffect(() => {
-        if (value && value.length > 0) {
+        if (value?.length) {
             ensureAllMembersLoaded()
         }
-    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [value?.length]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user.id))
 
     const selectedCount = value?.length || 0
     const buttonClass = selectedCount > 0 ? 'min-w-26' : 'w-26'
 
-    const buttonLabel =
-        selectedCount === 0
-            ? defaultLabel
-            : selectedCount > 1
-              ? 'Multiple'
-              : selectedMembersAsUsers[0]
-                ? fullName(selectedMembersAsUsers[0])
-                : defaultLabel
+    const buttonLabel = ((): string => {
+        if (selectedCount === 0) {
+            return defaultLabel
+        }
+        if (selectedCount > 1) {
+            return `${selectedCount} selected`
+        }
+        return selectedMembersAsUsers[0] ? fullName(selectedMembersAsUsers[0]) : defaultLabel
+    })()
 
     return (
         <LemonDropdown
@@ -113,21 +114,22 @@ export function MemberMultiSelect({
                             <li key={member.user.uuid}>
                                 <LemonButton
                                     fullWidth
-                                    role="menuitem"
+                                    role="menuitemcheckbox"
+                                    aria-checked={value?.includes(member.user.id) || false}
                                     size="small"
-                                    icon={
-                                        <input
-                                            type="checkbox"
-                                            className="cursor-pointer"
-                                            checked={value?.includes(member.user.id) || false}
-                                            readOnly
-                                        />
-                                    }
+                                    icon={<ProfilePicture size="md" user={member.user} />}
                                     onClick={() => handleMemberToggle(member.user.id)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
                                         <span className="flex items-center gap-2 max-w-full">
-                                            <ProfilePicture size="md" user={member.user} />
+                                            <input
+                                                type="checkbox"
+                                                className="cursor-pointer"
+                                                checked={value?.includes(member.user.id) || false}
+                                                readOnly
+                                                tabIndex={-1}
+                                                aria-hidden
+                                            />
                                             <span>{fullName(member.user)}</span>
                                         </span>
                                         <span className="text-secondary">

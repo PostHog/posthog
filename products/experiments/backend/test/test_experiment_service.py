@@ -3405,18 +3405,20 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            # JSON-encoded list of user IDs matches experiments created by any of them
-            ("json_list", lambda ids: json.dumps([ids["user"], ids["other"]]), {"Creator self", "Creator other"}),
-            # Comma-separated list behaves the same
-            ("comma_separated", lambda ids: f"{ids['user']},{ids['third']}", {"Creator self", "Creator third"}),
+            # (name, format_filter, expected_names)
+            ("json_list", lambda ids: json.dumps([ids[0], ids[1]]), {"Creator self", "Creator other"}),
+            ("comma_separated", lambda ids: f"{ids[0]},{ids[2]}", {"Creator self", "Creator third"}),
+            ("single_id", lambda ids: str(ids[1]), {"Creator other"}),
+            ("no_match", lambda ids: json.dumps([ids[3]]), set()),
         ]
     )
     def test_filter_experiments_queryset_filters_by_multiple_created_by_ids(
-        self, _name: str, build_param, expected_names: set[str]
+        self, _name, format_filter, expected_names
     ) -> None:
         service = self._service()
         other_user = self._create_user("other-user@example.com")
         third_user = self._create_user("third-user@example.com")
+        unrelated_user = self._create_user("unrelated-user@example.com")
 
         service.create_experiment(name="Creator self", feature_flag_key="created-by-self")
         ExperimentService(team=self.team, user=other_user).create_experiment(
@@ -3428,11 +3430,11 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="created-by-third",
         )
 
-        ids = {"user": self.user.id, "other": other_user.id, "third": third_user.id}
+        ids = [self.user.id, other_user.id, third_user.id, unrelated_user.id]
         queryset = service.filter_experiments_queryset(
             Experiment.objects.filter(team=self.team),
             action="list",
-            query_params={"created_by_id": build_param(ids)},
+            query_params={"created_by_id": format_filter(ids)},
         )
         assert set(queryset.values_list("name", flat=True)) == expected_names
 

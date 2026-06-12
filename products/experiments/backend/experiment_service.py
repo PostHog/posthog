@@ -2555,7 +2555,9 @@ class ExperimentService:
             queryset = queryset.filter(active=active_bool)
 
         if created_by_id:
-            queryset = queryset.filter(created_by_id=created_by_id)
+            user_ids = parse_created_by_ids(created_by_id)
+            if user_ids:
+                queryset = queryset.filter(created_by_id__in=user_ids)
 
         if evaluation_runtime:
             queryset = queryset.filter(evaluation_runtime=evaluation_runtime)

@@ -49738,9 +49738,9 @@ export namespace Schemas {
      */
     archived?: boolean;
     /**
-     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
+     * Filter to experiments created by the given user ID.
      */
-    created_by_id?: string;
+    created_by_id?: number;
     /**
      * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
      */
@@ -49883,7 +49883,7 @@ export namespace Schemas {
     export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive;
     /**
-     * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
+     * The User ID which initially created the feature flag.
      */
     created_by_id?: string;
     /**

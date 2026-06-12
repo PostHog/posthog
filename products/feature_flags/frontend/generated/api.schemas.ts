@@ -1325,7 +1325,7 @@ export interface PatchedScheduledChangeApi {
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
-     * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
+     * The User ID which initially created the feature flag.
      */
     created_by_id?: string
     /**

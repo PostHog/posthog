@@ -98,19 +98,11 @@ describe('experiment-list — query-param casts', () => {
     it.each([
         ['limit', '50', 50],
         ['offset', '100', 100],
+        ['created_by_id', '42', 42],
         ['feature_flag_id', '7', 7],
     ] as const)('casts stringified %s', (field, raw, expected) => {
         const parsed = parseWith(schema, { [field]: raw })
         expect(parsed[field]).toBe(expected)
         expect(typeof parsed[field]).toBe('number')
-    })
-
-    // `created_by_id` accepts a single ID, a JSON-encoded list, or a comma-separated string,
-    // so it is passed through as a string (the backend parses the multi-value form) rather than
-    // cast to a number like the other numeric query params above.
-    it.each([['42'], ['[1,2,3]'], ['1,2,3']] as const)('passes through stringified created_by_id: %s', (raw) => {
-        const parsed = parseWith(schema, { created_by_id: raw })
-        expect(parsed.created_by_id).toBe(raw)
-        expect(typeof parsed.created_by_id).toBe('string')
     })
 })
