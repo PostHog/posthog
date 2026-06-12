@@ -76,7 +76,15 @@ pub async fn remote_config(
     let (scope_team_id, scope_project_id): (i32, i64) = if let Some(token) = params.token.as_deref()
     {
         match state.flag_service().verify_token_and_get_team(token).await {
-            Ok(team) => (team.id, project_id_for_team(&state, team.id).await?),
+            Ok(team) => {
+                // The cached team payload carries project_id; only fall back to a query for
+                // cache entries written before the field existed.
+                let project_id = match team.project_id {
+                    Some(pid) => pid,
+                    None => project_id_for_team(&state, team.id).await?,
+                };
+                (team.id, project_id)
+            }
             // Django raises AuthenticationFailed for an invalid `?token=`.
             Err(_) => return Ok(StatusCode::UNAUTHORIZED.into_response()),
         }
