@@ -44,7 +44,7 @@ from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
@@ -585,7 +585,7 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     return token
 
 
-def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Any | None:
+def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Organization | None:
     if serializer.instance is not None:
         team = (
             serializer.instance.passthrough_team
@@ -596,7 +596,7 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
 
     get_organization = serializer.context.get("get_organization")
     if callable(get_organization):
-        return get_organization()
+        return cast(Organization | None, get_organization())
 
     return None
 
