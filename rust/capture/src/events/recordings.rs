@@ -383,6 +383,7 @@ pub async fn process_replay_events(
 
     let event = CapturedEvent {
         uuid,
+        // cloned (~200 bytes max) so the EventTooBig branch below can still build the warning
         distinct_id: distinct_id.clone(),
         session_id: Some(session_id_str.to_string()),
         ip: context.client_ip.clone(),

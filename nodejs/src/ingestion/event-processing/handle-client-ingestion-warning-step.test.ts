@@ -184,6 +184,7 @@ describe('handleClientIngestionWarningStep', () => {
                     event: '$$client_ingestion_warning',
                     properties: {
                         $$client_ingestion_warning_message: 'real message',
+                        $$client_ingestion_warning_type: 'replay_message_too_large',
                         $$client_ingestion_warning_details: {
                             ...replayDetails,
                             eventUuid: 'spoofed',
@@ -196,6 +197,7 @@ describe('handleClientIngestionWarningStep', () => {
             const result = await handleStep(input)
 
             expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings[0].type).toBe('replay_message_too_large')
             expect(result.warnings[0].details.eventUuid).toBe(eventUuid)
             expect(result.warnings[0].details.message).toBe('real message')
         })
