@@ -56,9 +56,14 @@ TYPEFORM_ENDPOINTS: dict[str, TypeformEndpointConfig] = {
         incremental_fields=[SUBMITTED_AT_INCREMENTAL],
         default_incremental_field="submitted_at",
         partition_key="submitted_at",
-        primary_key="token",
+        # `token` alone is not a safe identity: the table aggregates responses across every
+        # form, and Typeform only documents the token as the id of a response within a form.
+        primary_key=["form_id", "token"],
         page_size=1000,
-        sort_mode="asc",
+        # Typeform returns responses newest-first (`submitted_at,desc` is the API default and
+        # `before` token pagination can't be combined with `sort`), so the pipeline must use
+        # descending-order incremental bookkeeping.
+        sort_mode="desc",
         fanout=DependentEndpointConfig(
             parent_name="forms",
             resolve_param="form_id",
