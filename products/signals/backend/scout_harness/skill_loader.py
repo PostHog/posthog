@@ -46,7 +46,7 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
     Pass `version=None` to follow-latest. The `signals-scout-*` prefix is not enforced
     here — the management command can hand-trigger any skill on the team.
     """
-    # Lazy import: `products.skills.backend.api. triggers a temporal module load
+    # Lazy import: `products.skills.backend.api` triggers a temporal module load
     # that this package is itself imported from at temporal-worker boot, so a top-level
     # import here cycles. Models only is fine.
     from products.skills.backend.api.skill_services import get_skill_by_name_from_db
