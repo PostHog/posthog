@@ -406,7 +406,8 @@ class TestCohort(BaseTest):
         # A Celery soft-time-limit interruption must propagate so the task's time limit
         # bounds the run. The broad except must not swallow it (DEBUG=False forces the
         # production path where everything else is swallowed). The finally still finalizes
-        # cohort state before it propagates, so is_calculating is cleared either way.
+        # cohort state before it propagates, recording the timeout as a failed
+        # calculation — not a successful one.
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
@@ -421,6 +422,9 @@ class TestCohort(BaseTest):
 
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        self.assertIsNotNone(cohort.last_error_at)
+        self.assertIsNone(cohort.last_calculation)
 
     @parameterized.expand(
         [

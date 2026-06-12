@@ -622,11 +622,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     """
                     cursor.execute(query, params)
 
-        except SoftTimeLimitExceeded:
+        except SoftTimeLimitExceeded as err:
             # Let a Celery soft-time-limit interruption propagate so the task's time limit
             # actually bounds the run. Swallowing it here (as the broad except below would)
             # leaves the caller's loop running past the limit, since Celery raises it once.
-            # The finally still finalizes cohort state before it propagates.
+            # Record it as a processing error so the finally marks the run as failed
+            # rather than a successful calculation.
+            processing_error = err
             raise
         except Exception as err:
             processing_error = err
