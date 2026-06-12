@@ -2590,6 +2590,29 @@ class SimilarIssue(BaseModel):
     status: str
 
 
+class SlackIntegrationScope(StrEnum):
+    APP_MENTIONS_READ = "app_mentions:read"
+    CHANNELS_HISTORY = "channels:history"
+    CHANNELS_READ = "channels:read"
+    CHAT_WRITE = "chat:write"
+    CHAT_WRITE_CUSTOMIZE = "chat:write.customize"
+    GROUPS_HISTORY = "groups:history"
+    GROUPS_READ = "groups:read"
+    LINKS_READ = "links:read"
+    LINKS_WRITE = "links:write"
+    REACTIONS_READ = "reactions:read"
+    REACTIONS_WRITE = "reactions:write"
+    TEAM_READ = "team:read"
+    USERS_READ = "users:read"
+    USERS_READ_EMAIL = "users:read.email"
+
+
+class SlackIntegrationScopeInReview(StrEnum):
+    ASSISTANT_WRITE = "assistant:write"
+    IM_HISTORY = "im:history"
+    MPIM_READ = "mpim:read"
+
+
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4059,7 +4082,10 @@ class AssistantTrendsFilter(BaseModel):
         default=None,
         description=(
             "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5"
-            " as `5 clicks`. You may need to add a space before postfix."
+            " as `5 clicks`. You may need to add a space before postfix. Never set a"
+            " postfix that `aggregationAxisFormat` already renders: `percentage` and"
+            " `percentage_scaled` already append the `%` sign, so a `%` postfix would"
+            " render values as `50%%`."
         ),
     )
     aggregationAxisPrefix: str | None = Field(
@@ -6411,6 +6437,12 @@ class SessionRecordingType(BaseModel):
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None
+    matches_filters: bool | None = Field(
+        default=None,
+        description=(
+            "False when the recording was included in list results via a direct link despite not matching the filters."
+        ),
+    )
     matching_events: list[MatchedRecording] | None = Field(default=None, description="List of matching events. *")
     mouse_activity_count: float | None = Field(
         default=None,

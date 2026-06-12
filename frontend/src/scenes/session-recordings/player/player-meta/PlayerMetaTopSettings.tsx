@@ -171,7 +171,9 @@ export function PlayerMetaTopSettings(): JSX.Element {
                 hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 pointer-events-auto'
                     : hoverModeIsEnabled
-                      ? 'opacity-0 pointer-events-none'
+                      ? // invisible releases the hidden overlay's raster backing; transition-all
+                        // already covers visibility so the fade still plays (see PanelLayout scrims)
+                        'opacity-0 pointer-events-none invisible'
                       : ''
             )}
         >

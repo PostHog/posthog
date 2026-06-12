@@ -38,6 +38,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.agentsh import (
+    AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
     ENV_FILE,
     ENV_WRAPPER_SCRIPT,
@@ -362,6 +363,9 @@ class ModalSandbox(SandboxBase):
 
             if config.vm_runtime or config.template == SandboxTemplate.VM_BASE:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
+
+            if config.outbound_domain_allowlist:
+                create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
 
             if secrets:
                 create_kwargs["secrets"] = secrets
@@ -749,22 +753,36 @@ class ModalSandbox(SandboxBase):
 
         setup_script = build_setup_script(workspace_path)
         result = self.execute(setup_script, timeout_seconds=30)
-        if result.exit_code != 0:
+        if not self._agentsh_daemon_is_healthy():
             agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+            logger.error(
+                "agentsh daemon failed to start in sandbox %s (setup exit_code=%s); stderr=%r agentsh_log=%r",
+                self.id,
+                result.exit_code,
+                result.stderr.strip()[:1000],
+                agentsh_log.stdout.strip()[:2000],
+            )
             raise SandboxExecutionError(
                 "Failed to start agentsh daemon",
                 {
                     "sandbox_id": self.id,
                     "stderr": result.stderr,
                     "stdout": result.stdout,
+                    "exit_code": result.exit_code,
                     "agentsh_log": agentsh_log.stdout,
                 },
-                cause=RuntimeError(result.stderr),
+                cause=RuntimeError(result.stderr or "agentsh daemon health check failed"),
             )
 
         session_check = self.execute(f"cat {SESSION_ID_FILE}", timeout_seconds=5)
         if session_check.exit_code != 0 or not session_check.stdout.strip():
             agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+            logger.error(
+                "agentsh session creation failed in sandbox %s; stderr=%r agentsh_log=%r",
+                self.id,
+                session_check.stderr.strip()[:1000],
+                agentsh_log.stdout.strip()[:2000],
+            )
             raise SandboxExecutionError(
                 "Failed to create agentsh session",
                 {
@@ -776,6 +794,18 @@ class ModalSandbox(SandboxBase):
             )
 
         logger.info("agentsh daemon started and session created in sandbox %s", self.id)
+
+    def _agentsh_daemon_is_healthy(self, max_attempts: int = 30, poll_interval: float = 0.5) -> bool:
+        health_script = (
+            f"for i in $(seq 1 {max_attempts}); do "
+            f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:{AGENTSH_DAEMON_PORT}/health); "
+            f'  [ "$status" = "200" ] && exit 0; '
+            f'  [ "$i" -lt {max_attempts} ] && sleep {poll_interval}; '
+            f"done; "
+            f"exit 1"
+        )
+        result = self.execute(health_script, timeout_seconds=max(30, int(max_attempts * poll_interval) + 5))
+        return result.exit_code == 0
 
     def _wait_for_health_check(
         self, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS, poll_interval: float = 0.5
@@ -805,7 +835,8 @@ class ModalSandbox(SandboxBase):
         try:
             # Modal can report the sandbox as running before filesystem snapshotting is ready.
             self._sandbox.exec("true", timeout=30).wait()
-            image = self._sandbox.snapshot_filesystem()
+            # ttl=None keeps indefinite retention; modal 1.5.0 otherwise defaults snapshots to a 30-day TTL.
+            image = self._sandbox.snapshot_filesystem(ttl=None)
 
             snapshot_id = image.object_id
 

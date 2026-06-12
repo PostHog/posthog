@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use common::{build_event, make_ctx};
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
-use cymbal::langs::apple::AppleDebugImage;
+use cymbal::langs::native::DebugImage;
 use cymbal::stages::resolution::symbol::SymbolResolver;
 use cymbal::stages::resolution::ResolutionStage;
 use cymbal::symbol_store::chunk_id::OrChunkId;
@@ -48,7 +48,7 @@ impl SymbolResolver for FakeResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         Ok(Vec::new())
     }
