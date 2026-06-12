@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -181,6 +182,20 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.currentMode).toEqual('plan')
+        })
+
+        it('sets currentProgress on a _posthog/progress frame and clears it on turn complete', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/progress', { label: 'Querying events' }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toEqual('Querying events')
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toBeNull()
         })
 
         it('drives terminal status off handleTerminalStatus', async () => {
@@ -521,6 +536,32 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
+    describe('isThinking', () => {
+        it('is on only while a started turn is incomplete, surviving non-terminal status updates', () => {
+            expect(logic.values.isThinking).toEqual(false)
+
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            expect(logic.values.isThinking).toEqual(true)
+
+            logic.actions.handleTerminalStatus({ status: 'queued' })
+            expect(logic.values.isThinking).toEqual(true)
+
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            expect(logic.values.isThinking).toEqual(false)
+        })
+
+        it.each([
+            ['a terminal run status', (): void => logic.actions.handleTerminalStatus({ status: 'failed' })],
+            ['a stream error', (): void => logic.actions.handleStreamError({ errorTitle: 'x', retryable: true })],
+        ])('turns off on %s even when turn_complete never arrives', (_case, act) => {
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            expect(logic.values.isThinking).toEqual(true)
+
+            act()
+            expect(logic.values.isThinking).toEqual(false)
+        })
+    })
+
     describe('terminal-status handling', () => {
         it('closes the SSE and stops reconnects on a terminal task_run_state', async () => {
             await expectLogic(logic, () => {
@@ -848,6 +889,7 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
+            expect(logic.values.respondingToPermission).toEqual(false)
             expect(permissionSpy).toHaveBeenCalledWith('conv-1', {
                 requestId: 'req-1',
                 optionId: 'allow_once',
@@ -858,6 +900,7 @@ describe('sandboxStreamLogic', () => {
         it('keeps the card pending and surfaces an error when the reply POST fails', async () => {
             jest.spyOn(api.conversations, 'permission').mockRejectedValue({ status: 502 })
             const exceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
             logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
 
             await expectLogic(logic, () => {
@@ -869,8 +912,12 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
-            expect(logic.values.sseStatus).toEqual('error')
+            // A failed reply POST must not tear down the live stream — the run is still alive and
+            // blocked on this approval; only the card's buttons re-enable for a retry.
+            expect(logic.values.sseStatus).not.toEqual('error')
+            expect(logic.values.respondingToPermission).toEqual(false)
             expect(exceptionSpy).toHaveBeenCalled()
+            expect(toastSpy).toHaveBeenCalled()
         })
 
         it('ignores a replayed permission_request envelope once the request is resolved', async () => {
