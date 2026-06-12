@@ -112,6 +112,7 @@ pub struct RawEngageEvent {
 pub struct CapturedEventHeaders {
     pub token: Option<String>,
     pub distinct_id: Option<String>,
+    pub ip: Option<String>,
     pub session_id: Option<String>,
     pub timestamp: Option<String>,
     pub event: Option<String>,
@@ -197,6 +198,12 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
             });
 
         // Only add optional headers when present, to avoid bloating every message.
+        if let Some(ref ip) = headers.ip {
+            owned = owned.insert(Header {
+                key: "ip",
+                value: Some(ip.as_str()),
+            });
+        }
         if let Some(skip_heatmap_processing) = headers.skip_heatmap_processing {
             let val = skip_heatmap_processing.to_string();
             owned = owned.insert(Header {
@@ -247,6 +254,7 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
         Self {
             token: headers_map.get("token").cloned(),
             distinct_id: headers_map.get("distinct_id").cloned(),
+            ip: headers_map.get("ip").cloned(),
             session_id: headers_map.get("session_id").cloned(),
             timestamp: headers_map.get("timestamp").cloned(),
             event: headers_map.get("event").cloned(),
@@ -309,6 +317,7 @@ impl CapturedEvent {
         CapturedEventHeaders {
             token: Some(self.token.clone()),
             distinct_id: Some(self.distinct_id.clone()),
+            ip: (!self.ip.is_empty()).then(|| self.ip.clone()),
             session_id: self.session_id.clone(),
             timestamp: Some(self.timestamp.timestamp_millis().to_string()),
             event: Some(self.event.clone()),
@@ -678,6 +687,62 @@ mod tests {
 
         let headers = event_without_session.to_headers();
         assert_eq!(headers.session_id, None);
+    }
+
+    #[test]
+    fn test_to_headers_includes_ip_and_round_trips() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "192.168.1.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers = event.to_headers();
+        assert_eq!(headers.ip, Some("192.168.1.1".to_string()));
+
+        let owned: OwnedHeaders = headers.into();
+        let recovered: CapturedEventHeaders = owned.into();
+        assert_eq!(recovered.ip, Some("192.168.1.1".to_string()));
+    }
+
+    #[test]
+    fn test_to_headers_omits_ip_when_empty() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers = event.to_headers();
+        assert_eq!(headers.ip, None);
+
+        let owned: OwnedHeaders = headers.into();
+        assert!(
+            owned.iter().all(|h| h.key != "ip"),
+            "expected no ip key in OwnedHeaders when ip is empty"
+        );
     }
 
     #[test]

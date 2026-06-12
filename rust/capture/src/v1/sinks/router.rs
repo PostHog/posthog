@@ -165,6 +165,7 @@ mod tests {
             CapturedEventHeaders {
                 token: None,
                 distinct_id: None,
+                ip: None,
                 session_id: None,
                 timestamp: None,
                 event: None,

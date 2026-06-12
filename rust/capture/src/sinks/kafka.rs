@@ -1061,6 +1061,7 @@ mod tests {
         let headers_historical = CapturedEventHeaders {
             token: Some("test_token".to_string()),
             distinct_id: Some("test_id".to_string()),
+            ip: None,
             session_id: None,
             timestamp: Some("2023-01-01T12:00:00Z".to_string()),
             event: Some("test_event".to_string()),
@@ -1083,6 +1084,7 @@ mod tests {
         let headers_main = CapturedEventHeaders {
             token: Some("test_token".to_string()),
             distinct_id: Some("test_id".to_string()),
+            ip: None,
             session_id: None,
             timestamp: Some("2023-01-01T12:00:00Z".to_string()),
             event: Some("test_event".to_string()),
@@ -1113,6 +1115,7 @@ mod tests {
         let headers = CapturedEventHeaders {
             token: Some("test_token".to_string()),
             distinct_id: Some("test_id".to_string()),
+            ip: None,
             session_id: None,
             timestamp: Some("2024-01-15T10:30:00Z".to_string()),
             event: Some("test_event".to_string()),
@@ -1148,6 +1151,7 @@ mod tests {
         let headers = CapturedEventHeaders {
             token: Some("test_token".to_string()),
             distinct_id: Some("test_id".to_string()),
+            ip: None,
             session_id: None,
             timestamp: Some("2024-01-15T10:30:00Z".to_string()),
             event: Some("test_event".to_string()),

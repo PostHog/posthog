@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 
 use axum::extract::Query as AxumQuery;
 use axum::http::{header, HeaderMap, Method};
@@ -43,6 +43,16 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, Error> 
 }
 
 impl Context {
+    /// Client IP as reported downstream (payload, headers, partition keys):
+    /// internal captures report localhost instead of the proxy-derived IP.
+    pub fn reported_client_ip(&self) -> IpAddr {
+        if self.capture_internal {
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
+        } else {
+            self.client_ip
+        }
+    }
+
     pub fn clock_skew(&self) -> chrono::Duration {
         self.client_timestamp
             .signed_duration_since(self.server_received_at)

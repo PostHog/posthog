@@ -169,6 +169,7 @@ impl SinkEvent for WrappedEvent {
         CapturedEventHeaders {
             token: Some(ctx.api_token.clone()),
             distinct_id: Some(self.event.distinct_id.clone()),
+            ip: Some(ctx.reported_client_ip().to_string()),
             session_id: self.event.session_id.clone(),
             timestamp: self
                 .adjusted_timestamp
@@ -191,19 +192,10 @@ impl SinkEvent for WrappedEvent {
 
     fn partition_key(&self, ctx: &Context, buf: &mut String) {
         use std::fmt::Write;
-        match (
-            self.event.options.cookieless_mode == Some(true),
-            ctx.capture_internal,
-        ) {
-            (true, true) => {
-                let _ = write!(buf, "{}:127.0.0.1", ctx.api_token);
-            }
-            (true, false) => {
-                let _ = write!(buf, "{}:{}", ctx.api_token, ctx.client_ip);
-            }
-            (false, _) => {
-                let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
-            }
+        if self.event.options.cookieless_mode == Some(true) {
+            let _ = write!(buf, "{}:{}", ctx.api_token, ctx.reported_client_ip());
+        } else {
+            let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
         }
     }
 
@@ -220,13 +212,7 @@ impl SinkEvent for WrappedEvent {
         let data = serde_json::to_string(&ingestion_data)
             .map_err(|e| anyhow::anyhow!("serializing IngestionData: {e:#}"))?;
 
-        let ip;
-        let ip_ref: &str = if ctx.capture_internal {
-            "127.0.0.1"
-        } else {
-            ip = ctx.client_ip.to_string();
-            &ip
-        };
+        let ip = ctx.reported_client_ip().to_string();
         let timestamp = self.adjusted_timestamp.ok_or_else(|| {
             anyhow::anyhow!("serialize_into called on event without adjusted_timestamp")
         })?;
@@ -236,7 +222,7 @@ impl SinkEvent for WrappedEvent {
         let ie = IngestionEvent {
             uuid: self.uuid,
             distinct_id: &self.event.distinct_id,
-            ip: ip_ref,
+            ip: &ip,
             data: &data,
             now: &now,
             sent_at: Some(ctx.client_timestamp),
@@ -927,6 +913,25 @@ mod tests {
         ctx.historical_migration = false;
         let h = ev.headers(&ctx);
         assert!(h.historical_migration.is_none());
+    }
+
+    #[test]
+    fn headers_include_client_ip() {
+        let mut ctx = test_utils::test_context();
+        ctx.client_ip = "10.0.0.42".parse().unwrap();
+        let ev = ok_wrapped("$pageview", "user-1");
+        let h = ev.headers(&ctx);
+        assert_eq!(h.ip.as_deref(), Some("10.0.0.42"));
+    }
+
+    #[test]
+    fn headers_ip_is_localhost_for_internal_capture() {
+        let mut ctx = test_utils::test_context();
+        ctx.client_ip = "10.0.0.42".parse().unwrap();
+        ctx.capture_internal = true;
+        let ev = ok_wrapped("$pageview", "user-1");
+        let h = ev.headers(&ctx);
+        assert_eq!(h.ip.as_deref(), Some("127.0.0.1"));
     }
 
     fn partition_key_str(ev: &WrappedEvent, ctx: &Context) -> String {

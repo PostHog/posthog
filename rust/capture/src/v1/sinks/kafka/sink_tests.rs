@@ -26,6 +26,7 @@ fn empty_captured_headers() -> CapturedEventHeaders {
     CapturedEventHeaders {
         token: None,
         distinct_id: None,
+        ip: None,
         session_id: None,
         timestamp: None,
         event: None,
