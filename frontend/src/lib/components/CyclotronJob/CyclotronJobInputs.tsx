@@ -250,6 +250,7 @@ function CyclotronJobTemplateInput(props: {
     onChange?: (value: CyclotronJobInputType) => void
     input: CyclotronJobInputType
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    placeholder?: string
 }): JSX.Element {
     const templating = props.input.templating ?? 'hog'
 
@@ -257,8 +258,10 @@ function CyclotronJobTemplateInput(props: {
         return (
             <LemonInput
                 type="text"
+                className={props.className}
                 value={props.input.value}
                 onChange={(val) => props.onChange?.({ ...props.input, value: val })}
+                placeholder={props.placeholder}
             />
         )
     }
@@ -325,7 +328,7 @@ function DictionaryField({
 
     return (
         <div className="deprecated-space-y-2">
-            {!entries.some(([key]) => key === EXTEND_OBJECT_KEY) ? (
+            {templating && !entries.some(([key]) => key === EXTEND_OBJECT_KEY) ? (
                 <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={handleEnableIncludeObject}>
                     Include properties from an entire object
                 </LemonButton>
@@ -350,6 +353,7 @@ function DictionaryField({
 
                     <CyclotronJobTemplateInput
                         className="overflow-hidden flex-2"
+                        placeholder="Value"
                         input={{ ...input, value: val }}
                         onChange={(val) => {
                             if (val.templating) {

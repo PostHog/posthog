@@ -43,7 +43,7 @@ export const posthogAppUrlParametersToEventProperties: LegacyTransformationPlugi
                 type: 'string',
                 default: '',
                 description:
-                    "Add a prefix to the property name e.g. set it to 'prefix_' to get followerId -> prefix_followerId",
+                    "Add a prefix to the property name e.g. set it to 'prefix_' to get followerId -> prefix_followerId. Not applied to parameters with a custom property name.",
             },
             {
                 key: 'suffix',
@@ -52,7 +52,7 @@ export const posthogAppUrlParametersToEventProperties: LegacyTransformationPlugi
                 type: 'string',
                 default: '',
                 description:
-                    "Add a suffix to the property name e.g. set it to '_suffix' to get followerId -> followerId_suffix",
+                    "Add a suffix to the property name e.g. set it to '_suffix' to get followerId -> followerId_suffix. Not applied to parameters with a custom property name.",
             },
             {
                 key: 'ignoreCase',

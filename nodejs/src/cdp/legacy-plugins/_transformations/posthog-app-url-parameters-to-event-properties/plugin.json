@@ -23,14 +23,14 @@
             "name": "Prefix",
             "type": "string",
             "default": "",
-            "hint": "Add a prefix to the property name e.g. set it to 'prefix_' to get followerId -> prefix_followerId"
+            "hint": "Add a prefix to the property name e.g. set it to 'prefix_' to get followerId -> prefix_followerId. Not applied to parameters with a custom property name."
         },
         {
             "key": "suffix",
             "name": "Suffix",
             "type": "string",
             "default": "",
-            "hint": "Add a suffix to the property name e.g. set it to '_suffix' to get followerId -> followerId_suffix"
+            "hint": "Add a suffix to the property name e.g. set it to '_suffix' to get followerId -> followerId_suffix. Not applied to parameters with a custom property name."
         },
         {
             "key": "ignoreCase",
