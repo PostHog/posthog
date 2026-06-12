@@ -80,6 +80,7 @@ dependencies = [
     "langchain-openai~=0.3.35",
     "langchain-anthropic~=0.3.22",
     "langgraph==0.4.10",
+    "langgraph-checkpoint==2.1.2",
     "lxml==6.0.2",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
@@ -284,9 +285,6 @@ required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
 exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false }
-constraint-dependencies = [
-    "langgraph-checkpoint<3",
-]
 
 [tool.uv.workspace]
 members = ["tools/hogli"]
