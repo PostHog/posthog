@@ -102,6 +102,36 @@ tools:
         response:
             include:
                 - count
+    apm-spans-duration-histogram:
+        operation: tracing_spans_duration_histogram_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Trace duration distribution (histogram)
+        description_file: ./prompts/apm-spans-duration-histogram.md
+        feature_flag: tracing
+        response:
+            include:
+                - results
+    apm-spans-sparkline:
+        operation: tracing_spans_sparkline_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Span counts over time (sparkline)
+        description_file: ./prompts/apm-spans-sparkline.md
+        feature_flag: tracing
+        response:
+            include:
+                - results
     apm-spans-tree:
         operation: tracing_spans_tree_create
         enabled: true
@@ -118,21 +148,6 @@ tools:
             include:
                 - results
                 - compare
-    apm-spans-sparkline:
-        operation: tracing_spans_sparkline_create
-        enabled: true
-        scopes:
-            - tracing:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Span counts over time (sparkline)
-        description_file: ./prompts/apm-spans-sparkline.md
-        feature_flag: tracing
-        response:
-            include:
-                - results
     apm-trace-get:
         operation: tracing_spans_trace_create
         enabled: true
@@ -165,21 +180,6 @@ tools:
         title: Query tracing spans
         description_file: ./prompts/query-apm-spans.md
         ui_app: trace-span-list
-        feature_flag: tracing
-        response:
-            include:
-                - results
-    apm-spans-duration-histogram:
-        operation: tracing_spans_duration_histogram_create
-        enabled: true
-        scopes:
-            - tracing:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Trace duration distribution (histogram)
-        description_file: ./prompts/apm-spans-duration-histogram.md
         feature_flag: tracing
         response:
             include:
