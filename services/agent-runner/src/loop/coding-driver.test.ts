@@ -263,9 +263,11 @@ describe('driveCodingSession', () => {
         expect(kinds(h.events).filter((k) => k === 'turn_started')).toHaveLength(2)
         expect(session.conversation.filter((m) => m.role === 'assistant')).toHaveLength(2)
         expect(h.persists).toBe(2)
+        // Same-invocation turns reach the harness raw — it has its own context.
+        expect(pool.sandbox?.sent).toEqual(['do step one', 'now do step two'])
     })
 
-    it('on a follow-up re-claim, runs the pending /send — not the original prompt', async () => {
+    it('on a follow-up re-claim, runs the pending /send with prior history replayed — not the original prompt', async () => {
         const pool = new FakePool((n) => [
             su({ sessionUpdate: 'agent_message_chunk', content: { text: `reply ${n}` } }),
             lifecycle('_posthog/turn_complete'),
@@ -286,10 +288,51 @@ describe('driveCodingSession', () => {
         const outcome = await driveCodingSession(rev(), session, h.deps)
 
         expect(outcome).toEqual({ state: 'completed', turns: 1 })
-        // Exactly the new send reached the harness — the original was not replayed.
-        expect(pool.sandbox?.sent).toEqual(['do step two'])
+        // One send: the new message wrapped in the resume preamble — the fresh
+        // harness gets the prior conversation as context, but the original
+        // prompt is not replayed as its own turn.
+        expect(pool.sandbox?.sent).toHaveLength(1)
+        const sent = pool.sandbox!.sent[0]
+        expect(sent).toContain('You are resuming a previous conversation')
+        expect(sent).toContain('**User**: original prompt')
+        expect(sent).toContain('**Assistant**: done step one')
+        expect(sent).toContain('The user has sent a new message:\n\ndo step two')
+        // Persisted transcript + analytics keep the raw message, not the wrapper.
+        expect(session.conversation.filter((m) => m.role === 'user').map((m) => m.content)).toEqual([
+            'original prompt',
+            'do step two',
+        ])
+        const generation = h.analytics.find((e) => e.kind === 'generation')
+        expect(generation).toMatchObject({ input: [{ role: 'user', content: 'do step two' }] })
         const trace = h.analytics.find((e) => e.kind === 'trace')
         expect(trace).toMatchObject({ input_state: 'do step two' })
+    })
+
+    it('on a re-claim, wraps only the first send — later same-invocation turns go raw', async () => {
+        const pool = new FakePool((n) => [
+            su({ sessionUpdate: 'agent_message_chunk', content: { text: `reply ${n}` } }),
+            lifecycle('_posthog/turn_complete'),
+        ])
+        // Re-claim with a /send queued, then another /send lands after turn 1.
+        const h = makeDeps(pool, {
+            pending: [
+                [{ role: 'user', content: 'do step two', timestamp: 3 }] as ConversationMessage[],
+                [{ role: 'user', content: 'do step three', timestamp: 4 }] as ConversationMessage[],
+            ],
+        })
+        const session = makeSession('original prompt')
+        session.conversation.push({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'done step one' }],
+            timestamp: 2,
+        } as ConversationMessage)
+
+        const outcome = await driveCodingSession(rev(), session, h.deps)
+
+        expect(outcome).toEqual({ state: 'completed', turns: 2 })
+        expect(pool.sandbox?.sent).toHaveLength(2)
+        expect(pool.sandbox!.sent[0]).toContain('You are resuming a previous conversation')
+        expect(pool.sandbox!.sent[1]).toBe('do step three')
     })
 
     it('fails the turn when the harness streams an error', async () => {

@@ -46,6 +46,7 @@ export * from './sandbox/coding/spec-to-launch'
 export * from './sandbox/coding/coding-sandbox-docker'
 export * from './sandbox/coding/acp-parse'
 export * from './sandbox/coding/harness-jwt'
+export * from './sandbox/coding/resume-context'
 
 export * from './runtime/analytics-sink'
 export * from './runtime/bus'

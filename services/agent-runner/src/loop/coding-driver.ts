@@ -23,11 +23,13 @@ import {
     AnalyticsSink,
     analyticsDistinctId,
     AssistantMessageRecord,
+    buildResumePrompt,
     CodingEvent,
     CodingLaunchConfig,
     CodingSandbox,
     ConversationMessage,
     EMPTY_USAGE_TOTAL,
+    formatConversationForResume,
     generateHarnessKeypair,
     generationSpanId,
     LogLevel,
@@ -304,6 +306,17 @@ export async function driveCodingSession(
         // replay the original prompt against a fresh harness.
         const queue: string[] = []
         const trailing = session.conversation[session.conversation.length - 1]
+        // Prior-invocation history (everything before this invocation's new
+        // input). The sandbox was torn down with the previous invocation, so a
+        // re-claim boots a harness that knows nothing — replay the history as
+        // context on the first send (interim until sandbox snapshot/resume).
+        // Persisted transcript + analytics keep the raw message; only what
+        // goes over the wire is wrapped.
+        const priorHistory = trailing?.role === 'user' ? session.conversation.slice(0, -1) : [...session.conversation]
+        const resumeContext = priorHistory.some((m) => m.role === 'assistant')
+            ? formatConversationForResume(priorHistory)
+            : null
+        let firstSend = true
         if (trailing?.role === 'user') {
             const text = userMessageText(trailing)
             if (text) {
@@ -340,7 +353,9 @@ export async function driveCodingSession(
 
             // `/command` user_message is synchronous — it returns when the turn
             // is done; events stream over SSE during the await.
-            const ack = await sandbox.command({ method: 'user_message', params: { content: userText } })
+            const wireText = firstSend && resumeContext ? buildResumePrompt(resumeContext, userText) : userText
+            firstSend = false
+            const ack = await sandbox.command({ method: 'user_message', params: { content: wireText } })
             await new Promise((r) => setTimeout(r, 150)) // flush trailing SSE frames
 
             if (ack.error) {
