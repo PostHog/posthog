@@ -2,6 +2,7 @@ import dataclasses
 from collections.abc import Sequence
 from typing import Any, Protocol
 
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import LazyJoin, Table
@@ -218,7 +219,7 @@ def _is_same_external_scope(
     source = warehouse_table.external_data_source
     if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT:
         return isinstance(
-            target_hogql_table, DirectPostgresTable
+            target_hogql_table, (DirectPostgresTable, DirectMySQLTable)
         ) and target_hogql_table.external_data_source_id == str(source.id)
 
     if "." not in source_table_name or "." not in target_table_name:

@@ -29,6 +29,8 @@ _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 class PostgresPrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "postgres"
+    # Human-readable dialect name used in error messages; subclasses override.
+    DIALECT_LABEL: ClassVar[str] = "Postgres"
 
     def __init__(
         self,
@@ -121,7 +123,7 @@ class PostgresPrinter(BasePrinter):
 
         if node.name in {"toStartOfFiveMinutes", "toStartOfTenMinutes", "toStartOfFifteenMinutes"}:
             if len(node.args) != 1:
-                raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+                raise QueryError(f"{node.name} expects exactly 1 argument in {self.DIALECT_LABEL} mode.")
             minute_bucket_sizes: dict[str, int] = {
                 "toStartOfFiveMinutes": 5,
                 "toStartOfTenMinutes": 10,
@@ -146,7 +148,9 @@ class PostgresPrinter(BasePrinter):
                 and func_name not in function_handlers
                 and func_name not in function_renames
             ):
-                raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
+                raise QueryError(
+                    f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
+                )
 
         # Validate function name characters to prevent SQL injection via
         # backtick-quoted identifiers that can contain arbitrary characters.
@@ -161,7 +165,9 @@ class PostgresPrinter(BasePrinter):
         handler = function_handlers.get(func_name)
         if handler is not None:
             if node.order_by:
-                raise QueryError(f"Function '{node.name}' does not support ORDER BY in the Postgres dialect.")
+                raise QueryError(
+                    f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
+                )
             return handler(args)
 
         renamed = function_renames.get(func_name)
@@ -175,7 +181,7 @@ class PostgresPrinter(BasePrinter):
             # Use the validated name — never the raw node.name
             return f"{func_name}({', '.join(args)})"
 
-        raise QueryError(f"Function '{node.name}' is not supported in the Postgres dialect.")
+        raise QueryError(f"Function '{node.name}' is not supported in the {self.DIALECT_LABEL} dialect.")
 
     def _get_function_renames(self) -> dict[str, str]:
         """Lowercased HogQL-name → target-name map for simple function renames. Overridable by subclasses."""
@@ -245,7 +251,7 @@ class PostgresPrinter(BasePrinter):
 
     def _visit_to_start_of_call(self, node: ast.Call) -> str:
         if len(node.args) == 0:
-            raise QueryError(f"{node.name} expects at least 1 argument in Postgres mode.")
+            raise QueryError(f"{node.name} expects at least 1 argument in {self.DIALECT_LABEL} mode.")
 
         truncated_arg = self.visit(node.args[0])
 
@@ -258,7 +264,7 @@ class PostgresPrinter(BasePrinter):
             "toStartOfYear",
         }:
             if len(node.args) != 1:
-                raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+                raise QueryError(f"{node.name} expects exactly 1 argument in {self.DIALECT_LABEL} mode.")
 
             start_of_units: dict[str, str] = {
                 "toStartOfSecond": "second",
@@ -273,7 +279,7 @@ class PostgresPrinter(BasePrinter):
         if node.name == "toStartOfDay":
             if len(node.args) == 1:
                 return f"date_trunc('day', {truncated_arg})"
-            raise QueryError("toStartOfDay with a timezone override is not supported in Postgres mode.")
+            raise QueryError(f"toStartOfDay with a timezone override is not supported in {self.DIALECT_LABEL} mode.")
 
         if node.name == "toStartOfWeek":
             if len(node.args) == 1:
@@ -281,22 +287,22 @@ class PostgresPrinter(BasePrinter):
             elif len(node.args) == 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, int):
                 week_mode = node.args[1].value
             else:
-                raise QueryError("toStartOfWeek only supports literal week modes in Postgres mode.")
+                raise QueryError(f"toStartOfWeek only supports literal week modes in {self.DIALECT_LABEL} mode.")
 
             if week_mode in {1, 3}:
                 return f"date_trunc('week', {truncated_arg})"
             if week_mode == 0:
                 return f"(date_trunc('week', ({truncated_arg} + interval '1 day')) - interval '1 day')"
-            raise QueryError(f"Unsupported toStartOfWeek mode `{week_mode}` in Postgres mode.")
+            raise QueryError(f"Unsupported toStartOfWeek mode `{week_mode}` in {self.DIALECT_LABEL} mode.")
 
         if node.name == "toStartOfISOYear":
             if len(node.args) != 1:
-                raise QueryError("toStartOfISOYear expects exactly 1 argument in Postgres mode.")
+                raise QueryError(f"toStartOfISOYear expects exactly 1 argument in {self.DIALECT_LABEL} mode.")
 
             return f"date_trunc('week', make_date(extract(isoyear from {truncated_arg})::int, 1, 4)::timestamp)"
 
         if len(node.args) != 1:
-            raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+            raise QueryError(f"{node.name} expects exactly 1 argument in {self.DIALECT_LABEL} mode.")
 
         return f"date_trunc('day', {truncated_arg})"
 
