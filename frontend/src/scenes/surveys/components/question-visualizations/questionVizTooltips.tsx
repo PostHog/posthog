@@ -26,7 +26,8 @@ export function ChoiceTooltip({
 }): JSX.Element {
     const optionLabel = chartData[ctx.dataIndex]?.label ?? ctx.seriesData[0]?.series.label ?? ''
     const tooltipContext = tooltipContextByIndex[ctx.dataIndex]
-    const value = ctx.seriesData[0]?.value ?? 0
+    // The series carries percentages (the bar axis is share of respondents) — counts live in chartData.
+    const value = chartData[ctx.dataIndex]?.value ?? 0
 
     if (!tooltipContext) {
         return (
