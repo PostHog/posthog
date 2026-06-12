@@ -6248,6 +6248,8 @@ export namespace Schemas {
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
+      useQueryV2?: boolean | null;
+      useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
       volumeResolution: number;
