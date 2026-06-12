@@ -18,6 +18,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequest,
     PullRequestList,
     PullRequestListItem,
+    QuarantineEntry,
+    QuarantineFile,
     RepoRef,
     WorkflowHealthDay,
     WorkflowHealthItem,
@@ -152,6 +154,64 @@ class CICardSummarySerializer(DataclassSerializer):
                 "help_text": "Open pull requests with at least one failing latest CI run. May lag until the "
                 "workflow_run webhook settles late completions.",
             },
+        }
+
+
+class QuarantineEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = QuarantineEntry
+        extra_kwargs = {
+            "id": {
+                "help_text": "Test selector: an exact test id, a file, a directory, a class prefix, or "
+                "'product:<dashed-name>'.",
+            },
+            "runner": {"help_text": "Test runner the selector targets, e.g. 'pytest' or 'jest'."},
+            "reason": {"help_text": "Why the test was quarantined."},
+            "owner": {"help_text": "GitHub team or user handle responsible for the fix."},
+            "issue": {"help_text": "Tracking issue URL, or empty when none was filed."},
+            "added": {"help_text": "ISO date the entry was added."},
+            "expires": {"help_text": "ISO date the quarantine expires; past it the test blocks CI normally again."},
+            "mode": {
+                "help_text": "'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all).",
+            },
+            "lifecycle": {
+                "help_text": "Expiry classification: 'active' (>7 days left), 'expiring_soon' (0-7 days left), "
+                "'in_grace' (expired up to 7 days ago), 'overdue' (expired beyond the grace period).",
+            },
+            "days_until_expiry": {"help_text": "Days until the entry expires; negative once past expiry."},
+            "selector_kind": {
+                "help_text": "What the selector covers: 'test' (contains '::'), 'file', 'directory', or 'product'.",
+            },
+        }
+
+
+class QuarantineFileSerializer(DataclassSerializer):
+    entries = QuarantineEntrySerializer(
+        many=True,
+        help_text="Quarantined selectors, most urgent first (overdue, in_grace, expiring_soon, active), "
+        "then by soonest expiry.",
+    )
+    repo = RepoRefSerializer(
+        help_text="Repository the file was read from. Null in local-dev mode, where the server's own checkout is read.",
+        allow_null=True,
+    )
+
+    class Meta:
+        dataclass = QuarantineFile
+        extra_kwargs = {
+            "available": {
+                "help_text": "False when the repository has no quarantine file (not an error) or it could not "
+                "be fetched.",
+            },
+            "parse_errors": {
+                "help_text": "Contract violations (malformed JSON, bad entries) or fetch failures. Malformed "
+                "entries are dropped; well-formed ones are kept.",
+            },
+            "parse_warnings": {"help_text": "Forward-compatibility notices, e.g. unknown entry fields."},
+            "source_url": {
+                "help_text": "GitHub blob URL of the quarantine file, or empty when read locally or unavailable.",
+            },
+            "generated_at": {"help_text": "When this snapshot was computed (UTC); expiry math uses this clock."},
         }
 
 

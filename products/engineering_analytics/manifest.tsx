@@ -33,6 +33,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
+        '/engineering-analytics/quarantine': ['EngineeringAnalytics', 'engineeringAnalyticsQuarantine'],
         '/engineering-analytics/pr/:repoOwner/:repoName/:number': [
             'EngineeringAnalyticsPullRequest',
             'engineeringAnalyticsPullRequest',
@@ -42,6 +43,7 @@ export const manifest: ProductManifest = {
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics',
         engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
+        engineeringAnalyticsQuarantine: (): string => '/engineering-analytics/quarantine',
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
             `/engineering-analytics/pr/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${number}`,
     },

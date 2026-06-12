@@ -12,6 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
+import { EngineeringAnalyticsQuarantine } from './EngineeringAnalyticsQuarantine'
 import {
     EngineeringAnalyticsTab,
     TAB_DESCRIPTIONS,
@@ -47,6 +48,13 @@ export function EngineeringAnalyticsScene({ tabId }: { tabId?: string }): JSX.El
             content: <EngineeringAnalyticsWorkflows />,
             link: combineUrl(urls.engineeringAnalyticsWorkflows(), searchParams).url,
             'data-attr': 'engineering-analytics-workflows-tab',
+        },
+        {
+            key: 'quarantine',
+            label: 'Quarantine',
+            content: <EngineeringAnalyticsQuarantine />,
+            link: combineUrl(urls.engineeringAnalyticsQuarantine(), searchParams).url,
+            'data-attr': 'engineering-analytics-quarantine-tab',
         },
     ]
 

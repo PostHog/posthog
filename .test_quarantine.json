@@ -1,0 +1,62 @@
+{
+    "version": 1,
+    "entries": [
+        {
+            "id": "frontend/src/scenes/dashboard/dashboardLogic.test.ts",
+            "runner": "jest",
+            "reason": "Timer flake on dashboard tab switch",
+            "owner": "@PostHog/team-web-analytics",
+            "added": "2026-06-11",
+            "expires": "2026-06-25",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/api/test/test_cohort.py::TestCohort::test_calculation_debounce",
+            "runner": "pytest",
+            "reason": "Flaky ClickHouse ordering assertion under parallel shards",
+            "owner": "@PostHog/team-product-analytics",
+            "issue": "https://github.com/PostHog/posthog/issues/63042",
+            "added": "2026-06-10",
+            "expires": "2026-07-08",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/api/test/test_decide.py::TestDecide",
+            "runner": "pytest",
+            "reason": "Redis eviction flake \u2014 fix merged, pending validation",
+            "owner": "@PostHog/team-feature-flags",
+            "added": "2026-05-05",
+            "expires": "2026-06-01",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/hogql/test/test_printer.py::TestPrinter::test_window_functions",
+            "runner": "pytest",
+            "reason": "Nondeterministic alias numbering in printer output",
+            "owner": "@PostHog/team-clickhouse",
+            "issue": "https://github.com/PostHog/posthog/issues/62815",
+            "added": "2026-05-12",
+            "expires": "2026-06-09",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/tasks/test/test_usage_report.py",
+            "runner": "pytest",
+            "reason": "Intermittent timeout aggregating usage report rollups",
+            "owner": "@PostHog/team-billing",
+            "added": "2026-05-20",
+            "expires": "2026-06-15",
+            "mode": "run"
+        },
+        {
+            "id": "product:batch-exports",
+            "runner": "pytest",
+            "reason": "Async fixture teardown hang takes down the whole shard",
+            "owner": "@PostHog/team-batch-exports",
+            "issue": "https://github.com/PostHog/posthog/issues/62467",
+            "added": "2026-06-08",
+            "expires": "2026-06-22",
+            "mode": "skip"
+        }
+    ]
+}

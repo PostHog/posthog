@@ -12,9 +12,11 @@ import type {
     CICardSummaryApi,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPullRequestsParams,
+    EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsWorkflowHealthParams,
     PRLifecycleApi,
     PullRequestListApi,
+    QuarantineFileApi,
     WorkflowHealthItemApi,
 } from './api.schemas'
 
@@ -96,6 +98,40 @@ export const engineeringAnalyticsPullRequests = async (
     options?: RequestInit
 ): Promise<PullRequestListApi> => {
     return apiMutator<PullRequestListApi>(getEngineeringAnalyticsPullRequestsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsQuarantineUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsQuarantineParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/quarantine/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/quarantine/`
+}
+
+/**
+ * The repository's checked-in .test_quarantine.json: flaky tests temporarily quarantined with a hard expiry, classified by urgency (overdue, in grace, expiring soon, active). `available` is false when the repo has no quarantine file — that is not an error. Parsing is fail-open: malformed entries are reported in parse_errors while well-formed ones are kept.
+ * @summary Flaky-test quarantine file
+ */
+export const engineeringAnalyticsQuarantine = async (
+    projectId: string,
+    params?: EngineeringAnalyticsQuarantineParams,
+    options?: RequestInit
+): Promise<QuarantineFileApi> => {
+    return apiMutator<QuarantineFileApi>(getEngineeringAnalyticsQuarantineUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

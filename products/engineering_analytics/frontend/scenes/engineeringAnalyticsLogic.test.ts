@@ -8,16 +8,27 @@ import { initKeaTests } from '~/test/init'
 import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsPullRequests,
+    engineeringAnalyticsQuarantine,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
-import type { CICardSummaryApi, PullRequestListItemApi, WorkflowHealthItemApi } from '../generated/api.schemas'
+import type {
+    CICardSummaryApi,
+    PullRequestListItemApi,
+    QuarantineEntryApi,
+    QuarantineFileApi,
+    WorkflowHealthItemApi,
+} from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
 import {
     DEFAULT_FILTERS,
+    DEFAULT_QUARANTINE_FILTERS,
     PullRequestRow,
+    QuarantineEntryRow,
     engineeringAnalyticsLogic,
     filterPullRequests,
+    filterQuarantineEntries,
+    quarantineCountsOf,
     workflowTrendSeries,
 } from './engineeringAnalyticsLogic'
 import { sortRunsForTriage } from './pullRequestDetailLogic'
@@ -26,6 +37,7 @@ jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
     engineeringAnalyticsPrLifecycle: jest.fn(),
     engineeringAnalyticsPullRequests: jest.fn(),
+    engineeringAnalyticsQuarantine: jest.fn(),
     engineeringAnalyticsWorkflowHealth: jest.fn(),
 }))
 
@@ -36,6 +48,64 @@ const mockPullRequests = engineeringAnalyticsPullRequests as jest.MockedFunction
 const mockWorkflowHealth = engineeringAnalyticsWorkflowHealth as jest.MockedFunction<
     typeof engineeringAnalyticsWorkflowHealth
 >
+const mockQuarantine = engineeringAnalyticsQuarantine as jest.MockedFunction<typeof engineeringAnalyticsQuarantine>
+
+function apiQuarantineEntry(overrides: Partial<QuarantineEntryApi> = {}): QuarantineEntryApi {
+    return {
+        id: 'posthog/api/test/test_foo.py::TestFoo::test_bar',
+        runner: 'pytest',
+        reason: 'flaky ordering assertion',
+        owner: '@PostHog/team-foo',
+        issue: '',
+        added: '2026-06-01',
+        expires: '2026-06-20',
+        mode: 'run',
+        lifecycle: 'active',
+        days_until_expiry: 8,
+        selector_kind: 'test',
+        ...overrides,
+    }
+}
+
+function qRow(overrides: Partial<QuarantineEntryRow> = {}): QuarantineEntryRow {
+    return {
+        id: 'posthog/api/test/test_foo.py::TestFoo::test_bar',
+        runner: 'pytest',
+        reason: 'flaky',
+        owner: '@PostHog/team-foo',
+        issue: '',
+        added: '2026-06-01',
+        expires: '2026-06-20',
+        mode: 'run',
+        lifecycle: 'active',
+        daysUntilExpiry: 8,
+        selectorKind: 'test',
+        ...overrides,
+    }
+}
+
+const QUARANTINE: QuarantineFileApi = {
+    available: true,
+    entries: [
+        apiQuarantineEntry({ id: 'a-overdue', lifecycle: 'overdue', days_until_expiry: -10, owner: '@team/x' }),
+        apiQuarantineEntry({ id: 'b-grace', lifecycle: 'in_grace', days_until_expiry: -2, owner: '@team/y' }),
+        apiQuarantineEntry({ id: 'c-soon', lifecycle: 'expiring_soon', days_until_expiry: 3, owner: '@team/x' }),
+        apiQuarantineEntry({ id: 'd-active', lifecycle: 'active', days_until_expiry: 20, owner: '@team/z' }),
+        apiQuarantineEntry({
+            id: 'product:e',
+            lifecycle: 'active',
+            mode: 'skip',
+            selector_kind: 'product',
+            owner: '@team/z',
+            reason: 'teardown hang',
+        }),
+    ],
+    parse_errors: [],
+    parse_warnings: [],
+    repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
+    source_url: 'https://github.com/PostHog/posthog/blob/HEAD/.test_quarantine.json',
+    generated_at: '2026-06-12T00:00:00Z',
+}
 
 function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
     return {
@@ -116,6 +186,7 @@ describe('engineeringAnalyticsLogic', () => {
         mockCiCards.mockResolvedValue(CARDS)
         mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
         mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
+        mockQuarantine.mockResolvedValue(QUARANTINE)
     })
 
     afterEach(() => {
@@ -362,5 +433,116 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
 
         expect(logic.values.loadFailed).toBe(true)
+    })
+
+    it.each([
+        ['all', { lifecycle: 'all' as const }, ['a-overdue', 'b-grace', 'c-soon', 'd-active', 'e-skip']],
+        ['active', { lifecycle: 'active' as const }, ['d-active', 'e-skip']],
+        ['expiring_soon', { lifecycle: 'expiring_soon' as const }, ['c-soon']],
+        // past_expiry groups in_grace + overdue.
+        ['past_expiry', { lifecycle: 'past_expiry' as const }, ['a-overdue', 'b-grace']],
+        ['mode skip', { mode: 'skip' as const }, ['e-skip']],
+        ['owner', { owner: '@team/x' }, ['a-overdue', 'c-soon']],
+        ['search matches reason', { search: 'hang' }, ['e-skip']],
+        ['search matches id', { search: 'b-grace' }, ['b-grace']],
+    ])('filterQuarantineEntries: %s', (_label, partial, expectedIds) => {
+        const rows = [
+            qRow({ id: 'a-overdue', lifecycle: 'overdue', daysUntilExpiry: -10, owner: '@team/x' }),
+            qRow({ id: 'b-grace', lifecycle: 'in_grace', daysUntilExpiry: -2, owner: '@team/y' }),
+            qRow({ id: 'c-soon', lifecycle: 'expiring_soon', daysUntilExpiry: 3, owner: '@team/x' }),
+            qRow({ id: 'd-active', lifecycle: 'active', daysUntilExpiry: 20, owner: '@team/z' }),
+            qRow({ id: 'e-skip', lifecycle: 'active', mode: 'skip', owner: '@team/z', reason: 'teardown hang' }),
+        ]
+        const result = filterQuarantineEntries(rows, { ...DEFAULT_QUARANTINE_FILTERS, ...partial })
+        expect(result.map((row) => row.id)).toEqual(expectedIds)
+    })
+
+    it('quarantineCountsOf tallies lifecycle buckets, past expiry, and skips', () => {
+        const counts = quarantineCountsOf([
+            qRow({ lifecycle: 'overdue' }),
+            qRow({ lifecycle: 'in_grace' }),
+            qRow({ lifecycle: 'expiring_soon' }),
+            qRow({ lifecycle: 'active' }),
+            qRow({ lifecycle: 'active', mode: 'skip' }),
+        ])
+        expect(counts).toEqual({
+            active: 2,
+            expiringSoon: 1,
+            inGrace: 1,
+            overdue: 1,
+            pastExpiry: 2,
+            skipped: 1,
+            total: 5,
+        })
+    })
+
+    it('maps the quarantine endpoint into rows with counts and owner options', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadQuarantineSuccess'])
+
+        expect(logic.values.quarantine?.available).toBe(true)
+        expect(logic.values.quarantine?.repoFullName).toBe('PostHog/posthog')
+        expect(logic.values.quarantine?.entries).toHaveLength(5)
+        expect(logic.values.quarantineCounts).toEqual({
+            active: 2,
+            expiringSoon: 1,
+            inGrace: 1,
+            overdue: 1,
+            pastExpiry: 2,
+            skipped: 1,
+            total: 5,
+        })
+        expect(logic.values.quarantineOwnerOptions).toEqual(['@team/x', '@team/y', '@team/z'])
+        expect(logic.values.quarantineLoadFailed).toBe(false)
+    })
+
+    it('quarantine cards toggle the lifecycle and mode lens and back', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        expect(logic.values.activeQuarantineCard).toBeNull()
+
+        logic.actions.applyQuarantineCard('past_expiry')
+        expect(logic.values.activeQuarantineCard).toBe('past_expiry')
+        expect(logic.values.quarantineLifecycleFilter).toBe('past_expiry')
+        expect(logic.values.quarantineModeFilter).toBe('all')
+
+        logic.actions.applyQuarantineCard('skipped')
+        expect(logic.values.activeQuarantineCard).toBe('skipped')
+        expect(logic.values.quarantineModeFilter).toBe('skip')
+        expect(logic.values.quarantineLifecycleFilter).toBe('all')
+
+        // Clicking the active card clears the lens back to the default view.
+        logic.actions.applyQuarantineCard('skipped')
+        expect(logic.values.activeQuarantineCard).toBeNull()
+        expect(logic.values.quarantineModeFilter).toBe('all')
+    })
+
+    it('resetQuarantineFilters returns filters to defaults and clears hasActiveQuarantineFilters', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        expect(logic.values.hasActiveQuarantineFilters).toBe(false)
+
+        logic.actions.setQuarantineSearch('flake')
+        logic.actions.setQuarantineLifecycleFilter('active')
+        logic.actions.setQuarantineModeFilter('skip')
+        logic.actions.setQuarantineOwner('@team/x')
+        expect(logic.values.hasActiveQuarantineFilters).toBe(true)
+
+        logic.actions.resetQuarantineFilters()
+        expect(logic.values.quarantineFilters).toEqual(DEFAULT_QUARANTINE_FILTERS)
+        expect(logic.values.hasActiveQuarantineFilters).toBe(false)
+    })
+
+    it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
+        mockQuarantine.mockRejectedValue(
+            new Error('Connect a GitHub data warehouse source to use engineering analytics.')
+        )
+
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadQuarantineFailure'])
+
+        expect(logic.values.quarantineLoadFailed).toBe(true)
     })
 })

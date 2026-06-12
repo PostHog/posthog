@@ -22819,6 +22819,22 @@ export namespace Schemas {
       created_at: string;
     }
 
+    /**
+     * * `active` - ACTIVE
+     * * `expiring_soon` - EXPIRING_SOON
+     * * `in_grace` - IN_GRACE
+     * * `overdue` - OVERDUE
+     */
+    export type LifecycleEnum = typeof LifecycleEnum[keyof typeof LifecycleEnum];
+
+
+    export const LifecycleEnum = {
+      Active: 'active',
+      ExpiringSoon: 'expiring_soon',
+      InGrace: 'in_grace',
+      Overdue: 'overdue',
+    } as const;
+
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -37285,6 +37301,89 @@ export namespace Schemas {
       Web: 'web',
     } as const;
 
+    /**
+     * * `run` - RUN
+     * * `skip` - SKIP
+     */
+    export type QuarantineModeEnum = typeof QuarantineModeEnum[keyof typeof QuarantineModeEnum];
+
+
+    export const QuarantineModeEnum = {
+      Run: 'run',
+      Skip: 'skip',
+    } as const;
+
+    /**
+     * * `product` - PRODUCT
+     * * `file` - FILE
+     * * `directory` - DIRECTORY
+     * * `test` - TEST
+     */
+    export type SelectorKindEnum = typeof SelectorKindEnum[keyof typeof SelectorKindEnum];
+
+
+    export const SelectorKindEnum = {
+      Product: 'product',
+      File: 'file',
+      Directory: 'directory',
+      Test: 'test',
+    } as const;
+
+    export interface QuarantineEntry {
+      /** Test selector: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
+      id: string;
+      /** Test runner the selector targets, e.g. 'pytest' or 'jest'. */
+      runner: string;
+      /** Why the test was quarantined. */
+      reason: string;
+      /** GitHub team or user handle responsible for the fix. */
+      owner: string;
+      /** Tracking issue URL, or empty when none was filed. */
+      issue: string;
+      /** ISO date the entry was added. */
+      added: string;
+      /** ISO date the quarantine expires; past it the test blocks CI normally again. */
+      expires: string;
+      /** 'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all).
+       *
+       * * `run` - RUN
+       * * `skip` - SKIP */
+      mode: QuarantineModeEnum;
+      /** Expiry classification: 'active' (>7 days left), 'expiring_soon' (0-7 days left), 'in_grace' (expired up to 7 days ago), 'overdue' (expired beyond the grace period).
+       *
+       * * `active` - ACTIVE
+       * * `expiring_soon` - EXPIRING_SOON
+       * * `in_grace` - IN_GRACE
+       * * `overdue` - OVERDUE */
+      lifecycle: LifecycleEnum;
+      /** Days until the entry expires; negative once past expiry. */
+      days_until_expiry: number;
+      /** What the selector covers: 'test' (contains '::'), 'file', 'directory', or 'product'.
+       *
+       * * `product` - PRODUCT
+       * * `file` - FILE
+       * * `directory` - DIRECTORY
+       * * `test` - TEST */
+      selector_kind: SelectorKindEnum;
+    }
+
+    export interface QuarantineFile {
+      /** Quarantined selectors, most urgent first (overdue, in_grace, expiring_soon, active), then by soonest expiry. */
+      entries: QuarantineEntry[];
+      /** Repository the file was read from. Null in local-dev mode, where the server's own checkout is read. */
+      repo: RepoRef | null;
+      /** False when the repository has no quarantine file (not an error) or it could not be fetched. */
+      available: boolean;
+      /** Contract violations (malformed JSON, bad entries) or fetch failures. Malformed entries are dropped; well-formed ones are kept. */
+      parse_errors: string[];
+      /** Forward-compatibility notices, e.g. unknown entry fields. */
+      parse_warnings: string[];
+      /** GitHub blob URL of the quarantine file, or empty when read locally or unavailable. */
+      source_url: string;
+      /** When this snapshot was computed (UTC); expiry math uses this clock. */
+      generated_at: string;
+    }
+
     export interface QuarantineInput {
       /**
          * Snapshot identifier to quarantine.
@@ -50615,6 +50714,13 @@ export namespace Schemas {
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string;
+    };
+
+    export type EngineeringAnalyticsQuarantineParams = {
+    /**
+     * Optional 'owner/name' repository to read the quarantine file from. Defaults to the connected GitHub source's most active repo over the last 30 days.
+     */
+    repo?: string;
     };
 
     export type EngineeringAnalyticsWorkflowHealthParams = {

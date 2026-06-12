@@ -16,6 +16,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     PRLifecycle,
     PullRequestList,
+    QuarantineFile,
     WorkflowHealthItem,
 )
 
@@ -48,3 +49,7 @@ def list_workflow_health(
     date_to: str | None = None,
 ) -> list[WorkflowHealthItem]:
     return logic.build_workflow_health(team=team, date_from=date_from, date_to=date_to)
+
+
+def get_quarantine(*, team: Team, repo: str | None = None) -> QuarantineFile:
+    return logic.build_quarantine(team=team, repo=repo)
