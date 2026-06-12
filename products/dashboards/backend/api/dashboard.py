@@ -1002,6 +1002,7 @@ def _report_dashboard_tile_added(
     widget_properties: dict[str, Any] = {
         "widget_type": widget_type,
         "dashboard_id": dashboard.id,
+        "dashboard_widget_count": _count_active_widget_tiles(dashboard),
     }
     feature_enabled = get_widget_feature_enabled(widget_type, dashboard.team)
     if feature_enabled is not None:

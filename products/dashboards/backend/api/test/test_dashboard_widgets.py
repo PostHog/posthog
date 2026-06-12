@@ -663,6 +663,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert len(widget_added_calls) == 1
         assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
         assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_added_calls[0][0][2]["dashboard_widget_count"] == 1
         assert "tile_id" in widget_added_calls[0][0][2]
         assert "widget_id" in widget_added_calls[0][0][2]
 
@@ -700,6 +701,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert len(widget_added_calls) == 1
         assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
         assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_added_calls[0][0][2]["dashboard_widget_count"] == 1
         assert "tile_id" in widget_added_calls[0][0][2]
         assert "widget_id" in widget_added_calls[0][0][2]
 
@@ -945,6 +947,28 @@ class TestDashboardWidgets(APIBaseTest):
 
         dashboard = Dashboard.objects.get(id=dashboard_id)
         assert dashboard.tiles.filter(widget__isnull=False).count() == 0
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_widget_count_increments_with_each_add(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        # First widget
+        self.dashboard_api.create_widget_tile(dashboard_id, widget_type="error_tracking_list", config={"limit": 5})
+        first_add = next(
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        )
+        assert first_add[0][2]["dashboard_widget_count"] == 1
+
+        mock_report_user_action.reset_mock()
+
+        # Second widget on the same dashboard
+        self.dashboard_api.create_widget_tile(dashboard_id, widget_type="session_replay_list")
+        second_add = next(
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        )
+        assert second_add[0][2]["dashboard_widget_count"] == 2
 
     @override_settings(IN_UNIT_TESTING=True)
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
