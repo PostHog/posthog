@@ -117,6 +117,7 @@ the row lists both.
 | launchdarkly     | HTTP                        | requests                                                        | ✅                          |
 | kustomer         | HTTP                        | requests                                                        | ✅                          |
 | lattice          | HTTP                        | requests                                                        | ✅                          |
+| lightspeed_retail | HTTP                       | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
 | lever            | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -277,7 +278,6 @@ doesn't conflict with concurrent PRs.
 - instagram
 - kafka
 - lever
-- lightspeed_retail
 - marketo
 - microsoft_teams
 - netsuite
