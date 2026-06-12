@@ -689,6 +689,10 @@ class OAuthValidator(OAuth2Validator):
             scoped_teams=scoped_teams,
             scoped_organizations=scoped_organizations,
             impersonated_by_id=self._get_impersonator_id(request, refresh_token=source_refresh_token),
+            # The refresh token is the durable label carrier: DOT's rotation deletes the
+            # previous access token (and nulls its FK) before this runs, so the prior
+            # access token's label is unreadable here.
+            label=source_refresh_token.label if source_refresh_token else "",
         )
 
     def _create_authorization_code(self, request, code, expires=None):
@@ -735,6 +739,9 @@ class OAuthValidator(OAuth2Validator):
             # access_token already has impersonated_by computed via _create_access_token above —
             # propagate it so the refresh token is revoked alongside its access token.
             impersonated_by_id=access_token.impersonated_by_id if access_token else None,
+            # Mirror the access token's label so the next rotation can read it back
+            # (the access token row won't survive that rotation, this row's value will).
+            label=access_token.label if access_token else "",
         )
 
     def _get_impersonator_id(self, request, refresh_token: OAuthRefreshToken | None = None):

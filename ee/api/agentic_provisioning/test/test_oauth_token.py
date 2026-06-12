@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
@@ -191,6 +191,19 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert res.status_code == 200
         token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
         assert token.scope == "query:read"
+
+    def test_refresh_carries_label(self):
+        self._store_auth_code("refresh_label")
+        first = self._post_token(self._token_request_body(code="refresh_label"))
+        refresh_token = first.json()["refresh_token"]
+        OAuthAccessToken.objects.filter(token=first.json()["access_token"]).update(label="Stripe project")
+        OAuthRefreshToken.objects.filter(token=refresh_token).update(label="Stripe project")
+
+        refresh_body = urlencode({"grant_type": "refresh_token", "refresh_token": refresh_token}).encode()
+        res = self._post_token(refresh_body)
+        assert res.status_code == 200
+        assert OAuthAccessToken.objects.get(token=res.json()["access_token"]).label == "Stripe project"
+        assert OAuthRefreshToken.objects.get(token=res.json()["refresh_token"]).label == "Stripe project"
 
     def test_refresh_rejected_when_scopes_outside_ceiling(self):
         self._set_app_ceiling(["insight:write"])

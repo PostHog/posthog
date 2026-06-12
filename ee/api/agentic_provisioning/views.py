@@ -1213,6 +1213,7 @@ def _exchange_refresh_token(request: Request) -> Response:
         user = old_refresh.user
         scoped_teams = old_refresh.scoped_teams
         old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
+        carried_label = old_refresh.access_token.label if old_refresh.access_token else old_refresh.label
 
         sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
         if sessions_revoked_at is not None and old_refresh.created < sessions_revoked_at:
@@ -1268,6 +1269,7 @@ def _exchange_refresh_token(request: Request) -> Response:
             expires=timezone.now() + timedelta(seconds=token_expiry),
             scope=new_scope,
             scoped_teams=scoped_teams,
+            label=carried_label,
         )
 
         new_refresh_value = generate_random_oauth_refresh_token(None)
@@ -1277,6 +1279,7 @@ def _exchange_refresh_token(request: Request) -> Response:
             user=user,
             access_token=new_access,
             scoped_teams=scoped_teams,
+            label=carried_label,
         )
 
     _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="refresh_token")
