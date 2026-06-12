@@ -185,10 +185,10 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
 
         return data
 
-    def _check_target_edit_permission(self, model_name: str | None, record_id: Any, team_id: int) -> None:
-        """Raise ValidationError unless the request user can edit the target record."""
+    def _check_target_edit_permission(self, model_name: str | None, record_id: Any, team_id: int) -> FeatureFlag | None:
+        """Enforce edit permission on the target record and return the resolved flag (None if not a flag)."""
         if model_name != "FeatureFlag" or not record_id:
-            return
+            return None
 
         try:
             feature_flag = FeatureFlag.objects.get(id=record_id, team_id=team_id)
@@ -200,14 +200,20 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         if not CanEditFeatureFlag().has_object_permission(request, None, feature_flag):
             raise serializers.ValidationError("You don't have edit permissions for this feature flag")
 
+        return feature_flag
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ScheduledChange:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
 
-        self._check_target_edit_permission(
+        feature_flag = self._check_target_edit_permission(
             validated_data.get("model_name"), validated_data.get("record_id"), validated_data["team_id"]
         )
+        # Store the canonical flag id. record_id is a free-form CharField, so "000123"/" 123" resolve to the
+        # same flag here but would dodge the str-equality access filter in the viewset if persisted verbatim.
+        if feature_flag is not None:
+            validated_data["record_id"] = str(feature_flag.id)
 
         # Capture the project's timezone at creation time so cron recurrence resolves
         # wall-clock fields in that timezone, independent of later team.timezone changes.
@@ -219,7 +225,10 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
     def update(self, instance: ScheduledChange, validated_data: dict) -> ScheduledChange:
         # Enforce the same edit-permission check on updates. record_id/model_name can't be changed
         # (blocked in validate()), so the instance's existing target is authoritative.
-        self._check_target_edit_permission(instance.model_name, instance.record_id, instance.team_id)
+        feature_flag = self._check_target_edit_permission(instance.model_name, instance.record_id, instance.team_id)
+        # Canonicalize any legacy non-canonical record_id so the access filter keeps matching it.
+        if feature_flag is not None:
+            instance.record_id = str(feature_flag.id)
         return super().update(instance, validated_data)
 
 

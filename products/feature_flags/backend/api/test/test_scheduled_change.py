@@ -148,6 +148,27 @@ class TestScheduledChange(APIBaseTest):
         assert "Feature flag not found" in str(response_data)
         assert not ScheduledChange.objects.filter(record_id="not-a-number").exists()
 
+    def test_create_canonicalizes_non_canonical_record_id(self):
+        """A padded record_id (e.g. leading zeros) resolves to the same flag but must be stored canonically,
+        so the viewset's str-equality per-flag access filter keeps matching it."""
+        feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="canon", name="Canon")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": f"000{feature_flag.id}",
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": False},
+                "scheduled_at": "2023-12-08T12:00:00Z",
+            },
+        )
+
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["record_id"] == str(feature_flag.id)
+        assert ScheduledChange.objects.get(id=response_data["id"]).record_id == str(feature_flag.id)
+
     def test_recurring_schedule_requires_interval(self):
         """Test that recurring schedules require a recurrence_interval"""
         feature_flag = FeatureFlag.objects.create(
