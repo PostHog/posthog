@@ -97,6 +97,7 @@ the row lists both.
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly     | HTTP                        | requests                                                        | ✅                          |
 | kustomer         | HTTP                        | requests                                                        | ✅                          |
+| lattice          | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
 | lever            | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -258,7 +259,6 @@ doesn't conflict with concurrent PRs.
 - hibob
 - instagram
 - kafka
-- lattice
 - lever
 - lightspeed_retail
 - marketo
