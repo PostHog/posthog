@@ -461,7 +461,9 @@ class CosmosDBSourceConfig(config.Config):
 
 @config.config
 class CoupaSourceConfig(config.Config):
-    pass
+    instance_url: str
+    client_id: str
+    client_secret: str
 
 
 @config.config
