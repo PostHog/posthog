@@ -1829,7 +1829,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 raise ValidationError(f"Invalid source config: {', '.join(errors)}")
 
             source_config: Config = source.parse_config(migrated_job_inputs)
-            locked_source.job_inputs = source_config.to_dict()
+            locked_source.job_inputs = normalize_bigquery_job_inputs_for_storage(source_config.to_dict())
             locked_source.save(update_fields=["job_inputs", "updated_at"])
 
         refreshed_source = self.get_queryset().get(pk=locked_source.pk)
