@@ -394,30 +394,44 @@ describe('ParamsToPropertiesPlugin', () => {
             }
         })
 
-        it('should store the property under its custom name', () => {
-            const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1')
-
-            const processedEvent = processEvent(
-                sourceEvent,
-                buildMockMeta({ customNames: { myUrlParameter: 'custom_name' } })
-            )
+        it.each<{
+            case: string
+            url: string
+            config: Partial<PluginConfig>
+            expectedKey: string
+            expectedValue: string
+            absentKey: string
+        }>([
+            {
+                case: 'a parameter listed in parameters',
+                url: 'https://posthog.com/test?plugin=1&myUrlParameter=1',
+                config: { customNames: { myUrlParameter: 'custom_name' } },
+                expectedKey: 'custom_name',
+                expectedValue: '1',
+                absentKey: 'myUrlParameter',
+            },
+            {
+                case: 'a parameter listed only in customNames',
+                url: 'https://posthog.com/test?plugin=1&fid=42',
+                config: { customNames: { fid: 'follower_id' } },
+                expectedKey: 'follower_id',
+                expectedValue: '42',
+                absentKey: 'fid',
+            },
+            {
+                case: 'a parameter with different case when ignoreCase is true',
+                url: 'https://posthog.com/test?plugin=1&MyUrlParameter=1',
+                config: { ignoreCase: 'true', customNames: { myUrlParameter: 'custom_name' } },
+                expectedKey: 'custom_name',
+                expectedValue: '1',
+                absentKey: 'MyUrlParameter',
+            },
+        ])('should store $case under its custom name', ({ url, config, expectedKey, expectedValue, absentKey }) => {
+            const processedEvent = processEvent(buildPageViewEvent(url), buildMockMeta(config))
 
             if (processedEvent.properties) {
-                expect(processedEvent.properties['custom_name']).toEqual('1')
-                expect(processedEvent.properties['myUrlParameter']).not.toBeDefined()
-            } else {
-                expect(processedEvent.properties).toBeDefined()
-            }
-        })
-
-        it('should capture a parameter listed only in customNames', () => {
-            const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&fid=42')
-
-            const processedEvent = processEvent(sourceEvent, buildMockMeta({ customNames: { fid: 'follower_id' } }))
-
-            if (processedEvent.properties) {
-                expect(processedEvent.properties['follower_id']).toEqual('42')
-                expect(processedEvent.properties['fid']).not.toBeDefined()
+                expect(processedEvent.properties[expectedKey]).toEqual(expectedValue)
+                expect(processedEvent.properties[absentKey]).not.toBeDefined()
             } else {
                 expect(processedEvent.properties).toBeDefined()
             }
@@ -475,21 +489,6 @@ describe('ParamsToPropertiesPlugin', () => {
                 expect(processedEvent.properties['custom_name']).toEqual('1')
                 expect(processedEvent.properties.$set['custom_name']).toEqual('1')
                 expect(processedEvent.properties.$set_once['initial_custom_name']).toEqual('1')
-            } else {
-                expect(processedEvent.properties).toBeDefined()
-            }
-        })
-
-        it('should store the property under its custom name regardless of case', () => {
-            const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&MyUrlParameter=1')
-
-            const processedEvent = processEvent(
-                sourceEvent,
-                buildMockMeta({ ignoreCase: 'true', customNames: { myUrlParameter: 'custom_name' } })
-            )
-
-            if (processedEvent.properties) {
-                expect(processedEvent.properties['custom_name']).toEqual('1')
             } else {
                 expect(processedEvent.properties).toBeDefined()
             }
