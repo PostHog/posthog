@@ -20,6 +20,7 @@ import {
 } from '../generated/api'
 import type { EstimateResponseApi, ObservationStatsApi, ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import type { replayScannerLogicType } from './replayScannerLogicType'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
@@ -632,7 +633,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             // and rapid filter edits don't fire one request per tick.
             setScannerValue: () => actions.requestScannerEstimate(),
             setScannerValues: () => actions.requestScannerEstimate(),
-            submitScannerSuccess: () => actions.requestScannerEstimate(),
+            submitScannerSuccess: () => {
+                actions.requestScannerEstimate()
+                // Saving recomputes the persisted estimate, which shifts the org-wide fleet sum.
+                visionQuotaLogic.findMounted()?.actions.loadQuota()
+            },
 
             requestScannerEstimate: () => {
                 cache.disposables.add(() => {
@@ -707,6 +712,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
                     actions.toggleEnabledSuccess(next)
+                    visionQuotaLogic.findMounted()?.actions.loadQuota()
                 } catch (error: any) {
                     actions.setScannerValue('enabled', !next)
                     const verb = next ? 'enable' : 'disable'

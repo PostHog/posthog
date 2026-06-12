@@ -86,6 +86,10 @@ class TestCustomerIOSourceGetSchemas:
 
         webhook_supported = {s.name for s in schemas if s.supports_webhooks}
         assert webhook_supported == set(CIO_WEBHOOK_SCHEMA_NAMES)
+        # Webhook tables have no polling endpoint, so webhook must be the only offered method —
+        # this is what keeps one-shot setup from enabling them as broken full-refresh syncs.
+        webhook_only = {s.name for s in schemas if s.webhook_only}
+        assert webhook_only == set(CIO_WEBHOOK_SCHEMA_NAMES)
 
 
 class TestCustomerIOSourceCreateWebhook:

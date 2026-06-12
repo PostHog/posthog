@@ -8,7 +8,7 @@ import { PersonEventProcessor } from '../../worker/ingestion/persons/person-even
 import { PersonMergeService } from '../../worker/ingestion/persons/person-merge-service'
 import { determineMergeMode } from '../../worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../worker/ingestion/persons/person-property-service'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { AsyncOutput } from '../analytics/outputs'
 import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -19,6 +19,7 @@ export type ProcessPersonsInput = {
     team: Team
     timestamp: DateTime
     personlessPerson?: Person
+    personsStoreForBatch: PersonsStoreForBatch
 }
 
 export type ProcessPersonsOutput = {
@@ -27,8 +28,7 @@ export type ProcessPersonsOutput = {
 
 export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
     options: EventPipelineRunnerOptions,
-    personOutputs: PersonOutputs,
-    personsStore: PersonsStore
+    personOutputs: PersonOutputs
 ): ProcessingStep<TInput, TInput & ProcessPersonsOutput, AsyncOutput> {
     const mergeMode = determineMergeMode(
         options.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
@@ -39,7 +39,7 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
     return async function processPersonsStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonsOutput, AsyncOutput>> {
-        const { normalizedEvent, team, timestamp, personlessPerson } = input
+        const { normalizedEvent, team, timestamp, personlessPerson, personsStoreForBatch } = input
 
         if (personlessPerson && !personlessPerson.force_upgrade) {
             return ok({ ...input, person: personlessPerson })
@@ -54,7 +54,7 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             timestamp,
             true,
             personOutputs,
-            personsStore,
+            personsStoreForBatch,
             options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
             mergeMode,
             options.PERSON_PROPERTIES_UPDATE_ALL,

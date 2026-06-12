@@ -63,6 +63,9 @@ interface SQLEditorProps {
     runQueryDisabledReason?: string
     runQueryTooltip?: string
     onShareTab?: () => void
+    queryPaneDefaultHeight?: number
+    /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
+    autoFocusQueryPane?: boolean
 }
 
 export function SQLEditor({
@@ -77,6 +80,8 @@ export function SQLEditor({
     runQueryDisabledReason,
     runQueryTooltip,
     onShareTab,
+    queryPaneDefaultHeight,
+    autoFocusQueryPane,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -97,6 +102,7 @@ export function SQLEditor({
             navigatorRef,
             sidebarRef,
             databaseTreeRef,
+            queryPaneDefaultHeight,
             sourceNavigatorResizerProps: {
                 containerRef: navigatorRef,
                 logicKey: 'source-navigator',
@@ -120,7 +126,7 @@ export function SQLEditor({
                 marginTop: mode === SQLEditorMode.FullScene ? 8 : 0,
             },
         }),
-        [mode]
+        [mode, queryPaneDefaultHeight]
     )
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
@@ -243,6 +249,7 @@ export function SQLEditor({
                                                             runQueryDisabledReason={runQueryDisabledReason}
                                                             runQueryTooltip={runQueryTooltip}
                                                             onShareTab={onShareTab}
+                                                            autoFocusQueryPane={autoFocusQueryPane}
                                                         />
                                                     </div>
                                                 </div>

@@ -7,9 +7,12 @@ import { useEffect } from 'react'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -18,6 +21,8 @@ import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { AddExperimentsToNotebookModal } from '../AddExperimentsToNotebookModal/AddExperimentsToNotebookModal'
 import { AddInsightsToNotebookModal } from '../AddInsightsToNotebookModal/AddInsightsToNotebookModal'
 import { Editor } from './Editor'
+import { isMarkdownNotebookContent } from './markdownNotebookV2'
+import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
 import { NotebookCollabConflictModal } from './NotebookCollabConflictModal'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { NotebookColumnRight } from './NotebookColumnRight'
@@ -25,6 +30,7 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { openUpgradeToMarkdownNotebookDialog } from './notebookUpgradeDialog'
 
 export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
@@ -52,11 +58,20 @@ export function Notebook({
         cachedInlineQueryResultsByNodeId,
     }
     const logic = notebookLogic(logicProps)
-    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
-        useValues(logic)
+    const {
+        notebook,
+        notebookLoading,
+        editor,
+        conflictWarningVisible,
+        isEditable,
+        isTemplate,
+        notebookMissing,
+        content,
+    } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
     const { isCommandOpen } = useValues(commandLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         if (initialContent && mode === 'canvas') {
@@ -94,6 +109,12 @@ export function Notebook({
         setContainerSize(size as 'small' | 'medium')
     }, [size]) // oxlint-disable-line exhaustive-deps
 
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
+    const canUpgradeToMarkdownNotebooks = !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]
+    const upgradeToMarkdownNotebook = (): void => {
+        openUpgradeToMarkdownNotebookDialog({ content, setLocalContent })
+    }
+
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>
             {conflictWarningVisible ? (
@@ -110,6 +131,7 @@ export function Notebook({
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
                         isEditable && 'Notebook--editable',
+                        isMarkdownNotebook && 'Notebook--markdown-v2',
                         className
                     )}
                     ref={ref}
@@ -142,11 +164,17 @@ export function Notebook({
                         </LemonBanner>
                     ) : null}
 
+                    {isEditable && !isMarkdownNotebook && canUpgradeToMarkdownNotebooks ? (
+                        <div className="Notebook__top-actions">
+                            <LemonButton type="secondary" onClick={upgradeToMarkdownNotebook}>
+                                Convert to Markdown notebooks
+                            </LemonButton>
+                        </div>
+                    ) : null}
+
                     <div className="Notebook_content">
                         <NotebookColumnLeft />
-                        <ErrorBoundary>
-                            <Editor />
-                        </ErrorBoundary>
+                        <ErrorBoundary>{isMarkdownNotebook ? <MarkdownNotebookV2 /> : <Editor />}</ErrorBoundary>
                         <NotebookColumnRight />
                     </div>
                 </div>
