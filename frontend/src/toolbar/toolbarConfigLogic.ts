@@ -644,7 +644,23 @@ function verifyUiHostReachability(
     })
         .then((response) => {
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`)
+                // A non-OK response (typically a 404 from a host that predates the OAuth
+                // flow, or a misconfigured ui_host) is an expected reachability outcome,
+                // not a defect. Track it for analytics but don't report it to error
+                // tracking — the config modal already surfaces it to the user.
+                actions.setAuthStatus('error')
+                toolbarPosthogJS.capture('toolbar ui host check', {
+                    ...checkBaseProps,
+                    status: 'error',
+                    error_type: 'http_error',
+                    http_status: response.status,
+                    duration_ms: Date.now() - checkStart,
+                })
+
+                if (authParams) {
+                    actions.openUiHostConfigModal()
+                }
+                return
             }
             actions.setAuthStatus('idle')
             toolbarPosthogJS.capture('toolbar ui host check', {
