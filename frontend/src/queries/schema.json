@@ -39668,6 +39668,10 @@
             ],
             "type": "string"
         },
+        "SlackIntegrationScopeInReview": {
+            "enum": ["assistant:write", "im:history", "mpim:read"],
+            "type": "string"
+        },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"

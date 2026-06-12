@@ -4867,6 +4867,12 @@ class SlackIntegrationScope(StrEnum):
     USERS_READ_EMAIL = "users:read.email"
 
 
+class SlackIntegrationScopeInReview(StrEnum):
+    ASSISTANT_WRITE = "assistant:write"
+    IM_HISTORY = "im:history"
+    MPIM_READ = "mpim:read"
+
+
 class SlashCommandName(StrEnum):
     FIELD_INIT = "/init"
     FIELD_REMEMBER = "/remember"
