@@ -32,8 +32,9 @@ async function cachedFindGroups(
     const resolved: Record<string, Group> = {}
     const uncachedKeys: string[] = []
     for (const groupKey of groupKeys) {
-        if (groupLookupCache.has(cacheKey(teamId, groupTypeIndex, groupKey))) {
-            const cached = groupLookupCache.get(cacheKey(teamId, groupTypeIndex, groupKey))
+        const k = cacheKey(teamId, groupTypeIndex, groupKey)
+        if (groupLookupCache.has(k)) {
+            const cached = groupLookupCache.get(k)
             if (cached) {
                 resolved[groupKey] = cached
             }
@@ -44,10 +45,15 @@ async function cachedFindGroups(
     if (uncachedKeys.length > 0) {
         const found = await findGroups(teamId, groupTypeIndex, uncachedKeys)
         for (const groupKey of uncachedKeys) {
-            const group = found[groupKey] ?? null
-            groupLookupCache.set(cacheKey(teamId, groupTypeIndex, groupKey), group)
-            if (group) {
-                resolved[groupKey] = group
+            // Only cache a definitive result (a group, or null for a 404 miss).
+            // Transient failures are absent from `found`, so we leave them
+            // uncached and the next hover retries them.
+            if (groupKey in found) {
+                const group = found[groupKey]
+                groupLookupCache.set(cacheKey(teamId, groupTypeIndex, groupKey), group)
+                if (group) {
+                    resolved[groupKey] = group
+                }
             }
         }
     }
@@ -56,7 +62,7 @@ async function cachedFindGroups(
 
 export const groupKeyTooltipLogic = kea<groupKeyTooltipLogicType>([
     props({} as GroupKeyTooltipLogicProps),
-    key((props) => `${props.groupTypeIndex}-${[...props.groupKeys].sort().join(',')}`),
+    key((props) => `${props.groupTypeIndex}-${JSON.stringify([...props.groupKeys].sort())}`),
     path((key) => ['lib', 'components', 'PropertyFilters', 'components', 'groupKeyTooltipLogic', key]),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],

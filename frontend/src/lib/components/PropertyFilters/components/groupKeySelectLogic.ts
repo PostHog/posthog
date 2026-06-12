@@ -1,7 +1,9 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -14,11 +16,14 @@ export interface GroupKeySelectLogicProps {
     value: string[]
 }
 
+// A `null` value is a definitive "no such group" (404) that callers may cache.
+// A key absent from the result hit a transient error and should be retried, not
+// remembered as a miss.
 export async function findGroups(
     teamId: number | null,
     groupTypeIndex: GroupTypeIndex,
     groupKeys: string[]
-): Promise<Record<string, Group>> {
+): Promise<Record<string, Group | null>> {
     if (!teamId || groupKeys.length === 0) {
         return {}
     }
@@ -32,12 +37,16 @@ export async function findGroups(
                     }).toString()}`
                 )
                 return [groupKey, response] as const
-            } catch {
+            } catch (error) {
+                if (error instanceof ApiError && error.status === 404) {
+                    return [groupKey, null] as const
+                }
+                posthog.captureException(error)
                 return null
             }
         })
     )
-    return Object.fromEntries(results.filter((r): r is readonly [string, Group] => r !== null))
+    return Object.fromEntries(results.filter((r): r is readonly [string, Group | null] => r !== null))
 }
 
 export async function resolveGroupNames(
@@ -46,12 +55,13 @@ export async function resolveGroupNames(
     groupKeys: string[]
 ): Promise<Record<string, string>> {
     const groups = await findGroups(teamId, groupTypeIndex, groupKeys)
-    return Object.fromEntries(
-        Object.entries(groups).map(([groupKey, group]) => [
-            groupKey,
-            groupDisplayId(group.group_key, group.group_properties),
-        ])
-    )
+    const names: Record<string, string> = {}
+    for (const [groupKey, group] of Object.entries(groups)) {
+        if (group) {
+            names[groupKey] = groupDisplayId(group.group_key, group.group_properties)
+        }
+    }
+    return names
 }
 
 export const groupKeySelectLogic = kea<groupKeySelectLogicType>([

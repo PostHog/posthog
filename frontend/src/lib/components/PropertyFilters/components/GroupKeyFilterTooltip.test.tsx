@@ -48,37 +48,35 @@ describe('GroupKeyFilterTooltip', () => {
         cleanup()
     })
 
-    it('renders the resolved group name and key when the lookup succeeds', async () => {
+    it.each([
+        {
+            description: 'the resolved group name when the lookup succeeds',
+            groupKey: 'uuid-001',
+            expectedText: 'Fjellride AB',
+        },
+        {
+            description: 'the raw group key as the name when the group has no name property',
+            groupKey: 'key-no-name',
+            expectedText: 'key-no-name',
+        },
+        {
+            description: 'the fallback label when the group cannot be looked up',
+            groupKey: 'unknown-uuid',
+            expectedText: '$group_key = unknown-uuid',
+        },
+    ])('renders $description', async ({ groupKey, expectedText }) => {
         render(
             <Provider>
                 <GroupKeyFilterTooltip
                     groupTypeIndex={0 as GroupTypeIndex}
-                    groupKeys={['uuid-001']}
-                    fallbackLabel="$group_key = uuid-001"
+                    groupKeys={[groupKey]}
+                    fallbackLabel={`$group_key = ${groupKey}`}
                 />
             </Provider>
         )
 
         await waitFor(() => {
-            expect(screen.getByText('Fjellride AB')).toBeInTheDocument()
-        })
-        expect(screen.getByText('uuid-001')).toBeInTheDocument()
-        expect(screen.queryByText('$group_key = uuid-001')).not.toBeInTheDocument()
-    })
-
-    it('falls back to the raw group key as the name when the group has no name property', async () => {
-        render(
-            <Provider>
-                <GroupKeyFilterTooltip
-                    groupTypeIndex={0 as GroupTypeIndex}
-                    groupKeys={['key-no-name']}
-                    fallbackLabel="$group_key = key-no-name"
-                />
-            </Provider>
-        )
-
-        await waitFor(() => {
-            expect(screen.getAllByText('key-no-name').length).toBeGreaterThan(0)
+            expect(screen.getAllByText(expectedText).length).toBeGreaterThan(0)
         })
     })
 
@@ -118,21 +116,5 @@ describe('GroupKeyFilterTooltip', () => {
         })
 
         expect(findCalls).toBe(1)
-    })
-
-    it('shows the fallback label when the group cannot be looked up', async () => {
-        render(
-            <Provider>
-                <GroupKeyFilterTooltip
-                    groupTypeIndex={0 as GroupTypeIndex}
-                    groupKeys={['unknown-uuid']}
-                    fallbackLabel="$group_key = unknown-uuid"
-                />
-            </Provider>
-        )
-
-        await waitFor(() => {
-            expect(screen.getByText('$group_key = unknown-uuid')).toBeInTheDocument()
-        })
     })
 })
