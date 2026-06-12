@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -118,17 +118,6 @@ export const groupKeySelectLogic = kea<groupKeySelectLogicType>([
             },
         ],
     })),
-    selectors({
-        groupOptions: [
-            (s) => [s.groups],
-            (groups: Group[]): { key: string; label: string }[] => {
-                return groups.map((g) => ({
-                    key: g.group_key,
-                    label: groupDisplayId(g.group_key, g.group_properties),
-                }))
-            },
-        ],
-    }),
     listeners(({ actions }) => ({
         setSearchQuery: ({ query }: { query: string }) => {
             actions.loadGroups({ search: query })

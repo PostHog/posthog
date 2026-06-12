@@ -5,7 +5,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
-import { GroupTypeIndex } from '~/types'
+import { Group, GroupTypeIndex } from '~/types'
 
 import { groupKeyTooltipLogic } from './groupKeyTooltipLogic'
 
@@ -13,6 +13,25 @@ export interface GroupKeyFilterTooltipProps {
     groupTypeIndex: GroupTypeIndex
     groupKey: string
     fallbackLabel: string
+}
+
+export function GroupInfoCard({ group }: { group: Group }): JSX.Element {
+    return (
+        <div className="flex flex-col">
+            <span className="font-semibold">{groupDisplayId(group.group_key, group.group_properties)}</span>
+            <CopyToClipboardInline
+                selectable
+                description="group key"
+                tooltipMessage={null}
+                className="font-mono text-xs text-secondary"
+            >
+                {group.group_key}
+            </CopyToClipboardInline>
+            <span className="text-xs">
+                First seen: {group.created_at ? <TZLabel time={group.created_at} /> : 'unknown'}
+            </span>
+        </div>
+    )
 }
 
 export function GroupKeyFilterTooltip({
@@ -34,20 +53,5 @@ export function GroupKeyFilterTooltip({
         return <>{fallbackLabel}</>
     }
 
-    return (
-        <div className="flex flex-col">
-            <span className="font-semibold">{groupDisplayId(group.group_key, group.group_properties)}</span>
-            <CopyToClipboardInline
-                selectable
-                description="group key"
-                tooltipMessage={null}
-                className="font-mono text-xs text-secondary"
-            >
-                {group.group_key}
-            </CopyToClipboardInline>
-            <span className="text-xs">
-                First seen: {group.created_at ? <TZLabel time={group.created_at} /> : 'unknown'}
-            </span>
-        </div>
-    )
+    return <GroupInfoCard group={group} />
 }
