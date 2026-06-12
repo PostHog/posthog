@@ -256,21 +256,26 @@ services:
         entrypoint:
             - /bin/sh
             - -c
-            # Background a create-and-verify loop and exec weed as PID 1 so SIGTERM
+            # Background a setup-and-verify loop and exec weed as PID 1 so SIGTERM
             # reaches it directly. `weed shell` exits 0 as long as the master is
             # reachable, even if individual commands fail (e.g. while the filer is still
-            # coming up), so we run configure+create+list in one session and only touch
-            # the sentinel once the output reports every required bucket and identity.
+            # coming up), and setup output can't be grepped for success markers anyway:
+            # the identity is also named `posthog`, so its configure echo would shadow
+            # the `posthog` bucket check. The sentinel is therefore only touched once
+            # read-only `s3.bucket.list` / `s3.configure` sessions report every required
+            # bucket and identity from actual persisted state.
             - |
                 (
                     while true; do
-                        OUT=$$(printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password -user=posthog -actions=Admin -apply\ns3.configure -user=anonymous -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\ns3.bucket.list\n' \
-                                | /usr/bin/weed shell -master=localhost:19001 2>&1 || true)
-                        if echo "$$OUT" | grep -q object_storage_root_user \
-                                && echo "$$OUT" | grep -q anonymous \
-                                && echo "$$OUT" | grep -q posthog \
-                                && echo "$$OUT" | grep -q ducklake-dev \
-                                && echo "$$OUT" | grep -q ai-blobs; then
+                        printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password -user=posthog -actions=Admin -apply\ns3.configure -user=anonymous -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\n' \
+                                | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1 || true
+                        BUCKETS=$$(echo 's3.bucket.list' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
+                        IDENTITIES=$$(echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
+                        if echo "$$BUCKETS" | grep -q posthog \
+                                && echo "$$BUCKETS" | grep -q ducklake-dev \
+                                && echo "$$BUCKETS" | grep -q ai-blobs \
+                                && echo "$$IDENTITIES" | grep -q object_storage_root_user \
+                                && echo "$$IDENTITIES" | grep -q anonymous; then
                             touch /tmp/objectstorage-ready
                             echo "Objectstorage SeaweedFS ready with required buckets and identities"
                             break

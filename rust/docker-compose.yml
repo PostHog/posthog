@@ -65,12 +65,14 @@ services:
             - |
                 (
                     while true; do
-                        OUT=$$(printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password -user=posthog -actions=Admin -apply\ns3.configure -user=anonymous -actions=Admin -apply\ns3.bucket.create -name capture\ns3.bucket.create -name posthog\ns3.bucket.list\n' \
-                                | /usr/bin/weed shell -master=localhost:19001 2>&1 || true)
-                        if echo "$$OUT" | grep -q object_storage_root_user \
-                                && echo "$$OUT" | grep -q anonymous \
-                                && echo "$$OUT" | grep -q capture \
-                                && echo "$$OUT" | grep -q posthog; then
+                        printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password -user=posthog -actions=Admin -apply\ns3.configure -user=anonymous -actions=Admin -apply\ns3.bucket.create -name capture\ns3.bucket.create -name posthog\n' \
+                                | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1 || true
+                        BUCKETS=$$(echo 's3.bucket.list' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
+                        IDENTITIES=$$(echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
+                        if echo "$$BUCKETS" | grep -q capture \
+                                && echo "$$BUCKETS" | grep -q posthog \
+                                && echo "$$IDENTITIES" | grep -q object_storage_root_user \
+                                && echo "$$IDENTITIES" | grep -q anonymous; then
                             touch /tmp/objectstorage-ready
                             echo "Objectstorage SeaweedFS ready with required buckets and identities"
                             break
