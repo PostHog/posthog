@@ -168,6 +168,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // mounts it itself).
             posthogAiContextLogic({ conversationId }),
             ['attachments as sandboxAttachments'],
+            // Surfaces the sandbox stream's input-area state to components outside SandboxThread's
+            // BindLogic subtree (the input area renders for LangGraph conversations too, so they
+            // can't bind the keyed stream logic themselves).
+            sandboxStreamLogic({ conversationId }),
+            ['pendingPermissionRequest as pendingSandboxPermissionRequest', 'currentMode as sandboxCurrentMode'],
         ],
         actions: [
             maxLogic({ panelId }),
