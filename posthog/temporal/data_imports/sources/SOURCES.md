@@ -216,8 +216,14 @@ doesn't conflict with concurrent PRs.
 - adobe_commerce
 - adp_workforce_now
 - adyen
+- amazon_ads
+- amazon_cloudwatch
+- amazon_eventbridge
+- amazon_kinesis
 - amazon_s3
 - amazon_selling_partner
+- amazon_sns
+- amazon_sqs
 - apollo
 - apple_search_ads
 - attentive

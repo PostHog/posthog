@@ -164,7 +164,32 @@ class AmazonAdsSourceConfig(config.Config):
 
 
 @config.config
+class AmazonCloudWatchSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonEventBridgeSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonKinesisSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AmazonS3SourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonSNSSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonSQSSourceConfig(config.Config):
     pass
 
 
@@ -1425,7 +1450,12 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AIRCALL: AircallSourceConfig,
         ExternalDataSourceType.AIRTABLE: AirtableSourceConfig,
         ExternalDataSourceType.AMAZONADS: AmazonAdsSourceConfig,
+        ExternalDataSourceType.AMAZONCLOUDWATCH: AmazonCloudWatchSourceConfig,
+        ExternalDataSourceType.AMAZONEVENTBRIDGE: AmazonEventBridgeSourceConfig,
+        ExternalDataSourceType.AMAZONKINESIS: AmazonKinesisSourceConfig,
         ExternalDataSourceType.AMAZONS3: AmazonS3SourceConfig,
+        ExternalDataSourceType.AMAZONSNS: AmazonSNSSourceConfig,
+        ExternalDataSourceType.AMAZONSQS: AmazonSQSSourceConfig,
         ExternalDataSourceType.AMAZONSELLINGPARTNER: AmazonSellingPartnerSourceConfig,
         ExternalDataSourceType.AMPLITUDE: AmplitudeSourceConfig,
         ExternalDataSourceType.APOLLO: ApolloSourceConfig,
