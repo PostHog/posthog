@@ -110,6 +110,17 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   prioritizes issues an agent can resolve via the MCP over credential-gated ones.
   Its discriminator is kind-concentration × severity × agent-fixability ×
   persistence, not raw firing count.
+- `signals-scout-api-deprecations/` — third-party API deprecation watcher for the
+  project's codebase. Inventories every external URL the integration code calls
+  (CDP destination templates, warehouse import sources, batch exports, native
+  integrations), triages genuine call sites from docs links / OAuth scopes /
+  assets, then researches each against the vendor's own documentation on both
+  axes: pinned-version sunsets and endpoint/product retirements (an endpoint can
+  die while its version is current). Its discriminator is citability — one finding
+  per deprecation it can quote from a vendor page; uncitable suspicions go to the
+  scratchpad. Needs a repository checkout (uses the harness's when provided,
+  shallow-clones public repos otherwise); most runs close out empty against
+  `last-scan` memory since code changes slowly.
 - `signals-scout-inbox-validation/` — follow-up watcher for the inbox itself.
   Watches reports that recently transitioned to `resolved` (implementation PR
   merged), waits out a deployment soak window, then re-probes the entities the
