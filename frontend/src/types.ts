@@ -83,7 +83,6 @@ import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflo
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
-import { InferredSelector } from './toolbar/product-tours/elementInference'
 
 export enum ConversionRateInputType {
     MANUAL = 'manual',
@@ -3696,6 +3695,14 @@ export const PRODUCT_TOUR_STEP_WIDTHS: Record<ProductTourStepWidth, number> = {
 }
 
 export type ProductTourStepTargeting = 'auto' | 'manual'
+
+/** enhanced element data for more reliable lookup of a tour step's target element at runtime */
+export interface InferredSelector {
+    autoData: string
+    text: string | null
+    excludeText?: boolean
+    precision?: number
+}
 
 export interface ProductTourStep {
     id: string

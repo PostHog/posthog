@@ -142,12 +142,11 @@ Fired when a toolbar mode is toggled on or off.
 
 | Property  | Type      | Description                                                             |
 | --------- | --------- | ----------------------------------------------------------------------- |
-| `mode`    | `string`  | One of: `heatmap`, `inspect`, `actions`, `experiments`, `product-tours` |
-| `enabled` | `boolean` | Whether the mode was enabled or disabled                                |
+| `mode`    | `string`  | One of: `heatmap`, `inspect`, `actions`, `experiments` |
+| `enabled` | `boolean` | Whether the mode was enabled or disabled               |
 
 **Files:** `elements/elementsLogic.ts`, `elements/heatmapToolbarMenuLogic.ts`,
-`actions/actionsTabLogic.tsx`, `experiments/experimentsTabLogic.tsx`,
-`product-tours/productToursLogic.ts`
+`actions/actionsTabLogic.tsx`, `experiments/experimentsTabLogic.tsx`
 
 ## Element inspection
 
@@ -215,61 +214,6 @@ Fired when flags are loaded for a different distinct ID.
 | `distinct_id` | `string` | The distinct ID being impersonated |
 
 **File:** `flags/flagsToolbarLogic.ts`
-
-## Product tours
-
-### `product tour recording started`
-
-Fired when session recording starts for product tour editing.
-No properties.
-
-**File:** `product-tours/productToursLogic.ts`
-
-### `product tour step added`
-
-Fired when a new step is added to a tour.
-
-| Property     | Type             | Description                 |
-| ------------ | ---------------- | --------------------------- |
-| `step_type`  | `string`         | Type of step added          |
-| `step_index` | `number`         | Index of the new step       |
-| `tour_id`    | `string \| null` | ID of the tour being edited |
-
-**File:** `product-tours/productToursLogic.ts`
-
-### `product tour step removed`
-
-Fired when a step is removed from a tour.
-
-| Property          | Type             | Description                   |
-| ----------------- | ---------------- | ----------------------------- |
-| `step_type`       | `string \| null` | Type of step removed          |
-| `step_index`      | `number`         | Index of the removed step     |
-| `tour_id`         | `string \| null` | ID of the tour                |
-| `remaining_steps` | `number`         | Steps remaining after removal |
-
-**File:** `product-tours/productToursLogic.ts`
-
-### `product tour consent selected`
-
-Fired when the user selects session recording consent.
-
-| Property  | Type      | Description               |
-| --------- | --------- | ------------------------- |
-| `consent` | `boolean` | Whether consent was given |
-
-**File:** `product-tours/productToursLogic.ts`
-
-### `product tour preview started`
-
-Fired when the user starts previewing a product tour.
-
-| Property     | Type             | Description                    |
-| ------------ | ---------------- | ------------------------------ |
-| `tour_id`    | `string \| null` | ID of the tour being previewed |
-| `step_count` | `number`         | Number of steps in the tour    |
-
-**File:** `product-tours/productToursLogic.ts`
 
 ## Screenshots
 
