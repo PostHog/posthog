@@ -54,8 +54,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -89,8 +88,7 @@
   WHERE 0) AS subscription WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -153,8 +151,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -196,8 +193,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -287,8 +283,7 @@
   WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_customer.country, 'US'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -359,8 +354,7 @@
   WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_customer.country, 'US'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -423,8 +417,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -466,8 +459,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -667,8 +659,7 @@
   WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -742,8 +733,7 @@
   WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -813,8 +803,7 @@
   WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -859,8 +848,7 @@
     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id) WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -923,8 +911,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -966,8 +953,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1030,8 +1016,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1073,8 +1058,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1137,8 +1121,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1180,8 +1163,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1244,8 +1226,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1287,8 +1268,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1358,8 +1338,7 @@
   WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1404,8 +1383,7 @@
     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id) WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1468,8 +1446,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1511,8 +1488,7 @@
   WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1582,8 +1558,7 @@
   WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_product.name, 'Product C'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1628,8 +1603,7 @@
     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id) WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_product.name, 'Product C'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1699,8 +1673,7 @@
   WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_product.name, 'Product C'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date
@@ -1745,8 +1718,7 @@
     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id) WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.is_recurring, 1), equals(revenue_analytics_product.name, 'Product C'))) AS subquery
   GROUP BY breakdown_by, customer_id, subscription_id, day) AS grouped_by_day
   GROUP BY breakdown_by, customer_id, subscription_id) AS map_query) AS mrr_per_day_subquery
-  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), isNull(mrr_per_day_subquery.date)
-    and isNull(toLastDayOfMonth(mrr_per_day_subquery.date))), equals(mrr_per_day_subquery.row_number, 1))
+  WHERE or(ifNull(equals(mrr_per_day_subquery.date, toLastDayOfMonth(mrr_per_day_subquery.date)), and(isNull(mrr_per_day_subquery.date), isNull(toLastDayOfMonth(mrr_per_day_subquery.date)))), equals(mrr_per_day_subquery.row_number, 1))
   ORDER BY mrr_per_day_subquery.breakdown_by ASC, mrr_per_day_subquery.customer_id ASC, mrr_per_day_subquery.subscription_id ASC, mrr_per_day_subquery.date ASC)
   WHERE and(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by, date

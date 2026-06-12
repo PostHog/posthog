@@ -14,8 +14,7 @@
          sum(ev.occ) AS occurrences,
          uniqMerge(ev.sessions_state) AS sessions,
          uniqMerge(ev.users_state) AS users,
-         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
-                                            and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
+         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), and(isNull(ev.bin_idx), isNull(i))), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
     (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
@@ -84,8 +83,7 @@
          sum(ev.occ) AS occurrences,
          uniqMerge(ev.sessions_state) AS sessions,
          uniqMerge(ev.users_state) AS users,
-         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
-                                            and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
+         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), and(isNull(ev.bin_idx), isNull(i))), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
     (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
@@ -641,8 +639,7 @@
          sum(ev.occ) AS occurrences,
          uniqMerge(ev.sessions_state) AS sessions,
          uniqMerge(ev.users_state) AS users,
-         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
-                                            and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
+         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), and(isNull(ev.bin_idx), isNull(i))), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
     (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
@@ -870,8 +867,7 @@
          sum(ev.occ) AS occurrences,
          uniqMerge(ev.sessions_state) AS sessions,
          uniqMerge(ev.users_state) AS users,
-         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
-                                            and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
+         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), and(isNull(ev.bin_idx), isNull(i))), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
     (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
@@ -1070,8 +1066,7 @@
          sum(ev.occ) AS occurrences,
          uniqMerge(ev.sessions_state) AS sessions,
          uniqMerge(ev.users_state) AS users,
-         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
-                                            and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
+         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), and(isNull(ev.bin_idx), isNull(i))), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
     (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
@@ -1150,8 +1145,7 @@
          sum(ev.occ) AS occurrences,
          uniqMerge(ev.sessions_state) AS sessions,
          uniqMerge(ev.users_state) AS users,
-         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
-                                            and isNull(i)), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
+         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), and(isNull(ev.bin_idx), isNull(i))), ev.occ, toUInt64(0)), range(0, 1))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
     (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
@@ -1230,8 +1224,7 @@
          sum(ev.occ) AS occurrences,
          uniqMerge(ev.sessions_state) AS sessions,
          uniqMerge(ev.users_state) AS users,
-         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
-                                            and isNull(i)), ev.occ, toUInt64(0)), range(0, 4))) AS volumeRange,
+         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), and(isNull(ev.bin_idx), isNull(i))), ev.occ, toUInt64(0)), range(0, 4))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
     (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,
@@ -1300,8 +1293,7 @@
          sum(ev.occ) AS occurrences,
          uniqMerge(ev.sessions_state) AS sessions,
          uniqMerge(ev.users_state) AS users,
-         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), isNull(ev.bin_idx)
-                                            and isNull(i)), ev.occ, toUInt64(0)), range(0, 3))) AS volumeRange,
+         sumForEach(arrayMap(i -> if(ifNull(equals(ev.bin_idx, i), and(isNull(ev.bin_idx), isNull(i))), ev.occ, toUInt64(0)), range(0, 3))) AS volumeRange,
          argMaxMerge(ev.library_state) AS library
   FROM
     (SELECT cityHash64(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')) AS fp_hash,

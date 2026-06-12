@@ -43,10 +43,8 @@
      FROM
        (SELECT events.`$session_id` AS `$session_id`,
                ['$pageview'] AS events,
-               minForEach(arrayMap(x -> if(ifNull(equals(events.event, x), isNull(events.event)
-                                                  and isNull(x)), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL), ['$pageview'])) AS earliest_success_events,
-               minForEach(arrayMap(x -> if(ifNull(equals(x, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID'))), isNull(x)
-                                                  and isNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID')))), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL),
+               minForEach(arrayMap(x -> if(ifNull(equals(events.event, x), and(isNull(events.event), isNull(x))), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL), ['$pageview'])) AS earliest_success_events,
+               minForEach(arrayMap(x -> if(ifNull(equals(x, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID'))), and(isNull(x), isNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID'))))), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL),
                                      (SELECT issues.ids AS ids
                                       FROM issues))) AS earliest_exceptions
         FROM events

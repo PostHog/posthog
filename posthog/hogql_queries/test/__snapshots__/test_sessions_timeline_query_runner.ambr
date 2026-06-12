@@ -20,9 +20,8 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+                    sum(if(ifNull(equals(session_id, prev_session_id), and(isNull(session_id), isNull(prev_session_id))), 0, 1)) OVER (PARTITION BY person_id
+                                                                                                                                       ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
@@ -92,9 +91,8 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+                    sum(if(ifNull(equals(session_id, prev_session_id), and(isNull(session_id), isNull(prev_session_id))), 0, 1)) OVER (PARTITION BY person_id
+                                                                                                                                       ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
@@ -164,9 +162,8 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+                    sum(if(ifNull(equals(session_id, prev_session_id), and(isNull(session_id), isNull(prev_session_id))), 0, 1)) OVER (PARTITION BY person_id
+                                                                                                                                       ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
@@ -236,9 +233,8 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+                    sum(if(ifNull(equals(session_id, prev_session_id), and(isNull(session_id), isNull(prev_session_id))), 0, 1)) OVER (PARTITION BY person_id
+                                                                                                                                       ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
@@ -308,9 +304,8 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+                    sum(if(ifNull(equals(session_id, prev_session_id), and(isNull(session_id), isNull(prev_session_id))), 0, 1)) OVER (PARTITION BY person_id
+                                                                                                                                       ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
@@ -380,9 +375,8 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+                    sum(if(ifNull(equals(session_id, prev_session_id), and(isNull(session_id), isNull(prev_session_id))), 0, 1)) OVER (PARTITION BY person_id
+                                                                                                                                       ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
@@ -452,9 +446,8 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+                    sum(if(ifNull(equals(session_id, prev_session_id), and(isNull(session_id), isNull(prev_session_id))), 0, 1)) OVER (PARTITION BY person_id
+                                                                                                                                       ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,

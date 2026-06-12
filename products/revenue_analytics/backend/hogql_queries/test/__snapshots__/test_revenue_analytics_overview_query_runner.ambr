@@ -3,8 +3,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -145,8 +144,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -287,8 +285,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -380,8 +377,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -522,8 +518,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -664,8 +659,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -806,8 +800,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -948,8 +941,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -1090,8 +1082,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -1246,8 +1237,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -1402,8 +1392,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
@@ -1649,8 +1638,7 @@
   '''
   SELECT sum(revenue) AS revenue,
          sum(paying_customer_count) AS paying_customer_count,
-         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), isNull(paying_customer_count)
-                   and isNull(accurateCastOrNull(0, 'Decimal64(10)'))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
+         if(ifNull(equals(paying_customer_count, accurateCastOrNull(0, 'Decimal64(10)')), and(isNull(paying_customer_count), isNull(accurateCastOrNull(0, 'Decimal64(10)')))), accurateCastOrNull(0, 'Decimal64(10)'), ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), accurateCastOrNull(0, 'Decimal64(10)'))) AS avg_revenue_per_customer
   FROM
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
