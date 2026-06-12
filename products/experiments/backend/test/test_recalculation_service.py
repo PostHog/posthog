@@ -236,6 +236,62 @@ class TestRecalculationService(BaseTest):
         assert results[0]["result"] == {"ok": True}
         assert results[0]["error_message"] is None
 
+    def test_get_run_results_strips_step_sessions(self):
+        # step_sessions carries per-step person IDs, session IDs, and event UUIDs. It powers the frontend's
+        # "view sessions per step" affordance off a separate per-metric query, so it does not belong in the
+        # recalc results payload. Mirrors the same stripping the timeseries-results path applies.
+        exp = self._launched_experiment()
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            metric_uuids=["m1"],
+            status="completed",
+            query_to=timezone.now(),
+        )
+        assert exp.metrics and exp.start_date is not None
+        assert recalc.query_to is not None
+        config_fp = compute_metric_fingerprint(
+            exp.metrics[0],
+            exp.start_date,
+            get_experiment_stats_method(exp),
+            exp.exposure_criteria,
+            only_count_matured_users=exp.only_count_matured_users,
+        )
+        recalc_fp = compute_recalc_fingerprint(config_fp, str(recalc.id))
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=recalc_fp,
+            query_from=exp.start_date,
+            query_to=recalc.query_to,
+            status="completed",
+            result={
+                "step_sessions": [["top-level-leak"]],
+                "baseline": {
+                    "step_sessions": [["baseline-leak"]],
+                    "count": 42,
+                },
+                "variant_results": [
+                    {
+                        "key": "test",
+                        "step_sessions": [["variant-leak"]],
+                        "count": 7,
+                    },
+                ],
+            },
+        )
+
+        results = get_run_results(recalc)
+
+        assert len(results) == 1
+        result = results[0]["result"]
+        assert "step_sessions" not in result
+        assert "step_sessions" not in result["baseline"]
+        assert result["baseline"]["count"] == 42
+        assert "step_sessions" not in result["variant_results"][0]
+        assert result["variant_results"][0]["count"] == 7
+        assert result["variant_results"][0]["key"] == "test"
+
     def test_get_run_results_returns_empty_when_no_rows_yet(self):
         exp = self._launched_experiment()
         recalc = ExperimentMetricsRecalculation.objects.create(
