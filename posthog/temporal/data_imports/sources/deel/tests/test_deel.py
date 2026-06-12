@@ -4,6 +4,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import requests
+
 from posthog.temporal.data_imports.sources.deel.deel import (
     PAGE_SIZE,
     DeelResumeConfig,
@@ -23,10 +25,10 @@ def _make_manager(resume_state: DeelResumeConfig | None = None) -> mock.MagicMoc
 
 def _response(items: list[dict[str, Any]], cursor: str | None = None) -> mock.MagicMock:
     resp = mock.MagicMock()
-    body: dict[str, Any] = {"data": items, "page": {"total_rows": len(items)}}
+    page: dict[str, Any] = {"total_rows": len(items)}
     if cursor is not None:
-        body["page"]["cursor"] = cursor
-    resp.json.return_value = body
+        page["cursor"] = cursor
+    resp.json.return_value = {"data": items, "page": page}
     resp.status_code = 200
     resp.ok = True
     return resp
@@ -42,11 +44,11 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
+            (200, (True, None)),
             # A valid token without people:read still 403s; only 401 means the
             # token itself is bad.
-            (403, True),
-            (401, False),
+            (403, (True, None)),
+            (401, (False, "Invalid Deel API token")),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.deel.deel.make_tracked_session")
@@ -55,12 +57,15 @@ class TestValidateCredentials:
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("token") is expected
+        assert validate_credentials("token") == expected
 
     @mock.patch("posthog.temporal.data_imports.sources.deel.deel.make_tracked_session")
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
+    def test_validate_credentials_reports_network_error_distinctly(self, mock_session):
+        # A transient network failure must not masquerade as a bad token.
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        valid, error = validate_credentials("token")
+        assert valid is False
+        assert error is not None and error.startswith("Could not reach Deel")
 
 
 class TestGetRowsOffsetPagination:
@@ -118,6 +123,22 @@ class TestGetRowsCursorPagination:
         assert manager.save_state.call_args.args[0].cursor == "cur_abc"
         second_url = mock_session.return_value.get.call_args_list[1].args[0]
         assert parse_qs(urlparse(second_url).query)["after_cursor"] == ["cur_abc"]
+
+    @pytest.mark.parametrize("num_pages", [2, 3])
+    @mock.patch("posthog.temporal.data_imports.sources.deel.deel.make_tracked_session")
+    def test_saves_state_after_each_non_terminal_page(self, mock_session, num_pages):
+        # Pages 1..n-1 carry a cursor; the terminal page has none, so state is
+        # saved exactly n - 1 times — once after every page that advances.
+        responses = [_response([{"id": str(i)}], cursor=f"cur_{i}") for i in range(1, num_pages)]
+        responses.append(_response([{"id": str(num_pages)}]))
+        mock_session.return_value.get.side_effect = responses
+
+        manager = _make_manager()
+        list(get_rows("token", "contracts", mock.MagicMock(), manager))
+
+        assert manager.save_state.call_count == num_pages - 1
+        saved_cursors = [call.args[0].cursor for call in manager.save_state.call_args_list]
+        assert saved_cursors == [f"cur_{i}" for i in range(1, num_pages)]
 
     @mock.patch("posthog.temporal.data_imports.sources.deel.deel.make_tracked_session")
     def test_resumes_from_saved_cursor(self, mock_session):

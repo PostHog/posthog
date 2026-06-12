@@ -39,19 +39,23 @@ def _get_session(api_token: str) -> requests.Session:
     return make_tracked_session(headers={"Authorization": f"Bearer {api_token}"}, redact_values=(api_token,))
 
 
-def validate_credentials(api_token: str) -> bool:
+def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     """Confirm the API token is valid with a cheap one-person listing probe.
 
     Scoped tokens may lack individual resource scopes (403); only 401 means the
-    token itself is bad."""
+    token itself is bad. A transient network failure surfaces as a distinct
+    "could not reach Deel" error so it isn't mistaken for a bad token."""
     try:
         response = _get_session(api_token).get(
             f"{DEEL_BASE_URL}/people?{urlencode({'limit': 1})}",
             timeout=10,
         )
-        return response.status_code != 401
-    except Exception:
-        return False
+    except requests.RequestException as e:
+        return False, f"Could not reach Deel: {e}"
+
+    if response.status_code == 401:
+        return False, "Invalid Deel API token"
+    return True, None
 
 
 def get_rows(

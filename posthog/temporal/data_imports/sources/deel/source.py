@@ -91,10 +91,7 @@ Create an organization token in [Deel](https://app.deel.com/developer-center) un
     def validate_credentials(
         self, config: DeelSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_deel_credentials(config.api_token):
-            return True, None
-
-        return False, "Invalid Deel API token"
+        return validate_deel_credentials(config.api_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DeelResumeConfig]:
         return ResumableSourceManager[DeelResumeConfig](inputs, DeelResumeConfig)
