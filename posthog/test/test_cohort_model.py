@@ -3,9 +3,13 @@ import uuid
 import pytest
 from posthog.test.base import BaseTest
 
+from django.test import override_settings
+
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.helpers.batch_iterators import FunctionBatchIterator
 from posthog.models import Person, Team
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -396,6 +400,27 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
         assert cohort.people.count() == 1
         assert str(cohort.people.first().uuid) == str(person.uuid)
+
+    @override_settings(DEBUG=False)
+    def test_insert_re_raises_soft_time_limit_exceeded(self):
+        # A Celery soft-time-limit interruption must propagate so the task's time limit
+        # bounds the run. The broad except must not swallow it (DEBUG=False forces the
+        # production path where everything else is swallowed). The finally still finalizes
+        # cohort state before it propagates, so is_calculating is cleared either way.
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+
+        def _raise_timeout(batch_index: int, batch_size: int) -> list[str]:
+            raise SoftTimeLimitExceeded()
+
+        iterator = FunctionBatchIterator(_raise_timeout, batch_size=10, max_items=10)
+
+        with self.assertRaises(SoftTimeLimitExceeded):
+            cohort._insert_users_list_with_batching(iterator, team_id=self.team.id)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
 
     @parameterized.expand(
         [
