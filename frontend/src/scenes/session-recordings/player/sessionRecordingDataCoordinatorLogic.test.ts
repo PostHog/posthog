@@ -29,6 +29,7 @@ import {
     recordingEventsJson,
     recordingMetaJson,
     setupSessionRecordingTest,
+    snapshotsAsJSONLines,
 } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
@@ -294,7 +295,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 ],
             })}\n`
 
-        const mountWithoutFullSnapshot = (baseTimestamp: number, metaOverride?: Record<string, unknown>): void => {
+        const mountWithSnapshots = (jsonLines: string, metaOverride?: Record<string, unknown>): void => {
             logic?.unmount()
             snapshotLogic?.unmount()
             setupSessionRecordingTest({
@@ -302,7 +303,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                     '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
                         const sourceParam = req.url.searchParams.get('source')
                         if (sourceParam === 'blob_v2' || sourceParam === 'blob') {
-                            return res(ctx.text(incrementalOnlySnapshotsAsJSONLines(baseTimestamp)))
+                            return res(ctx.text(jsonLines))
                         }
                         return [200, { sources: [BLOB_SOURCE_V2] }]
                     },
@@ -330,35 +331,46 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             expect(logic.values.fullyLoaded).toBe(true)
         }
 
-        it('flags an old recording with no full snapshot as old and invalid', async () => {
-            mountWithoutFullSnapshot(1682952380877)
+        it.each<{
+            case: string
+            mocks: () => { jsonLines: string; metaOverride?: Record<string, unknown> }
+            expected: { snapshotsInvalid: boolean; isRecentAndInvalid: boolean; isOldAndInvalid: boolean }
+        }>([
+            {
+                case: 'an old recording with no full snapshot is old and invalid',
+                mocks: () => ({ jsonLines: incrementalOnlySnapshotsAsJSONLines(1682952380877) }),
+                expected: { snapshotsInvalid: true, isRecentAndInvalid: false, isOldAndInvalid: true },
+            },
+            {
+                case: 'a recent recording with no full snapshot is recent and invalid',
+                mocks: () => {
+                    const recentStart = dayjs().subtract(1, 'minute')
+                    return {
+                        jsonLines: incrementalOnlySnapshotsAsJSONLines(recentStart.valueOf()),
+                        metaOverride: {
+                            ...recordingMetaJson,
+                            start_time: recentStart.toISOString(),
+                            end_time: dayjs().toISOString(),
+                        },
+                    }
+                },
+                expected: { snapshotsInvalid: true, isRecentAndInvalid: true, isOldAndInvalid: false },
+            },
+            {
+                case: 'a recording with a full snapshot is valid',
+                mocks: () => ({ jsonLines: snapshotsAsJSONLines() }),
+                expected: { snapshotsInvalid: false, isRecentAndInvalid: false, isOldAndInvalid: false },
+            },
+        ])('$case', async ({ mocks, expected }) => {
+            const { jsonLines, metaOverride } = mocks()
+            mountWithSnapshots(jsonLines, metaOverride)
             await loadFully()
 
-            expect(logic.values.snapshotsInvalid).toBe(true)
-            expect(logic.values.isRecentAndInvalid).toBe(false)
-            expect(logic.values.isOldAndInvalid).toBe(true)
-        })
-
-        it('flags a recent recording with no full snapshot as recent and invalid', async () => {
-            const recentStart = dayjs().subtract(1, 'minute')
-            mountWithoutFullSnapshot(recentStart.valueOf(), {
-                ...recordingMetaJson,
-                start_time: recentStart.toISOString(),
-                end_time: dayjs().toISOString(),
-            })
-            await loadFully()
-
-            expect(logic.values.snapshotsInvalid).toBe(true)
-            expect(logic.values.isRecentAndInvalid).toBe(true)
-            expect(logic.values.isOldAndInvalid).toBe(false)
-        })
-
-        it('does not flag a recording that has a full snapshot', async () => {
-            await loadFully()
-
-            expect(logic.values.snapshotsInvalid).toBe(false)
-            expect(logic.values.isRecentAndInvalid).toBe(false)
-            expect(logic.values.isOldAndInvalid).toBe(false)
+            expect({
+                snapshotsInvalid: logic.values.snapshotsInvalid,
+                isRecentAndInvalid: logic.values.isRecentAndInvalid,
+                isOldAndInvalid: logic.values.isOldAndInvalid,
+            }).toEqual(expected)
         })
     })
 
