@@ -179,7 +179,7 @@ describe('markdownNotebookDowngrade', () => {
         })
     })
 
-    it('coerces a stray plain item inside a task list run to a taskItem so the content stays schema-valid', () => {
+    it('splits a plain item after a task run into a sibling bulletList', () => {
         expect(convertMarkdownToNotebookContent('- [x] Task\n- Plain')).toEqual({
             type: 'doc',
             content: [
@@ -191,10 +191,60 @@ describe('markdownNotebookDowngrade', () => {
                             attrs: { checked: true },
                             content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Task' }] }],
                         },
+                    ],
+                },
+                { type: 'bulletList', content: [listItem('Plain')] },
+            ],
+        })
+    })
+
+    it('keeps the checked state of a task item that follows a plain item by splitting into a sibling taskList', () => {
+        expect(convertMarkdownToNotebookContent('- plain\n- [x] done')).toEqual({
+            type: 'doc',
+            content: [
+                { type: 'bulletList', content: [listItem('plain')] },
+                {
+                    type: 'taskList',
+                    content: [
                         {
                             type: 'taskItem',
-                            attrs: { checked: false },
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Plain' }] }],
+                            attrs: { checked: true },
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'done' }] }],
+                        },
+                    ],
+                },
+            ],
+        })
+    })
+
+    it('splits a nested task run inside a plain list into a nested taskList without losing checked state', () => {
+        expect(convertMarkdownToNotebookContent('- Parent\n  - [ ] Child task\n  - Plain child')).toEqual({
+            type: 'doc',
+            content: [
+                {
+                    type: 'bulletList',
+                    content: [
+                        {
+                            type: 'listItem',
+                            content: [
+                                { type: 'paragraph', content: [{ type: 'text', text: 'Parent' }] },
+                                {
+                                    type: 'taskList',
+                                    content: [
+                                        {
+                                            type: 'taskItem',
+                                            attrs: { checked: false },
+                                            content: [
+                                                {
+                                                    type: 'paragraph',
+                                                    content: [{ type: 'text', text: 'Child task' }],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                { type: 'bulletList', content: [listItem('Plain child')] },
+                            ],
                         },
                     ],
                 },
