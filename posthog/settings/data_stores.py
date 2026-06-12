@@ -191,13 +191,11 @@ configured_product_databases: set[str] = set()
 PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 
 
-# Optional, per-product SSL settings for product-DB connections. dj_database_url
-# only sets connect_timeout, so without these a direct (non-PgBouncer) product DB
-# connects with libpq's default sslmode=prefer. Aurora's pg_hba requires SSL
-# (hostssl), so a direct-mode product DB on a dedicated cluster needs these set.
-# Scoped per product (e.g. PRODUCT_DB_AGENT_PLATFORM_SSL_MODE) so enabling SSL for
-# one product DB never touches the PgBouncer-routed ones. Left unset for local
-# dev/test (plain Postgres, no SSL) so those are unaffected.
+# Per-product SSL for the migration DIRECT_URL only. Runtime writer/reader route
+# through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
+# connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
+# sets only connect_timeout, so set sslmode here. Scoped per product (e.g.
+# PRODUCT_DB_AGENT_PLATFORM_SSL_MODE); unset for local dev/test (plain Postgres).
 def _apply_product_db_ssl_options(db: str, options: dict) -> None:
     ssl_mode = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_MODE")
     ssl_root_cert = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_ROOT_CERT")
@@ -229,12 +227,10 @@ for route in product_routes:
     PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
-    _apply_product_db_ssl_options(db, DATABASES[writer_alias]["OPTIONS"])
 
     reader_url = os.getenv(reader_env, writer_url)
     DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
-    _apply_product_db_ssl_options(db, DATABASES[reader_alias]["OPTIONS"])
 
     if TEST:
         # Skip the global migration-graph walk during test DB setup. Without
