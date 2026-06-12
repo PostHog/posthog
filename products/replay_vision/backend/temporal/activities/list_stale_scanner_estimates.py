@@ -13,13 +13,15 @@ from products.replay_vision.backend.temporal.estimates_types import RefreshScann
 @activity.defn
 @track_activity()
 def list_stale_scanner_estimates_activity() -> list[RefreshScannerEstimateInputs]:
-    """Enabled scanners whose persisted estimate is missing or past the staleness window, oldest first."""
+    """Scanners whose persisted estimate is missing or past the staleness window.
+
+    Disabled scanners are refreshed too so re-enabling one puts an accurate number straight into the
+    quota sum. Enabled scanners come first so they can't starve behind a backlog of disabled ones.
+    """
     cutoff = timezone.now() - ESTIMATE_STALE_AFTER
     rows = (
-        ReplayScanner.objects.filter(enabled=True)
-        .filter(Q(estimated_at__isnull=True) | Q(estimated_at__lt=cutoff))
-        # Never-estimated scanners first, then the longest-stale, so a backlog drains fairly across runs.
-        .order_by(F("estimated_at").asc(nulls_first=True))
+        ReplayScanner.objects.filter(Q(estimated_at__isnull=True) | Q(estimated_at__lt=cutoff))
+        .order_by("-enabled", F("estimated_at").asc(nulls_first=True))
         .values_list("id", "team_id")[:ESTIMATES_MAX_PER_RUN]
     )
     return [RefreshScannerEstimateInputs(scanner_id=scanner_id, team_id=team_id) for scanner_id, team_id in rows]
