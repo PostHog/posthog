@@ -14,6 +14,7 @@ from posthog.schema import HogQLQuery
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.session_recordings.models.metadata import RecordingMetadata
 
 DEFAULT_EVENT_FIELDS = [
@@ -92,7 +93,7 @@ def _filter_to_diagnostic_properties(properties: dict) -> dict:
     }
 
 
-def get_latest_session_event_properties(session_id: str, team: Team) -> Optional[dict]:
+def get_latest_session_event_properties(session_id: str, team: Team, user: Optional[User] = None) -> Optional[dict]:
     """The most recent event's recording-diagnostic properties for a session, for the capture diagnostics panel.
 
     Bounded by a window derived from the UUIDv7 session id so the events sort key
@@ -107,17 +108,17 @@ def get_latest_session_event_properties(session_id: str, team: Team) -> Optional
         # lower_bound is embedded_start - slack; sessions last at most a day,
         # so embedded_start + 1d + slack closes the window symmetrically.
         upper_bound = lower_bound + 2 * SESSION_ID_CLOCK_SKEW_SLACK + timedelta(days=1)
-        properties = _latest_session_event_properties_between(session_id, team, lower_bound, upper_bound)
+        properties = _latest_session_event_properties_between(session_id, team, lower_bound, upper_bound, user)
         if properties is not None:
             return properties
     now = datetime.now(pytz.UTC)
     return _latest_session_event_properties_between(
-        session_id, team, now - CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK, now + timedelta(days=1)
+        session_id, team, now - CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK, now + timedelta(days=1), user
     )
 
 
 def _latest_session_event_properties_between(
-    session_id: str, team: Team, date_from: datetime, date_to: datetime
+    session_id: str, team: Team, date_from: datetime, date_to: datetime, user: Optional[User] = None
 ) -> Optional[dict]:
     from posthog.hogql_queries.hogql_query_runner import (
         HogQLQueryRunner,  # noqa: PLC0415 — breaks a circular import, matching this file's other HogQLQueryRunner imports
@@ -136,7 +137,7 @@ def _latest_session_event_properties_between(
         values={"session_id": session_id, "date_from": date_from, "date_to": date_to},
     )
     tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
-    result = HogQLQueryRunner(team=team, query=query).calculate()
+    result = HogQLQueryRunner(team=team, query=query, user=user).calculate()
     if not result.results:
         return None
     row = result.results[0][0]
@@ -187,6 +188,7 @@ def get_player_events(
     start_time: datetime,
     end_time: datetime,
     person_uuid: str,
+    user: Optional[User] = None,
 ) -> dict[str, Any]:
     """Events for the replay player: the session's own events plus same-window
     events with no session id, matched by person.
@@ -218,9 +220,10 @@ def get_player_events(
     )
 
     def _run(query: HogQLQuery) -> Any:
-        # tags are thread-local, so tag inside the worker
+        # tags are thread-local, so tag inside the worker; user carries
+        # property-level access restrictions into the HogQL context
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
-        return HogQLQueryRunner(team=team, query=query).calculate()
+        return HogQLQueryRunner(team=team, query=query, user=user).calculate()
 
     # The player previously fired these concurrently from the browser; keep that
     # concurrency server-side (serial in tests, mirroring timestamp_utils).

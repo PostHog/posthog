@@ -992,7 +992,9 @@ class SessionRecordingViewSet(
     def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """Latest event properties for the recording's session, for the capture diagnostics panel."""
         recording = self.get_object()
-        properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        properties = get_latest_session_event_properties(
+            str(recording.session_id), self.team, user=cast(User, request.user)
+        )
         return Response({"properties": properties})
 
     @extend_schema(exclude=True)
@@ -1009,6 +1011,7 @@ class SessionRecordingViewSet(
             start_time=recording.start_time,
             end_time=recording.end_time,
             person_uuid=str(recording.person.uuid),
+            user=cast(User, request.user),
         )
         return Response(payload)
 
