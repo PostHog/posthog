@@ -567,6 +567,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     {
                         "schema_name": "Invoice",
                         "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
                         "error": "Invalid API key",
                         "paused": True,
                         "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Invoice",
@@ -574,6 +577,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     {
                         "schema_name": "Charge",
                         "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
                         "error": "transient error",
                         "paused": False,
                         "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
@@ -604,6 +610,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     {
                         "schema_name": "Charge",
                         "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
                         "error": "boom",
                         "paused": False,
                         "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
@@ -633,6 +642,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     {
                         "schema_name": "Charge",
                         "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
                         "error": "boom",
                         "paused": False,
                         "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
@@ -652,6 +664,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 {
                     "schema_name": "Invoice",
                     "source_type": "Stripe",
+                    "source_id": "abc",
+                    "source_prefix": "",
+                    "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
                     "error": "Invalid API key",
                     "paused": True,
                     "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Invoice",
@@ -672,6 +687,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             {
                 "schema_name": "Charge",
                 "source_type": "Stripe",
+                "source_id": "abc",
+                "source_prefix": "",
+                "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
                 "error": "boom",
                 "paused": False,
                 "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",

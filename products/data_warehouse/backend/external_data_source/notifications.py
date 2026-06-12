@@ -66,20 +66,38 @@ def notify_external_data_sync_failures(team_id: int) -> None:
         if not failing_schemas:
             return
 
+        # Group schemas by source for the email (the template regroups on source_id,
+        # which needs them consecutive). Sources with paused schemas sort first; the
+        # paused-first query order within each source is preserved by the grouping.
+        schemas_by_source: dict[str, list[ExternalDataSchema]] = {}
+        for schema in failing_schemas:
+            schemas_by_source.setdefault(str(schema.source_id), []).append(schema)
+        ordered_schemas = [
+            schema
+            for group in sorted(
+                schemas_by_source.values(),
+                key=lambda group: (group[0].should_sync, str(group[0].source.source_type).lower()),
+            )
+            for schema in group
+        ]
+
         items = []
-        for schema in failing_schemas[:MAX_SCHEMAS_PER_DIGEST_EMAIL]:
+        for schema in ordered_schemas[:MAX_SCHEMAS_PER_DIGEST_EMAIL]:
+            source_url = (
+                f"{settings.SITE_URL}/project/{team_id}/data-management/sources/managed-{schema.source_id}/syncs"
+            )
             items.append(
                 {
                     "schema_name": schema.name,
+                    "source_id": str(schema.source_id),
                     "source_type": schema.source.source_type,
+                    "source_prefix": (schema.source.prefix or "").rstrip("_"),
+                    "source_url": source_url,
                     # The template truncates for display (truncatechars), and the rendered
                     # HTML is what crosses the Celery boundary — no need to cap here.
                     "error": schema.latest_error or "Unknown error",
                     "paused": not schema.should_sync,
-                    "url": (
-                        f"{settings.SITE_URL}/project/{team_id}/data-management/sources/"
-                        f"managed-{schema.source_id}/syncs?schema={quote(schema.name)}"
-                    ),
+                    "url": f"{source_url}?schema={quote(schema.name)}",
                 }
             )
 
