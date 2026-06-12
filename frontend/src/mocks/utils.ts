@@ -9,7 +9,8 @@ export type MockResolverInfo = Parameters<HttpResponseResolver>[0]
 // What a mock resolves to:
 // 1. A `[status, body]` tuple
 // 2. A `[status]` tuple
-// 3. `undefined`/`null` — models a network error
+// 3. `undefined`/`null` — an empty 200 (matches v1's `res()`); for a real network error
+//    return `HttpResponse.error()` explicitly
 // 4. A `Response`/`HttpResponse`
 // 5. Any other value — returned as a JSON body
 type MockResult = Response | [number, DefaultBodyType?] | DefaultBodyType | null | undefined
@@ -32,8 +33,12 @@ const toResponse = (result: MockResult): Response => {
         return HttpResponse.json(result)
     }
     if (result == null) {
-        // A bare empty return models a network error (the v1 `res()` behavior).
-        return HttpResponse.error()
+        // A bare empty return is an empty 200, matching v1's `res()`. This is the fall-through
+        // for handlers with conditional branches and no final else (e.g. a query mock that only
+        // covers some kinds) — it must NOT be a network error, or apiStatusLogic flips the whole
+        // app into the "trouble connecting to the server" banner. Return HttpResponse.error()
+        // explicitly to model a real network failure.
+        return new HttpResponse(null, { status: 200 })
     }
     return HttpResponse.json(result)
 }
