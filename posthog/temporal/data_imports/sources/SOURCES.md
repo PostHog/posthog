@@ -49,6 +49,7 @@ the row lists both.
 | airtable         | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads       | HTTP                        | requests                                                        | ✅                          |
 | amplitude        | HTTP                        | requests                                                        | ✅                          |
+| apollo           | HTTP                        | requests                                                        | ✅                          |
 | appsflyer        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
