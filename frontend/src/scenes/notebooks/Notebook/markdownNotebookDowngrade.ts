@@ -51,13 +51,13 @@ export function convertMarkdownToNotebookContent(markdown: string): JSONContent 
     const document = parseMarkdownNotebook(markdown)
     const content = document.nodes.flatMap((node) => {
         const converted = convertBlockNode(node)
-        return converted ? [converted] : []
+        return converted ? [converted].flat() : []
     })
 
     return { type: 'doc', content }
 }
 
-function convertBlockNode(node: NotebookBlockNode): JSONContent | null {
+function convertBlockNode(node: NotebookBlockNode): JSONContent | JSONContent[] | null {
     if (node.type === 'paragraph') {
         return makeParagraph(convertInlineNodes(node.children))
     }
@@ -69,8 +69,8 @@ function convertBlockNode(node: NotebookBlockNode): JSONContent | null {
         return { type: 'blockquote', content: [makeParagraph(convertInlineNodes(node.children))] }
     }
     if (node.type === 'list') {
-        const list = convertListNode(node)
-        return node.blockquote ? { type: 'blockquote', content: [list] } : list
+        const lists = convertListNode(node)
+        return node.blockquote ? { type: 'blockquote', content: lists } : lists
     }
     if (node.type === 'table') {
         return convertTableNode(node)
@@ -131,39 +131,64 @@ function convertComponentNode(node: NotebookComponentBlockNode): JSONContent | n
     return makeParagraph(makeTextWithHardBreaks(serializeNode(node)))
 }
 
-function convertListNode(node: NotebookListBlockNode): JSONContent {
+function convertListNode(node: NotebookListBlockNode): JSONContent[] {
     // Inverse of `serializeList` in markdownNotebookV2.ts: items with greater depth nest into the
-    // previous shallower item's listItem as a child list.
-    const rootList = makeList(node.ordered, node.start)
-    const listStack: JSONContent[] = [rootList]
+    // previous shallower item's listItem as a child list. taskList and bulletList items cannot
+    // mix, so a task/plain change at the same depth splits into sibling lists — checked state is
+    // never dropped.
+    const rootLists: JSONContent[] = []
+    const listStack: JSONContent[] = []
+    const isTaskItem = (item: NotebookListBlockNode['items'][number]): boolean =>
+        !(item.ordered ?? node.ordered) && item.checked !== undefined
+
+    const attachList = (list: JSONContent): void => {
+        const parentItems = listStack[listStack.length - 1]?.content
+        const parentItem = parentItems?.[parentItems.length - 1]
+        if (parentItem) {
+            parentItem.content = [...(parentItem.content ?? []), list]
+        } else {
+            rootLists.push(list)
+        }
+        listStack.push(list)
+    }
 
     for (const item of node.items) {
+        const task = isTaskItem(item)
         const depth = Math.max(0, item.depth)
         while (listStack.length - 1 > depth) {
             listStack.pop()
         }
+        if (!listStack.length) {
+            attachList(makeList(node.ordered, node.start, task))
+        }
         while (listStack.length - 1 < depth) {
-            const parentItems = listStack[listStack.length - 1].content ?? []
-            const parentItem = parentItems[parentItems.length - 1]
-            if (!parentItem) {
+            if (!(listStack[listStack.length - 1].content ?? []).length) {
                 // Nothing to nest under — keep the item at the current depth.
                 break
             }
-            const nestedList = makeList(item.ordered ?? node.ordered, item.start)
-            parentItem.content = [...(parentItem.content ?? []), nestedList]
-            listStack.push(nestedList)
+            attachList(makeList(item.ordered ?? node.ordered, item.start, task))
+        }
+        if ((listStack[listStack.length - 1].type === 'taskList') !== task) {
+            listStack.pop()
+            attachList(makeList(item.ordered ?? node.ordered, item.start, task))
         }
         const currentList = listStack[listStack.length - 1]
+        const itemNode: JSONContent = task
+            ? { type: 'taskItem', attrs: { checked: item.checked ?? false } }
+            : { type: 'listItem' }
         currentList.content = [
             ...(currentList.content ?? []),
-            { type: 'listItem', content: [makeParagraph(convertInlineNodes(item.children))] },
+            { ...itemNode, content: [makeParagraph(convertInlineNodes(item.children))] },
         ]
     }
 
-    return rootList
+    return rootLists
 }
 
-function makeList(ordered: boolean, start: number | undefined): JSONContent {
+function makeList(ordered: boolean, start: number | undefined, task: boolean): JSONContent {
+    if (!ordered && task) {
+        return { type: 'taskList', content: [] }
+    }
     return {
         type: ordered ? 'orderedList' : 'bulletList',
         ...(ordered && start !== undefined && start !== 1 ? { attrs: { start } } : {}),
