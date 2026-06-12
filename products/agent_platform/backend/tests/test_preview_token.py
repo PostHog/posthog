@@ -29,7 +29,7 @@ from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
 
-from .models import AgentApplication, AgentRevision
+from ..models import AgentApplication, AgentRevision
 
 
 def _base_spec(triggers: list[dict[str, Any]] | None = None, modes: list[str] | None = None) -> dict[str, Any]:

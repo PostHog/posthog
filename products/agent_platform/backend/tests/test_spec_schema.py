@@ -17,8 +17,8 @@ import pytest
 
 from rest_framework.exceptions import ValidationError
 
-from .serializers import AgentRevisionSerializer
-from .spec_schema import SLACK_BOT_TOKEN_KEY, SLACK_SIGNING_SECRET_KEY, missing_required_secrets
+from ..logic.spec_schema import SLACK_BOT_TOKEN_KEY, SLACK_SIGNING_SECRET_KEY, missing_required_secrets
+from ..presentation.serializers import AgentRevisionSerializer
 
 # Auth is per-trigger now (no top-level spec.auth). These fixtures focus on
 # other fields, so give every declarative trigger a minimal public auth block

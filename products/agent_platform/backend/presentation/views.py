@@ -69,9 +69,10 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.security.outbound_proxy import internal_requests
 
-from .db import WRITER_DB
-from .janitor_client import JanitorClient, JanitorClientError, default_client
-from .models import AgentApplication, AgentRevision
+from ..db import WRITER_DB
+from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
+from ..logic.spec_schema import missing_required_secrets
+from ..models import AgentApplication, AgentRevision
 from .serializers import (
     AgentApplicationSerializer,
     AgentRevisionSerializer,
@@ -88,7 +89,6 @@ from .serializers import (
     WriteTypedBundleRequestSerializer,
     agent_ingress_route_url,
 )
-from .spec_schema import missing_required_secrets
 
 logger = logging.getLogger(__name__)
 

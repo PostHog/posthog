@@ -18,8 +18,8 @@ from rest_framework import serializers
 
 from posthog.models import User
 
-from .models import AgentApplication, AgentRevision
-from .spec_schema import AGENT_SPEC_JSON_SCHEMA, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE
+from ..logic.spec_schema import AGENT_SPEC_JSON_SCHEMA, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE
+from ..models import AgentApplication, AgentRevision
 
 # Shape of the resolved `created_by` object — exactly the fields the agent
 # console renders. Nullable: `created_by_id` may be unset (system rows) or

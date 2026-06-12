@@ -12,7 +12,7 @@ import json
 
 from posthog.test.base import APIBaseTest
 
-from .models import AgentApplication
+from ..models import AgentApplication
 
 
 class TestAgentApplicationEnvKeys(APIBaseTest):
