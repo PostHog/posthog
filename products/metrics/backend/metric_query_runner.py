@@ -9,14 +9,60 @@ pipeline yet.
 """
 
 import datetime as dt
-from typing import Any
+from typing import Any, Literal
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
+
+AttributeScope = Literal["resource", "attribute", "auto"]
+
+_ALLOWED_ATTRIBUTE_SCOPES: frozenset[str] = frozenset({"resource", "attribute", "auto"})
+
+
+def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
+    """Build the HogQL AST node that accesses a metric attribute by name.
+
+    This is the single seam between the upcoming filter / group-by / rate /
+    histogram-quantile work (PR3-PR6) and the underlying `metrics1` storage
+    shape. When the Snuffle-style streams-table rewrite lands, only this
+    function changes — every call site keeps working.
+
+    `scope` resolves *where* the attribute lives:
+
+    - ``"resource"`` — look in ``resource_attributes`` only (Prometheus-style
+      `service.name`, `k8s.pod.name` — set once per scrape target).
+    - ``"attribute"`` — look in ``attributes`` only (the alias view of
+      ``attributes_map_str`` that strips the 5-char ``__str`` type tag from
+      each key). Per-data-point labels like ``http.method`` live here.
+    - ``"auto"`` (default) — try resource first, fall back to attribute if
+      empty. Map lookups in ClickHouse return ``''`` for missing keys, not
+      NULL, so the fallback compares against the empty string.
+
+    The empty-string fallback is documented behaviour, not a bug: it means
+    callers cannot meaningfully filter for "attribute equals empty string"
+    in auto scope. Use an explicit scope for that edge case.
+    """
+    if scope not in _ALLOWED_ATTRIBUTE_SCOPES:
+        raise ValueError(f"Unknown attribute scope: {scope!r}")
+
+    name_constant = ast.Constant(value=name)
+
+    # arrayElement, not subscript: HogQL prints `field[...]` on a
+    # StringJSONDatabaseField as JSONExtractRaw, which is illegal on the
+    # physical Map columns. arrayElement passes through and is ClickHouse's
+    # native Map accessor ('' for missing keys).
+    if scope == "resource":
+        return parse_expr("arrayElement(resource_attributes, {name})", placeholders={"name": name_constant})
+    if scope == "attribute":
+        return parse_expr("arrayElement(attributes, {name})", placeholders={"name": name_constant})
+    return parse_expr(
+        "if(arrayElement(resource_attributes, {name}) != '', arrayElement(resource_attributes, {name}), arrayElement(attributes, {name}))",
+        placeholders={"name": name_constant},
+    )
 
 
 def _aggregation_expr(name: str) -> ast.Expr:

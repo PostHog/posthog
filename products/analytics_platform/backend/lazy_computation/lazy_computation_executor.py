@@ -141,9 +141,10 @@ def _get_insert_settings(team_id: int) -> dict:
             "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
             # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
             # shards by then — not sitting in the initiator's async distribution queue, where they
-            # become visible to readers only minutes later. Production profiles default this to 0
-            # (async); never rely on server config for this guarantee. Uses the legacy name of
-            # `distributed_foreground_insert` (renamed in ClickHouse 23.x) for version compatibility.
+            # become visible to readers only minutes later. We set this per-insert rather than
+            # relying on the cluster's global default, which is not guaranteed to be synchronous.
+            # Uses the legacy name of `distributed_foreground_insert` (renamed in ClickHouse 23.x)
+            # for version compatibility.
             "insert_distributed_sync": 1,
             **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
         }

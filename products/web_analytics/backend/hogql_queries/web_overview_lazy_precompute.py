@@ -149,8 +149,8 @@ _READ_SETTINGS = {
     # Approach E from `products/analytics_platform/backend/lazy_computation/CONSISTENCY.md`:
     # both INSERT (via `_get_insert_settings`) and SELECT use `in_order` so they
     # deterministically prefer the same replica. Combined with the synchronous distributed
-    # insert (`insert_distributed_sync=1`, also set in `_get_insert_settings` — production
-    # profiles default to async), the SELECT sees data the INSERT just wrote.
+    # insert (`insert_distributed_sync=1`, also set per-insert in `_get_insert_settings` so we
+    # don't depend on the cluster's global default), the SELECT sees data the INSERT just wrote.
     #
     # `select_sequential_consistency=1` was tried here and is documented broken in
     # CONSISTENCY.md when combined with `insert_quorum_parallel=1` (the default).

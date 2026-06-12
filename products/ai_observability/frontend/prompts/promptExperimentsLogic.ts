@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { ApiConfig } from '~/lib/api'
 
@@ -45,7 +46,8 @@ export const promptExperimentsLogic = kea<promptExperimentsLogicType>([
         submitCreateSuccess: () => actions.loadExperiments(),
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
         actions.loadExperiments()
+        posthog.capture('llma prompt experiment tab viewed', { prompt_name: props.promptName })
     }),
 ])

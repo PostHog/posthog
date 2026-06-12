@@ -164,7 +164,10 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput) -> list[
             sample_size = math.ceil(len(remaining) * sample_percentage)
             sampled = random.sample(remaining, min(sample_size, len(remaining)))
 
-            result = sorted((guaranteed | set(sampled)) - skip)
+            # Guaranteed teams first: the coordinator processes teams in this order and
+            # may exhaust its run budget before reaching the tail, so allowlisted teams
+            # must never sit behind the sampled set.
+            result = sorted(guaranteed - skip) + sorted(sampled)
 
             logger.info(
                 "Team discovery completed",

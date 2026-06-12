@@ -297,6 +297,19 @@ class TestAccountRequests(ProvisioningTestBase):
         # Stripe HMAC path has no OAuthApplication partner, so there's no client to attribute.
         assert kwargs["partner"] is None
 
+    @patch("ee.api.agentic_provisioning.views.report_user_signed_up")
+    def test_new_user_emits_signup_event(self, mock_signup):
+        payload = self._account_request_payload(email="signupevent@example.com")
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
+
+        assert mock_signup.call_count == 1
+        kwargs = mock_signup.call_args.kwargs
+        assert kwargs["backend_processor"] == "AgenticProvisioning"
+        assert kwargs["is_organization_first_user"] is True
+        # Stripe HMAC path has no OAuthApplication, so no client name.
+        assert kwargs["social_provider"] == ""
+
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
@@ -411,6 +424,18 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         ]
         assert len(new_user_calls) == 1
         assert new_user_calls[0].kwargs["partner"] == self.pkce_partner
+
+    @patch("ee.api.agentic_provisioning.views.report_user_signed_up")
+    def test_pkce_partner_new_user_emits_signup_event_with_client(self, mock_signup):
+        payload = self._account_request_payload(email="pkce_signup@example.com")
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+
+        assert mock_signup.call_count == 1
+        kwargs = mock_signup.call_args.kwargs
+        assert kwargs["backend_processor"] == "AgenticProvisioning"
+        assert kwargs["is_organization_first_user"] is True
+        assert kwargs["social_provider"] == self.pkce_partner.name
 
     def test_pkce_partner_with_skip_consent_existing_user_gets_direct_code(self):
         self.pkce_partner.provisioning_skip_existing_user_consent = True

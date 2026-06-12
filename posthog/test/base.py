@@ -124,7 +124,7 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
-from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.person.util import bulk_create_persons
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
@@ -269,6 +269,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+
+    # event uuid point lookups (error tracking first/last event fetch) embed random fixture uuids
+    query = re.sub(
+        r"in\(((?:\w+\.)?uuid), \['[0-9a-f-]{36}'(?:, '[0-9a-f-]{36}')*\]\)",
+        r"in(\1, ['00000000-0000-0000-0000-000000000000' /* ... */])",
+        query,
+    )
 
     # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
     query = re.sub(
@@ -1167,6 +1174,7 @@ def materialized(
     property,
     create_minmax_index: bool = False,
     is_nullable: bool = False,
+    column_type: str | None = None,
     create_bloom_filter_index: bool = False,
     create_ngram_lower_index: bool = False,
     create_bloom_filter_lower_index: bool = False,
@@ -1190,6 +1198,7 @@ def materialized(
             property,
             create_minmax_index=create_minmax_index,
             is_nullable=is_nullable,
+            column_type=column_type,
             create_bloom_filter_index=create_bloom_filter_index,
             create_ngram_lower_index=create_ngram_lower_index,
             create_bloom_filter_lower_index=create_bloom_filter_lower_index,
@@ -1558,14 +1567,7 @@ def _create_person(*args, **kwargs):
     if kwargs.get("immediate") or (
         hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
     ):
-        if kwargs.get("immediate"):
-            del kwargs["immediate"]
-        create_person(
-            team_id=kwargs.get("team_id") or kwargs["team"].pk,
-            properties=kwargs.get("properties"),
-            uuid=kwargs["uuid"],
-            version=kwargs.get("version", 0),
-        )
+        kwargs.pop("immediate", None)
         return Person.objects.create(**kwargs)
     if len(args) > 0:
         kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
