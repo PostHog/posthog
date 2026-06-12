@@ -10,6 +10,9 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 
 configure({ asyncUtilTimeout: 5000 })
+// With asyncUtilTimeout at 5s, a single legitimate waitFor can exhaust Jest's default
+// 5s per-test budget on a contended CI shard.
+jest.setTimeout(15000)
 
 let cleanupJsdom: () => void
 let cleanupRaf: () => void
