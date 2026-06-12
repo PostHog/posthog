@@ -87,7 +87,9 @@ def get_rows(
             if items:
                 yield items
             token = data.get("nextPageToken")
-            if not token or not items:
+            # Continue while Coda hands back a continuation token, even if this
+            # page was empty — intermediate empty pages still precede more data.
+            if not token:
                 return
 
     def doc_ids() -> list[str]:

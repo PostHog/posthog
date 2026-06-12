@@ -66,6 +66,18 @@ class TestGetRows:
         assert parse_qs(urlparse(second_url).query)["pageToken"] == ["tok1"]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_empty_intermediate_page_does_not_halt_pagination(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response([{"id": "doc1"}], next_token="tok1"),
+            _response([], next_token="tok2"),
+            _response([{"id": "doc2"}]),
+        ]
+
+        batches = list(get_rows("token", "docs", mock.MagicMock()))
+
+        assert [item["id"] for batch in batches for item in batch] == ["doc1", "doc2"]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_tables_fan_out_over_docs(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _response([{"id": "doc1"}]),
