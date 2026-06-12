@@ -42,6 +42,7 @@ export const AlertsCreateParams = /* @__PURE__ */ zod.object({
 
 export const alertsCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
+export const alertsCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -154,6 +155,14 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number.'
                             ),
                         type: zod.enum(['HogQLAlertConfig']).default(alertsCreateBodyConfigOneTwoTypeDefault),
+                    }),
+                    zod.object({
+                        funnel_step: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Zero-based step index to evaluate. Null = the last step (overall conversion).'),
+                        metric: zod.enum(['conversion_from_start', 'conversion_from_previous']),
+                        type: zod.enum(['FunnelsAlertConfig']).default(alertsCreateBodyConfigOneThreeTypeDefault),
                     }),
                 ])
                 .describe(
@@ -1315,6 +1324,7 @@ export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const alertsPartialUpdateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsPartialUpdateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
+export const alertsPartialUpdateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -1430,6 +1440,16 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number.'
                             ),
                         type: zod.enum(['HogQLAlertConfig']).default(alertsPartialUpdateBodyConfigOneTwoTypeDefault),
+                    }),
+                    zod.object({
+                        funnel_step: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Zero-based step index to evaluate. Null = the last step (overall conversion).'),
+                        metric: zod.enum(['conversion_from_start', 'conversion_from_previous']),
+                        type: zod
+                            .enum(['FunnelsAlertConfig'])
+                            .default(alertsPartialUpdateBodyConfigOneThreeTypeDefault),
                     }),
                 ])
                 .describe(

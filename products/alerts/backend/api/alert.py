@@ -20,6 +20,7 @@ from posthog.schema import (
     AlertCondition,
     AlertState,
     DetectorConfig,
+    FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
     NodeKind,
@@ -82,7 +83,7 @@ class AlertConfigUnion(RootModel):
     """Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
     generated frontend types and MCP tool schemas) in sync with every kind alerts support."""
 
-    root: Annotated[TrendsAlertConfig | HogQLAlertConfig, PydanticField(discriminator="type")]
+    root: Annotated[TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig, PydanticField(discriminator="type")]
 
 
 @extend_schema_field(AlertConfigUnion)  # type: ignore[arg-type]
