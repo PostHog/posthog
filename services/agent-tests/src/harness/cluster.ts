@@ -250,7 +250,9 @@ export interface BuildClusterOpts {
      */
     codingPool?: import('@posthog/agent-shared').CodingSandboxPool
     /** Gateway config forwarded to the coding driver. */
-    codingGateway?: { baseUrl: string; apiKey?: string; projectId?: number }
+    codingGateway?: { baseUrl: string; apiKey?: string; projectId?: number; inferenceProxy?: { signingKey: string } }
+    /** Mounts the ingress `/inference/v1/*` session-scoped model proxy (§8). */
+    inferenceProxy?: import('@posthog/agent-ingress').InferenceProxyConfig
 }
 
 let _pool: Pool | null = null
@@ -447,6 +449,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // slack.com calls from the ingress (ack_reaction, identity bridge)
         // can route them through a single recorder.
         http: opts.http,
+        inferenceProxy: opts.inferenceProxy,
     })
 
     const janitor = buildJanitorApp({

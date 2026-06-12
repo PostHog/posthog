@@ -57,9 +57,15 @@ Architecture validated, dev vertical slice works end-to-end (real image, real mo
 gateway, full observability, multi-turn + continuity). Pre-v0 on the `agent-sandbox-tiers.md` §10
 ladder. Deployability blockers, ranked:
 
-1. **Real gateway key in tier 2** — `index.ts` injects `posthogAiGatewayKey` into the container
-   as `POSTHOG_PERSONAL_API_KEY`. §8 inference proxy doesn't exist. Breaks the core security
-   property; also no budget choke point / kill switch.
+1. ~~**Real gateway key in tier 2**~~ — DONE. §8 inference proxy shipped: ingress mounts
+   `/inference/v1/*` (token-gated, session-liveness-checked, real key swapped in proxy-side,
+   streaming pass-through, allowlisted paths); runner mints audience-bound session tokens
+   (`agent-ingress.inference` on `AGENT_INTERNAL_SIGNING_KEY`) when
+   `AGENT_CODING_INFERENCE_PROXY_URL` is set. Kill switch live: session not `running` → 403.
+   Verified end-to-end against the real harness + gateway
+   (`coding-inference-proxy.realharness.test.ts`). Remaining within this item: per-session
+   token/cost budget at the proxy (needs a spec budget field — open q #2) and flipping local
+   dev to proxy-by-default once ingress always runs alongside the runner.
 2. **Docker-only pool** — runner pod would need a Docker socket; Modal pool is the prod substrate.
 3. **No egress containment** — docker args have no network restrictions; agentsh allowlist not
    driven. With (1), full exfil path is open.
@@ -76,10 +82,8 @@ ladder. Deployability blockers, ranked:
 
 v0 = read-only internal coding agents, deployable. Order:
 
-1. **Inference proxy (§8)** — session-bound capability token in the sandbox; proxy holds the real
-   gateway key, meters cost, rejects stopped/over-budget sessions. Standalone thin proxy owned by
-   the platform (open q #6 lean). Removes blocker (1), gives the cost kill switch. Decide hosting:
-   endpoint on the runner vs tiny separate deploy.
+1. ~~**Inference proxy (§8)**~~ — DONE (see above). Hosted on ingress (runner's no-HTTP rule
+   ruled out endpoint-on-runner; no new deploy unit). Budget metering still open (q #2).
 2. **Egress containment** — drive agentsh allowlist (proxy host + declared spec egress only) +
    docker network hardening. Pin model traffic to the proxy so a leaked token is useless.
 3. **sandbox_instance persistence + janitor reaping** — record tier-2 containers (`tier`/`kind`),
