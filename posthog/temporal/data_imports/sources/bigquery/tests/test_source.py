@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from freezegun import freeze_time
 from unittest import mock
@@ -14,6 +16,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
 )
 from posthog.temporal.data_imports.sources.bigquery.source import BigQuerySource
 from posthog.temporal.data_imports.sources.common.sql.identifiers import InvalidIdentifierError
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQueryDatasetProjectConfig,
     BigQueryKeyFileConfig,
@@ -152,7 +155,7 @@ def test_bigquery_select_clause(enabled_columns, primary_keys, incremental_field
 
 def test_bigquery_get_query_projects_enabled_columns():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query = _get_query(
+    query, params = _get_query(
         should_use_incremental_field=False,
         db_incremental_field_last_value=None,
         bq_table=bq_table,
@@ -160,11 +163,12 @@ def test_bigquery_get_query_projects_enabled_columns():
         primary_keys=["id"],
     )
     assert "SELECT `email`, `id` FROM" in query
+    assert params == []
 
 
 def test_bigquery_get_query_keeps_incremental_field_in_projection():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query = _get_query(
+    query, params = _get_query(
         should_use_incremental_field=True,
         db_incremental_field_last_value=42,
         bq_table=bq_table,
@@ -175,6 +179,48 @@ def test_bigquery_get_query_keeps_incremental_field_in_projection():
     )
     assert "SELECT `email`, `id`, `updated_at` FROM" in query
     assert "WHERE `updated_at` > 42" in query
+    assert params == []
+
+
+def test_bigquery_get_query_binds_row_filters_as_parameters():
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [
+        SimpleNamespace(name="age", field_type="INTEGER"),
+        SimpleNamespace(name="name", field_type="STRING"),
+    ]
+    query, params = _get_query(
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        bq_table=bq_table,
+        row_filters=[
+            ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER),
+            ValidatedRowFilter(
+                column="name", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+            ),
+        ],
+    )
+    # Values are bound as @params, never inlined.
+    assert "WHERE `age` > @row_filter_0 AND `name` = @row_filter_1" in query
+    assert "DROP TABLE" not in query
+    assert [(p.name, p.type_, p.value) for p in params] == [
+        ("row_filter_0", "INT64", 21),
+        ("row_filter_1", "STRING", "x'; DROP TABLE y; --"),
+    ]
+
+
+def test_bigquery_get_query_row_filters_compose_with_incremental():
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    query, params = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=42,
+        bq_table=bq_table,
+        incremental_field="updated_at",
+        incremental_field_type=IncrementalFieldType.Integer,
+        row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+    )
+    assert "WHERE `updated_at` > 42 AND `age` > @row_filter_0 ORDER BY `updated_at` ASC" in query
+    assert [(p.name, p.value) for p in params] == [("row_filter_0", 21)]
 
 
 @pytest.mark.parametrize(
