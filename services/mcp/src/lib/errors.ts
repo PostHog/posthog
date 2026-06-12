@@ -178,6 +178,49 @@ function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
     return `Request failed:\nURL: ${options.method} ${options.url}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
 }
 
+export interface PostHogRateLimitErrorOptions {
+    body: string
+    url: string
+    method: string
+    retryAfterSeconds: number | null
+}
+
+/**
+ * Thrown when the PostHog API responds with HTTP 429. Never retried inside the
+ * MCP server: sleeping here keeps the client's request open and lets pending
+ * work pile up behind it, so the rate limit is surfaced immediately with the
+ * server's Retry-After hint and the client decides when to retry.
+ */
+export class PostHogRateLimitError extends PostHogApiError {
+    public readonly retryAfterSeconds: number | null
+
+    constructor(options: PostHogRateLimitErrorOptions) {
+        const retryHint = options.retryAfterSeconds !== null ? ` Retry after ${options.retryAfterSeconds} seconds.` : ''
+        super({
+            status: 429,
+            statusText: 'Too Many Requests',
+            body: options.body,
+            url: options.url,
+            method: options.method,
+            message: `PostHog API rate limit exceeded (429) on ${options.method} ${options.url}.${retryHint}`,
+        })
+        this.name = 'PostHogRateLimitError'
+        this.retryAfterSeconds = options.retryAfterSeconds
+    }
+}
+
+/**
+ * Parses a Retry-After header into whole seconds. Returns null for missing
+ * headers, HTTP-date values, and bogus negatives.
+ */
+export function parseRetryAfterSeconds(header: string | null): number | null {
+    if (!header) {
+        return null
+    }
+    const seconds = Number.parseInt(header, 10)
+    return Number.isNaN(seconds) || seconds < 0 ? null : seconds
+}
+
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined

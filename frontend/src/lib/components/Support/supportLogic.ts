@@ -192,6 +192,16 @@ const TARGET_AREA_TO_NAME_GENERAL = [
 
 const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
+        value: 'ai_gateway',
+        'data-attr': `support-form-target-area-ai_gateway`,
+        label: 'AI gateway',
+    },
+    {
+        value: 'llm-analytics',
+        'data-attr': `support-form-target-area-llm-analytics`,
+        label: 'AI observability',
+    },
+    {
         value: 'apps',
         'data-attr': `support-form-target-area-apps`,
         label: 'Apps (incl. integrations, plugins, webhooks, and custom apps)',
@@ -245,11 +255,6 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         value: 'heatmaps',
         'data-attr': `support-form-target-area-heatmaps`,
         label: 'Heatmaps',
-    },
-    {
-        value: 'llm-analytics',
-        'data-attr': `support-form-target-area-llm-analytics`,
-        label: 'AI observability',
     },
     {
         value: 'logs',
@@ -356,6 +361,7 @@ export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea):
 }
 
 export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
+    'ai-gateway': 'ai_gateway',
     insights: 'analytics',
     recordings: 'session_replay',
     replay: 'session_replay',

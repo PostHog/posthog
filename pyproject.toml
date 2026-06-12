@@ -176,7 +176,7 @@ dependencies = [
     "playwright~=1.60.0",
     "linkedin-api-client~=0.3.0",
     "glom~=24.11.0",
-    "modal~=1.4.1",
+    "modal~=1.5.0",
     "databricks-sql-connector~=4.2.5",
     "databricks-sdk~=0.102.0",
     "free-email-domains~=1.0.1",
@@ -283,7 +283,7 @@ sentiment = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false }
+exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false }
 constraint-dependencies = [
     "langgraph-checkpoint<3",
 ]
@@ -434,7 +434,9 @@ warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
 exclude_gitignore = true
-exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+# conftest.py: the root pytest bootstrap collides with services/stripe-mock/tests/conftest.py
+# (both resolve to top-level module "conftest")
+exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"

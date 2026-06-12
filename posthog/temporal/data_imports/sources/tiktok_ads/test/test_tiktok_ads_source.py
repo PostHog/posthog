@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, Mock, patch
 import structlog
 from parameterized import parameterized
 
+from posthog.schema import ReleaseStatus
+
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -84,7 +86,7 @@ class TestTikTokAdsSource:
 
         assert config.name.value == "TikTokAds"
         assert config.label == "TikTok Ads"
-        assert config.releaseStatus == "beta"
+        assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
         advertiser_field = config.fields[0]

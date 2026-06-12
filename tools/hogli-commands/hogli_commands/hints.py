@@ -26,6 +26,7 @@ _SKIP_COMMANDS = frozenset(
         "doctor",
         "doctor:disk",
         "doctor:zombies",
+        "doctor:report",
         "telemetry:off",
         "telemetry:on",
         "telemetry:status",

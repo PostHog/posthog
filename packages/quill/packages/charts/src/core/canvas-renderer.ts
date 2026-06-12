@@ -2,7 +2,7 @@ import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
 import { barColorAt, mixColors } from './color-utils'
 import { yTickCountForHeight } from './scales'
-import type { BarFillStyle, ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
+import type { BarFillStyle, BoxRect, ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -706,20 +706,6 @@ export interface DrawBoxOptions {
     lineWidth?: number
     /** Width of the whisker caps (as a fraction of the box width). Defaults to 0.6. */
     whiskerCapRatio?: number
-}
-
-/** A laid-out box-and-whisker for a single (series, x) slot. Same shape contract as
- *  {@link BarRect} — pre-computed pixel coordinates so the draw primitives don't touch scales. */
-export interface BoxRect {
-    x: number
-    width: number
-    top: number
-    bottom: number
-    medianY: number
-    mean: { x: number; y: number }
-    whiskerTop: number
-    whiskerBottom: number
-    dataIndex: number
 }
 
 /** Paint a whole series of box-and-whiskers, batching path operations so the number of

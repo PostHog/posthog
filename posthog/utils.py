@@ -50,7 +50,6 @@ from prometheus_client import Histogram
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
-from user_agents import parse
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -914,6 +913,10 @@ def get_short_user_agent(request: HttpRequest) -> str:
     user_agent_str = request.headers.get("user-agent")
     if not user_agent_str:
         return ""
+
+    # Deferred: posthog.utils is imported all over at django.setup(); user_agents is only needed on
+    # this request-time UA-parsing path, so keep it off the startup path.
+    from user_agents import parse  # noqa: PLC0415
 
     user_agent = parse(user_agent_str)
 

@@ -33,13 +33,7 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.activity_logging.external_data_utils import (
-    get_external_data_source_created_by_info,
-    get_external_data_source_detail_name,
-)
 from posthog.models.integration import GoogleCloudServiceAccountIntegration
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -319,7 +313,7 @@ def migrate_google_service_account_key_file_to_integration(
     Read the service account key file and copies them over to the integration.
     """
     integration_id = job_inputs.get("google_cloud_service_account_integration_id")
-    if integration_id not in (None, ""):
+    if integration_id is not None and integration_id != "" and integration_id != 0:
         migrated_job_inputs = dict(job_inputs)
         migrated_job_inputs.pop("key_file", None)
         return migrated_job_inputs
@@ -3039,53 +3033,3 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "error": result.error,
             },
         )
-
-
-@dataclasses.dataclass(frozen=True)
-class ExternalDataSourceContext(ActivityContextBase):
-    source_type: str
-    prefix: str | None
-    description: str | None
-    created_by_user_id: str | None
-    created_by_user_email: str | None
-    created_by_user_name: str | None
-
-
-@mutable_receiver(model_activity_signal, sender=ExternalDataSource)
-def handle_external_data_source_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    # Use after_update for create/update, before_update for delete
-    external_data_source = after_update or before_update
-
-    if not external_data_source:
-        return
-
-    created_by_user_id, created_by_user_email, created_by_user_name = get_external_data_source_created_by_info(
-        external_data_source
-    )
-    detail_name = get_external_data_source_detail_name(external_data_source)
-
-    context = ExternalDataSourceContext(
-        source_type=external_data_source.source_type or "",
-        prefix=external_data_source.prefix,
-        description=external_data_source.description,
-        created_by_user_id=created_by_user_id,
-        created_by_user_email=created_by_user_email,
-        created_by_user_name=created_by_user_name,
-    )
-
-    log_activity(
-        organization_id=external_data_source.team.organization_id,
-        team_id=external_data_source.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=external_data_source.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=detail_name,
-            context=context,
-        ),
-    )
