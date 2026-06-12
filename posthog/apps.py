@@ -9,7 +9,6 @@ from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.utils import (
     get_available_timezones_with_offsets,
     get_dogfood_flags_team_id,
@@ -80,6 +79,11 @@ class PostHogConfig(AppConfig):
 
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
+                # posthog.tasks.__init__ is a celery autoimport aggregator: importing any
+                # submodule loads every task module. Keep that off django.setup() for all
+                # processes; celery workers get it via autodiscover_tasks().
+                from posthog.tasks.tasks import sync_all_organization_available_product_features  # noqa: PLC0415
+
                 # Sync all organization.available_product_features once on launch, in case plans changed
                 sync_all_organization_available_product_features()
 

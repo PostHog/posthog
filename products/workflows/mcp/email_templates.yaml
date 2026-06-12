@@ -1,0 +1,116 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Workflows
+feature: workflows
+url_prefix: /workflows/library/templates
+ui_apps:
+    email-template:
+        type: detail
+        view_prop: template
+tools:
+    workflows-create-email-template:
+        operation: messaging_templates_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create email template
+        description: >
+            Save an email template to the workflows library. Provide name and content.email with subject, a plain-text
+            fallback, and design (design JSON for PostHog's visual email editor — schema in the
+            designing-email-templates skill); the sent email is compiled from the design JSON. Liquid personalization
+            works throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design
+            inline exactly as authored. Then call workflows-show-email-template and share the _posthogUrl link with the
+            user.
+        response:
+            exclude:
+                - content
+                - created_by
+    workflows-get-email-template:
+        operation: messaging_templates_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get email template
+        description: >
+            Get an email template by ID, including content.email (subject, text, design). Use this to fetch before
+            updating — content is replaced as a whole and humans may have edited the design in the visual editor since
+            you last saw it, so build your update payload from this response. To display a template to the user, use
+            workflows-show-email-template instead.
+        response:
+            exclude:
+                - content.email.html
+                - created_by
+    workflows-list-email-templates:
+        operation: messaging_templates_list
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List email templates
+        description: >
+            List email templates in the workflows library — metadata only; fetch a template's content with
+            workflows-get-email-template. Templates are referenced from a workflow's function_email action.
+        response:
+            exclude:
+                - content
+                - created_by
+    workflows-show-email-template:
+        operation: messaging_templates_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Show email template
+        description: >
+            Render an email template as an inline preview for the user. Call after creating or updating a template, and
+            whenever the user asks to see one. The response carries the final rendered html — read it before describing
+            the result. For fetching a template to edit it, use workflows-get-email-template.
+        ui_app: email-template
+        response:
+            exclude:
+                - content.email.design
+                - created_by
+    workflows-update-email-template:
+        operation: messaging_templates_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update email template
+        description: >
+            Update an email template by ID. content is replaced as a whole, never merged — call
+            workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send
+            back the complete content.email with your edited design. The server re-renders the sent email from the
+            design on save. After updating, call workflows-show-email-template so the user sees the result, and share
+            the returned _posthogUrl edit link.
+        response:
+            exclude:
+                - content
+                - created_by

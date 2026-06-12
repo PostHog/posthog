@@ -478,7 +478,7 @@ const AssistantTrendsFilter = z.object({
     aggregationAxisPostfix: z
         .string()
         .describe(
-            'Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.'
+            'Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix. Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`.'
         )
         .optional(),
     aggregationAxisPrefix: z

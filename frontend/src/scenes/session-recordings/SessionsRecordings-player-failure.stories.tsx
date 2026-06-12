@@ -122,6 +122,7 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind': recordingEventsJson,
+                '/api/environments/:team_id/session_recordings/:id/capture_diagnostics': { properties: null },
             },
         }),
     ],

@@ -86,7 +86,7 @@ export const IframeExample: Story = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/saved/hm_iframe/': () => [200, makeIframeSaved()],
-                '/api/heatmap/': () => [
+                '/api/projects/:team_id/heatmaps/': () => [
                     200,
                     {
                         results: [

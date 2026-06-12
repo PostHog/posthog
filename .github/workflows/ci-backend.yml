@@ -163,10 +163,20 @@ jobs:
                         - rust/feature-flags/src/properties/property_models.rs
                         - frontend/src/products.json # Loaded at runtime by posthog/products.py
                         - 'products/*/manifest.tsx' # Generates products.json
-                        # hogli db commands used for test database setup
-                        - 'tools/hogli-commands/hogli_commands/**'
+                        # hogli setup commands this workflow runs: db:restore-test-db
+                        # and product:bootstrap/lint. Scoped to the modules those
+                        # commands actually import — framework, manifest, boot
+                        # modules, db_schema, product — so unrelated hogli commands
+                        # (doctor, devbox, ...) don't trigger this suite.
                         - 'tools/hogli/**'
                         - hogli.yaml
+                        - 'tools/hogli-commands/hogli_commands/db_schema.py'
+                        - 'tools/hogli-commands/hogli_commands/prechecks.py'
+                        - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
+                        - 'tools/hogli-commands/hogli_commands/hint_hook.py'
+                        - 'tools/hogli-commands/hogli_commands/hints.py'
+                        - 'tools/hogli-commands/hogli_commands/product/**'
+                        - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
