@@ -251,11 +251,20 @@ class ClickHousePrinter(BasePrinter):
                 raise QueryError(f"{node.name} is not available on this instance")
             target = "$geoip_city_name" if node.name == "_lookupGeoipCityName" else "$geoip_postal_code"
             # Mirror the transform's restricted-property guard for direct calls: the function must not let a user
-            # derive a restricted geo property from a readable `$ip`. The function is generic over what its argument
-            # refers to (an event's IP, a person's IP, a literal), so a restriction on the target property name in any
-            # scope rejects the call. Deriving from a restricted `$ip` is fine — the restriction layer scrubs that
-            # read to NULL, and the output property is one the user may see.
-            if any(name == target for name, _ptype in (self.context.restricted_properties or set())):
+            # derive a restricted geo property from a readable `$ip`. Only the event scope counts — these functions
+            # derive the event-scoped properties, and GeoLite2 is public reference data, so deriving a city from an
+            # IP the user may already read is fine even where a person-scoped geo property is restricted (they could
+            # resolve the IP themselves). Restricted `$ip` arguments are simply scrubbed to NULL by the restriction
+            # layer, so such calls miss the dictionary.
+            # Deferred: PropertyDefinition pulls in the Django model layer; keep it off this module's import path.
+            from products.event_definitions.backend.models.property_definition import (  # noqa: PLC0415
+                PropertyDefinition,
+            )
+
+            if any(
+                name == target and ptype == PropertyDefinition.Type.EVENT
+                for name, ptype in (self.context.restricted_properties or set())
+            ):
                 raise QueryError(f"{node.name} is not allowed: the property it produces is restricted")
             attribute = "city_name" if node.name == "_lookupGeoipCityName" else "postal_code"
             geoip_dict = get_geoip_city_postal_dict()

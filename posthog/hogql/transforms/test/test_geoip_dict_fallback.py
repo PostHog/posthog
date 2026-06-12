@@ -114,20 +114,12 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         )
         assert "dictGetStringOrDefault" not in sql
 
-    @parameterized.expand(
-        [
-            ("event scope", PropertyDefinition.Type.EVENT),
-            ("person scope", PropertyDefinition.Type.PERSON),
-            ("group scope", PropertyDefinition.Type.GROUP),
-            ("session scope", PropertyDefinition.Type.SESSION),
-        ]
-    )
-    def test_no_fallback_for_restricted_target_property(self, _name: str, property_type: int) -> None:
+    def test_no_fallback_for_restricted_target_property(self) -> None:
         # Property-level access control resolves the restricted read to NULL; the fallback must not reconstruct it
-        # from `$ip`, so it stands down entirely. Any scope counts, matching the printer's direct-call guard.
+        # from `$ip`, so it stands down entirely.
         sql, _ = self._print_select(
             "SELECT properties.$geoip_city_name FROM events",
-            restricted_properties={("$geoip_city_name", property_type)},
+            restricted_properties={("$geoip_city_name", PropertyDefinition.Type.EVENT)},
         )
         assert "dictGetStringOrDefault" not in sql
 
@@ -180,18 +172,24 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("ip restricted", "$ip"),
-            ("country restricted", "$geoip_country_code"),
-            ("unrelated restricted", "$browser"),
+            ("ip restricted", "$ip", PropertyDefinition.Type.EVENT),
+            ("country restricted", "$geoip_country_code", PropertyDefinition.Type.EVENT),
+            ("unrelated restricted", "$browser", PropertyDefinition.Type.EVENT),
+            ("person-scoped city", "$geoip_city_name", PropertyDefinition.Type.PERSON),
+            ("group-scoped city", "$geoip_city_name", PropertyDefinition.Type.GROUP),
+            ("session-scoped city", "$geoip_city_name", PropertyDefinition.Type.SESSION),
         ]
     )
-    def test_fallback_unaffected_by_non_target_restrictions(self, _name: str, restricted_key: str) -> None:
+    def test_fallback_unaffected_by_non_target_restrictions(
+        self, _name: str, restricted_key: str, property_type: int
+    ) -> None:
         # Restricted sources don't disable the rewrite: the restriction layer scrubs those reads to NULL, so for such
         # users recovery quietly misses without exposing them (accepted limitation: restricted `$ip` means no recovery
-        # even though the derived property is readable). Unrelated restrictions change nothing.
+        # even though the derived property is readable). Unrelated restrictions change nothing, and neither do
+        # non-event-scoped restrictions on the target name — this is an events-table read.
         sql, _ = self._print_select(
             "SELECT properties.$geoip_city_name FROM events",
-            restricted_properties={(restricted_key, PropertyDefinition.Type.EVENT)},
+            restricted_properties={(restricted_key, property_type)},
         )
         assert "dictGetStringOrDefault" in sql
 
@@ -236,21 +234,24 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         with pytest.raises(QueryError, match="not available"):
             self._print_select("SELECT _lookupGeoipCityName('89.160.20.129') FROM events", teams="")
 
-    @parameterized.expand(
-        [
-            ("event scope", PropertyDefinition.Type.EVENT),
-            ("person scope", PropertyDefinition.Type.PERSON),
-        ]
-    )
-    def test_lookup_functions_rejected_for_restricted_target(self, _name: str, property_type: int) -> None:
+    def test_lookup_functions_rejected_for_restricted_target(self) -> None:
         # Direct calls must enforce the same guard as the transform: otherwise a user denied the geo property could
-        # derive it from a readable `$ip`. The function is generic over what its argument refers to, so a restriction
-        # on the target property name in any scope (event or person) rejects the call.
+        # derive it from a readable `$ip`.
         with pytest.raises(QueryError, match="restricted"):
             self._print_select(
                 "SELECT _lookupGeoipPostalCode(properties.$ip) FROM events",
-                restricted_properties={("$geoip_postal_code", property_type)},
+                restricted_properties={("$geoip_postal_code", PropertyDefinition.Type.EVENT)},
             )
+
+    def test_lookup_functions_allowed_for_person_scoped_target_restriction(self) -> None:
+        # Only the event scope guards these functions: they derive the event-scoped properties, and GeoLite2 is
+        # public reference data — a user who can read an IP (e.g. a person's) could resolve it themselves, so a
+        # person-scoped geo restriction does not block the call.
+        sql, _ = self._print_select(
+            "SELECT _lookupGeoipCityName(person.properties.$ip) FROM events",
+            restricted_properties={("$geoip_city_name", PropertyDefinition.Type.PERSON)},
+        )
+        assert f"dictGetStringOrDefault('{get_geoip_city_postal_dict()}', 'city_name'" in sql
 
     def test_lookup_functions_allowed_when_only_source_restricted(self) -> None:
         # Restricting `$ip` does not block deriving a readable property from it: the `$ip` read itself is scrubbed by
