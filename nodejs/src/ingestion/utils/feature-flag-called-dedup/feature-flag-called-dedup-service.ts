@@ -4,11 +4,17 @@ import { Redis } from 'ioredis'
 import { RedisPool } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
-import { IngestionConsumerConfig } from '../../config'
+import { IngestionConsumerConfig, IngestionLane } from '../../config'
 import { parseTeamsList } from '../parse-teams-list'
 import { featureFlagCalledDedupRedisLatency, featureFlagCalledDedupRedisOpsTotal } from './metrics'
 
-const REDIS_KEY_PREFIX = '@posthog/ff-called-dedup/'
+// Deliberately terse: at full rollout every key byte costs ~13 MB of shared
+// Redis memory (one byte per ~13M live keys).
+const REDIS_KEY_PREFIX = 'ffcd:'
+
+// 22 base64url chars = 132 bits. Birthday-bound collision probability across
+// ~13M live keys is ~2^-86 — far below the rate of any failure mode we handle.
+const HASH_LENGTH = 22
 
 const FEATURE_FLAG_CALLED_DEDUP_MODES = ['disabled', 'shadow', 'drop'] as const
 
@@ -82,10 +88,12 @@ export function featureFlagCalledDedupKey(
             ? Object.entries(groups as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
             : null
     // teamId is also in the hash so the digest alone is tenant-scoped, even if
-    // a future code path assembles a key without the prefix.
+    // a future code path assembles a key without the prefix. The plaintext
+    // teamId stays in the key so operators can SCAN or purge one team's claims.
     const hash = createHash('sha256')
         .update(JSON.stringify([teamId, distinctId, flagKey, response ?? null, normalizedGroups]))
         .digest('base64url')
+        .slice(0, HASH_LENGTH)
     return `${REDIS_KEY_PREFIX}${teamId}:${hash}`
 }
 
@@ -124,15 +132,24 @@ export interface RedisFeatureFlagCalledDedupServiceOptions {
 
 export type FeatureFlagCalledDedupEnvConfig = Pick<
     IngestionConsumerConfig,
+    | 'INGESTION_LANE'
     | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE'
     | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS'
     | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS'
     | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS'
 >
 
+/** Lanes that may dedup. `null` covers local dev, where no lane is set. */
+const DEDUP_ALLOWED_LANES: readonly (IngestionLane | null)[] = ['main', 'overflow', null]
+
 /**
  * Builds the dedup service from ingestion config, or undefined when the dedup
  * is disabled (the pipeline step treats an absent service as a passthrough).
+ *
+ * The dedup window is processing-time, not event-time, so lanes that process
+ * delayed events (historical, async) must never dedup: a backfilled event is
+ * not a duplicate of the live event that claimed its tuple an hour ago. The
+ * lane gate holds even if the dedup env vars leak into a shared config.
  */
 export function createFeatureFlagCalledDedupService(
     redisPool: RedisPool,
@@ -145,6 +162,12 @@ export function createFeatureFlagCalledDedupService(
         envConfig.INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS
     )
     if (config.mode === 'disabled') {
+        return undefined
+    }
+    if (!DEDUP_ALLOWED_LANES.includes(envConfig.INGESTION_LANE)) {
+        logger.warn('Feature flag called dedup is not supported on this ingestion lane, disabling', {
+            lane: envConfig.INGESTION_LANE,
+        })
         return undefined
     }
     return new RedisFeatureFlagCalledDedupService({ redisPool, config })

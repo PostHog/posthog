@@ -1,4 +1,5 @@
 import { RedisPool } from '../../../types'
+import { IngestionLane } from '../../config'
 import {
     RedisFeatureFlagCalledDedupService,
     createFeatureFlagCalledDedupService,
@@ -89,7 +90,8 @@ describe('RedisFeatureFlagCalledDedupService', () => {
     })
 
     describe('createFeatureFlagCalledDedupService', () => {
-        const envConfig = (mode: string) => ({
+        const envConfig = (mode: string, lane: IngestionLane | null = null) => ({
+            INGESTION_LANE: lane,
             INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: mode,
             INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: '*',
             INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: '',
@@ -109,6 +111,24 @@ describe('RedisFeatureFlagCalledDedupService', () => {
 
             expect(service).toBeInstanceOf(RedisFeatureFlagCalledDedupService)
             expect(service?.mode).toBe('drop')
+        })
+
+        it.each<[IngestionLane | null, boolean]>([
+            ['main', true],
+            ['overflow', true],
+            [null, true],
+            ['historical', false],
+            ['async', false],
+        ])('lane %s yields a service: %s', (lane, expectService) => {
+            const { pool } = createMockRedisPool([])
+
+            const service = createFeatureFlagCalledDedupService(pool, envConfig('drop', lane))
+
+            if (expectService) {
+                expect(service).toBeInstanceOf(RedisFeatureFlagCalledDedupService)
+            } else {
+                expect(service).toBeUndefined()
+            }
         })
     })
 
@@ -132,6 +152,14 @@ describe('RedisFeatureFlagCalledDedupService', () => {
     })
 
     describe('featureFlagCalledDedupKey', () => {
+        it('has a compact, team-scannable shape', () => {
+            // Key bytes are paid per live key at prod cardinality, so the
+            // shape (short prefix, truncated digest) is a memory contract.
+            expect(featureFlagCalledDedupKey(42, 'user-1', 'flag-a', 'variant-1', { org: 'o1' })).toMatch(
+                /^ffcd:42:[A-Za-z0-9_-]{22}$/
+            )
+        })
+
         it('is stable for the same tuple', () => {
             expect(featureFlagCalledDedupKey(1, 'user-1', 'flag-a', 'variant-1', { org: 'o1' })).toBe(
                 featureFlagCalledDedupKey(1, 'user-1', 'flag-a', 'variant-1', { org: 'o1' })
