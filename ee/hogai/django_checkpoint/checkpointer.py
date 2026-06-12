@@ -17,7 +17,6 @@ from langgraph.checkpoint.base import (
     PendingWrite,
     get_checkpoint_id,
 )
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from posthog.sync import database_sync_to_async
@@ -50,11 +49,10 @@ def _json_default(obj: Any) -> Any:
     elif isinstance(obj, (bytes, bytearray)):
         return obj.hex()
     else:
-        return repr(obj)
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
-    jsonplus_serde = JsonPlusSerializer()
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
