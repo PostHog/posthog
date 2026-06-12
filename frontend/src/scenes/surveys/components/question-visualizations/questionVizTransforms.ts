@@ -1,9 +1,10 @@
 import { hexToRGB } from 'lib/utils'
 
 // Share of the base color kept for non-highlighted bars. Stronger dim when a filter is actually
-// applied (active), lighter when a choice is only "armed" for a follow-up click.
-const ACTIVE_DIM_KEEP = 0.22
-const ARMED_DIM_KEEP = 0.35
+// applied (active), lighter when a choice is only "armed" for a follow-up click. Keeps must stay
+// clearly above the bar track's ~0.14-0.32 alpha tint so dimmed bars don't melt into the track.
+const ACTIVE_DIM_KEEP = 0.4
+const ARMED_DIM_KEEP = 0.55
 
 // Opaque dim: mix toward the surface (black in dark mode, white in light) instead of alpha, so
 // dimmed bars stay solid over the hatched bar track rendered behind them.

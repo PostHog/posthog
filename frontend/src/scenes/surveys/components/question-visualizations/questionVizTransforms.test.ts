@@ -22,33 +22,33 @@ describe('computeBarColors', () => {
 
     it('keeps the highlighted bar at full color and dims the rest with the active strength', () => {
         expect(computeBarColors(baseColors, labels, 'b', true, false)).toEqual([
-            mixed(BLUE, 0.22, 255),
+            mixed(BLUE, 0.4, 255),
             PINK,
-            mixed(TEAL, 0.22, 255),
+            mixed(TEAL, 0.4, 255),
         ])
     })
 
     it('uses the lighter armed strength when no filter is active', () => {
         expect(computeBarColors(baseColors, labels, 'a', false, false)).toEqual([
             BLUE,
-            mixed(PINK, 0.35, 255),
-            mixed(TEAL, 0.35, 255),
+            mixed(PINK, 0.55, 255),
+            mixed(TEAL, 0.55, 255),
         ])
     })
 
     it('dims toward black in dark mode so dimmed bars stay opaque over the bar track', () => {
         expect(computeBarColors(baseColors, labels, 'b', true, true)).toEqual([
-            mixed(BLUE, 0.22, 0),
+            mixed(BLUE, 0.4, 0),
             PINK,
-            mixed(TEAL, 0.22, 0),
+            mixed(TEAL, 0.4, 0),
         ])
     })
 
     it('dims every bar when the highlighted label matches none of them', () => {
         expect(computeBarColors(baseColors, labels, 'missing', true, false)).toEqual([
-            mixed(BLUE, 0.22, 255),
-            mixed(PINK, 0.22, 255),
-            mixed(TEAL, 0.22, 255),
+            mixed(BLUE, 0.4, 255),
+            mixed(PINK, 0.4, 255),
+            mixed(TEAL, 0.4, 255),
         ])
     })
 })
