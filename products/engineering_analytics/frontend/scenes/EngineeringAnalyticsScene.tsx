@@ -12,12 +12,12 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
-import { EngineeringAnalyticsQuarantine } from './EngineeringAnalyticsQuarantine'
 import {
     EngineeringAnalyticsTab,
     TAB_DESCRIPTIONS,
     engineeringAnalyticsSceneLogic,
 } from './engineeringAnalyticsSceneLogic'
+import { EngineeringAnalyticsTestHealth } from './EngineeringAnalyticsTestHealth'
 import { EngineeringAnalyticsWorkflows } from './EngineeringAnalyticsWorkflows'
 
 export const scene: SceneExport = {
@@ -50,11 +50,11 @@ export function EngineeringAnalyticsScene({ tabId }: { tabId?: string }): JSX.El
             'data-attr': 'engineering-analytics-workflows-tab',
         },
         {
-            key: 'quarantine',
-            label: 'Quarantine',
-            content: <EngineeringAnalyticsQuarantine />,
-            link: combineUrl(urls.engineeringAnalyticsQuarantine(), searchParams).url,
-            'data-attr': 'engineering-analytics-quarantine-tab',
+            key: 'test-health',
+            label: 'Test health',
+            content: <EngineeringAnalyticsTestHealth />,
+            link: combineUrl(urls.engineeringAnalyticsTestHealth(), searchParams).url,
+            'data-attr': 'engineering-analytics-test-health-tab',
         },
     ]
 

@@ -101,7 +101,7 @@ function ModeTag({ mode }: { mode: QuarantineEntryRow['mode'] }): JSX.Element {
     )
 }
 
-export function EngineeringAnalyticsQuarantine(): JSX.Element {
+export function EngineeringAnalyticsTestHealth(): JSX.Element {
     const {
         quarantine,
         quarantineLoading,
@@ -301,6 +301,12 @@ export function EngineeringAnalyticsQuarantine(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-0.5">
+                <h3 className="m-0 text-base font-semibold">Quarantine register</h3>
+                <p className="m-0 text-xs text-tertiary">
+                    Flaky tests currently masked in CI via the checked-in quarantine file.
+                </p>
+            </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <StatCard
                     label="Active"
