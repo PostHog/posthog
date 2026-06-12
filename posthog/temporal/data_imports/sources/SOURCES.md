@@ -104,6 +104,7 @@ the row lists both.
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
+| mollie           | HTTP                        | requests                                                        | ✅                          |
 | mongodb          | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql            | DB protocol                 | pymysql                                                         | ➖                          |
@@ -262,7 +263,6 @@ doesn't conflict with concurrent PRs.
 - marketo
 - matomo
 - microsoft_teams
-- mollie
 - monday
 - netsuite
 - onedrive

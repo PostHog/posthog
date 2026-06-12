@@ -840,7 +840,7 @@ class MixpanelSourceConfig(config.Config):
 
 @config.config
 class MollieSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
