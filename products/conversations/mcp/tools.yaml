@@ -24,6 +24,9 @@ tools:
     conversations-list:
         operation: conversations_list
         enabled: false
+    conversations-permission-create:
+        operation: conversations_permission_create
+        enabled: false
     conversations-queue-clear-create:
         operation: conversations_queue_clear_create
         enabled: false

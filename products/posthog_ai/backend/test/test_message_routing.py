@@ -1,10 +1,18 @@
+from contextlib import contextmanager
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from rest_framework import exceptions
 
+from posthog.exceptions import Conflict
+
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
-from products.posthog_ai.backend.message_routing import MessageRoutingService, SandboxCommandError
+from products.posthog_ai.backend.message_routing import (
+    MessageRoutingService,
+    SandboxCommandError,
+    lock_conversation_for_followup,
+)
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.system_prompt import PromptService
 from products.tasks.backend.models import Task, TaskRun
@@ -232,6 +240,60 @@ class TestHandleSandboxMessage(APIBaseTest):
         with self.assertRaises(exceptions.ValidationError):
             self._service().handle({"content": "x"})
 
+    def test_terminal_resume_conflicts_when_a_concurrent_followup_won(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        self._attach_task(task)
+
+        # By the time this request is granted the lock, a concurrent follow-up has already
+        # created the in-progress successor — exactly the window the row lock serializes.
+        @contextmanager
+        def lock_granted_after_concurrent_winner(conversation_id: str, team_id: int):
+            task.create_run(mode="interactive")
+            self.conversation.refresh_from_db()
+            yield self.conversation
+
+        with (
+            patch(f"{ROUTING}.lock_conversation_for_followup", side_effect=lock_granted_after_concurrent_winner),
+            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch.object(PromptService, "build", return_value="SYS"),
+        ):
+            with self.assertRaises(Conflict):
+                self._service().handle({"content": "resume please"})
+
+        # The winner's successor is the only new run — no duplicate create, no workflow dispatch.
+        assert task.runs.count() == 2
+        m_workflow.assert_not_called()
+
+    def test_terminal_resume_uses_freshest_terminal_run_after_lock(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        self._attach_task(task)
+
+        # The concurrent winner's successor already finished — the loser must resume from it,
+        # not from the stale run it resolved before waiting on the lock.
+        @contextmanager
+        def lock_granted_after_winner_finished(conversation_id: str, team_id: int):
+            successor = task.create_run(mode="interactive")
+            successor.status = TaskRun.Status.COMPLETED
+            successor.save(update_fields=["status"])
+            self.conversation.refresh_from_db()
+            yield self.conversation
+
+        with (
+            patch(f"{ROUTING}.lock_conversation_for_followup", side_effect=lock_granted_after_winner_finished),
+            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch.object(PromptService, "build", return_value="SYS"),
+        ):
+            result = self._service().handle({"content": "resume please"})
+
+        new_run = task.runs.order_by("-created_at").first()
+        assert new_run is not None
+        assert str(new_run.id) == result.run_id
+        assert new_run.state["resume_from_run_id"] != str(run.id)
+
 
 class TestHandleSandboxCancel(APIBaseTest):
     def setUp(self):
@@ -295,3 +357,24 @@ class TestHandleSandboxCancel(APIBaseTest):
     def test_cancel_without_task_raises(self):
         with self.assertRaises(exceptions.ValidationError):
             self._service().cancel()
+
+
+class TestLockConversationForFollowup(APIBaseTest):
+    def test_lock_acquires_select_for_update_on_conversation(self):
+        conversation = Conversation.objects.create(user=self.user, team=self.team)
+
+        with patch(f"{ROUTING}.Conversation.objects") as mock_objects:
+            mock_sfu = mock_objects.select_for_update.return_value
+            mock_sfu.get.return_value = conversation
+
+            with lock_conversation_for_followup(str(conversation.id), self.team.id) as locked:
+                self.assertEqual(locked, conversation)
+
+        mock_objects.select_for_update.assert_called_once_with()
+        mock_sfu.get.assert_called_once_with(id=str(conversation.id), team_id=self.team.id)
+
+    def test_lock_yields_the_conversation_row(self):
+        conversation = Conversation.objects.create(user=self.user, team=self.team)
+
+        with lock_conversation_for_followup(str(conversation.id), self.team.id) as locked:
+            self.assertEqual(locked.id, conversation.id)

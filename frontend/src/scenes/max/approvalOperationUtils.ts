@@ -1,5 +1,93 @@
 import { DangerousOperationResponse, PENDING_APPROVAL_STATUS } from '~/queries/schema/schema-assistant-messages'
 
+import type { PermissionOption } from './types/sandboxWireTypes'
+
+/**
+ * The card-facing decision a user can take on an approval option. The existing
+ * LangGraph card resolves to `approved` / `declined` / `auto_rejected`; the sandbox
+ * runtime surfaces richer ACP option kinds that map down onto the same model.
+ */
+export type ApprovalDecision = 'approved' | 'declined'
+
+/**
+ * One button the sandbox approval card renders, derived from an ACP `permission_request`
+ * option. The card forwards `optionId` back verbatim on the `permission_response`.
+ */
+export interface ApprovalCardOption {
+    optionId: string
+    label: string
+    /** Resolution status the card records once this option is chosen. */
+    decision: ApprovalDecision
+    /** Primary CTA styling (the single `allow_once`/approve path). */
+    primary: boolean
+    /** `allow_always` — only shown when the tool preview opts in via `remember: true`. */
+    remembered: boolean
+    /** `reject_with_feedback` — the card opens a feedback text input before sending. */
+    requiresFeedback: boolean
+}
+
+/**
+ * Maps ACP `permission_request` option kinds onto the sandbox approval card's option model.
+ * The wire `optionId`/`name` are preserved so the card can forward the chosen `optionId`
+ * straight back on the `permission_response` — the kind only drives UI affordance and the
+ * resolution status recorded locally.
+ *
+ * `allow_always` is hidden unless `allowRemember` is true (the tool preview must carry
+ * `remember: true`); the option is still returned so callers can decide, but flagged via
+ * `remembered` so the renderer can drop it.
+ */
+export function mapPermissionOption(option: PermissionOption): ApprovalCardOption {
+    switch (option.kind) {
+        case 'allow_once':
+            return {
+                optionId: option.optionId,
+                label: option.name || 'Approve',
+                decision: 'approved',
+                primary: true,
+                remembered: false,
+                requiresFeedback: false,
+            }
+        case 'allow_always':
+            return {
+                optionId: option.optionId,
+                label: option.name || 'Approve always',
+                decision: 'approved',
+                primary: false,
+                remembered: true,
+                requiresFeedback: false,
+            }
+        case 'reject':
+            return {
+                optionId: option.optionId,
+                label: option.name || 'Decline',
+                decision: 'declined',
+                primary: false,
+                remembered: false,
+                requiresFeedback: false,
+            }
+        case 'reject_with_feedback':
+            return {
+                optionId: option.optionId,
+                label: option.name || 'Decline with feedback…',
+                decision: 'declined',
+                primary: false,
+                remembered: false,
+                requiresFeedback: true,
+            }
+    }
+}
+
+/**
+ * Maps the full ACP `options[]` to card options, dropping `allow_always` unless the tool
+ * preview opted into a rememberable decision (`allowRemember`).
+ */
+export function mapPermissionOptions(
+    options: PermissionOption[],
+    allowRemember: boolean = false
+): ApprovalCardOption[] {
+    return options.map(mapPermissionOption).filter((option) => !option.remembered || allowRemember)
+}
+
 /**
  * Type guard to check if a tool result is a dangerous operation requiring approval.
  * Validates all required fields are present (supports both camelCase and snake_case from backend).
