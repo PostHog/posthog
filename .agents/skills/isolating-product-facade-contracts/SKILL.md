@@ -1,12 +1,14 @@
 ---
 name: isolating-product-facade-contracts
-description: Plan and execute incremental product isolation migrations to a facade plus contract layer in PostHog, following the Visual review architecture. Use when a product still exposes internals (models/logic/views) across boundaries and needs a safe, multi-PR migration toward contracts.py + facade/api.py + presentation separation.
+description: Plan and execute product isolation migrations to a facade plus contract layer in PostHog, following the Visual review architecture. Use when a product still exposes internals (models/logic/views) across boundaries and needs migration toward contracts.py + facade/api.py + presentation separation, with a PR strategy that minimizes review latency and conflicts with parallel work.
 ---
 
 # Isolating a product with facade and contracts
 
 Use this skill to migrate an existing product to the isolated architecture used by Visual review.
-Keep migrations incremental, with narrow PRs that avoid broad breakage.
+Optimize for short calendar exposure, not small diffs: authoring is cheap and the verification
+chain catches mechanical breakage, while human review latency and a fast-moving master are the
+real bottlenecks. Default to two PRs — design, then mechanical sweep — per the PR strategy below.
 
 **Prerequisite:** the product must already live under `products/<name>/`. This skill does not cover moving code out of `posthog/`, `ee/`, or other shared directories — do that first.
 
@@ -38,9 +40,12 @@ Before changing code, get the baseline:
 hogli product:maturity <name>    # scores models, facade, presentation, boundaries, codegen
 hogli product:lint <name>        # structural lint + isolation chain (strict if facade/contracts.py exists)
 rg -n "from products\.<name>\.backend\.(models|logic|presentation|tasks|storage)" .
+rg -o "(from|import) products\.<name>" posthog ee | wc -l   # core-coupling count
 ```
 
 The `rg` output is your import map: every line is a caller that needs to migrate to the facade.
+The core-coupling count picks the PR strategy below: near zero means the whole migration fits
+the two-PR default; triple digits means the caller sweep needs slicing by owning team.
 
 ## Guardrails
 
@@ -69,9 +74,14 @@ The `rg` output is your import map: every line is a caller that needs to migrate
 3. Introduce a thin facade in `backend/facade/api.py`.
    - Map ORM instances to contracts with explicit mapper functions.
    - Keep method names capability-oriented and stable.
-4. Migrate callers in small batches.
-   - Replace one caller cluster at a time (single endpoint, single task, or single service area).
-   - Keep compatibility shims only when needed; remove promptly.
+4. Migrate callers in one pass by default.
+   - The rewrite is mechanical (import swap + call mapping) and fully checked by the
+     verification chain; batching it only stretches the window in which master drifts
+     under the branch.
+   - Compatibility shims exist to bridge between serial PRs — the one-pass shape rarely
+     needs them. If one is unavoidable, it dies in the final cleanup PR, not "later".
+   - Exception: callers with subtle behavior (transaction boundaries, write-path
+     semantics) may move in their own small PR — see the PR strategy below.
 5. Move presentation to consume the facade.
    - Serializers convert JSON <-> contracts.
    - Views call facade methods only.
@@ -99,30 +109,66 @@ The `rg` output is your import map: every line is a caller that needs to migrate
 
 ### Legacy leaks during migration
 
+This is the exception path for high-coupling products whose caller sweep is sliced
+across teams (see PR strategy below) — isolation turns on before every core import
+has moved. With the two-PR default, all core callers land in the sweep PR and this
+block never needs to exist.
+
 If `posthog/` or `ee/` still imports product internals (`backend.models`,
-`backend.oauth`, …) when you cut the first isolation PR, add a second
+`backend.oauth`, …) when the isolation chain turns on, add a second
 `[[interfaces]]` block under the "Legacy leaks" section of `tach.toml`
 allow-listing exactly the modules core still touches. This keeps the build
-green while you migrate callers in subsequent PRs. Shrink and delete that
-block as imports move behind the facade — the final PR removes it entirely.
+green while the remaining team-sliced PRs land. Shrink and delete that
+block as imports move behind the facade — the final cleanup PR removes it entirely.
 `hogli product:lint` flags any product that still has legacy leak interfaces
 with a `⚠ has legacy interface leaks` warning.
 
-## PR slicing strategy
+## PR strategy
 
-Default to several PRs instead of one big migration:
+The scarce resources are reviewer attention and calendar time — not authoring effort.
+Every day a migration branch stays open, parallel work lands in the same files; serial
+PR chains multiply that exposure because each PR waits in review while the next can't
+be authored stably until it merges. Slice to minimize how long branches stay open, and
+let the verification chain carry the mechanical review burden.
 
-- PR 1: Add contracts + facade methods, with no caller behavior changes. For a small product this PR can also flip `api.py`/`webhooks.py` into `presentation/` and enable the 4-step chain (see `user_interviews` PR #59132 for that combined shape).
-- PR 2-N: Migrate caller clusters one-by-one to the facade.
-- Final PR: Remove deprecated internal import paths, drop "Legacy leaks" `[[interfaces]]` blocks and `ignore_imports` TODOs, and clean dead adapters.
+Default to exactly two PRs:
 
-If a product has many endpoints, migrate in this order:
+- **PR 1 — design (where human review matters).** Contracts + facade methods +
+  behavioral-parity tests for the facade, with no caller changes. New files only, so it
+  cannot conflict with parallel work. The contract surface is the long-lived API —
+  spend review attention on naming, capability shape, and field selection, not
+  mechanics. For a small product this PR can also flip `api.py`/`webhooks.py` into
+  `presentation/` and enable the 4-step chain (see `user_interviews` PR #59132 for
+  that combined shape).
+- **PR 2 — mechanical sweep (where verification carries it).** All caller migrations,
+  the presentation flip, and the 4-step chain. Reviewers sample rather than read
+  line-by-line; the parity tests from PR 1 plus tach, import-linter, contract-check,
+  and the product tests are the safety net.
 
-1. Read-only list/detail APIs (lowest risk)
-2. Internal service-to-service call sites
-3. Write paths (create/update/delete)
-4. Background tasks / async entrypoints
-5. Remaining edge endpoints and cleanup
+Treat PR 2 as regenerable, not rebasable: the import map plus the merged facade fully
+determine the rewrite, so on conflict, regenerate the branch against fresh master
+instead of hand-resolving. Keep it open only for the review window.
+
+Gate by the core-coupling count from the baseline, not by product size:
+
+- **Low (zero to low double digits):** the two-PR default applies; skip the
+  legacy-leaks machinery entirely.
+- **High (triple digits):** PR 2 won't review as one unit. Slice the sweep by who owns
+  the calling code (the consuming team/area, not the product's own owner) so each team
+  reviews its own call sites in parallel — never serially by capability, which trades
+  calendar time for an authoring risk that no longer exists. Turn the isolation chain on behind a
+  legacy-leaks block (above) and add a final cleanup PR that drops the block,
+  `ignore_imports` TODOs, dead adapters, and shims.
+
+Within the sweep, use risk to direct review attention, not PR boundaries: write paths
+and transaction boundaries get the close read; read-only list/detail swaps, internal
+call sites, and task entrypoints get the sample. If a write path is genuinely subtle,
+pull those few callers into their own small PR as the exception.
+
+Trade-off to accept: one sweep PR reverts coarser than many small ones. That is fine
+precisely because PR 1 isolated the design risk and the mappers are behavior-preserving —
+per-file reverts stay possible, and weeks of serial PRs on a hot product cost more in
+conflicts and forfeited isolated-CI time than an occasional coarse revert.
 
 ## Done criteria
 
