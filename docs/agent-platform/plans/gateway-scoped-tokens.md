@@ -1,6 +1,7 @@
 # Proposal — native scoped tokens in the ai-gateway
 
 **Status:** proposal (resolves open q #6 of `agent-sandbox-tiers.md` long-term). **Owner:** ben.
+RFC drafted: `requests-for-comments-internal/engineering/2026-06-12-ai-gateway-scoped-tokens.md`.
 
 The agent platform just shipped a session-scoped inference proxy on ingress
 (`/inference/v1/*`): the tier-2 coding sandbox holds a session capability token,
