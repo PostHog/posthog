@@ -110,10 +110,6 @@ const EMPTY_CHART_DATA: DailyChartData = {
     p99: [],
 }
 
-function escapeHogQLString(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
-}
-
 function sortToolRows(rows: ToolQualityRow[], sort: SortState): ToolQualityRow[] {
     const direction = sort.direction === 'ASC' ? 1 : -1
     const column = sort.column as keyof ToolQualityRow
@@ -235,9 +231,19 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             {
                 loadDailyStats: async (_: void, breakpoint): Promise<DailyToolStat[]> => {
                     await breakpoint(100)
-                    const toolClause = values.selectedTool
-                        ? `AND properties.$mcp_tool_name = '${escapeHogQLString(values.selectedTool)}'`
-                        : ''
+                    // The selected tool rides along as a property filter resolved by the
+                    // {filters} placeholder, so the value never touches the query string.
+                    const toolProperty: AnyPropertyFilter[] = values.selectedTool
+                        ? [
+                              {
+                                  key: '$mcp_tool_name',
+                                  value: [values.selectedTool],
+                                  operator: PropertyOperator.Exact,
+                                  type: PropertyFilterType.Event,
+                              },
+                          ]
+                        : []
+                    const properties = [...values.categoryProperties, ...toolProperty]
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -252,7 +258,6 @@ FROM events
 WHERE event = 'mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
-    ${toolClause}
     AND {filters}
 GROUP BY day
 ORDER BY day
@@ -262,7 +267,7 @@ ORDER BY day
                                 date_from: values.dateFilter.dateFrom,
                                 date_to: values.dateFilter.dateTo,
                             },
-                            ...(values.categoryProperties.length > 0 ? { properties: values.categoryProperties } : {}),
+                            ...(properties.length > 0 ? { properties } : {}),
                         },
                     })) as HogQLQueryResponse
                     breakpoint()
