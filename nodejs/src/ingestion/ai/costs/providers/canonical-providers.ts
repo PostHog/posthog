@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-10 20:49:17 UTC
+// Generated at: 2026-06-12 11:15:54 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -19,6 +19,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-west-2'
     | 'ambient'
     | 'ambient-fp8'
+    | 'ambient-int4'
     | 'anthropic'
     | 'anthropic-2'
     | 'anthropic-claude-on-aws'
@@ -40,7 +41,6 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'decart-fp4'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'

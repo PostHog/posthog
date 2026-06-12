@@ -19,8 +19,9 @@ import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
+import { Suspense, lazy } from 'react'
 
-import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Spinner, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -45,7 +46,6 @@ import { insightsModel } from '~/models/insightsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery, queryExportContext } from '~/queries/query'
-import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -391,6 +391,8 @@ function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | un
     model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null)
     model.pushStackElement()
 }
+
+const LazyQuery = lazy(() => import('~/queries/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> })))
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
@@ -1510,18 +1512,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             >
                                 {(query) => (
                                     <div className="bg-bg-light max-h-[60vh] overflow-auto">
-                                        <Query
-                                            readOnly
-                                            embedded
-                                            query={{
-                                                ...currentVisualizationQuery,
-                                                source: {
-                                                    ...currentVisualizationQuery.source,
-                                                    query,
-                                                },
-                                                display: defaultDisplay,
-                                            }}
-                                        />
+                                        <Suspense fallback={<Spinner />}>
+                                            <LazyQuery
+                                                readOnly
+                                                embedded
+                                                query={{
+                                                    ...currentVisualizationQuery,
+                                                    source: {
+                                                        ...currentVisualizationQuery.source,
+                                                        query,
+                                                    },
+                                                    display: defaultDisplay,
+                                                }}
+                                            />
+                                        </Suspense>
                                     </div>
                                 )}
                             </SaveTargetCycler>

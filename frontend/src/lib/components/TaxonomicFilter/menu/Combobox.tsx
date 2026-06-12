@@ -714,6 +714,27 @@ export function MenuFilterCombobox({
         })
     }, [telemetryGroupType, searchQuery])
 
+    // Only the active scope's groups are fetched, so a narrowed-to-one-category search
+    // that comes up empty can't know whether other categories have matches. Offer a jump
+    // to "All" (which fetches every group) so the user can check without re-typing. This is a
+    // deliberate divergence from the legacy `InfiniteList` empty state, which can read the
+    // aggregated count (`allSectionHasResults`) and only offers the jump when All has matches.
+    const canOfferAllSwitch =
+        showChips &&
+        !!searchQuery.trim() &&
+        activeScope !== 'all' &&
+        activeScope !== 'recent' &&
+        activeScope !== 'pinned'
+    const handleCheckOtherCategories = useCallback((): void => {
+        posthog.capture('taxonomic filter menu category changed', {
+            fromChip: activeChip,
+            toChip: 'all',
+            via: 'empty-state',
+        })
+        setActiveChip('all')
+        inputRef.current?.focus()
+    }, [activeChip])
+
     const selectionContextFor = useCallback(
         (entry: MenuFilterEntry): CommitSelectionContext => {
             const key = entryKey(entry)
@@ -913,6 +934,16 @@ export function MenuFilterCombobox({
                                                         onClick={handleIncludeStaleEvents}
                                                     >
                                                         Include stale events
+                                                    </Button>
+                                                )}
+                                                {canOfferAllSwitch && !emptyState.body && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        data-attr="menu-filter-check-other-categories"
+                                                        onClick={handleCheckOtherCategories}
+                                                    >
+                                                        Check for results in other categories
                                                     </Button>
                                                 )}
                                             </div>

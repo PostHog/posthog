@@ -9,7 +9,7 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     ProductIntentContext,
     ProductKey,

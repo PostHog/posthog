@@ -8,7 +8,7 @@ import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import { Team } from '../../../types'
 import { MergeMode } from './person-merge-types'
 import { PersonMessage } from './person-message'
-import { PersonsStore } from './persons-store'
+import { PersonsStoreForBatch } from './persons-store-for-batch'
 
 export type PersonOutputs = IngestionOutputs<PersonsOutput | PersonDistinctIdsOutput | IngestionWarningsOutput>
 
@@ -27,7 +27,7 @@ export class PersonContext {
         public readonly timestamp: DateTime,
         public readonly processPerson: boolean, // $process_person_profile flag from the event
         public readonly outputs: PersonOutputs,
-        public readonly personStore: PersonsStore,
+        public readonly personStore: PersonsStoreForBatch,
         public readonly measurePersonJsonbSize: number = 0,
         public readonly mergeMode: MergeMode,
         public readonly updateAllProperties: boolean = false, // When true, all property changes trigger person updates

@@ -152,8 +152,18 @@ export function DashboardAdvancedOptions(): JSX.Element | null {
     return <DashboardEditBar showDateFilter={false} className="flex gap-2 items-end flex-wrap border rounded p-2" />
 }
 
-function DashboardFilterEditActions(): JSX.Element | null {
-    const { dashboardMode, layoutEditMode, canEditDashboard } = useValues(dashboardLogic)
+/**
+ * Edit-mode actions for the filter bar.
+ *
+ * One Cancel discards everything. On large dashboards that don't auto-preview, an
+ * "Apply filters" button appears so the user can preview pending filter changes before
+ * committing — Save applies any still-unapplied filters as part of persisting, so it's
+ * always safe to skip Apply and go straight to Save.
+ */
+function DashboardEditActions(): JSX.Element | null {
+    const { dashboardMode, layoutEditMode, canEditDashboard, showApplyFiltersBanner, loadingPreview } =
+        useValues(dashboardLogic)
+    const { applyFilters } = useActions(dashboardLogic)
 
     if (dashboardMode !== DashboardMode.Edit || layoutEditMode || !canEditDashboard) {
         return null
@@ -161,44 +171,23 @@ function DashboardFilterEditActions(): JSX.Element | null {
 
     return (
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <DashboardEditSaveCancelButtons withShortcuts />
-        </div>
-    )
-}
-
-function DashboardApplyFiltersInline(): JSX.Element | null {
-    const { showApplyFiltersBanner, loadingPreview, cancellingPreview, hasUrlFilters, dashboardMode } =
-        useValues(dashboardLogic)
-    const { applyFilters, setDashboardMode } = useActions(dashboardLogic)
-
-    if (!showApplyFiltersBanner) {
-        return null
-    }
-
-    return (
-        <div className="flex flex-wrap gap-2 shrink-0 items-center ml-4">
-            <LemonButton
-                onClick={() =>
-                    setDashboardMode(
-                        hasUrlFilters ? dashboardMode : null,
-                        DashboardEventSource.DashboardHeaderDiscardChanges
-                    )
+            <DashboardEditSaveCancelButtons
+                withShortcuts
+                applyFiltersButton={
+                    showApplyFiltersBanner ? (
+                        <LemonButton
+                            data-attr="dashboard-apply-filters"
+                            type="secondary"
+                            size="small"
+                            loading={loadingPreview}
+                            onClick={applyFilters}
+                            tooltip="Preview these filters. Large dashboards don't auto-apply — Save will apply and persist them too."
+                        >
+                            Apply filters
+                        </LemonButton>
+                    ) : null
                 }
-                loading={cancellingPreview}
-                type="secondary"
-                size="small"
-            >
-                Cancel
-            </LemonButton>
-            <LemonButton
-                onClick={applyFilters}
-                loading={loadingPreview}
-                type="primary"
-                size="small"
-                tooltip="Filters are not automatically applied on large dashboards."
-            >
-                Apply filters
-            </LemonButton>
+            />
         </div>
     )
 }
@@ -225,8 +214,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                         ].includes(placement) &&
                             dashboard &&
                             (dashboardFiltersEnabled ? <DashboardPrimaryFilters /> : <DashboardEditBar />)}
-                        <DashboardFilterEditActions />
-                        <DashboardApplyFiltersInline />
+                        <DashboardEditActions />
                     </div>
                 </div>
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
