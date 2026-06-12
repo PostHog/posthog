@@ -520,6 +520,8 @@ SPECTACULAR_SETTINGS = {
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "MetricAttributeScopeEnum": ["resource", "attribute", "auto"],
         "MetricQueryIntervalEnum": ["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        "MetricAnomalyDirectionEnum": ["up", "down", "flat"],
+        "WoWChangeDirectionEnum": ["Up", "Down"],
         "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
