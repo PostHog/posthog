@@ -3633,10 +3633,15 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=self.integration.id).exists()
 
-    def test_destroy_allowed_when_integration_id_in_non_integration_input(self, client: HttpClient):
+    @pytest.mark.parametrize("input_type,value_form", [("string", "bare_id"), ("json", "dict_value")])
+    def test_destroy_allowed_when_integration_id_in_non_integration_input(
+        self, input_type: str, value_form: str, client: HttpClient
+    ):
         # A matching ID in an input the runtime never resolves as an integration must not block deletion
-        self._create_function(input_type="string")
-        self._create_function(input_type="json", input_value={"integrationId": self.integration.id})
+        input_value: int | dict = (
+            self.integration.id if value_form == "bare_id" else {"integrationId": self.integration.id}
+        )
+        self._create_function(input_type=input_type, input_value=input_value)
 
         response = self._delete(client)
 
