@@ -26,6 +26,13 @@ from products.streamlit_apps.backend.logic.oauth import (
 )
 from products.streamlit_apps.backend.logic.zip_validator import validate_zip
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
+from products.streamlit_apps.backend.tasks import (
+    auto_restart_crashed_streamlit_sandboxes,
+    cleanup_deleted_streamlit_app_zips,
+    cleanup_expired_streamlit_oauth_tokens,
+    prune_old_streamlit_app_versions,
+    stop_idle_streamlit_sandboxes,
+)
 
 __all__ = [
     "AppRuntimeConcurrencyError",
@@ -36,6 +43,11 @@ __all__ = [
     "get_app",
     "get_app_status",
     "get_connect_info",
+    "auto_restart_crashed_streamlit_sandboxes",
+    "cleanup_deleted_streamlit_app_zips",
+    "cleanup_expired_streamlit_oauth_tokens",
+    "prune_old_streamlit_app_versions",
+    "stop_idle_streamlit_sandboxes",
 ]
 
 

@@ -79,7 +79,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
 )
 from products.logs.backend.tasks import logs_alert_events_cleanup_task
-from products.streamlit_apps.backend.tasks import (
+from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
     cleanup_deleted_streamlit_app_zips,
     cleanup_expired_streamlit_oauth_tokens,
