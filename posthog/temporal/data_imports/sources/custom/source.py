@@ -253,6 +253,31 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
     return resolved
 
 
+def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
+    """Reject incremental config values that would deterministically crash at sync time.
+
+    ``datetime_format`` is consumed as a strftime pattern by
+    :func:`_format_incremental_cursor`. The structural schema deliberately doesn't
+    model ``endpoint.incremental`` (stored-manifest reads must stay permissive), so
+    a hand-authored non-string value would otherwise surface only mid-sync — and
+    only from the second sync onward, since formatting needs a stored watermark.
+    Runs on the API validation paths alongside the graph rules.
+    """
+    for resource in manifest.get("resources") or []:
+        if not isinstance(resource, dict):
+            continue
+        endpoint = resource.get("endpoint")
+        incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None
+        if not isinstance(incremental, dict):
+            continue
+        datetime_format = incremental.get("datetime_format")
+        if datetime_format is not None and not isinstance(datetime_format, str):
+            raise ManifestValidationError(
+                f"Resource {resource.get('name')!r}: endpoint.incremental.datetime_format must be a string "
+                'strftime pattern (e.g. "%Y-%m-%dT%H:%M:%SZ")'
+            )
+
+
 def _format_validation_errors(exc: ValidationError) -> str:
     """Render Pydantic's validation errors as a single user-facing string."""
     messages: list[str] = []
@@ -549,6 +574,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # preferable to carrying a permanent leniency mode. The returned
             # map feeds the probe's child filter below.
             resolved = _validate_resource_graph(manifest)
+            _validate_incremental_configs(manifest)
         except ManifestValidationError as exc:
             return False, str(exc)
 
@@ -846,6 +872,12 @@ def _format_incremental_cursor(value: Any, chosen: dict[str, Any]) -> Any:
     Airbyte's ``datetime_format`` (e.g. ``"%Y-%m-%dT%H:%M:%SZ"``) — to control the
     wire format; absent that we default to ISO-8601 via ``isoformat()``. Non-datetime
     cursors (integer, string) and an already-formatted string pass through untouched.
+
+    A non-string ``datetime_format`` raises :class:`ManifestValidationError` (a
+    ``ValueError``, so ``source_for_pipeline`` fails fast as non-retryable) rather
+    than letting ``strftime`` raise ``TypeError``, which Temporal would retry. The
+    API validation paths reject it earlier (``_validate_incremental_configs``);
+    this backstop covers manifests stored before that check existed.
     """
     # `datetime` is a subclass of `date`, so this matches both.
     if not isinstance(value, date):
@@ -853,6 +885,11 @@ def _format_incremental_cursor(value: Any, chosen: dict[str, Any]) -> Any:
     endpoint = chosen.get("endpoint")
     incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None
     datetime_format = incremental.get("datetime_format") if isinstance(incremental, dict) else None
+    if datetime_format is not None and not isinstance(datetime_format, str):
+        raise ManifestValidationError(
+            f"Resource {chosen.get('name')!r}: endpoint.incremental.datetime_format must be a string "
+            'strftime pattern (e.g. "%Y-%m-%dT%H:%M:%SZ")'
+        )
     return value.strftime(datetime_format) if datetime_format else value.isoformat()
 
 
