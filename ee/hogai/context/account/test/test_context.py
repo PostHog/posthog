@@ -124,7 +124,7 @@ class TestAccountContext(NonAtomicBaseTest):
         # Pins the real short_ids: fails if the constants are deleted, emptied, or changed by accident.
         assert (
             AccountContext(team=self.team)._billing_insights_clause()
-            == " (saved insight short ids: fiJDsKLp, o4I9sdFE, Tjo4bsux)"
+            == " (Usage insight short ids: fiJDsKLp; Spend insight short ids: o4I9sdFE, Tjo4bsux)"
         )
 
     async def test_analysis_not_configured_when_group_type_index_missing(self):

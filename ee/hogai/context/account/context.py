@@ -141,8 +141,9 @@ class AccountContext:
         )
 
     def _billing_insights_clause(self) -> str:
-        short_ids = [*BILLING_USAGE_INSIGHT_SHORT_IDS, *BILLING_SPEND_INSIGHT_SHORT_IDS]
-        return f" (saved insight short ids: {', '.join(short_ids)})"
+        usage = ", ".join(BILLING_USAGE_INSIGHT_SHORT_IDS)
+        spend = ", ".join(BILLING_SPEND_INSIGHT_SHORT_IDS)
+        return f" (Usage insight short ids: {usage}; Spend insight short ids: {spend})"
 
     def _account_group_type_index(self) -> int | None:
         try:
