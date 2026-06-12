@@ -1,8 +1,8 @@
-from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
+from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue import backfill_run_uuid
+from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_snapshot import (
     CHUNK_TARGET_BYTES,
     BackfillChunk,
     _group_files_into_chunks,
-    backfill_run_uuid,
 )
 
 

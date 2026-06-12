@@ -478,34 +478,52 @@ class TestBackfillQueueContracts:
         assert [str(b.id) for b in batches] == [chunk]
 
     @pytest.mark.asyncio
-    async def test_retire_covered_runs_respects_cutoff(self, conn, _db_url):
-        """Only runs whose EVERY batch was delta-succeeded before the cutoff
-        are provably inside the snapshot; a run with a post-cutoff success
-        may carry post-snapshot data and must survive to apply after the swap."""
-        from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres import backfill as backfill_mod
+    async def test_preapply_covered_batches_respects_cutoff(self, conn, _db_url):
+        """Batches delta-succeeded before the cutoff are provably inside the
+        snapshot and get pre-applied (skipped, never failed); a post-cutoff
+        sibling survives, stays eligible, and its run is never poisoned."""
+        from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres import backfill_queue
 
-        fully_covered = await _insert_batch(conn, run_uuid="run-covered")
-        await BatchQueue.update_status(conn, batch_id=fully_covered, job_state="succeeded", attempt=1)
-
-        straddling_a = await _insert_batch(conn, run_uuid="run-straddling", batch_index=0)
-        await BatchQueue.update_status(conn, batch_id=straddling_a, job_state="succeeded", attempt=1)
-        straddling_b = await _insert_batch(conn, run_uuid="run-straddling", batch_index=1)
+        covered_a = await _insert_batch(conn, run_uuid="run-straddling", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=covered_a, job_state="succeeded", attempt=1)
+        late_b = await _insert_batch(conn, run_uuid="run-straddling", batch_index=1)
 
         with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
             cutoff_row = sync_conn.execute("SELECT now()").fetchone()
             assert cutoff_row is not None
             cutoff = cutoff_row[0]
-            # run-straddling's batch 1 succeeds only AFTER the cutoff.
-            retired_before = backfill_mod._retire_covered_runs(
+            # late_b's success lands only AFTER the cutoff.
+            preapplied = backfill_queue.preapply_covered_batches(
                 sync_conn, team_id=1, schema_id="schema-1", cutoff=cutoff, reason="covered v1"
             )
-        await BatchQueue.update_status(conn, batch_id=straddling_b, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=late_b, job_state="succeeded", attempt=1)
         with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
-            retired_after = backfill_mod._retire_covered_runs(
+            preapplied_again = backfill_queue.preapply_covered_batches(
                 sync_conn, team_id=1, schema_id="schema-1", cutoff=cutoff, reason="covered v1"
             )
 
-        # Only run-covered's batch retired; run-straddling untouched both times
-        # (batch 1's success postdates the cutoff), and the re-run is idempotent.
-        assert retired_before == 1
-        assert retired_after == 0
+        assert preapplied == 1  # covered_a only
+        assert preapplied_again == 0  # idempotent; late_b's success postdates the cutoff
+
+        # The straddling sibling is NOT lost: its head-of-line prev is satisfied
+        # by the pre-apply marker, the run is not failed, and it remains the
+        # schema's claimable work (post-swap it applies as a live batch).
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+        assert [str(b.id) for b in batches] == [late_b]
+
+    @pytest.mark.asyncio
+    async def test_replace_head_runs_bypass_the_blocked_gate(self, conn):
+        """A full-refresh replace run rebuilds the table from scratch, so it is
+        safe (and required — it is the NEEDS_RESYNC healing path) even while
+        the schema is not primed. Non-head live runs stay blocked."""
+        plain = await _insert_batch(conn, run_uuid="run-plain", sync_type="incremental")
+        await BatchQueue.update_status(conn, batch_id=plain, job_state="succeeded", attempt=1)
+
+        head = await _insert_batch(conn, run_uuid="run-refresh", sync_type="full_refresh", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=head, job_state="succeeded", attempt=1)
+
+        # Retire the plain run first so the cross-run gate isn't what hides it.
+        await DuckgresBatchQueue.update_status(conn, batch_id=plain, job_state="failed", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"])
+        assert [str(b.id) for b in batches] == [head]

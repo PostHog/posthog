@@ -27,6 +27,30 @@ DUCKGRES_ADVISORY_LOCK_NAMESPACE = 0x44475300  # "DGS\0" in hex
 # this, not on error-message prose.
 RETIRE_KIND_SUPERSEDED_BY_REPLACE = "superseded_by_replace"
 
+# A LIVE batch held back because its schema's history is not yet primed.
+# Replace-head runs bypass the block: they rebuild the table from scratch, so
+# applying them to an unprimed schema is always safe — and they are the
+# healing path for schemas parked in NEEDS_RESYNC. Single definition, used by
+# both the eligibility gate and the backlog split. Expects %(blocked_schema_ids)s.
+BLOCKED_LIVE_BATCH_CONDITION = f"""(
+                            %(blocked_schema_ids)s::varchar[] IS NOT NULL
+                            AND b.schema_id = ANY(%(blocked_schema_ids)s)
+                            AND {{LIVE_BATCH_SQL_PREDICATE}}
+                            AND NOT EXISTS (
+                                SELECT 1
+                                FROM {{BATCH_TABLE}} bh
+                                WHERE bh.run_uuid = b.run_uuid
+                                    AND bh.created_at > now() - interval '{{PARTITION_PRUNING_INTERVAL}}'
+                                    AND bh.batch_index = 0
+                                    AND bh.is_final_batch = false
+                                    AND bh.is_resume = false
+                                    AND (
+                                        bh.sync_type = 'full_refresh'
+                                        OR (bh.sync_type = 'incremental' AND bh.is_first_ever_sync)
+                                    )
+                            )
+                        )"""
+
 # Shared CTE prelude for eligibility queries (note the trailing comma — callers
 # append their own CTEs/SELECT). Expects a %(team_ids)s bigint[] parameter
 # (NULL = no team filter).
@@ -128,11 +152,7 @@ class DuckgresBatchQueue:
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
-                        AND NOT (
-                            %(blocked_schema_ids)s::varchar[] IS NOT NULL
-                            AND b.schema_id = ANY(%(blocked_schema_ids)s)
-                            AND {LIVE_BATCH_SQL_PREDICATE}
-                        )
+                        AND NOT {BLOCKED_LIVE_BATCH_CONDITION}
                         AND ds.job_state = 'succeeded'
                         AND (
                             dgs.batch_id IS NULL
@@ -315,11 +335,7 @@ class DuckgresBatchQueue:
                 backlog AS (
                     SELECT
                         b.created_at,
-                        (
-                            %(blocked_schema_ids)s::varchar[] IS NOT NULL
-                            AND b.schema_id = ANY(%(blocked_schema_ids)s)
-                            AND {LIVE_BATCH_SQL_PREDICATE}
-                        ) AS is_blocked
+                        {BLOCKED_LIVE_BATCH_CONDITION} AS is_blocked
                     FROM {BATCH_TABLE} b
                     JOIN {DELTA_STATUS_VIEW} ds ON b.id = ds.batch_id
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} a
