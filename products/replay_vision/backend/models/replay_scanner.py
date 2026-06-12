@@ -1,10 +1,15 @@
+from typing import TYPE_CHECKING
+
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 
-from posthog.schema import RecordingsQuery
-
 from posthog.models.utils import UUIDModel
+
+# This model loads at django.setup() in every process; posthog.schema (the pydantic
+# models) is runtime-imported in the accessor that materializes the typed query.
+if TYPE_CHECKING:
+    from posthog.schema import RecordingsQuery
 
 
 class ScannerType(models.TextChoices):
@@ -137,8 +142,10 @@ class ReplayScanner(UUIDModel):
             return
         super().save(*args, **kwargs)
 
-    def recordings_query(self) -> RecordingsQuery:
+    def recordings_query(self) -> "RecordingsQuery":
         """The persisted candidate filter; an empty `query` parses as a bare RecordingsQuery."""
+        from posthog.schema import RecordingsQuery  # noqa: PLC0415
+
         return RecordingsQuery.model_validate(self.query or {"kind": "RecordingsQuery"})
 
     def __str__(self) -> str:
