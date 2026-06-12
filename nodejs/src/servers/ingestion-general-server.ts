@@ -38,14 +38,14 @@ import {
     RedisConnectionsConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
-import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
+import { CookielessManagerComponent } from '../ingestion/cookieless/cookieless-manager'
 import { createHeatmapsConsumer } from '../ingestion/heatmaps'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '../utils/db/postgres'
-import { RedisPoolComponent, createRedisPoolFromConfig } from '../utils/db/redis'
+import { RedisPoolComponent } from '../utils/db/redis'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
@@ -102,8 +102,6 @@ export class IngestionGeneralServer implements NodeServer {
 
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
-    private cookielessRedisPool?: RedisPool
-    private cookielessManager?: CookielessManager
     private pubsub?: PubSub
     private stopSharedServices?: () => Promise<void>
 
@@ -150,29 +148,41 @@ export class IngestionGeneralServer implements NodeServer {
                         poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                     })
                 )
+                // Cookieless Redis is a separate pool, shared by every consumer that runs cookieless
+                // processing (analytics, heatmaps, …).
+                .add(
+                    'cookielessRedisPool',
+                    new RedisPoolComponent({
+                        connection: createCookielessRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
                 .add('producerRegistry', new KafkaProducerRegistryComponent(this.config.KAFKA_CLIENT_RACK, this.config))
         )
 
-        // `teamManager` is built inside the extension via its component so
-        // it picks up `postgres` from the started infra scope's container
-        // and is owned by that scope. The server extracts it from the
-        // started container to pass on to CDP services etc.
+        // Services are built off the started infra scope (postgres, redis pools, kafka). They're
+        // owned by this scope, so consumers can `Scope.extend` off it to read shared services like
+        // the team manager and cookieless manager without taking ownership of their lifecycle.
         const sharedServicesScope = extend(sharedInfraScope, 'shared', (container, builder) =>
-            builder.add(
-                'teamManager',
-                // Retry transient team-load failures (e.g. a Postgres pooler scale-down returning
-                // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
-                // transient failure can surface as an unhandled rejection and restart the worker.
-                new TeamManagerComponent(container.postgres, {
-                    loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
-                })
-            )
+            builder
+                .add(
+                    'teamManager',
+                    // Retry transient team-load failures (e.g. a Postgres pooler scale-down returning
+                    // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
+                    // transient failure can surface as an unhandled rejection and restart the worker.
+                    new TeamManagerComponent(container.postgres, {
+                        loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+                    })
+                )
+                .add('cookielessManager', new CookielessManagerComponent(this.config, container.cookielessRedisPool))
         )
 
         const sharedServices = await sharedServicesScope.start()
         this.postgres = sharedServices.container.postgres
         this.redisPool = sharedServices.container.redisPool
         const teamManager = sharedServices.container.teamManager
+        const cookielessManager = sharedServices.container.cookielessManager
         this.stopSharedServices = sharedServices.stop
         logger.info('👍', 'Postgres Router ready')
         logger.info('👍', 'Ingestion Redis ready')
@@ -211,15 +221,6 @@ export class IngestionGeneralServer implements NodeServer {
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
 
         // 3. Ingestion-specific services
-        logger.info('🤔', 'Connecting to cookieless Redis...')
-        this.cookielessRedisPool = createRedisPoolFromConfig({
-            connection: createCookielessRedisConnectionConfig(this.config),
-            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
-        })
-        logger.info('👍', 'Cookieless Redis ready')
-
-        this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
@@ -253,7 +254,7 @@ export class IngestionGeneralServer implements NodeServer {
             groupRepository,
             clickhouseGroupRepository,
             personRepository,
-            cookielessManager: this.cookielessManager,
+            cookielessManager,
             hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
         }
 
@@ -342,13 +343,9 @@ export class IngestionGeneralServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            // `redisPool` and `postgres` are owned by `sharedInfraScope` and
-            // get torn down by `stopSharedServices()` below. Only
-            // cookielessRedisPool stays here — it's not on the scope.
-            redisPools: [this.cookielessRedisPool].filter(Boolean) as RedisPool[],
+            redisPools: [],
             pubsub: this.pubsub,
             additionalCleanup: async () => {
-                this.cookielessManager?.shutdown()
                 if (this.stopSharedServices) {
                     await this.stopSharedServices()
                 }

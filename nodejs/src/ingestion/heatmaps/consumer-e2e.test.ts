@@ -20,6 +20,7 @@ import {
 import { KafkaProducerRegistryComponent } from '../common/outputs/registry'
 import { Component, newScope } from '../common/scopes'
 import { getDefaultIngestionOutputsConfig } from '../config'
+import { CookielessManagerComponent } from '../cookieless/cookieless-manager'
 import { HeatmapsConsumerConfig, HeatmapsSharedScope, createHeatmapsConsumer } from './consumer'
 
 type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>
@@ -104,6 +105,7 @@ describe('Heatmaps consumer E2E', () => {
                 .add('postgres', constComponent(infra.postgres))
                 .add('redisPool', constComponent(infra.redisPool))
                 .add('teamManager', constComponent(infra.teamManager))
+                .add('cookielessManager', new CookielessManagerComponent(infra.config, infra.redisPool))
                 .add(
                     'producerRegistry',
                     new KafkaProducerRegistryComponent(infra.config.KAFKA_CLIENT_RACK, registryConfig)

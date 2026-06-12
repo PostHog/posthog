@@ -8,7 +8,7 @@ import { ProducerName } from '../common/outputs'
 import { Scope, extend } from '../common/scopes'
 import { PromiseSchedulerComponent } from '../common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '../config'
-import { CookielessManagerComponent, CookielessManagerComponentConfig } from '../cookieless/cookieless-manager'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import { IngestionOutputsComponent } from '../outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '../outputs/kafka-producer-registry'
 import { createOutputsRegistry } from './outputs/registry'
@@ -16,13 +16,13 @@ import { createHeatmapsPipeline } from './pipeline'
 
 export type HeatmapsConsumerConfig = CommonIngestionConsumerConfig &
     IngestionOutputsConfig &
-    CookielessManagerComponentConfig &
     Pick<IngestionConsumerConfig, 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'>
 
 export type HeatmapsSharedScope = Scope<{
     postgres: PostgresRouter
     redisPool: RedisPool
     teamManager: TeamManager
+    cookielessManager: CookielessManager
     producerRegistry: KafkaProducerRegistry<ProducerName>
 }>
 
@@ -39,7 +39,6 @@ export function createHeatmapsConsumer(config: HeatmapsConsumerConfig, sharedSco
                 })
             )
             .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))
-            .add('cookielessManager', new CookielessManagerComponent(config))
             .add(
                 'outputs',
                 new IngestionOutputsComponent(() => createOutputsRegistry().build(container.producerRegistry, config))
