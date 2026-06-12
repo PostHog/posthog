@@ -1470,41 +1470,6 @@ class BasePrinter(Visitor[str]):
     def _get_week_start_day(self) -> WeekStartDay:
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
-    def _is_type_nullable(self, node_type: ast.Type) -> bool | None:
-        if isinstance(node_type, ast.PropertyType):
-            return True
-        elif isinstance(node_type, ast.ConstantType):
-            return node_type.nullable
-        elif isinstance(node_type, ast.CallType):
-            return node_type.return_type.nullable
-        elif isinstance(node_type, ast.FieldType):
-            # A field reading from a subquery (alias) has no database field, so `is_nullable` defaults to True and
-            # over-wraps the column in `ifNull(...)`. Its real nullability is the projected column's constant type —
-            # use that, so a non-nullable value selected from a subquery isn't needlessly null-wrapped (which, for a
-            # join key, ClickHouse can't use). Real-table fields keep `is_nullable` (identical result, no risk).
-            if not isinstance(node_type.table_type, ast.BaseTableType):
-                try:
-                    return node_type.resolve_constant_type(self.context).nullable
-                except Exception:
-                    return True
-            return node_type.is_nullable(self.context)
-        return None
-
-    def _is_nullable(self, node: ast.Expr) -> bool:
-        if isinstance(node, ast.Constant):
-            return node.value is None
-        elif node.type and (nullable := self._is_type_nullable(node.type)) is not None:
-            return nullable
-        elif isinstance(node, ast.Alias):
-            return self._is_nullable(node.expr)
-        elif (
-            isinstance(node.type, ast.FieldAliasType)
-            and (field_type := resolve_field_type(node))
-            and (nullable := self._is_type_nullable(field_type)) is not None
-        ):
-            return nullable
-        return True
-
     def _collect_table_top_level_settings(self, table: Table) -> None:
         if table.top_level_settings is None:
             return

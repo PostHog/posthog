@@ -2507,11 +2507,16 @@ class TestPrinter(BaseTest):
             "FROM events",
             context=context,
         )
+        # The comparisons lower to ifNull(...) calls before printing, so the select columns get the printer's
+        # derived call aliases, like any other call in select position.
         assert generated_sql_statements1 == (
             f"SELECT "
-            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL)), 1), 0), "
-            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_2)s, %(hogql_val_3)s, NULL)), 0), 0), "
+            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL)), 1), 0) "
+            "AS `ifNull(equals(toBool(transform(toString(nullIf(nullIf(mat_is_boolean, ''), 'null')), ['true', 'false'], [1, 0], NULL)), true), 0)`, "
+            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_2)s, %(hogql_val_3)s, NULL)), 0), 0) "
+            "AS `ifNull(equals(toBool(transform(toString(nullIf(nullIf(mat_is_boolean, ''), 'null')), ['true', 'false'], [1, 0], NULL)), false), 0)`, "
             "isNull(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_4)s, %(hogql_val_5)s, NULL))) "
+            "AS `isNull(toBool(transform(toString(nullIf(nullIf(mat_is_boolean, ''), 'null')), ['true', 'false'], [1, 0], NULL)))` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         assert context.values == {

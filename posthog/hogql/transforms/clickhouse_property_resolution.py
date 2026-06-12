@@ -31,7 +31,6 @@ from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
-from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
@@ -46,14 +45,23 @@ from posthog.hogql.visitor import CloningVisitor
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.property import PropertyName, TableColumn
+from posthog.models.utils import UUIDT
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 # In non-nullable materialized columns these stored strings are treated as NULL.
 MAT_COL_NULL_SENTINELS = ["", "null"]
 
-# Leave the $ai_* bloom-filter columns to the printer: its comparison code already keeps them index-eligible
-# (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two lists stay in sync). The value-read side skips
-# their nullIf scrubbing for the same reason, via `AI_BLOOM_FILTER_PROPERTIES` (the same columns, named as properties).
+# The $ai_* properties whose materialized columns carry bloom-filter skip indexes. Their reads skip the nullIf
+# scrubbing and their comparisons are exempted from null-wrapping (clickhouse_null_semantics imports the column set to
+# make that call), so the bare column stays usable by its index.
+AI_BLOOM_FILTER_PROPERTIES = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
+
+# Both the property name and its `mat_` column spelling, so the null-semantics exemption can match a field regardless
+# of which name a pass left on it.
+AI_BLOOM_FILTER_COLUMNS = {
+    *AI_BLOOM_FILTER_PROPERTIES,
+    *(f"mat_{prop}" for prop in AI_BLOOM_FILTER_PROPERTIES),
+}
 
 _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
     ast.CompareOperationOp.Lt: "less",
@@ -584,10 +592,10 @@ class ClickHousePropertyResolver(CloningVisitor):
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the
-        # rewritten comparison, so once one matches we must NOT also substitute the value. (session_id is left to the
-        # printer — it optimizes a real column, not a property.)
+        # rewritten comparison, so once one matches we must NOT also substitute the value.
         optimized = (
-            self._optimize_property_group_compare(node)
+            self._optimize_session_id_compare(node)
+            or self._optimize_property_group_compare(node)
             or self._optimize_materialized_equals(node)
             or self._optimize_materialized_range(node)
             or self._optimize_materialized_ilike(node)
@@ -669,7 +677,111 @@ class ClickHousePropertyResolver(CloningVisitor):
 
     @staticmethod
     def _is_ai_column(source: MaterializedPropertySource) -> bool:
-        return source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
+        return source.column.strip("`\"'") in AI_BLOOM_FILTER_COLUMNS
+
+    # --- $session_id → $session_id_uuid rewrite ---
+    #
+    # Not a property rewrite, but the same trade: `$session_id` is a String column with no index, while
+    # `$session_id_uuid` stores the same value as an indexed UInt128. A comparison against UUID constants can read the
+    # indexed column instead, with each constant cast to UInt128 on the value side so the column stays bare.
+
+    _SESSION_ID_OPS = (
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
+        ast.CompareOperationOp.In,
+        ast.CompareOperationOp.NotIn,
+    )
+
+    def _optimize_session_id_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
+        if node.op not in self._SESSION_ID_OPS:
+            return None
+
+        session_id_table: ast.TableType | None = None
+        constants: list[ast.Constant] = []
+
+        if table := self._events_session_id_table_type(node.left):
+            session_id_table = table
+            constants = self._extract_uuid_constants(node.right)
+        elif node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            if table := self._events_session_id_table_type(node.right):
+                session_id_table = table
+                constants = self._extract_uuid_constants(node.left)
+
+        if session_id_table is None or not constants:
+            return None
+
+        # The bare table type (alias unwrapped), so the rewrite prints `events.$session_id_uuid` exactly as the
+        # original `$session_id` read would print `events.$session_id`.
+        uuid_field = ast.Field(
+            chain=["$session_id_uuid"],
+            type=ast.FieldType(name="$session_id_uuid", table_type=session_id_table),
+        )
+        wrapped = [self._uuid_constant_as_uint128(constant) for constant in constants]
+
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            right: ast.Expr = wrapped[0]
+        else:
+            right = ast.Tuple(exprs=wrapped)
+        return ast.CompareOperation(op=node.op, left=uuid_field, right=right, type=ast.BooleanType(nullable=False))
+
+    def _uuid_constant_as_uint128(self, constant: ast.Constant) -> ast.Call:
+        # `accurateCastOrNull` is genuinely nullable (a malformed UUID casts to NULL), but the comparison must stay
+        # bare for the column's index, so the call is deliberately typed non-nullable — in a filter, NULL and false
+        # behave the same. The 'UUID' type name renders inline (it is in the printer's sentinel allowlist) because
+        # accurateCastOrNull needs a literal type argument. `_toUInt128` is the internal spelling of ClickHouse's
+        # toUInt128, which is not exposed as a HogQL function.
+        return ast.Call(
+            name="_toUInt128",
+            args=[
+                ast.Call(
+                    name="accurateCastOrNull",
+                    args=[
+                        cast(ast.Expr, self.visit(constant)),
+                        ast.Constant(value="UUID", inline_sentinel=True),
+                    ],
+                )
+            ],
+            type=ast.IntegerType(nullable=False),
+        )
+
+    def _events_session_id_table_type(self, node: ast.Expr) -> ast.TableType | None:
+        """If the expression resolves to $session_id on the events table, return the bare table type."""
+        from posthog.hogql.database.schema.events import (
+            EventsTable,  # noqa: PLC0415 — circular: schema imports transforms
+        )
+
+        expr_type = resolve_field_type(node)
+
+        if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
+            table_type: ast.Type | None = expr_type.table_type
+        elif (
+            isinstance(expr_type, ast.PropertyType)
+            and expr_type.chain == ["$session_id"]
+            and expr_type.field_type.name == "properties"
+        ):
+            table_type = expr_type.field_type.table_type
+        else:
+            return None
+
+        while isinstance(table_type, ast.TableAliasType):
+            table_type = table_type.table_type
+        if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+            return table_type
+        return None
+
+    @staticmethod
+    def _extract_uuid_constants(node: ast.Expr) -> list[ast.Constant]:
+        """Extract UUID string constants from an expression. Returns empty list if any value is not a valid UUID."""
+        if isinstance(node, ast.Constant):
+            return [node] if UUIDT.is_valid_uuid(node.value) else []
+        if isinstance(node, (ast.Tuple, ast.Array)):
+            result: list[ast.Constant] = []
+            for expr in node.exprs:
+                if not isinstance(expr, ast.Constant) or not UUIDT.is_valid_uuid(expr.value):
+                    return []
+                result.append(expr)
+            return result
+        return []
 
     # --- property-group optimizers ---
 

@@ -15,11 +15,11 @@ from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryEr
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
-from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
+from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import parse_sql_runtime_type
-from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
+from posthog.hogql.visitor import clone_expr
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
@@ -46,21 +46,12 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
-# The $ai_* properties whose materialized columns carry bloom-filter skip indexes. We read them bare — no nullIf/ifNull
-# wrapping — so the index stays usable. Canonical set; ClickHouse property resolution imports it to make the same call.
-AI_BLOOM_FILTER_PROPERTIES = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
-
-# Both the property name and its `mat_` column spelling, so visit_compare_operation can match either side of a comparison.
-COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
-    *AI_BLOOM_FILTER_PROPERTIES,
-    *(f"mat_{prop}" for prop in AI_BLOOM_FILTER_PROPERTIES),
-}
-
-# The only string literals a `Constant(inline_sentinel=True)` is allowed to render inline (escaped, unparameterized): the
-# fixed scrubbing markers property resolution emits — the nullIf ''/'null' sentinels, the quote-trim regex, and the
-# 'true'/'false' the property-group map stores booleans as. The printer refuses to inline anything else, so the flag can
-# never be turned into an unparameterized read of arbitrary (e.g. user-supplied) text.
-INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$'})
+# The only string literals a `Constant(inline_sentinel=True)` is allowed to render inline (escaped, unparameterized):
+# fixed internal literals the ClickHouse passes emit — the nullIf ''/'null' sentinels, the quote-trim regex, the
+# 'true'/'false' the property-group map stores booleans as, and the 'UUID' type name of the $session_id_uuid cast. The
+# printer refuses to inline anything else, so the flag can never be turned into an unparameterized read of arbitrary
+# (e.g. user-supplied) text.
+INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$', "UUID"})
 
 
 class ClickHousePrinter(BasePrinter):
@@ -319,6 +310,10 @@ class ClickHousePrinter(BasePrinter):
     def visit_values_query(self, node: ast.ValuesQuery):
         raise QueryError("VALUES clause is not supported in ClickHouse dialect")
 
+    # The and/or folding below is a rendering peephole over already-printed pieces ("0"/"1" strings), not a semantic
+    # decision — it stays in the printer because conjunctions are still built during printing (the team_id guard is
+    # merged into WHERE/ON at print time) and must fold with their neighbors.
+
     def visit_and(self, node: ast.And):
         """
         optimizations:
@@ -362,19 +357,6 @@ class ClickHousePrinter(BasePrinter):
         elif len(exprs) == 1:
             return exprs[0]
         return f"or({', '.join(exprs)})"
-
-    def visit_between_expr(self, node: ast.BetweenExpr):
-        op = super().visit_between_expr(node)
-
-        nullable_expr = self._is_nullable(node.expr)
-        nullable_low = self._is_nullable(node.low)
-        nullable_high = self._is_nullable(node.high)
-        not_nullable = not nullable_expr and not nullable_low and not nullable_high
-
-        if not_nullable:
-            return op
-
-        return f"ifNull({op}, 0)"
 
     def visit_constant(self, node: ast.Constant):
         # Opt-in inline rendering for the fixed scrubbing sentinels property resolution emits, so its AST-built scrub renders
@@ -457,274 +439,10 @@ class ClickHousePrinter(BasePrinter):
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         return f"JSONDropKeys({keys_placeholder})({field_sql})"
 
-    def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
-        """If the expression resolves to $session_id on the events table, return the table type."""
-        from posthog.hogql.database.schema.events import EventsTable
-
-        expr_type = resolve_field_type(node)
-
-        if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
-            table_type = expr_type.table_type
-        elif (
-            isinstance(expr_type, ast.PropertyType)
-            and expr_type.chain == ["$session_id"]
-            and expr_type.field_type.name == "properties"
-        ):
-            table_type = expr_type.field_type.table_type
-        else:
-            return None
-
-        while isinstance(table_type, ast.TableAliasType):
-            table_type = table_type.table_type
-        if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
-            return table_type
-        return None
-
-    def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
-        """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
-        op_name = {
-            ast.CompareOperationOp.Eq: "equals",
-            ast.CompareOperationOp.NotEq: "notEquals",
-            ast.CompareOperationOp.In: "in",
-            ast.CompareOperationOp.NotIn: "notIn",
-        }.get(node.op)
-        if op_name is None:
-            return None
-
-        session_id_table: ast.BaseTableType | None = None
-        constants: list[ast.Constant] = []
-
-        if table := self._get_events_session_id_table_type(node.left):
-            session_id_table = table
-            constants = self._extract_uuid_constants(node.right)
-        elif node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
-            if table := self._get_events_session_id_table_type(node.right):
-                session_id_table = table
-                constants = self._extract_uuid_constants(node.left)
-
-        if session_id_table is None or not constants:
-            return None
-
-        field_sql = f"{self.visit(session_id_table)}.{self._print_identifier('$session_id_uuid')}"
-        wrapped = [f"toUInt128(accurateCastOrNull({self.visit(c)}, 'UUID'))" for c in constants]
-
-        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
-            return f"{op_name}({field_sql}, {wrapped[0]})"
-        return f"{op_name}({field_sql}, tuple({', '.join(wrapped)}))"
-
-    @staticmethod
-    def _extract_uuid_constants(node: ast.Expr) -> list[ast.Constant]:
-        """Extract UUID string constants from an expression. Returns empty list if any value is not a valid UUID."""
-        if isinstance(node, ast.Constant):
-            return [node] if UUIDT.is_valid_uuid(node.value) else []
-        if isinstance(node, (ast.Tuple, ast.Array)):
-            result: list[ast.Constant] = []
-            for expr in node.exprs:
-                if not isinstance(expr, ast.Constant) or not UUIDT.is_valid_uuid(expr.value):
-                    return []
-                result.append(expr)
-            return result
-        return []
-
-    def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
-        traverser = GetFieldsTraverser(node)
-
-        for field in traverser.fields:
-            if isinstance(field.type, ast.FieldType):
-                field_name = str(field.chain[-1]) if field.chain else ""
-
-                # Check if field name is timestamp-like
-                if not (field_name == "timestamp" or field_name.endswith("_timestamp")):
-                    continue
-
-                table_type = field.type.table_type
-                while True:
-                    if isinstance(table_type, ast.TableType):
-                        table_name = table_type.table.to_printed_hogql()
-                        if table_name in (
-                            "events",
-                            "raw_sessions",
-                            "raw_sessions_v3",
-                            "session_replay_events",
-                            "raw_session_replay_events",
-                        ):
-                            return True
-                        break
-                    elif isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
-                        table_type = table_type.table_type
-                    elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-                        table_type = table_type.table_type
-                    else:
-                        break
-
-        return False
-
-    def visit_compare_operation(self, node: ast.CompareOperation):
-        # $session_id comparisons optimize a real column (not a property), so they stay on the printer. Every
-        # property-based skip-index rewrite (materialized column, property group) now runs in ClickHouse property
-        # resolution, which emits the optimized form as AST before printing (see clickhouse_property_resolution.py).
-        if optimized_session_id := self._get_optimized_session_id_compare_operation(node):
-            return optimized_session_id
-
-        in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
-        # indexHint() is purely an optimizer directive — its result is always true,
-        # so ifNull wrapping inside it is unnecessary and prevents index usage.
-        in_index_hint = any(isinstance(item, ast.Call) and item.name == "indexHint" for item in self.stack)
-        left = self.visit(node.left)
-        right = self.visit(node.right)
-        nullable_left = self._is_nullable(node.left)
-        nullable_right = self._is_nullable(node.right)
-        not_nullable = not nullable_left and not nullable_right
-
-        # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
-        # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        # Only apply this optimization to actual table timestamp fields, not CTE fields.
-        if self._is_events_table_timestamp_field(node.left) or self._is_events_table_timestamp_field(node.right):
-            not_nullable = True
-
-        hack_sessions_timestamp = (
-            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
-            "raw_sessions_v3.session_timestamp",
-        )
-        if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
-            not_nullable = True
-
-        # :HACK: Prevent ifNull() wrapping for $ai_trace_id, $ai_session_id, and $ai_is_error to allow index usage
-        # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
-        if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
-            not_nullable = True
-
-        constant_lambda = None
-        value_if_one_side_is_null = False
-        value_if_both_sides_are_null = False
-
-        op = self._get_compare_op(node.op, left, right)
-        if node.op == ast.CompareOperationOp.Eq:
-            constant_lambda = lambda left_op, right_op: left_op == right_op
-            value_if_both_sides_are_null = True
-        elif node.op == ast.CompareOperationOp.NotEq:
-            constant_lambda = lambda left_op, right_op: left_op != right_op
-            value_if_one_side_is_null = True
-        elif node.op == ast.CompareOperationOp.Like:
-            value_if_both_sides_are_null = True
-        elif node.op == ast.CompareOperationOp.NotLike:
-            value_if_one_side_is_null = True
-        elif node.op == ast.CompareOperationOp.ILike:
-            value_if_both_sides_are_null = True
-        elif node.op == ast.CompareOperationOp.NotILike:
-            value_if_one_side_is_null = True
-        elif node.op == ast.CompareOperationOp.In:
-            return op
-        elif node.op == ast.CompareOperationOp.NotIn:
-            # With transform_null_in=1, ClickHouse rewrites notIn() to notNullIn().
-            # In Distributed aggregate plans this can make the coordinator expect
-            # a pre-rewrite aggregate column name while shards return the rewritten
-            # one, e.g. minIf(..., notIn(...)) vs minIf(..., notNullIn(...)).
-            # Wrapping nullable NOT IN matches the existing nullable materialized
-            # column path and preserves transform_null_in=1 semantics.
-            if nullable_left and not not_nullable and not in_join_constraint and not in_index_hint:
-                return f"ifNull({op}, 1)"
-            return op
-        elif node.op == ast.CompareOperationOp.GlobalIn:
-            pass
-        elif node.op == ast.CompareOperationOp.GlobalNotIn:
-            pass
-        elif node.op == ast.CompareOperationOp.Regex:
-            value_if_both_sides_are_null = True
-        elif node.op == ast.CompareOperationOp.NotRegex:
-            value_if_one_side_is_null = True
-        elif node.op == ast.CompareOperationOp.IRegex:
-            value_if_both_sides_are_null = True
-        elif node.op == ast.CompareOperationOp.NotIRegex:
-            value_if_one_side_is_null = True
-        elif node.op == ast.CompareOperationOp.Gt:
-            constant_lambda = lambda left_op, right_op: (
-                left_op > right_op if left_op is not None and right_op is not None else False
-            )
-        elif node.op == ast.CompareOperationOp.GtEq:
-            constant_lambda = lambda left_op, right_op: (
-                left_op >= right_op if left_op is not None and right_op is not None else False
-            )
-        elif node.op == ast.CompareOperationOp.Lt:
-            constant_lambda = lambda left_op, right_op: (
-                left_op < right_op if left_op is not None and right_op is not None else False
-            )
-        elif node.op == ast.CompareOperationOp.LtEq:
-            constant_lambda = lambda left_op, right_op: (
-                left_op <= right_op if left_op is not None and right_op is not None else False
-            )
-        elif node.op == ast.CompareOperationOp.InCohort or node.op == ast.CompareOperationOp.NotInCohort:
-            raise InternalHogQLError("Cohort operations should have been resolved before printing")
-        else:
-            raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
-
-        # Try to see if we can take shortcuts
-
-        # Can we compare constants?
-        if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant) and constant_lambda is not None:
-            return "1" if constant_lambda(node.left.value, node.right.value) else "0"
-
-        # Special cases when we should not add any null checks
-        if in_join_constraint or not_nullable or in_index_hint:
-            return op
-
-        # Special optimization for "Eq" operator
-        if (
-            node.op == ast.CompareOperationOp.Eq
-            or node.op == ast.CompareOperationOp.Like
-            or node.op == ast.CompareOperationOp.ILike
-        ):
-            if isinstance(node.right, ast.Constant):
-                if node.right.value is None:
-                    return f"isNull({left})"
-                return f"ifNull({op}, 0)"
-            elif isinstance(node.left, ast.Constant):
-                if node.left.value is None:
-                    return f"isNull({right})"
-                return f"ifNull({op}, 0)"
-            return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
-
-        # Special optimization for "NotEq" operator
-        if (
-            node.op == ast.CompareOperationOp.NotEq
-            or node.op == ast.CompareOperationOp.NotLike
-            or node.op == ast.CompareOperationOp.NotILike
-        ):
-            if isinstance(node.right, ast.Constant):
-                if node.right.value is None:
-                    return f"isNotNull({left})"
-                return f"ifNull({op}, 1)"
-            elif isinstance(node.left, ast.Constant):
-                if node.left.value is None:
-                    return f"isNotNull({right})"
-                return f"ifNull({op}, 1)"
-            return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"  # Worse case performance, but accurate
-
-        # Return false if one, but only one of the two sides is a null constant
-        if isinstance(node.right, ast.Constant) and node.right.value is None:
-            # Both are a constant null
-            if isinstance(node.left, ast.Constant) and node.left.value is None:
-                return "1" if value_if_both_sides_are_null is True else "0"
-
-            # Only the right side is null. Return a value only if the left side doesn't matter.
-            if value_if_both_sides_are_null == value_if_one_side_is_null:
-                return "1" if value_if_one_side_is_null is True else "0"
-        elif isinstance(node.left, ast.Constant) and node.left.value is None:
-            # Only the left side is null. Return a value only if the right side doesn't matter.
-            if value_if_both_sides_are_null == value_if_one_side_is_null:
-                return "1" if value_if_one_side_is_null is True else "0"
-
-        # No constants, so check for nulls in SQL
-        if value_if_one_side_is_null is True and value_if_both_sides_are_null is True:
-            return f"ifNull({op}, 1)"
-        elif value_if_one_side_is_null is True and value_if_both_sides_are_null is False:
-            return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"
-        elif value_if_one_side_is_null is False and value_if_both_sides_are_null is True:
-            return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
-        elif value_if_one_side_is_null is False and value_if_both_sides_are_null is False:
-            return f"ifNull({op}, 0)"
-        else:
-            raise ImpossibleASTError("Impossible")
+    def _render_cohort_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str | None:
+        # Backstop for an internal invariant — cohort ops resolve before printing (null-semantics lowering raises the
+        # same error earlier with full context).
+        raise InternalHogQLError("Cohort operations should have been resolved before printing")
 
     def visit_call(self, node: ast.Call):
         # Property-group call optimizations (isNull/isNotNull/JSONHas over a property-group key) now run in ClickHouse

@@ -24,6 +24,7 @@ from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
+from posthog.hogql.transforms.clickhouse_null_semantics import lower_null_semantics
 from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
@@ -235,6 +236,13 @@ def prepare_ast_for_printing(
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+    # The last ClickHouse transform: every pass above can create or rewrite comparisons, and the null-semantics
+    # lowering must see their final shapes (and the nullability types they deliberately carry) to decide which
+    # comparisons need an explicit ifNull/isNull wrapping. After it, the printer prints comparisons mechanically.
+    if dialect == "clickhouse":
+        with context.timings.measure("lower_null_semantics"):
+            node = lower_null_semantics(node, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
