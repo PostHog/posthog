@@ -5781,7 +5781,7 @@ requires-dist = [
     { name = "langchain-community", specifier = "~=0.3.31" },
     { name = "langchain-core", specifier = "~=0.3.81" },
     { name = "langchain-openai", specifier = "~=0.3.35" },
-    { name = "langgraph", specifier = ">=0.4.10,<1.0.0" },
+    { name = "langgraph", specifier = "==0.4.10" },
     { name = "langgraph-checkpoint", specifier = ">=3.0.0,<4.0.0" },
     { name = "linkedin-api-client", specifier = "~=0.3.0" },
     { name = "lxml", specifier = "==6.0.2" },
