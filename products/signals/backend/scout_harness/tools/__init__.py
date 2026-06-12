@@ -21,6 +21,14 @@ from products.signals.backend.scout_harness.tools.profile import (
     compute_project_profile,
     get_project_profile,
 )
+from products.signals.backend.scout_harness.tools.reports import (
+    MAX_REPORTS_PER_RUN,
+    InvalidReportWriteError,
+    ReportNotFoundError,
+    ReportWriteResult,
+    create_report_sync,
+    update_report_sync,
+)
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_RUN_SEARCH_LIMIT,
     MAX_RUN_SEARCH_LIMIT,
@@ -42,17 +50,22 @@ __all__ = [
     "EmitResult",
     "EvidenceEntry",
     "InvalidEmitError",
+    "InvalidReportWriteError",
     "InvalidScratchpadError",
     "MAX_EVIDENCE_ENTRIES",
+    "MAX_REPORTS_PER_RUN",
     "MAX_RUN_SEARCH_LIMIT",
     "MAX_TAG_LENGTH",
     "MAX_TAGS_PER_FINDING",
     "PROFILE_TTL",
     "ProjectProfile",
+    "ReportNotFoundError",
+    "ReportWriteResult",
     "ScratchpadEntry",
     "RunDetail",
     "RunSummary",
     "compute_project_profile",
+    "create_report_sync",
     "emit_finding",
     "forget",
     "get_project_profile",
@@ -61,4 +74,5 @@ __all__ = [
     "remember",
     "search_scratchpad",
     "search_recent_runs",
+    "update_report_sync",
 ]

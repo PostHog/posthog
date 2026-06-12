@@ -41,8 +41,15 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 
 from products.ai_observability.backend.models.skills import LLMSkill
-from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.models import (
+    InvalidStatusTransition,
+    SignalProjectProfile,
+    SignalScoutConfig,
+    SignalScoutEmission,
+    SignalScoutRun,
+)
 from products.signals.backend.scout_harness.serializers import (
+    CreateReportRequestSerializer,
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
     EvidenceEntrySerializer,
@@ -51,6 +58,7 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RememberRequestSerializer,
+    ScoutReportWriteResponseSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -59,9 +67,16 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutEmissionSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
+    UpdateReportRequestSerializer,
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
+from products.signals.backend.scout_harness.tools.reports import (
+    InvalidReportWriteError,
+    ReportNotFoundError,
+    create_report_sync,
+    update_report_sync,
+)
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
@@ -351,6 +366,154 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {
                     "finding_id": result.finding_id,
                     "emitted": result.emitted,
+                    "skipped_reason": result.skipped_reason,
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    def _get_in_progress_run_or_error(self, kwargs: dict, *, verb: str) -> SignalScoutRun:
+        """Resolve the run for a write action: team-scoped 404, then in-progress check.
+
+        Writes are only honored mid-run — the run is the attribution and gating anchor,
+        so a completed/failed run must not keep producing inbox writes.
+        """
+        from products.tasks.backend.models import (
+            TaskRun,  # noqa: PLC0415 — avoids tasks import at module load, matching emit_signal
+        )
+
+        run_id = _parse_run_id_or_404(kwargs)
+        run = (
+            SignalScoutRun.objects.select_related("scout_config", "task_run")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        if run.task_run.status != TaskRun.Status.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {"status": f"Reports can only be {verb} on in-progress runs (current: {run.task_run.status})."}
+            )
+        return run
+
+    @validated_request(
+        request_serializer=CreateReportRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=ScoutReportWriteResponseSerializer,
+                description="Report created, or skipped by a preflight gate / safety filter / per-run cap.",
+            ),
+            400: OpenApiResponse(description="Invalid report shape (empty title/summary, malformed judgment)."),
+            404: OpenApiResponse(description="Run not found for this project."),
+        },
+        summary="Create an inbox report for a run",
+        description=(
+            "Create a READY inbox report directly, bypassing the signal matching pipeline — the scout is "
+            "the matcher. Search existing reports first (`inbox-reports-list`) and prefer "
+            "`signals-scout-update-report` when a matching report already exists; direct creation has no "
+            "dedupe. Optional priority / actionability / suggested-reviewer judgments are stored as "
+            "artefacts and become the report's effective values. The title and summary pass a safety "
+            "filter before persisting; blocked content returns `skipped_reason=unsafe_content`. Capped "
+            "per run — further creates return `skipped_reason=report_cap_reached`."
+        ),
+        operation_id="signals_scout_create_report",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="create-report",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def create_report(self, request: Request, **kwargs) -> Response:
+        run = self._get_in_progress_run_or_error(kwargs, verb="created")
+        data = request.validated_data
+        try:
+            result = create_report_sync(
+                team=self.team,
+                run=run,
+                title=data["title"],
+                summary=data["summary"],
+                priority=data.get("priority") or None,
+                actionability=data.get("actionability") or None,
+                suggested_reviewers=data.get("suggested_reviewers") or None,
+            )
+        except InvalidReportWriteError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            ScoutReportWriteResponseSerializer(
+                {
+                    "report_id": result.report_id,
+                    "persisted": result.persisted,
+                    "skipped_reason": result.skipped_reason,
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        request_serializer=UpdateReportRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=ScoutReportWriteResponseSerializer,
+                description="Report updated, or skipped by a preflight gate / safety filter.",
+            ),
+            400: OpenApiResponse(description="Invalid update shape (no mutating fields, malformed judgment)."),
+            404: OpenApiResponse(description="Run or report not found for this project."),
+            409: OpenApiResponse(
+                description="The requested state transition is not allowed from the report's current status."
+            ),
+        },
+        summary="Update an inbox report for a run",
+        description=(
+            "Update an existing inbox report on this project: rewrite its title/summary, transition its "
+            "state (`suppressed` / `potential` / `resolved`), and/or append priority / actionability / "
+            "suggested-reviewer judgments. Judgments are append-only artefacts — the newest one becomes "
+            "the report's effective value, and prior judgments persist as the audit trail. Rewritten "
+            "title/summary pass a safety filter; blocked content returns `skipped_reason=unsafe_content`. "
+            "Works on any non-deleted report, including pipeline-generated ones."
+        ),
+        operation_id="signals_scout_update_report",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="update-report",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def update_report(self, request: Request, **kwargs) -> Response:
+        run = self._get_in_progress_run_or_error(kwargs, verb="updated")
+        data = request.validated_data
+        try:
+            result = update_report_sync(
+                team=self.team,
+                run=run,
+                report_id=data["report_id"],
+                title=data.get("title") or None,
+                summary=data.get("summary") or None,
+                new_state=data.get("new_state") or None,
+                snooze_for=data.get("snooze_for"),
+                priority=data.get("priority") or None,
+                actionability=data.get("actionability") or None,
+                suggested_reviewers=data.get("suggested_reviewers") or None,
+            )
+        except InvalidReportWriteError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        except ReportNotFoundError:
+            raise exceptions.NotFound("Report not found on this project.")
+        except InvalidStatusTransition:
+            return Response(
+                {"error": "Invalid state transition for this report."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            ScoutReportWriteResponseSerializer(
+                {
+                    "report_id": result.report_id,
+                    "persisted": result.persisted,
                     "skipped_reason": result.skipped_reason,
                 }
             ).data,

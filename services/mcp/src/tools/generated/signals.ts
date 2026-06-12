@@ -10,6 +10,8 @@ import {
     SignalsScoutConfigCreateBody,
     SignalsScoutConfigUpdateBody,
     SignalsScoutConfigUpdateParams,
+    SignalsScoutCreateReportBody,
+    SignalsScoutCreateReportParams,
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
     SignalsScoutProjectProfileGetQueryParams,
@@ -19,6 +21,8 @@ import {
     SignalsScoutScratchpadForgetBody,
     SignalsScoutScratchpadRememberBody,
     SignalsScoutScratchpadSearchQueryParams,
+    SignalsScoutUpdateReportBody,
+    SignalsScoutUpdateReportParams,
     SignalsSourceConfigsCreateBody,
     SignalsSourceConfigsListQueryParams,
     SignalsSourceConfigsPartialUpdateBody,
@@ -361,6 +365,43 @@ const signalsScoutConfigUpdate = (): ToolBase<
     },
 })
 
+const SignalsScoutCreateReportSchema = SignalsScoutCreateReportParams.omit({ project_id: true }).extend(
+    SignalsScoutCreateReportBody.shape
+)
+
+const signalsScoutCreateReport = (): ToolBase<
+    typeof SignalsScoutCreateReportSchema,
+    Schemas.ScoutReportWriteResponse
+> => ({
+    name: 'signals-scout-create-report',
+    schema: SignalsScoutCreateReportSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutCreateReportSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.summary !== undefined) {
+            body['summary'] = params.summary
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.actionability !== undefined) {
+            body['actionability'] = params.actionability
+        }
+        if (params.suggested_reviewers !== undefined) {
+            body['suggested_reviewers'] = params.suggested_reviewers
+        }
+        const result = await context.api.request<Schemas.ScoutReportWriteResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/create-report/`,
+            body,
+        })
+        return result
+    },
+})
+
 const SignalsScoutEmitSignalSchema = SignalsScoutEmitSignalParams.omit({ project_id: true }).extend(
     SignalsScoutEmitSignalBody.shape
 )
@@ -404,6 +445,52 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
         const result = await context.api.request<Schemas.EmitFindingResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-signal/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SignalsScoutUpdateReportSchema = SignalsScoutUpdateReportParams.omit({ project_id: true }).extend(
+    SignalsScoutUpdateReportBody.shape
+)
+
+const signalsScoutUpdateReport = (): ToolBase<
+    typeof SignalsScoutUpdateReportSchema,
+    Schemas.ScoutReportWriteResponse
+> => ({
+    name: 'signals-scout-update-report',
+    schema: SignalsScoutUpdateReportSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutUpdateReportSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.summary !== undefined) {
+            body['summary'] = params.summary
+        }
+        if (params.new_state !== undefined) {
+            body['new_state'] = params.new_state
+        }
+        if (params.snooze_for !== undefined) {
+            body['snooze_for'] = params.snooze_for
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.actionability !== undefined) {
+            body['actionability'] = params.actionability
+        }
+        if (params.suggested_reviewers !== undefined) {
+            body['suggested_reviewers'] = params.suggested_reviewers
+        }
+        const result = await context.api.request<Schemas.ScoutReportWriteResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/update-report/`,
             body,
         })
         return result
@@ -579,7 +666,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-update': signalsScoutConfigUpdate,
+    'signals-scout-create-report': signalsScoutCreateReport,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
+    'signals-scout-update-report': signalsScoutUpdateReport,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-runs-emissions-list': signalsScoutRunsEmissionsList,
     'signals-scout-runs-list': signalsScoutRunsList,

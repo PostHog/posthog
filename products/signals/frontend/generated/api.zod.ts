@@ -135,6 +135,102 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Create a READY inbox report directly, bypassing the signal matching pipeline — the scout is the matcher. Search existing reports first (`inbox-reports-list`) and prefer `signals-scout-update-report` when a matching report already exists; direct creation has no dedupe. Optional priority / actionability / suggested-reviewer judgments are stored as artefacts and become the report's effective values. The title and summary pass a safety filter before persisting; blocked content returns `skipped_reason=unsafe_content`. Capped per run — further creates return `skipped_reason=report_cap_reached`.
+ * @summary Create an inbox report for a run
+ */
+export const signalsScoutCreateReportBodyTitleMax = 500
+
+export const signalsScoutCreateReportBodySummaryMax = 50000
+
+export const signalsScoutCreateReportBodyActionabilityOneAlreadyAddressedDefault = false
+export const signalsScoutCreateReportBodySuggestedReviewersMax = 10
+
+export const SignalsScoutCreateReportBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(signalsScoutCreateReportBodyTitleMax)
+            .describe('Report headline, PR-title style — specific and evidence-anchored, not a vague theme.'),
+        summary: zod
+            .string()
+            .max(signalsScoutCreateReportBodySummaryMax)
+            .describe(
+                'Full report prose surfaced in the inbox. Carry the evidence here: what was observed, where (queries, entities, time windows), and why it matters.'
+            ),
+        priority: zod
+            .union([
+                zod
+                    .object({
+                        priority: zod
+                            .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+                            .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4')
+                            .describe(
+                                'Priority level, P0 (most urgent) to P4.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+                            ),
+                        explanation: zod
+                            .string()
+                            .describe(
+                                '2-3 sentence justification for the priority level, referencing quantified user impact, error frequency, or scope of affected code paths.'
+                            ),
+                    })
+                    .describe(
+                        'A priority judgment to append to the report. Stored as a `priority_judgment` artefact;\nthe newest artefact of that type is what the inbox list\/detail\/sort reads.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Optional priority judgment to attach. Omit if you have no defensible priority call.'),
+        actionability: zod
+            .union([
+                zod
+                    .object({
+                        actionability: zod
+                            .enum(['immediately_actionable', 'requires_human_input', 'not_actionable'])
+                            .describe(
+                                '\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable'
+                            )
+                            .describe(
+                                'Whether the issue can be acted on as-is: `immediately_actionable` (a coding agent or engineer could start now), `requires_human_input` (needs a product\/priority decision first), or `not_actionable` (informational only).\n\n\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable'
+                            ),
+                        explanation: zod
+                            .string()
+                            .describe('2-3 sentence evidence-grounded explanation of the actionability assessment.'),
+                        already_addressed: zod
+                            .boolean()
+                            .default(signalsScoutCreateReportBodyActionabilityOneAlreadyAddressedDefault)
+                            .describe(
+                                'Whether the core issue appears to have already been fixed in recent code changes.'
+                            ),
+                    })
+                    .describe(
+                        'An actionability judgment to append to the report. Stored as an `actionability_judgment`\nartefact; latest-wins on read, same as priority.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Optional actionability judgment to attach.'),
+        suggested_reviewers: zod
+            .array(
+                zod
+                    .object({
+                        github_login: zod
+                            .string()
+                            .describe('GitHub username to suggest as a reviewer for this report.'),
+                        github_name: zod.string().nullish().describe('Optional display name from GitHub.'),
+                    })
+                    .describe(
+                        'One suggested reviewer. Stored in a `suggested_reviewers` artefact keyed on\n`github_login`; PostHog-user enrichment happens at read time.'
+                    )
+            )
+            .max(signalsScoutCreateReportBodySuggestedReviewersMax)
+            .nullish()
+            .describe(
+                'Optional reviewers to suggest, max 10. Only include people with clear ownership of the affected area.'
+            ),
+    })
+    .describe('Request body for `create-report`. Run attribution is taken from the URL path.')
+
+/**
  * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
  * @summary Emit a finding for a run
  */
@@ -226,6 +322,123 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * Update an existing inbox report on this project: rewrite its title/summary, transition its state (`suppressed` / `potential` / `resolved`), and/or append priority / actionability / suggested-reviewer judgments. Judgments are append-only artefacts — the newest one becomes the report's effective value, and prior judgments persist as the audit trail. Rewritten title/summary pass a safety filter; blocked content returns `skipped_reason=unsafe_content`. Works on any non-deleted report, including pipeline-generated ones.
+ * @summary Update an inbox report for a run
+ */
+export const signalsScoutUpdateReportBodyTitleMax = 500
+
+export const signalsScoutUpdateReportBodySummaryMax = 50000
+
+export const signalsScoutUpdateReportBodyActionabilityOneAlreadyAddressedDefault = false
+export const signalsScoutUpdateReportBodySuggestedReviewersMax = 10
+
+export const SignalsScoutUpdateReportBody = /* @__PURE__ */ zod
+    .object({
+        report_id: zod.uuid().describe('UUID of the report to update. Must belong to this project.'),
+        title: zod
+            .string()
+            .max(signalsScoutUpdateReportBodyTitleMax)
+            .nullish()
+            .describe('New report title. Omit to leave unchanged.'),
+        summary: zod
+            .string()
+            .max(signalsScoutUpdateReportBodySummaryMax)
+            .nullish()
+            .describe(
+                'New report summary. Omit to leave unchanged — this replaces the whole summary, it does not append.'
+            ),
+        new_state: zod
+            .union([
+                zod
+                    .enum(['suppressed', 'potential', 'resolved'])
+                    .describe('\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Optional state transition: `suppressed` dismisses the report from the inbox, `potential` snoozes it back into the pipeline, `resolved` closes it as fixed. Illegal transitions from the report's current status return 409.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved"
+            ),
+        snooze_for: zod
+            .number()
+            .min(1)
+            .nullish()
+            .describe('Only honored with `new_state=potential`: number of additional signals before re-promotion.'),
+        priority: zod
+            .union([
+                zod
+                    .object({
+                        priority: zod
+                            .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+                            .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4')
+                            .describe(
+                                'Priority level, P0 (most urgent) to P4.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+                            ),
+                        explanation: zod
+                            .string()
+                            .describe(
+                                '2-3 sentence justification for the priority level, referencing quantified user impact, error frequency, or scope of affected code paths.'
+                            ),
+                    })
+                    .describe(
+                        'A priority judgment to append to the report. Stored as a `priority_judgment` artefact;\nthe newest artefact of that type is what the inbox list\/detail\/sort reads.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe("Optional priority judgment to append. Becomes the report's effective priority (latest wins)."),
+        actionability: zod
+            .union([
+                zod
+                    .object({
+                        actionability: zod
+                            .enum(['immediately_actionable', 'requires_human_input', 'not_actionable'])
+                            .describe(
+                                '\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable'
+                            )
+                            .describe(
+                                'Whether the issue can be acted on as-is: `immediately_actionable` (a coding agent or engineer could start now), `requires_human_input` (needs a product\/priority decision first), or `not_actionable` (informational only).\n\n\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable'
+                            ),
+                        explanation: zod
+                            .string()
+                            .describe('2-3 sentence evidence-grounded explanation of the actionability assessment.'),
+                        already_addressed: zod
+                            .boolean()
+                            .default(signalsScoutUpdateReportBodyActionabilityOneAlreadyAddressedDefault)
+                            .describe(
+                                'Whether the core issue appears to have already been fixed in recent code changes.'
+                            ),
+                    })
+                    .describe(
+                        'An actionability judgment to append to the report. Stored as an `actionability_judgment`\nartefact; latest-wins on read, same as priority.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Optional actionability judgment to append. Becomes the report's effective actionability (latest wins)."
+            ),
+        suggested_reviewers: zod
+            .array(
+                zod
+                    .object({
+                        github_login: zod
+                            .string()
+                            .describe('GitHub username to suggest as a reviewer for this report.'),
+                        github_name: zod.string().nullish().describe('Optional display name from GitHub.'),
+                    })
+                    .describe(
+                        'One suggested reviewer. Stored in a `suggested_reviewers` artefact keyed on\n`github_login`; PostHog-user enrichment happens at read time.'
+                    )
+            )
+            .max(signalsScoutUpdateReportBodySuggestedReviewersMax)
+            .nullish()
+            .describe('Optional reviewers to suggest, max 10. Replaces the effective list (latest wins).'),
+    })
+    .describe(
+        'Request body for `update-report`. The target report is identified by `report_id`;\nrun attribution is taken from the URL path. At least one mutating field is required.'
+    )
 
 /**
  * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.

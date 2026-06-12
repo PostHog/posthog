@@ -227,6 +227,24 @@ tools:
             Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or
             `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed.
             Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
+    signals-scout-create-report:
+        operation: signals_scout_create_report
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create an inbox report for a run
+        description: >
+            Create a READY inbox report directly, bypassing the signal matching pipeline — you are the matcher.
+            ALWAYS search existing reports first (`inbox-reports-list`) and prefer `signals-scout-update-report`
+            when a matching report exists: direct creation has no dedupe, and a duplicate report pollutes the
+            inbox. Optional `priority` / `actionability` / `suggested_reviewers` judgments persist as artefacts
+            and become the report's effective values. Title and summary pass a safety filter; blocked content
+            returns `skipped_reason=unsafe_content`. Creations are capped per run (`report_cap_reached` once hit).
+            NOT idempotent — a second call creates a second report, so never retry a create that may have succeeded.
     signals-scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
@@ -242,6 +260,24 @@ tools:
             `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with
             the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.
             Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.
+    signals-scout-update-report:
+        operation: signals_scout_update_report
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update an inbox report for a run
+        description: >
+            Update an existing inbox report on this project (including pipeline-generated ones): rewrite its
+            `title`/`summary`, transition its state (`suppressed` to dismiss, `potential` to snooze, `resolved`
+            to close as fixed), and/or append `priority` / `actionability` / `suggested_reviewers` judgments.
+            Judgments are append-only — the newest one becomes the report's effective value and earlier ones
+            remain as the audit trail, so "changing" a judgment means appending a new one. Rewritten prose
+            passes a safety filter (`skipped_reason=unsafe_content` when blocked). Illegal state transitions
+            return 409. Prefer this over `signals-scout-create-report` whenever a matching report already exists.
     signals-scout-project-profile-get:
         operation: signals_scout_project_profile_get
         enabled: true

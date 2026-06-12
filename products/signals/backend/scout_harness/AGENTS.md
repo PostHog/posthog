@@ -43,12 +43,16 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   scout"). Called by the coordinator tick; the HTTP surface registers explicitly via the
   write-scoped config `create` endpoint instead (reads stay side-effect free).
 - `tools/`
-  Implementations of the four harness-internal tools the agent calls during a run.
+  Implementations of the harness-internal tools the agent calls during a run.
   The effective toolset for a run is the intersection of the skill's `allowed_tools`
   list with what `tools/__init__.py` re-exports — there is no separate registry
   module today.
   - `emit.py` — `emit_signal_*` tools that push findings as `cross_source_issue`
     signals into the standard ingestion pipeline.
+  - `reports.py` — direct report CRUD (`create_report_sync` / `update_report_sync`):
+    mints READY `SignalReport` rows and edits existing ones, bypassing the matching
+    pipeline. Gated by the same preflights as emit plus an inline safety filter on
+    scout-authored prose; judgments persist as attributed append-only artefacts.
   - `scratchpad.py` — `remember`, `forget`, and `search_scratchpad` tools backed by
     the `SignalScratchpad` model.
   - `profile.py` — `project_profile_*` tools that read the deterministic
@@ -168,8 +172,12 @@ one sandbox session → zero or more emitted signals.
   `TaskRun` stranded in `IN_PROGRESS` (worker SIGKILL before finalize) blocks new runs for
   that `(team, skill)` via `_has_running_run` until it transitions out; active recovery of
   such rows is a deferred follow-up (`_self_heal_stale_runs` is currently a no-op).
-- Emit path goes through `emit_signal()` and only `emit_signal()`. Do not write to
-  the embeddings pipeline or `SignalReport` directly from harness code.
+- Findings emitted into the pipeline go through `emit_signal()` and only `emit_signal()`.
+  The one sanctioned exception is `tools/reports.py`, which writes `SignalReport` /
+  `SignalReportArtefact` rows directly (the scout-as-matcher path) — it must keep the
+  same preflight gates as emit plus the inline safety filter, and reports it creates
+  carry no backing signal rows (no embeddings write). Never write to the embeddings
+  pipeline from harness code, and never add a third write path to `SignalReport`.
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update
   `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`)
   to match.**

@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CreateReportRequestApi,
     EmitFindingRequestApi,
     EmitFindingResponseApi,
     ForgetRequestApi,
@@ -22,6 +23,7 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
+    ScoutReportWriteResponseApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportStateRequestApi,
@@ -38,6 +40,7 @@ import type {
     SignalsScoutRunsListParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    UpdateReportRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -346,6 +349,28 @@ export const signalsScoutRunsRetrieve = async (
     })
 }
 
+export const getSignalsScoutCreateReportUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/create-report/`
+}
+
+/**
+ * Create a READY inbox report directly, bypassing the signal matching pipeline — the scout is the matcher. Search existing reports first (`inbox-reports-list`) and prefer `signals-scout-update-report` when a matching report already exists; direct creation has no dedupe. Optional priority / actionability / suggested-reviewer judgments are stored as artefacts and become the report's effective values. The title and summary pass a safety filter before persisting; blocked content returns `skipped_reason=unsafe_content`. Capped per run — further creates return `skipped_reason=report_cap_reached`.
+ * @summary Create an inbox report for a run
+ */
+export const signalsScoutCreateReport = async (
+    projectId: string,
+    runId: string,
+    createReportRequestApi: CreateReportRequestApi,
+    options?: RequestInit
+): Promise<ScoutReportWriteResponseApi> => {
+    return apiMutator<ScoutReportWriteResponseApi>(getSignalsScoutCreateReportUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createReportRequestApi),
+    })
+}
+
 export const getSignalsScoutRunsEmissionsUrl = (projectId: string, runId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/${runId}/emissions/`
 }
@@ -384,6 +409,28 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutUpdateReportUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/update-report/`
+}
+
+/**
+ * Update an existing inbox report on this project: rewrite its title/summary, transition its state (`suppressed` / `potential` / `resolved`), and/or append priority / actionability / suggested-reviewer judgments. Judgments are append-only artefacts — the newest one becomes the report's effective value, and prior judgments persist as the audit trail. Rewritten title/summary pass a safety filter; blocked content returns `skipped_reason=unsafe_content`. Works on any non-deleted report, including pipeline-generated ones.
+ * @summary Update an inbox report for a run
+ */
+export const signalsScoutUpdateReport = async (
+    projectId: string,
+    runId: string,
+    updateReportRequestApi: UpdateReportRequestApi,
+    options?: RequestInit
+): Promise<ScoutReportWriteResponseApi> => {
+    return apiMutator<ScoutReportWriteResponseApi>(getSignalsScoutUpdateReportUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(updateReportRequestApi),
     })
 }
 

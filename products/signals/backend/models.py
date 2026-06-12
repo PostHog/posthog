@@ -175,6 +175,17 @@ class SignalReport(UUIDModel):
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
 
+    # The scout run that created this report directly (bypassing the signal pipeline).
+    # Null for pipeline-created and custom-agent reports. SET_NULL so purging run history
+    # doesn't destroy the report.
+    created_by_scout_run = models.ForeignKey(
+        "signals.SignalScoutRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_reports",
+    )
+
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
         ArrayField(
@@ -352,6 +363,16 @@ class SignalReportArtefact(UUIDModel):
     type = models.CharField(max_length=100, choices=ArtefactType)
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+    # The scout run that wrote this artefact, when it was scout-authored rather than produced
+    # by the summary workflow or a user action. Artefact reads are latest-wins per type, so
+    # attribution is what distinguishes "the research agent judged P1" from "scout X judged P1".
+    created_by_scout_run = models.ForeignKey(
+        "signals.SignalScoutRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="artefacts_created",
+    )
 
     class Meta:
         indexes = [

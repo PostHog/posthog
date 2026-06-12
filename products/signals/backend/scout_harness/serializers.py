@@ -395,6 +395,182 @@ class EmitFindingResponseSerializer(serializers.Serializer):
     )
 
 
+# --- Direct report write ---------------------------------------------------
+
+# Bounds on scout-authored report prose. The summary reuses the finding cap; the title is a
+# headline, not a paragraph.
+MAX_REPORT_TITLE_LENGTH = 500
+MAX_REPORT_SUMMARY_LENGTH = MAX_FINDING_DESCRIPTION_LENGTH
+
+# Hard cap on reviewers per write — mirrors the evidence cap philosophy: a useful suggestion
+# list is a handful of people, not the org chart.
+MAX_SUGGESTED_REVIEWERS = 10
+
+
+class ScoutReportPrioritySerializer(serializers.Serializer):
+    """A priority judgment to append to the report. Stored as a `priority_judgment` artefact;
+    the newest artefact of that type is what the inbox list/detail/sort reads."""
+
+    priority = serializers.ChoiceField(
+        choices=[(s.value, s.value) for s in Severity],
+        help_text="Priority level, P0 (most urgent) to P4.",
+    )
+    explanation = serializers.CharField(
+        help_text=(
+            "2-3 sentence justification for the priority level, referencing quantified user "
+            "impact, error frequency, or scope of affected code paths."
+        ),
+    )
+
+
+class ScoutReportActionabilitySerializer(serializers.Serializer):
+    """An actionability judgment to append to the report. Stored as an `actionability_judgment`
+    artefact; latest-wins on read, same as priority."""
+
+    actionability = serializers.ChoiceField(
+        choices=[
+            ("immediately_actionable", "immediately_actionable"),
+            ("requires_human_input", "requires_human_input"),
+            ("not_actionable", "not_actionable"),
+        ],
+        help_text=(
+            "Whether the issue can be acted on as-is: `immediately_actionable` (a coding agent "
+            "or engineer could start now), `requires_human_input` (needs a product/priority "
+            "decision first), or `not_actionable` (informational only)."
+        ),
+    )
+    explanation = serializers.CharField(
+        help_text="2-3 sentence evidence-grounded explanation of the actionability assessment.",
+    )
+    already_addressed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the core issue appears to have already been fixed in recent code changes.",
+    )
+
+
+class ScoutReportReviewerSerializer(serializers.Serializer):
+    """One suggested reviewer. Stored in a `suggested_reviewers` artefact keyed on
+    `github_login`; PostHog-user enrichment happens at read time."""
+
+    github_login = serializers.CharField(help_text="GitHub username to suggest as a reviewer for this report.")
+    github_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Optional display name from GitHub.",
+    )
+
+
+class CreateReportRequestSerializer(serializers.Serializer):
+    """Request body for `create-report`. Run attribution is taken from the URL path."""
+
+    title = serializers.CharField(
+        max_length=MAX_REPORT_TITLE_LENGTH,
+        help_text="Report headline, PR-title style — specific and evidence-anchored, not a vague theme.",
+    )
+    summary = serializers.CharField(
+        max_length=MAX_REPORT_SUMMARY_LENGTH,
+        help_text=(
+            "Full report prose surfaced in the inbox. Carry the evidence here: what was "
+            "observed, where (queries, entities, time windows), and why it matters."
+        ),
+    )
+    priority = ScoutReportPrioritySerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional priority judgment to attach. Omit if you have no defensible priority call.",
+    )
+    actionability = ScoutReportActionabilitySerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional actionability judgment to attach.",
+    )
+    suggested_reviewers = serializers.ListField(
+        child=ScoutReportReviewerSerializer(),
+        required=False,
+        allow_null=True,
+        max_length=MAX_SUGGESTED_REVIEWERS,
+        help_text=f"Optional reviewers to suggest, max {MAX_SUGGESTED_REVIEWERS}. Only include people with clear ownership of the affected area.",
+    )
+
+
+class UpdateReportRequestSerializer(serializers.Serializer):
+    """Request body for `update-report`. The target report is identified by `report_id`;
+    run attribution is taken from the URL path. At least one mutating field is required."""
+
+    report_id = serializers.UUIDField(help_text="UUID of the report to update. Must belong to this project.")
+    title = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_REPORT_TITLE_LENGTH,
+        help_text="New report title. Omit to leave unchanged.",
+    )
+    summary = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_REPORT_SUMMARY_LENGTH,
+        help_text="New report summary. Omit to leave unchanged — this replaces the whole summary, it does not append.",
+    )
+    new_state = serializers.ChoiceField(
+        choices=[
+            ("suppressed", "suppressed"),
+            ("potential", "potential"),
+            ("resolved", "resolved"),
+        ],
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional state transition: `suppressed` dismisses the report from the inbox, "
+            "`potential` snoozes it back into the pipeline, `resolved` closes it as fixed. "
+            "Illegal transitions from the report's current status return 409."
+        ),
+    )
+    snooze_for = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="Only honored with `new_state=potential`: number of additional signals before re-promotion.",
+    )
+    priority = ScoutReportPrioritySerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional priority judgment to append. Becomes the report's effective priority (latest wins).",
+    )
+    actionability = ScoutReportActionabilitySerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional actionability judgment to append. Becomes the report's effective actionability (latest wins).",
+    )
+    suggested_reviewers = serializers.ListField(
+        child=ScoutReportReviewerSerializer(),
+        required=False,
+        allow_null=True,
+        max_length=MAX_SUGGESTED_REVIEWERS,
+        help_text=f"Optional reviewers to suggest, max {MAX_SUGGESTED_REVIEWERS}. Replaces the effective list (latest wins).",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        mutating = ("title", "summary", "new_state", "priority", "actionability", "suggested_reviewers")
+        if all(attrs.get(field) is None for field in mutating):
+            raise serializers.ValidationError("Provide at least one field to update.")
+        return attrs
+
+
+class ScoutReportWriteResponseSerializer(serializers.Serializer):
+    report_id = serializers.CharField(
+        allow_null=True,
+        help_text="UUID of the created/updated report. Null when a create was skipped by a gate.",
+    )
+    persisted = serializers.BooleanField(help_text="Whether the write actually landed.")
+    skipped_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "`scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | "
+            "`unsafe_content` | `report_cap_reached` | null when persisted."
+        ),
+    )
+
+
 # --- Project profile ------------------------------------------------------
 
 

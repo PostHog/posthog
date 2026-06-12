@@ -1070,6 +1070,20 @@ export namespace Schemas {
       created_by: UserBasic | null;
     }
 
+    /**
+     * * `immediately_actionable` - immediately_actionable
+     * * `requires_human_input` - requires_human_input
+     * * `not_actionable` - not_actionable
+     */
+    export type ActionabilityEnum = typeof ActionabilityEnum[keyof typeof ActionabilityEnum];
+
+
+    export const ActionabilityEnum = {
+      ImmediatelyActionable: 'immediately_actionable',
+      RequiresHumanInput: 'requires_human_input',
+      NotActionable: 'not_actionable',
+    } as const;
+
     export type ActionsNodeResponse = { [key: string]: unknown } | null;
 
     export type PropertyOperator = typeof PropertyOperator[keyof typeof PropertyOperator];
@@ -12255,6 +12269,80 @@ export namespace Schemas {
       repo_full_name: string;
       /** @nullable */
       repo_external_id?: number | null;
+    }
+
+    /**
+     * A priority judgment to append to the report. Stored as a `priority_judgment` artefact;
+     * the newest artefact of that type is what the inbox list/detail/sort reads.
+     */
+    export interface ScoutReportPriority {
+      /** Priority level, P0 (most urgent) to P4.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      priority: AutonomyPriorityEnum;
+      /** 2-3 sentence justification for the priority level, referencing quantified user impact, error frequency, or scope of affected code paths. */
+      explanation: string;
+    }
+
+    /**
+     * An actionability judgment to append to the report. Stored as an `actionability_judgment`
+     * artefact; latest-wins on read, same as priority.
+     */
+    export interface ScoutReportActionability {
+      /** Whether the issue can be acted on as-is: `immediately_actionable` (a coding agent or engineer could start now), `requires_human_input` (needs a product/priority decision first), or `not_actionable` (informational only).
+       *
+       * * `immediately_actionable` - immediately_actionable
+       * * `requires_human_input` - requires_human_input
+       * * `not_actionable` - not_actionable */
+      actionability: ActionabilityEnum;
+      /** 2-3 sentence evidence-grounded explanation of the actionability assessment. */
+      explanation: string;
+      /** Whether the core issue appears to have already been fixed in recent code changes. */
+      already_addressed?: boolean;
+    }
+
+    /**
+     * One suggested reviewer. Stored in a `suggested_reviewers` artefact keyed on
+     * `github_login`; PostHog-user enrichment happens at read time.
+     */
+    export interface ScoutReportReviewer {
+      /** GitHub username to suggest as a reviewer for this report. */
+      github_login: string;
+      /**
+         * Optional display name from GitHub.
+         * @nullable
+         */
+      github_name?: string | null;
+    }
+
+    /**
+     * Request body for `create-report`. Run attribution is taken from the URL path.
+     */
+    export interface CreateReportRequest {
+      /**
+         * Report headline, PR-title style — specific and evidence-anchored, not a vague theme.
+         * @maxLength 500
+         */
+      title: string;
+      /**
+         * Full report prose surfaced in the inbox. Carry the evidence here: what was observed, where (queries, entities, time windows), and why it matters.
+         * @maxLength 50000
+         */
+      summary: string;
+      /** Optional priority judgment to attach. Omit if you have no defensible priority call. */
+      priority?: ScoutReportPriority | null;
+      /** Optional actionability judgment to attach. */
+      actionability?: ScoutReportActionability | null;
+      /**
+         * Optional reviewers to suggest, max 10. Only include people with clear ownership of the affected area.
+         * @maxItems 10
+         * @nullable
+         */
+      suggested_reviewers?: ScoutReportReviewer[] | null;
     }
 
     export type CreateRunInputBaselineHashes = {[key: string]: string};
@@ -23744,6 +23832,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `suppressed` - suppressed
+     * * `potential` - potential
+     * * `resolved` - resolved
+     */
+    export type NewStateEnum = typeof NewStateEnum[keyof typeof NewStateEnum];
+
+
+    export const NewStateEnum = {
+      Suppressed: 'suppressed',
+      Potential: 'potential',
+      Resolved: 'resolved',
+    } as const;
+
+    /**
      * * `table` - Table
      * * `view` - View
      * * `matview` - Mat View
@@ -27987,10 +28089,10 @@ export namespace Schemas {
      * * `medium` - Medium
      * * `high` - High
      */
-    export type PriorityEnum = typeof PriorityEnum[keyof typeof PriorityEnum];
+    export type TicketPriorityEnum = typeof TicketPriorityEnum[keyof typeof TicketPriorityEnum];
 
 
-    export const PriorityEnum = {
+    export const TicketPriorityEnum = {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
@@ -28055,7 +28157,7 @@ export namespace Schemas {
        * * `low` - Low
        * * `medium` - Medium
        * * `high` - High */
-      priority?: PriorityEnum | BlankEnum | null;
+      priority?: TicketPriorityEnum | BlankEnum | null;
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
@@ -34468,7 +34570,7 @@ export namespace Schemas {
        * * `low` - Low
        * * `medium` - Medium
        * * `high` - High */
-      priority?: PriorityEnum | BlankEnum | null;
+      priority?: TicketPriorityEnum | BlankEnum | null;
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
@@ -39417,6 +39519,21 @@ export namespace Schemas {
       base_version?: number;
     }
 
+    export interface ScoutReportWriteResponse {
+      /**
+         * UUID of the created/updated report. Null when a create was skipped by a gate.
+         * @nullable
+         */
+      report_id: string | null;
+      /** Whether the write actually landed. */
+      persisted: boolean;
+      /**
+         * `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | `unsafe_content` | `report_cap_reached` | null when persisted.
+         * @nullable
+         */
+      skipped_reason: string | null;
+    }
+
     /**
      * `SignalScratchpad` projection used by `search-memory` and `remember`.
      */
@@ -42027,6 +42144,49 @@ export namespace Schemas {
          * @maxLength 10
          */
       target_language?: string;
+    }
+
+    /**
+     * Request body for `update-report`. The target report is identified by `report_id`;
+     * run attribution is taken from the URL path. At least one mutating field is required.
+     */
+    export interface UpdateReportRequest {
+      /** UUID of the report to update. Must belong to this project. */
+      report_id: string;
+      /**
+         * New report title. Omit to leave unchanged.
+         * @maxLength 500
+         * @nullable
+         */
+      title?: string | null;
+      /**
+         * New report summary. Omit to leave unchanged — this replaces the whole summary, it does not append.
+         * @maxLength 50000
+         * @nullable
+         */
+      summary?: string | null;
+      /** Optional state transition: `suppressed` dismisses the report from the inbox, `potential` snoozes it back into the pipeline, `resolved` closes it as fixed. Illegal transitions from the report's current status return 409.
+       *
+       * * `suppressed` - suppressed
+       * * `potential` - potential
+       * * `resolved` - resolved */
+      new_state?: NewStateEnum | null;
+      /**
+         * Only honored with `new_state=potential`: number of additional signals before re-promotion.
+         * @minimum 1
+         * @nullable
+         */
+      snooze_for?: number | null;
+      /** Optional priority judgment to append. Becomes the report's effective priority (latest wins). */
+      priority?: ScoutReportPriority | null;
+      /** Optional actionability judgment to append. Becomes the report's effective actionability (latest wins). */
+      actionability?: ScoutReportActionability | null;
+      /**
+         * Optional reviewers to suggest, max 10. Replaces the effective list (latest wins).
+         * @maxItems 10
+         * @nullable
+         */
+      suggested_reviewers?: ScoutReportReviewer[] | null;
     }
 
     export interface UpdateTextTileRequest {

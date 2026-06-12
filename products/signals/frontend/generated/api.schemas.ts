@@ -900,6 +900,108 @@ export const AutonomyPriorityEnumApi = {
 } as const
 
 /**
+ * A priority judgment to append to the report. Stored as a `priority_judgment` artefact;
+ * the newest artefact of that type is what the inbox list/detail/sort reads.
+ */
+export interface ScoutReportPriorityApi {
+    /** Priority level, P0 (most urgent) to P4.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority: AutonomyPriorityEnumApi
+    /** 2-3 sentence justification for the priority level, referencing quantified user impact, error frequency, or scope of affected code paths. */
+    explanation: string
+}
+
+/**
+ * * `immediately_actionable` - immediately_actionable
+ * * `requires_human_input` - requires_human_input
+ * * `not_actionable` - not_actionable
+ */
+export type ActionabilityEnumApi = (typeof ActionabilityEnumApi)[keyof typeof ActionabilityEnumApi]
+
+export const ActionabilityEnumApi = {
+    ImmediatelyActionable: 'immediately_actionable',
+    RequiresHumanInput: 'requires_human_input',
+    NotActionable: 'not_actionable',
+} as const
+
+/**
+ * An actionability judgment to append to the report. Stored as an `actionability_judgment`
+ * artefact; latest-wins on read, same as priority.
+ */
+export interface ScoutReportActionabilityApi {
+    /** Whether the issue can be acted on as-is: `immediately_actionable` (a coding agent or engineer could start now), `requires_human_input` (needs a product/priority decision first), or `not_actionable` (informational only).
+     *
+     * * `immediately_actionable` - immediately_actionable
+     * * `requires_human_input` - requires_human_input
+     * * `not_actionable` - not_actionable */
+    actionability: ActionabilityEnumApi
+    /** 2-3 sentence evidence-grounded explanation of the actionability assessment. */
+    explanation: string
+    /** Whether the core issue appears to have already been fixed in recent code changes. */
+    already_addressed?: boolean
+}
+
+/**
+ * One suggested reviewer. Stored in a `suggested_reviewers` artefact keyed on
+ * `github_login`; PostHog-user enrichment happens at read time.
+ */
+export interface ScoutReportReviewerApi {
+    /** GitHub username to suggest as a reviewer for this report. */
+    github_login: string
+    /**
+     * Optional display name from GitHub.
+     * @nullable
+     */
+    github_name?: string | null
+}
+
+/**
+ * Request body for `create-report`. Run attribution is taken from the URL path.
+ */
+export interface CreateReportRequestApi {
+    /**
+     * Report headline, PR-title style — specific and evidence-anchored, not a vague theme.
+     * @maxLength 500
+     */
+    title: string
+    /**
+     * Full report prose surfaced in the inbox. Carry the evidence here: what was observed, where (queries, entities, time windows), and why it matters.
+     * @maxLength 50000
+     */
+    summary: string
+    /** Optional priority judgment to attach. Omit if you have no defensible priority call. */
+    priority?: ScoutReportPriorityApi | null
+    /** Optional actionability judgment to attach. */
+    actionability?: ScoutReportActionabilityApi | null
+    /**
+     * Optional reviewers to suggest, max 10. Only include people with clear ownership of the affected area.
+     * @maxItems 10
+     * @nullable
+     */
+    suggested_reviewers?: ScoutReportReviewerApi[] | null
+}
+
+export interface ScoutReportWriteResponseApi {
+    /**
+     * UUID of the created/updated report. Null when a create was skipped by a gate.
+     * @nullable
+     */
+    report_id: string | null
+    /** Whether the write actually landed. */
+    persisted: boolean
+    /**
+     * `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | `unsafe_content` | `report_cap_reached` | null when persisted.
+     * @nullable
+     */
+    skipped_reason: string | null
+}
+
+/**
  * One finding a scout run emitted to the inbox — the persisted, queryable record of
  * *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
  * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
@@ -1029,6 +1131,62 @@ export interface EmitFindingResponseApi {
      * @nullable
      */
     skipped_reason: string | null
+}
+
+/**
+ * * `suppressed` - suppressed
+ * * `potential` - potential
+ * * `resolved` - resolved
+ */
+export type NewStateEnumApi = (typeof NewStateEnumApi)[keyof typeof NewStateEnumApi]
+
+export const NewStateEnumApi = {
+    Suppressed: 'suppressed',
+    Potential: 'potential',
+    Resolved: 'resolved',
+} as const
+
+/**
+ * Request body for `update-report`. The target report is identified by `report_id`;
+ * run attribution is taken from the URL path. At least one mutating field is required.
+ */
+export interface UpdateReportRequestApi {
+    /** UUID of the report to update. Must belong to this project. */
+    report_id: string
+    /**
+     * New report title. Omit to leave unchanged.
+     * @maxLength 500
+     * @nullable
+     */
+    title?: string | null
+    /**
+     * New report summary. Omit to leave unchanged — this replaces the whole summary, it does not append.
+     * @maxLength 50000
+     * @nullable
+     */
+    summary?: string | null
+    /** Optional state transition: `suppressed` dismisses the report from the inbox, `potential` snoozes it back into the pipeline, `resolved` closes it as fixed. Illegal transitions from the report's current status return 409.
+     *
+     * * `suppressed` - suppressed
+     * * `potential` - potential
+     * * `resolved` - resolved */
+    new_state?: NewStateEnumApi | null
+    /**
+     * Only honored with `new_state=potential`: number of additional signals before re-promotion.
+     * @minimum 1
+     * @nullable
+     */
+    snooze_for?: number | null
+    /** Optional priority judgment to append. Becomes the report's effective priority (latest wins). */
+    priority?: ScoutReportPriorityApi | null
+    /** Optional actionability judgment to append. Becomes the report's effective actionability (latest wins). */
+    actionability?: ScoutReportActionabilityApi | null
+    /**
+     * Optional reviewers to suggest, max 10. Replaces the effective list (latest wins).
+     * @maxItems 10
+     * @nullable
+     */
+    suggested_reviewers?: ScoutReportReviewerApi[] | null
 }
 
 /**
