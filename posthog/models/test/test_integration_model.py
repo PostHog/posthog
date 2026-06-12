@@ -100,6 +100,31 @@ class TestIntegrationModel(BaseTest):
                     == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAHlWz9QOMnXDvmix-z5lNG4v0VcO9lGWejmcE_BXHXPZ1wNkb-38JupntWbshBrfFQ=="}'
                 )
 
+    def test_sensitive_config_decrypting_to_str_is_normalized(self):
+        # EncryptedJSONField(ignore_decrypt_errors=True) silently returns the raw decrypted value when it
+        # can't be JSON-decoded, so legacy/corrupted rows can load as a non-empty str instead of a dict.
+        integration = self.create_integration("github", sensitive_config={"access_token": "TOKEN"})
+
+        # A JSON-encoded bare string round-trips through to_python as a plain (undecryptable) str.
+        update_db_field_value("sensitive_config", integration.id, '"corrupted-not-a-dict"')
+        integration.refresh_from_db()
+
+        assert integration.sensitive_config == "corrupted-not-a-dict"
+        assert integration.safe_sensitive_config == {}
+        assert integration.access_token is None
+        assert integration.refresh_token is None
+
+    def test_safe_sensitive_config_passes_through_dict(self):
+        integration = self.create_integration("github", sensitive_config={"access_token": "TOKEN"})
+
+        assert integration.safe_sensitive_config == {
+            "refresh_token": "REFRESH",
+            "id_token": None,
+            "access_token": "TOKEN",
+        }
+        assert integration.access_token == "TOKEN"
+        assert integration.refresh_token == "REFRESH"
+
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)
         set_instance_setting("SLACK_APP_CLIENT_SECRET", None)

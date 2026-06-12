@@ -240,12 +240,24 @@ class Integration(models.Model):
         return f"ID: {self.integration_id}"
 
     @property
+    def safe_sensitive_config(self) -> dict:
+        """Always returns sensitive_config as a dict.
+
+        sensitive_config is an EncryptedJSONField(ignore_decrypt_errors=True): on a JSONDecodeError its
+        to_python silently returns the raw decrypted string. So for legacy or unparseable rows the value is
+        a non-empty str rather than a dict, which slips past `or {}` guards (a non-empty string is truthy)
+        and blows up on `.get(...)`. Normalize here so all callers can safely treat it as a mapping.
+        """
+        config = self.sensitive_config
+        return config if isinstance(config, dict) else {}
+
+    @property
     def access_token(self) -> str | None:
-        return self.sensitive_config.get("access_token")
+        return self.safe_sensitive_config.get("access_token")
 
     @property
     def refresh_token(self) -> str | None:
-        return self.sensitive_config.get("refresh_token")
+        return self.safe_sensitive_config.get("refresh_token")
 
 
 def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> models.QuerySet[Integration]:

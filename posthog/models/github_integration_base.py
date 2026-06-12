@@ -357,8 +357,7 @@ class GitHubIntegrationBase:
 
     @property
     def installation_access_token(self) -> str | None:
-        sc = self.integration.sensitive_config
-        return sc.get("access_token") if sc else None
+        return self.integration.safe_sensitive_config.get("access_token")
 
     def access_token_expired(self) -> bool:
         expires_in = self.integration.config.get("expires_in")
@@ -416,7 +415,7 @@ class GitHubIntegrationBase:
             "refreshed_at": int(time.time()),
         }
         self.integration.sensitive_config = {
-            **(self.integration.sensitive_config or {}),
+            **self.integration.safe_sensitive_config,
             "access_token": data["token"],
         }
         self._on_token_refreshed()
@@ -458,7 +457,7 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
         def fetch() -> requests.Response:
-            access_token = (self.integration.sensitive_config or {}).get("access_token")
+            access_token = self.integration.safe_sensitive_config.get("access_token")
             return self._github_api_get(
                 url,
                 endpoint=endpoint,
@@ -879,7 +878,7 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
         def fetch() -> requests.Response:
-            access_token = (self.integration.sensitive_config or {}).get("access_token")
+            access_token = self.integration.safe_sensitive_config.get("access_token")
             return self._github_api_get(
                 f"https://api.github.com/installation/repositories?page={page}&per_page={per_page}",
                 endpoint="/installation/repositories",
@@ -1018,7 +1017,7 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
         def fetch(page: int) -> requests.Response:
-            access_token = (self.integration.sensitive_config or {}).get("access_token")
+            access_token = self.integration.safe_sensitive_config.get("access_token")
             return self._github_api_get(
                 f"https://api.github.com/repos/{repo}/branches?per_page={GITHUB_PER_PAGE}&page={page}",
                 endpoint="/repos/{owner}/{repo}/branches",
@@ -1143,7 +1142,7 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
         def fetch(page: int = 1) -> requests.Response:
-            access_token = (self.integration.sensitive_config or {}).get("access_token")
+            access_token = self.integration.safe_sensitive_config.get("access_token")
             return self._github_api_get(
                 f"https://api.github.com/installation/repositories?page={page}&per_page=100",
                 endpoint="/installation/repositories",
@@ -1196,7 +1195,7 @@ class GitHubIntegrationBase:
         if isinstance(cached, str):
             return cached
 
-        access_token = (self.integration.sensitive_config or {}).get("access_token")
+        access_token = self.integration.safe_sensitive_config.get("access_token")
         if not access_token:
             raise ValueError("GitHub access token not configured")
 
@@ -1433,7 +1432,7 @@ class GitHubIntegrationBase:
         """Return a valid installation access token, refreshing it if expired."""
         if self.access_token_expired():
             self.refresh_access_token()
-        token = (self.integration.sensitive_config or {}).get("access_token")
+        token = self.integration.safe_sensitive_config.get("access_token")
         if not token:
             raise GitHubIntegrationError("Access token unavailable after refresh")
         return token
