@@ -209,18 +209,19 @@ const WARNING_TYPE_RENDERER = {
         )
     },
     replay_message_invalid: function Render(warning: IngestionWarning): JSX.Element {
+        // details are sanitized at ingestion, but never render non-string values
         const details: {
-            reason: string
+            reason?: string
             sessionId?: string
         } = {
-            reason: warning.details.reason,
-            sessionId: warning.details.sessionId,
+            reason: typeof warning.details.reason === 'string' ? warning.details.reason : undefined,
+            sessionId: typeof warning.details.sessionId === 'string' ? warning.details.sessionId : undefined,
         }
         return (
             <>
                 Session replay data was rejected at capture, so the recording is missing data:
                 <ul>
-                    <li>reason: {details.reason}</li>
+                    {details.reason ? <li>reason: {details.reason}</li> : null}
                     {details.sessionId ? <li>session_id: {details.sessionId}</li> : null}
                 </ul>
             </>

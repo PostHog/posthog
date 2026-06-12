@@ -272,6 +272,7 @@ describe('handleClientIngestionWarningStep', () => {
             ['valid reason', { reason: 'invalid_session_id', sessionId: 'bad!id' }, 'replay_message_invalid'],
             ['missing reason', { sessionId: 'bad!id' }, 'client_ingestion_warning'],
             ['non-string reason', { reason: 42 }, 'client_ingestion_warning'],
+            ['oversized reason', { reason: 'x'.repeat(1000) }, 'client_ingestion_warning'],
         ])('replay_message_invalid override with %s', async (_name, details, expectedType) => {
             const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
@@ -289,6 +290,48 @@ describe('handleClientIngestionWarningStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(result.warnings[0].type).toBe(expectedType)
+        })
+
+        it.each([
+            [
+                'debounces per session when a session id is present',
+                { reason: 'invalid_session_id', sessionId: 'bad!id' },
+                'bad!id',
+                { reason: 'invalid_session_id', sessionId: 'bad!id' },
+            ],
+            [
+                'debounces per reason when the session id is missing',
+                { reason: 'missing_session_id' },
+                'missing_session_id',
+                { reason: 'missing_session_id', sessionId: undefined },
+            ],
+            [
+                'drops non-string session ids and extra client fields',
+                { reason: 'missing_snapshot_data', sessionId: { evil: true }, arbitraryBlob: 'x'.repeat(100000) },
+                'missing_snapshot_data',
+                { reason: 'missing_snapshot_data', sessionId: undefined },
+            ],
+        ])('replay_message_invalid %s', async (_name, details, expectedKey, expectedDetails) => {
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_type: 'replay_message_invalid',
+                        $$client_ingestion_warning_details: details,
+                    },
+                },
+            }
+
+            const result = await handleStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings[0].type).toBe('replay_message_invalid')
+            expect(result.warnings[0].key).toBe(expectedKey)
+            expect(result.warnings[0].alwaysSend).toBeUndefined()
+            expect(result.warnings[0].details).toMatchObject(expectedDetails)
+            expect(result.warnings[0].details.arbitraryBlob).toBeUndefined()
         })
 
         it('ignores warning types outside the allowlist', async () => {

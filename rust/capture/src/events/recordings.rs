@@ -246,14 +246,14 @@ pub async fn process_replay_events(
         .as_str()
         .is_some_and(|s| s.len() <= 70 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
     if !session_id_valid {
-        // include the malformed value so teams can spot integration bugs
-        let raw_session_id: String = session_id
-            .as_str()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| session_id.to_string())
-            .chars()
-            .take(100)
-            .collect();
+        // Include the malformed value so teams can spot integration bugs, but
+        // never serialize engineered objects/arrays of arbitrary size.
+        let raw_session_id: String = match &session_id {
+            Value::String(s) => s.chars().take(100).collect(),
+            Value::Object(_) => "(object)".to_string(),
+            Value::Array(_) => "(array)".to_string(),
+            other => other.to_string().chars().take(100).collect(),
+        };
         return Err(reject_replay_batch(
             &sink,
             context,
@@ -480,6 +480,7 @@ fn replay_message_too_large_warning(
         context,
         distinct_id,
         Some(session_id),
+        Some(snapshot_library),
         timestamp,
         "replay_message_too_large",
         message,
@@ -509,6 +510,7 @@ async fn reject_replay_batch(
         context,
         distinct_id.unwrap_or("unknown").to_string(),
         None,
+        None,
         timestamp,
         "replay_message_invalid",
         message,
@@ -522,24 +524,30 @@ async fn reject_replay_batch(
 
 /// Build a `$$client_ingestion_warning` event. Ingestion resolves the team
 /// from the token and persists it as an ingestion warning of `warning_type`.
+#[allow(clippy::too_many_arguments)]
 fn client_ingestion_warning_event(
     context: &ProcessingContext,
     distinct_id: String,
     session_id: Option<&str>,
+    lib: Option<&str>,
     timestamp: chrono::DateTime<chrono::Utc>,
     warning_type: &str,
     message: String,
     details: Value,
 ) -> ProcessedEvent {
+    let mut properties = json!({
+        "$$client_ingestion_warning_message": message,
+        "$$client_ingestion_warning_type": warning_type,
+        "$$client_ingestion_warning_details": details,
+        "$session_id": session_id,
+    });
+    if let Some(lib) = lib {
+        properties["$lib"] = json!(lib);
+    }
     let data = json!({
         "event": "$$client_ingestion_warning",
         "distinct_id": &distinct_id,
-        "properties": {
-            "$$client_ingestion_warning_message": message,
-            "$$client_ingestion_warning_type": warning_type,
-            "$$client_ingestion_warning_details": details,
-            "$session_id": session_id,
-        }
+        "properties": properties,
     })
     .to_string();
 
@@ -1394,6 +1402,10 @@ mod tests {
         assert!(props["$$client_ingestion_warning_message"]
             .as_str()
             .is_some_and(|m| m.contains("test-session-123")));
+        assert!(
+            props["$lib"].is_string(),
+            "warning must keep the $lib property for SDK attribution"
+        );
     }
 
     // ============ rejected payload flagging tests ============
@@ -1459,6 +1471,46 @@ mod tests {
         assert_eq!(
             props["$$client_ingestion_warning_details"]["sessionId"],
             "not!a!valid!session!id"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_oversized_invalid_session_id_is_truncated_in_warning() {
+        let (result, captured) = run_rejected_payload_case(json!({
+            "event": "$snapshot",
+            "distinct_id": "test_user",
+            "properties": {
+                "$session_id": "!".repeat(5000),
+                "$snapshot_data": [{"type": 1}]
+            }
+        }))
+        .await;
+
+        assert!(matches!(result, Err(CaptureError::InvalidSessionId)));
+        let props = assert_invalid_warning(&captured, "invalid_session_id");
+        let session_id = props["$$client_ingestion_warning_details"]["sessionId"]
+            .as_str()
+            .unwrap();
+        assert_eq!(session_id.chars().count(), 100);
+    }
+
+    #[tokio::test]
+    async fn test_non_string_invalid_session_id_is_not_serialized_into_warning() {
+        let (result, captured) = run_rejected_payload_case(json!({
+            "event": "$snapshot",
+            "distinct_id": "test_user",
+            "properties": {
+                "$session_id": { "engineered": "x".repeat(5000) },
+                "$snapshot_data": [{"type": 1}]
+            }
+        }))
+        .await;
+
+        assert!(matches!(result, Err(CaptureError::InvalidSessionId)));
+        let props = assert_invalid_warning(&captured, "invalid_session_id");
+        assert_eq!(
+            props["$$client_ingestion_warning_details"]["sessionId"],
+            "(object)"
         );
     }
 
