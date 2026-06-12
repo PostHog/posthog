@@ -11,6 +11,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import request from 'supertest'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
@@ -35,9 +36,14 @@ function lifecycle(method: string): HarnessFrame {
 class FakeCodingSandbox implements CodingSandbox {
     onFrame: ((f: HarnessFrame) => void) | null = null
     readonly providerSandboxId = 'fake-container'
+    readonly sent: string[] = []
     constructor(readonly sessionId: string) {}
-    async command(cmd: { method: string }): Promise<{ jsonrpc: '2.0'; id: string; result?: unknown }> {
+    async command(cmd: {
+        method: string
+        params?: unknown
+    }): Promise<{ jsonrpc: '2.0'; id: string; result?: unknown }> {
         if (cmd.method === 'user_message') {
+            this.sent.push((cmd.params as { content: string }).content)
             this.onFrame?.(
                 sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Listed the files.' } })
             )
@@ -70,9 +76,12 @@ class FakeCodingPool implements CodingSandboxPool {
     readonly kind = 'docker-coding' as const
     acquired: string[] = []
     released: string[] = []
+    sandboxes: FakeCodingSandbox[] = []
     async acquireForSession(opts: CodingAcquireOpts): Promise<CodingSandbox> {
         this.acquired.push(opts.sessionId)
-        return new FakeCodingSandbox(opts.sessionId)
+        const sandbox = new FakeCodingSandbox(opts.sessionId)
+        this.sandboxes.push(sandbox)
+        return sandbox
     }
     async release(sessionId: string): Promise<void> {
         this.released.push(sessionId)
@@ -145,5 +154,49 @@ describe('coding agent: real worker e2e', () => {
         const events = c.logs.forSession(sessionId).map((l) => l.event)
         expect(events).toContain('session_started')
         expect(events).toContain('completed')
+    })
+
+    it('a /send re-claim boots a fresh harness and replays prior history into the first send', async () => {
+        await c.deployAgent({
+            slug: 'coder-resume',
+            spec: {
+                model: 'faux/faux',
+                sandbox: { trust_profile: 'coding-write', loop_location: 'in_sandbox' },
+            },
+            files: { 'agent.md': 'You are a coding agent.' },
+        })
+
+        const run = await request(c.ingress).post('/agents/coder-resume/run').send({ message: 'list the files' })
+        const sessionId = run.body.session_id as string
+        await c.drain({ iterations: 20 })
+        expect((await c.queue.get(sessionId))!.state).toBe('completed')
+
+        // The completed invocation tore down its sandbox; a follow-up /send
+        // re-queues the session, and the worker boots a fresh harness.
+        await request(c.ingress)
+            .post('/agents/coder-resume/send')
+            .send({ session_id: sessionId, message: 'now delete them' })
+        await c.drain({ iterations: 20 })
+
+        const session = await c.queue.get(sessionId)
+        expect(session!.state).toBe('completed')
+        expect(pool.sandboxes).toHaveLength(2)
+
+        // First invocation went over the wire raw.
+        expect(pool.sandboxes[0].sent).toEqual(['list the files'])
+        // The re-claimed (fresh) harness got the prior conversation replayed
+        // around the new message — not the new message cold.
+        expect(pool.sandboxes[1].sent).toHaveLength(1)
+        const resumed = pool.sandboxes[1].sent[0]
+        expect(resumed).toContain('You are resuming a previous conversation')
+        expect(resumed).toContain('**User**: list the files')
+        expect(resumed).toContain('**Assistant**: Listed the files.')
+        expect(resumed).toContain('The user has sent a new message:\n\nnow delete them')
+
+        // The persisted transcript keeps raw messages — no resume wrapper.
+        const userTexts = session!.conversation
+            .filter((m) => m.role === 'user')
+            .map((m) => (typeof m.content === 'string' ? m.content : ''))
+        expect(userTexts).toEqual(['list the files', 'now delete them'])
     })
 })
