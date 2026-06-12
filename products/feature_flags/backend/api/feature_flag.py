@@ -3340,7 +3340,12 @@ class FeatureFlagViewSet(
                         value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
                     )
                     if excluded_tags:
-                        queryset = queryset.exclude(tagged_items__tag__name__in=excluded_tags)
+                        # Exclude by ID subquery so a flag carrying both an excluded and a
+                        # non-excluded tag is still reliably filtered out.
+                        flags_with_excluded_tags = FeatureFlag.objects.filter(
+                            team__project_id=self.project_id, tagged_items__tag__name__in=excluded_tags
+                        ).values("pk")
+                        queryset = queryset.exclude(pk__in=flags_with_excluded_tags)
                 except (json.JSONDecodeError, TypeError):
                     pass
             elif key == "has_evaluation_contexts":

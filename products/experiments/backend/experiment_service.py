@@ -1288,14 +1288,21 @@ class ExperimentService:
         Only safe when the flag is already disabled (an enabled flag may still be serving
         traffic, e.g. rolling out the winning variant) and no other live experiment uses it.
         """
-        feature_flag = experiment.feature_flag
-        if feature_flag.deleted or feature_flag.archived or feature_flag.active:
+        # Lock the row so a concurrent enable can't slip in between the check and the save,
+        # which would produce an archived flag that is still active.
+        feature_flag = FeatureFlag.objects.select_for_update().filter(pk=experiment.feature_flag_id).first()
+        if feature_flag is None or feature_flag.deleted or feature_flag.archived or feature_flag.active:
             return
         if feature_flag.experiment_set.filter(deleted=False, archived=False).exclude(id=experiment.id).exists():
             return
 
         feature_flag.archived = True
         feature_flag.save(update_fields=["archived"])
+
+        # Remember that this experiment archived the flag, so unarchiving the experiment
+        # only undoes its own archive — never one the user performed manually.
+        experiment.feature_flag_auto_archived = True
+        experiment.save(update_fields=["feature_flag_auto_archived"])
 
     def _report_experiment_archived(
         self,
@@ -1318,6 +1325,7 @@ class ExperimentService:
     # Unarchive
     # ------------------------------------------------------------------
 
+    @transaction.atomic
     def unarchive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Unarchive an archived experiment: validate it is archived, set archived=False."""
         if not experiment.archived:
@@ -1335,10 +1343,18 @@ class ExperimentService:
     def _unarchive_linked_feature_flag(self, experiment: Experiment) -> None:
         """Mirror of _archive_linked_feature_flag: bring the flag back with the experiment.
 
-        The flag stays disabled — re-enabling it is an explicit user decision.
+        Only undoes an archive this experiment performed — a flag the user archived
+        manually stays archived. The flag stays disabled either way; re-enabling it is
+        an explicit user decision.
         """
-        feature_flag = experiment.feature_flag
-        if feature_flag.deleted or not feature_flag.archived:
+        if not experiment.feature_flag_auto_archived:
+            return
+
+        experiment.feature_flag_auto_archived = False
+        experiment.save(update_fields=["feature_flag_auto_archived"])
+
+        feature_flag = FeatureFlag.objects.select_for_update().filter(pk=experiment.feature_flag_id).first()
+        if feature_flag is None or feature_flag.deleted or not feature_flag.archived:
             return
 
         feature_flag.archived = False

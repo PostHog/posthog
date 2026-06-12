@@ -2160,13 +2160,30 @@ class TestExperimentService(APIBaseTest):
         service.archive_experiment(experiment)
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.archived is True
+        assert experiment.feature_flag_auto_archived is True
 
         service.unarchive_experiment(experiment)
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.archived is False
+        assert experiment.feature_flag_auto_archived is False
         # The flag stays disabled — re-enabling is an explicit user decision
         assert experiment.feature_flag.active is False
+
+    def test_unarchive_experiment_keeps_manually_archived_flag(self):
+        # The user archived the flag themselves, so unarchiving the experiment must not undo it.
+        experiment = self._create_ended_experiment(name="Manual Archive", feature_flag_key="manually-archived-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.archived = True
+        experiment.feature_flag.save()
+        service = self._service()
+        service.archive_experiment(experiment)
+        assert experiment.feature_flag_auto_archived is False
+
+        service.unarchive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
 
     def test_archive_experiment_already_archived_raises(self):
         experiment = self._create_ended_experiment(name="Already Archived", feature_flag_key="already-archived-flag")

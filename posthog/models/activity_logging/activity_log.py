@@ -416,6 +416,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Experiment": [
         "feature_flag",
+        "feature_flag_auto_archived",
         "exposure_cohort",
         "holdout",
         "saved_metrics",
