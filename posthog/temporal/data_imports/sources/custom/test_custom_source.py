@@ -1457,7 +1457,7 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 6, 8, 12, 53, 34, tzinfo=UTC),
         )
-        list(source.source_for_pipeline(config, inputs).items())
+        list(cast(Any, source.source_for_pipeline(config, inputs).items()))
 
         child_params = next((p for p in captured if "since" in p), {})
         assert child_params.get("since") == "2026-06-08T12:53:34Z"
