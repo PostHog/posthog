@@ -13,19 +13,24 @@ _SSE_DEFAULT_HEADERS = {
 
 
 def _release_request_connections() -> None:
-    """Release this thread's DB connections, unless a transaction is open.
+    """Close this thread's DB connections, unless a transaction is open.
 
-    Mirrors ``django.db.close_old_connections`` (with ``CONN_MAX_AGE = 0`` that
-    closes every connection), but skips connections inside an atomic block:
-    severing an open transaction corrupts it. PostHog never streams from inside
-    ``transaction.atomic()``, so in production this closes everything; the case
-    that does hit the guard is Django ``TestCase``'s per-test transaction wrapper,
-    which the test client only shields from the signal-dispatched
-    ``close_old_connections``, not from direct calls like this one.
+    Closes unconditionally (``conn.close()``) rather than via
+    ``close_if_unusable_or_obsolete()``, which only closes connections past their
+    ``CONN_MAX_AGE`` — that would make this helper a silent no-op if the setting
+    ever became nonzero, re-pinning a pgbouncer slot per stream. Closing an idle
+    autocommit connection is always safe; Django reopens on next use.
+
+    Connections inside an atomic block are skipped: severing an open transaction
+    corrupts it. PostHog never streams from inside ``transaction.atomic()``, so in
+    production this closes everything; the case that does hit the guard is Django
+    ``TestCase``'s per-test transaction wrapper, which the test client only shields
+    from the signal-dispatched ``close_old_connections``, not from direct calls
+    like this one.
     """
     for conn in connections.all(initialized_only=True):
         if not conn.in_atomic_block:
-            conn.close_if_unusable_or_obsolete()
+            conn.close()
 
 
 def sse_streaming_response(
@@ -53,6 +58,12 @@ def sse_streaming_response(
     The stream body must not rely on the request-thread connection: do any
     in-stream DB work through ``posthog.sync.database_sync_to_async`` so it
     acquires and releases its own connection.
+
+    Limitation: this runs at view-return time, but response-phase middleware runs
+    after the view returns and before the stream body is consumed — middleware
+    that touches the DB in ``process_response`` lazily reopens a connection that
+    then stays pinned for the whole stream. Keep response middleware DB-free on
+    SSE paths.
     """
     _release_request_connections()
     return StreamingHttpResponse(

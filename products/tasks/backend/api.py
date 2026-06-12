@@ -168,10 +168,13 @@ TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
 # Long-lived SSE connections pin NGINX Unit processes for their whole duration
-# during recycle-drain, so cap each connection and end it with a clean EOF.
-# Clients resume seamlessly via Last-Event-ID (taskDetailSceneLogic.ts restarts
-# the stream when it ends while the run is still active).
+# during recycle-drain, so cap each connection: emit `event: end` so clients can
+# tell rotation from run completion, then close cleanly. Clients resume via
+# Last-Event-ID (taskDetailSceneLogic.ts restarts the stream when it ends while
+# the run is still active).
 TASK_RUN_STREAM_CONNECTION_MAX_SECONDS = 15 * 60
+TASK_RUN_STREAM_END_EVENT_NAME = "end"
+TASK_RUN_STREAM_ROTATED_PAYLOAD = {"type": "rotated"}
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
@@ -2741,6 +2744,40 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         parts.append(f"data: {json.dumps(data)}")
         return ("\n".join(parts) + "\n\n").encode()
 
+    @extend_schema(
+        description=(
+            "Server-Sent Events stream of task run events. Events carry an `id:` line "
+            "(a Redis stream id) usable as a resume cursor.\n\n"
+            f"The server caps each connection at {TASK_RUN_STREAM_CONNECTION_MAX_SECONDS} seconds: it emits "
+            '`event: end` with `data: {"type": "rotated"}` and closes. This does NOT mean the run '
+            "finished — reconnect with the `Last-Event-ID` header set to the last received event id to "
+            "resume without gaps or duplicates. Only treat the stream as complete when the run itself "
+            "reaches a terminal status.\n\n"
+            "`?start=latest` consumers must also carry `Last-Event-ID` across reconnects: reconnecting "
+            "without it re-resolves to the then-current latest event, silently skipping anything published "
+            "while disconnected.\n\n"
+            "**SDK consumers**: do not call the generated fetch wrapper for this path — it will buffer "
+            "the entire stream. Use the URL builder (`getTasksRunsStreamRetrieveUrl`) with a streaming "
+            "`fetch`/`EventSource`-style consumer and the `Last-Event-ID` header instead."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="start",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Set to `latest` to skip the event backlog and only receive events published after connecting.",
+            ),
+            OpenApiParameter(
+                name="Last-Event-ID",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+                required=False,
+                description="Resume cursor: the `id:` of the last event received on a previous connection. Events strictly after it are delivered.",
+            ),
+        ],
+        responses={(200, "text/event-stream"): OpenApiTypes.STR},
+    )
     @action(
         detail=True,
         methods=["get"],
@@ -2835,6 +2872,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             >= TASK_RUN_STREAM_CONNECTION_MAX_SECONDS
                         ):
                             outcome = "rotated"
+                            # Without this marker a rotation EOF would be
+                            # indistinguishable from run completion for API
+                            # consumers reading until EOF.
+                            yield format_sse_event(
+                                TASK_RUN_STREAM_ROTATED_PAYLOAD,
+                                event_name=TASK_RUN_STREAM_END_EVENT_NAME,
+                            )
                             return
                     outcome = "completed"
                 except TaskRunStreamError as e:

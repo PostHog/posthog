@@ -97,7 +97,8 @@ def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> 
 SSE_HEARTBEAT_INTERVAL_SECONDS = 15.0
 SSE_POLL_TIMEOUT_SECONDS = 1.0
 # Long-lived connections pin NGINX Unit processes during recycle-drain; the
-# `event: end` close makes EventSource reconnect, so the cap is invisible to users.
+# `event: end` close makes EventSource reconnect, so the cap is near-invisible to
+# users (the progress tracker may show a brief "reconnecting" blip per rotation).
 SSE_MAX_DURATION_SECONDS = 15 * 60
 
 WIZARD_SYNC_KILLSWITCH_FLAG = "onboarding-wizard-sync-killswitch"

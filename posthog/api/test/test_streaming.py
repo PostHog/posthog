@@ -19,14 +19,14 @@ class TestSSEStreamingResponse:
             connections.all.return_value = [idle]
             sse_streaming_response(_gen())
         connections.all.assert_called_once_with(initialized_only=True)
-        idle.close_if_unusable_or_obsolete.assert_called_once()
+        idle.close.assert_called_once()
 
     def test_does_not_sever_connections_with_an_open_transaction(self):
         in_transaction = mock.Mock(in_atomic_block=True)
         with mock.patch("posthog.api.streaming.connections") as connections:
             connections.all.return_value = [in_transaction]
             sse_streaming_response(_gen())
-        in_transaction.close_if_unusable_or_obsolete.assert_not_called()
+        in_transaction.close.assert_not_called()
 
     def test_sets_event_stream_content_type_and_default_headers(self):
         response = sse_streaming_response(_gen())

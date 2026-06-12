@@ -3,9 +3,9 @@ import time
 import uuid
 import base64
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncGenerator, Iterator
 from datetime import timedelta
-from typing import ClassVar, cast
+from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -48,7 +48,11 @@ from products.tasks.backend.services.staged_artifacts import (
     cache_task_staged_artifact,
     get_task_staged_artifacts,
 )
-from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.stream.redis_stream import (
+    TaskRunRedisStream,
+    TaskRunStreamEntryOrKeepalive,
+    get_task_run_stream_key,
+)
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 
@@ -5416,8 +5420,8 @@ class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
 
         return asyncio.run(_read())
 
-    def _collect_sse_events(self, response) -> list[dict]:
-        content = b"".join(response.streaming_content).decode("utf-8")
+    def _collect_sse_events(self, response: StreamingHttpResponse) -> list[dict]:
+        content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
         events: list[dict] = []
         for block in [part.strip() for part in content.split("\n\n") if part.strip()]:
             event_name = None
@@ -5456,7 +5460,9 @@ class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
                 },
             }
 
-        async def fake_read_stream_entries(self, *args, **kwargs):
+        async def fake_read_stream_entries(
+            self: TaskRunRedisStream, *args: Any, **kwargs: Any
+        ) -> AsyncGenerator[TaskRunStreamEntryOrKeepalive]:
             if idle_first:
                 yield None
             else:
@@ -5480,15 +5486,17 @@ class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
             content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Whatever was already delivered is kept; the stream then ends cleanly (no
-        # error event) so the client resumes from its Last-Event-ID cursor.
+        # Whatever was already delivered is kept; the stream then signals rotation
+        # (so clients can tell it apart from run completion) and ends without an
+        # error event, letting the client resume from its Last-Event-ID cursor.
         self.assertIn(expected_marker, content)
         self.assertNotIn("after cap", content)
         self.assertNotIn("event: error", content)
+        self.assertTrue(content.endswith('event: end\ndata: {"type": "rotated"}\n\n'))
         observe_closed.assert_called_once()
         self.assertEqual(observe_closed.call_args.args[1], "rotated")
 
-    def test_stream_resumes_after_rotation_without_gap_or_duplicate(self):
+    def test_stream_resumes_after_rotation_without_gap_or_duplicate(self) -> None:
         task = self.create_task()
         run = task.create_run()
         run.emit_console_event("info", "first message")
@@ -5498,26 +5506,37 @@ class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
         # A cap of 0 rotates the first connection after its first yield, leaving
         # the two console events for the resumed connection to pick up.
         with patch("products.tasks.backend.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0):
-            first_response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+            first_response = cast(
+                StreamingHttpResponse,
+                self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"}),
+            )
             first_events = self._collect_sse_events(first_response)
 
         self.assertEqual(first_response.status_code, status.HTTP_200_OK)
-        self.assertEqual([event["id"] for event in first_events], [stream_ids[0]])
+        # The rotation marker is the last thing on the wire and carries no id, so
+        # it can't poison the client's resume cursor.
+        self.assertEqual(first_events[-1], {"event": "end", "id": None, "data": {"type": "rotated"}})
+        first_data_events = first_events[:-1]
+        self.assertEqual([event["id"] for event in first_data_events], [stream_ids[0]])
         # stream_ids[0] is the task_run_state event create_run publishes — the
         # console events are deliberately left for the resumed connection.
-        self.assertEqual(first_events[0]["data"]["type"], "task_run_state")
+        self.assertEqual(first_data_events[0]["data"]["type"], "task_run_state")
 
         self._mark_stream_complete(run)
 
-        second_response = self.client.get(
-            self._stream_url(task, run),
-            headers={"accept": "text/event-stream", "last-event-id": first_events[0]["id"]},
+        second_response = cast(
+            StreamingHttpResponse,
+            self.client.get(
+                self._stream_url(task, run),
+                headers={"accept": "text/event-stream", "last-event-id": first_data_events[0]["id"]},
+            ),
         )
 
         self.assertEqual(second_response.status_code, status.HTTP_200_OK)
         second_events = self._collect_sse_events(second_response)
         # Resuming from the rotated connection's last id delivers the remaining
-        # events exactly once — no gap, no duplicate — then completes.
+        # events exactly once — no gap, no duplicate — then completes without a
+        # rotation marker.
         self.assertEqual([event["id"] for event in second_events], stream_ids[1:])
         self.assertEqual(
             [event["data"]["notification"]["params"]["message"] for event in second_events],

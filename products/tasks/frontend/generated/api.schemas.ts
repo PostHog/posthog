@@ -1917,6 +1917,13 @@ export type TasksRunsSessionLogsRetrieveParams = {
     offset?: number
 }
 
+export type TasksRunsStreamRetrieveParams = {
+    /**
+     * Set to `latest` to skip the event backlog and only receive events published after connecting.
+     */
+    start?: string
+}
+
 export type TasksRepositoryReadinessRetrieveParams = {
     refresh?: boolean
     /**
