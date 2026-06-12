@@ -25,6 +25,7 @@ PostHog captures distributed traces from OpenTelemetry. Each trace is a tree of 
 | `posthog:apm-spans-count`              | Scalar span count — cheap filter pre-flight       |
 | `posthog:apm-spans-sparkline`          | Span counts over time (zero-filled time series)   |
 | `posthog:apm-spans-duration-histogram` | Trace counts per log-scale duration bucket        |
+| `posthog:apm-attribute-breakdown`      | Span counts grouped by one attribute's value      |
 | `posthog:apm-services-list`            | List distinct service names                       |
 | `posthog:apm-attributes-list`          | List span or resource attribute keys              |
 | `posthog:apm-attribute-values-list`    | List values for a specific attribute key          |
@@ -110,6 +111,13 @@ To rebuild the tree:
 
 1. Run `print_summary.py` — it prints the set of services involved in the trace.
 2. If service X is missing, the request never reached it (or instrumentation is missing — check `apm-services-list` to confirm X has emitted spans recently at all).
+
+### "What's different about the bad spans?" (over-represented values)
+
+1. Scope to the bad population: `filterGroup` with `status_code = Error`, or a `duration` threshold.
+2. Discover candidate keys with `apm-attributes-list` — typical suspects: `server.address`, `http.response.status_code`, `db.system`, resource keys like `k8s.pod.name` / `service.version`.
+3. Run `apm-attribute-breakdown` per candidate key on the bad set. A value owning most of the `count` is the signature.
+4. Confirm over-representation: re-run without the bad-set filter (or compare `error_count / count` per row). A value at 95% of errors but 10% of traffic is the culprit; one at 95% of both is just volume.
 
 ### "When did it spike?" (trends over time)
 
