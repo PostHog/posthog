@@ -129,8 +129,14 @@ harmless over-estimate, documented):
 - [x] Step 4: serializer + source validation (RowFiltersField + extend_schema_field; ExternalDataSchemaSerializer.update validates; bulk-update serializer field; source-creation loop validates + persists)
 - [x] Step 5: 6 SQL sources (MySQL, MSSQL, Snowflake, Redshift, Postgres incl. partitioned/windowed, BigQuery via query job + ScalarQueryParameter) — all import cleanly
 - [x] Step 6: frontend (RowFilter/RowFilterOperator types; rowFilterUtils.ts classifier + validation; RowFilterEditor.tsx; RowFiltersSection in ConfigurationTab; schemaSceneLogic PATCH payload; wizard action+reducer+create payload; SchemaForm combined modal). Not type-checked/formatted locally — no node_modules; CI will.
-- [ ] Step 7: tests
-- [ ] Step 8: open draft PR; delete this file when ready for review
+- [x] Step 7: tests — test_predicates.py + test_query_builder.py row_filters (128 pass); per-source _build_query/_get_query/build_partition_query tests for all 6 dialects (52 pass, incl. BigQuery tuple-return fix); serializer PATCH tests (collect cleanly, run in CI). 329 non-DB tests green locally.
+- [x] Step 8: draft PR opened.
+
+### Before marking PR ready (cannot run in this sandbox — no dev DB / node_modules)
+- `hogli build:openapi` — serializer added `row_filters`, so `products/data_warehouse/frontend/generated/api.schemas.ts` + `api.zod.ts` are stale. Run locally to regenerate (CI also regenerates + diffs). Frontend compiles regardless via hand-written `~/types`.
+- `pnpm --filter=@posthog/frontend typescript:check` and `format` — verify the new TS.
+- DB-backed tests (`TestExternalDataSchemaRowFilters`, `*RealDb`) run in CI.
+- Delete this file once the PR is ready for review.
 
 ## Commit/push discipline
 
