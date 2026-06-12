@@ -21,6 +21,7 @@ use crate::{
     database::get_connection_with_metrics,
     flags::flag_payload_decryptor::REDACTED_PAYLOAD_VALUE,
     router::State as AppState,
+    team::team_models::Team,
 };
 use axum::{
     debug_handler,
@@ -73,29 +74,31 @@ pub async fn remote_config(
     // numeric segment is the project id; `@current` and other non-numeric values 404 — the
     // `@current`-without-token path resolves the caller's current team, which is not an SDK
     // call and is not ported (Django's `int()` ValueError also maps non-numeric to 404).
-    let (scope_team_id, scope_project_id): (i32, i64) = if let Some(token) = params.token.as_deref()
-    {
-        match state.flag_service().verify_token_and_get_team(token).await {
-            Ok(team) => {
-                // The cached team payload carries project_id; only fall back to a query for
-                // cache entries written before the field existed.
-                let project_id = match team.project_id {
-                    Some(pid) => pid,
-                    None => project_id_for_team(&state, team.id).await?,
-                };
-                (team.id, project_id)
+    let (scope_team_id, scope_project_id, resolved_team): (i32, i64, Option<Team>) =
+        if let Some(token) = params.token.as_deref() {
+            match state.flag_service().verify_token_and_get_team(token).await {
+                Ok(team) => {
+                    // The cached team payload carries project_id; only fall back to a query
+                    // for cache entries written before the field existed.
+                    let project_id = match team.project_id {
+                        Some(pid) => pid,
+                        None => project_id_for_team(&state, team.id).await?,
+                    };
+                    // Hold onto the team so the personal-key path below doesn't re-query it.
+                    (team.id, project_id, Some(team))
+                }
+                // Django raises AuthenticationFailed for an invalid `?token=`.
+                Err(_) => return Ok(StatusCode::UNAUTHORIZED.into_response()),
             }
-            // Django raises AuthenticationFailed for an invalid `?token=`.
-            Err(_) => return Ok(StatusCode::UNAUTHORIZED.into_response()),
-        }
-    } else {
-        match project_segment.parse::<i32>() {
-            Ok(id) => (id, i64::from(id)),
-            Err(_) => return Ok(StatusCode::NOT_FOUND.into_response()),
-        }
-    };
+        } else {
+            match project_segment.parse::<i32>() {
+                Ok(id) => (id, i64::from(id), None),
+                Err(_) => return Ok(StatusCode::NOT_FOUND.into_response()),
+            }
+        };
 
-    let (should_decrypt, team_id) = match authenticate(&state, scope_team_id, &headers).await? {
+    let (should_decrypt, team_id) =
+        match authenticate(&state, scope_team_id, resolved_team.as_ref(), &headers).await? {
         AuthOutcome::Authorized {
             should_decrypt,
             team_id,
@@ -199,6 +202,7 @@ fn is_falsy(v: &Value) -> bool {
 async fn authenticate(
     state: &AppState,
     scope_team_id: i32,
+    resolved_team: Option<&Team>,
     headers: &HeaderMap,
 ) -> Result<AuthOutcome, FlagError> {
     if let Some(token) = auth::extract_team_secret_token(headers) {
@@ -224,16 +228,24 @@ async fn authenticate(
     }
 
     if let Some(key) = auth::extract_personal_api_key(headers)? {
-        // view.team = Team(scope_team_id); missing -> 404.
-        let team = match state.flag_service().get_team_by_id(scope_team_id).await {
-            Ok(team) => team,
-            Err(FlagError::SecretApiTokenInvalid) | Err(FlagError::RowNotFound) => {
-                return Ok(AuthOutcome::ProjectNotFound)
+        // view.team = Team(scope_team_id); missing -> 404. Reuse the team the handler already
+        // fetched on the `?token=` path; only query on the numeric-segment path where none was.
+        let fetched;
+        let team: &Team = match resolved_team {
+            Some(t) => t,
+            None => {
+                fetched = match state.flag_service().get_team_by_id(scope_team_id).await {
+                    Ok(team) => team,
+                    Err(FlagError::SecretApiTokenInvalid) | Err(FlagError::RowNotFound) => {
+                        return Ok(AuthOutcome::ProjectNotFound)
+                    }
+                    Err(e) => return Err(e),
+                };
+                &fetched
             }
-            Err(e) => return Err(e),
         };
         let pak_id =
-            auth::validate_personal_api_key_with_scopes_for_team(state, &key, &team).await?;
+            auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await?;
 
         // Track PAK usage like flag_definitions does, so a key used only for remote config
         // doesn't look dormant and get rotated as unused. Advisory: shared Redis (not the
