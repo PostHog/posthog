@@ -210,29 +210,30 @@ const WARNING_TYPE_RENDERER = {
         )
     },
     replay_session_rate_limited: function Render(warning: IngestionWarning): JSX.Element {
+        // details are written by the recording consumer, but never render non-string values
         const details: {
-            sessionId: string
+            sessionId?: string
             timestamp?: string
         } = {
-            sessionId: warning.details.sessionId,
-            timestamp: warning.details.timestamp,
+            sessionId: typeof warning.details.sessionId === 'string' ? warning.details.sessionId : undefined,
+            timestamp: typeof warning.details.timestamp === 'string' ? warning.details.timestamp : undefined,
         }
         return (
             <>
                 Session replay data was dropped because the session sent too many events, so the recording is missing
                 data:
-                <ul>
-                    <li>session_id: {details.sessionId}</li>
-                </ul>
-                <div className="max-w-30 mt-2">
-                    <ViewRecordingButton
-                        sessionId={details.sessionId}
-                        timestamp={details.timestamp}
-                        type="primary"
-                        size="xsmall"
-                        data-attr="session-rate-limited-view-recording"
-                    />
-                </div>
+                <ul>{details.sessionId ? <li>session_id: {details.sessionId}</li> : null}</ul>
+                {details.sessionId ? (
+                    <div className="max-w-30 mt-2">
+                        <ViewRecordingButton
+                            sessionId={details.sessionId}
+                            timestamp={details.timestamp}
+                            type="primary"
+                            size="xsmall"
+                            data-attr="session-rate-limited-view-recording"
+                        />
+                    </div>
+                ) : null}
             </>
         )
     },
