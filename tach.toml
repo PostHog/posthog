@@ -855,3 +855,8 @@ layer = "modules"
 path = "products.annotations"
 depends_on = ["posthog", "products.product_analytics", "products.dashboards"]
 layer = "modules"
+
+[[modules]]
+path = "products.field_notes"
+depends_on = ["posthog"]
+layer = "modules"

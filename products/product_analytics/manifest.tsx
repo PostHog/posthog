@@ -165,6 +165,9 @@ export const manifest: ProductManifest = {
             path: `Insight/SQL`,
             type: 'insight',
             href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+            // The sibling insight items get a "New " prefix automatically because their hrefs include "new";
+            // the SQL editor href doesn't, so set the label explicitly to stay consistent.
+            displayLabel: 'New SQL',
             iconType: 'insight/hog',
             iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.sql,

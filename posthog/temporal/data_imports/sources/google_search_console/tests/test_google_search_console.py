@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.sources.google_search_console.google_search_c
     QUOTA_MAX_RETRIES,
     GoogleSearchConsoleQuotaExceededError,
     GoogleSearchConsoleResumeConfig,
+    _credentials,
     _initial_start_date,
     _is_daily_quota_error,
     _is_quota_error,
@@ -106,6 +107,30 @@ def test_row_to_dict_prefers_api_date_over_iter_date():
     out = _row_to_dict(row, ["date", "query"], iter_date=dt.date(1999, 1, 1))
 
     assert out["date"] == dt.date(2026, 4, 15)
+
+
+def test_credentials_refreshes_stale_db_connection_before_query(monkeypatch):
+    # The ORM read runs lazily inside `get_rows` on a worker thread whose pooled
+    # Django connection may have been closed server-side, surfacing as
+    # `OperationalError: the connection is closed`. We must drop the stale
+    # connection before querying, so the read happens on a fresh connection.
+    calls: list[str] = []
+
+    monkeypatch.setattr(gsc, "close_old_connections", lambda: calls.append("close_old_connections"))
+
+    integration = mock.MagicMock()
+    integration.refresh_token = "refresh-token"
+
+    def fake_get(*args, **kwargs):
+        calls.append("Integration.objects.get")
+        return integration
+
+    monkeypatch.setattr(gsc.Integration.objects, "get", fake_get)
+
+    creds = _credentials(integration_id=1, team_id=1)
+
+    assert calls == ["close_old_connections", "Integration.objects.get"]
+    assert creds.refresh_token == "refresh-token"
 
 
 def _make_response(config: GoogleSearchConsoleSourceConfig, rows_per_call: list[list[dict]]):

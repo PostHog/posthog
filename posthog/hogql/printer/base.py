@@ -7,8 +7,6 @@ from uuid import UUID
 
 from django.conf import settings as django_settings
 
-from posthog.schema import PersonsOnEventsMode
-
 from posthog.hogql import ast
 from posthog.hogql.ast import StringType
 from posthog.hogql.base import AST
@@ -38,6 +36,7 @@ from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
+from posthog.schema_enums import PersonsOnEventsMode
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 

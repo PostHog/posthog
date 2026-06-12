@@ -17,7 +17,6 @@ from posthog.personhog_client.metrics import (
 )
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 logger = structlog.get_logger(__name__)
 
@@ -107,6 +106,10 @@ class SessionRecording(UUIDTModel):
             # Nothing todo as we have all the metadata in the model
             pass
         else:
+            # Deferred: session_replay_events pulls the HogQL/schema layer, and this model
+            # loads at django.setup() in every process.
+            from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents  # noqa: PLC0415
+
             # Try to load from Clickhouse
             metadata = SessionReplayEvents().get_metadata(
                 team=self.team,

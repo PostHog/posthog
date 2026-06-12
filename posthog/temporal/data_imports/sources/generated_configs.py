@@ -274,7 +274,7 @@ class BrevoSourceConfig(config.Config):
 
 @config.config
 class BrexSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -376,7 +376,12 @@ class CodaSourceConfig(config.Config):
 
 @config.config
 class CommercetoolsSourceConfig(config.Config):
-    pass
+    project_key: str
+    client_id: str
+    client_secret: str
+    region: Literal[
+        "us-central1.gcp", "us-east-2.aws", "europe-west1.gcp", "eu-central-1.aws", "australia-southeast1.gcp"
+    ] = config.value(default="us-central1.gcp")
 
 
 @config.config
@@ -665,7 +670,8 @@ class GreenhouseSourceConfig(config.Config):
 
 @config.config
 class GuruSourceConfig(config.Config):
-    pass
+    username: str
+    api_token: str
 
 
 @config.config
@@ -834,7 +840,7 @@ class MixpanelSourceConfig(config.Config):
 
 @config.config
 class MollieSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -938,7 +944,7 @@ class PagerDutySourceConfig(config.Config):
 
 @config.config
 class PandaDocSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -964,7 +970,8 @@ class PendoSourceConfig(config.Config):
 
 @config.config
 class PersonioSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
 
 
 @config.config
@@ -976,7 +983,7 @@ class PgAnalyzeSourceConfig(config.Config):
 
 @config.config
 class PingdomSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1095,7 +1102,7 @@ class RingCentralSourceConfig(config.Config):
 
 @config.config
 class RipplingSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1185,7 +1192,8 @@ class SharePointSourceConfig(config.Config):
 
 @config.config
 class ShipStationSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config

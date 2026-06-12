@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, Optional, cast
 
-from posthog.schema import PropertyGroupsMode
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
@@ -33,6 +31,7 @@ from posthog.clickhouse.materialized_columns import (
 )
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.property import PropertyName, TableColumn
+from posthog.schema_enums import PropertyGroupsMode
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 

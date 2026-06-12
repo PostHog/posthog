@@ -1524,6 +1524,7 @@ export interface AssistantInsightVizNode {
  * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
  * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
  * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
@@ -1533,6 +1534,7 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.BoldNumber
     | ChartDisplayType.ActionsLineGraph
     | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsPie
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
@@ -1662,6 +1664,7 @@ export interface AssistantDataVisualizationNode {
      * Guidance:
      * - Single-value result (one numeric column, one row) → `BoldNumber`.
      * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
+     * - Categorical proportions → `ActionsPie`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
      * - Otherwise → `ActionsTable`.

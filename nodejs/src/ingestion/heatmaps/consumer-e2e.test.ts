@@ -12,13 +12,7 @@ import {
 import { resetKafka } from '~/tests/helpers/kafka'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
-import {
-    getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
-    getDefaultKafkaUpstreamProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
-} from '../common/config'
+import { getDefaultKafkaDownstreamProducerEnvConfig, getDefaultKafkaUpstreamProducerEnvConfig } from '../common/config'
 import { KafkaProducerRegistryComponent } from '../common/outputs/registry'
 import { Component, newScope } from '../common/scopes'
 import { getDefaultIngestionOutputsConfig } from '../config'
@@ -98,9 +92,6 @@ describe('Heatmaps consumer E2E', () => {
         // `kafka:9092`), which is the same broker the rest of the test suite
         // produces to — so the registry's heatmaps producer reaches ClickHouse.
         const registryConfig = {
-            ...getDefaultKafkaProducerEnvConfig(),
-            ...getDefaultKafkaWarpstreamProducerEnvConfig(),
-            ...getDefaultKafkaIngestionProducerEnvConfig(),
             ...getDefaultKafkaUpstreamProducerEnvConfig(),
             ...getDefaultKafkaDownstreamProducerEnvConfig(),
         }
