@@ -3809,7 +3809,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert ("archived-flag" in keys) is expect_archived
 
     def test_list_excluded_tags_filtering(self):
-        for key, tags in [("deprecated-flag", ["deprecated"]), ("app-flag", ["app"]), ("untagged-flag", [])]:
+        for key, tags in [
+            ("deprecated-flag", ["deprecated"]),
+            ("multi-tag-flag", ["deprecated", "app"]),
+            ("app-flag", ["app"]),
+            ("untagged-flag", []),
+        ]:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {
@@ -3827,6 +3832,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 200
         keys = {flag["key"] for flag in response.json()["results"]}
         assert "deprecated-flag" not in keys
+        assert "multi-tag-flag" not in keys
         assert {"app-flag", "untagged-flag"} <= keys
 
     def test_getting_flags_is_not_nplus1(self) -> None:
