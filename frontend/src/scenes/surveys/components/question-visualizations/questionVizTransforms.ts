@@ -1,16 +1,26 @@
-import { hexToRGBA } from 'lib/utils'
+import { hexToRGB } from 'lib/utils'
 
-// Dim strength for non-highlighted bars. Stronger when a filter is actually applied (active),
-// lighter when a choice is only "armed" for a follow-up click.
-const ACTIVE_DIM_ALPHA = 0.22
-const ARMED_DIM_ALPHA = 0.35
+// Share of the base color kept for non-highlighted bars. Stronger dim when a filter is actually
+// applied (active), lighter when a choice is only "armed" for a follow-up click.
+const ACTIVE_DIM_KEEP = 0.22
+const ARMED_DIM_KEEP = 0.35
+
+// Opaque dim: mix toward the surface (black in dark mode, white in light) instead of alpha, so
+// dimmed bars stay solid over the hatched bar track rendered behind them.
+function dimColor(hex: string, keep: number, isDarkModeOn: boolean): string {
+    const { r, g, b } = hexToRGB(hex)
+    const towards = isDarkModeOn ? 0 : 255
+    const mix = (channel: number): number => Math.round(channel * keep + towards * (1 - keep))
+    return `rgb(${mix(r)},${mix(g)},${mix(b)})`
+}
 
 // Per-bar colors, shared by the rating and multiple-choice charts: non-highlighted bars are dimmed.
 export function computeBarColors(
     baseColors: string[],
     labels: string[],
     highlightedLabel: string | null,
-    hasActiveFilter: boolean
+    hasActiveFilter: boolean,
+    isDarkModeOn: boolean
 ): string[] {
     return labels.map((label, index) => {
         const baseColor = baseColors[index]
@@ -19,7 +29,7 @@ export function computeBarColors(
             return baseColor
         }
 
-        return hexToRGBA(baseColor, hasActiveFilter ? ACTIVE_DIM_ALPHA : ARMED_DIM_ALPHA)
+        return dimColor(baseColor, hasActiveFilter ? ACTIVE_DIM_KEEP : ARMED_DIM_KEEP, isDarkModeOn)
     })
 }
 

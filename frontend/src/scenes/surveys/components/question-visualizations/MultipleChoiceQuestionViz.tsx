@@ -9,6 +9,7 @@ import { VirtualizedResponseList } from 'scenes/surveys/components/question-visu
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import {
     ChoiceQuestionResponseData,
     EventPropertyFilter,
@@ -78,6 +79,7 @@ export function MultipleChoiceQuestionViz({
 }: Props): JSX.Element | null {
     const { answerFilters } = useValues(surveyLogic)
     const { setAnswerFilters } = useActions(surveyLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const { chartData, openEndedResponses } = useMemo((): ProcessedData => {
         const predefinedResponses = responseData.filter((d) => d.isPredefined)
@@ -146,9 +148,10 @@ export function MultipleChoiceQuestionViz({
             baseColors,
             chartData.map((d) => d.label),
             highlightedChoiceLabel,
-            !!activeChoiceLabel
+            !!activeChoiceLabel,
+            isDarkModeOn
         )
-    }, [activeChoiceLabel, chartData, highlightedChoiceLabel])
+    }, [activeChoiceLabel, chartData, highlightedChoiceLabel, isDarkModeOn])
 
     const tooltipContextByIndex = useMemo((): TooltipContext[] => {
         const totalSelections = chartData.reduce((sum, d) => sum + d.value, 0)

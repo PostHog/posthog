@@ -10,6 +10,7 @@ import {
     ChoiceTooltipContextData,
 } from 'scenes/surveys/components/question-visualizations/questionVizTooltips'
 import { formatCountWithPercentage } from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
+import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChoiceQuestionResponseData } from '~/types'
@@ -51,12 +52,14 @@ export function MultipleChoiceBarChart({
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
+    // Stable series color: the bar track tint derives from it, so it must not follow the
+    // per-bar dim applied while a choice filter is active.
     const series: Series[] = [
         {
             key: 'multiple-choice',
             label: 'Number of responses',
             data: chartData.map((d) => d.value),
-            color: barColors[0],
+            color: CHART_INSIGHTS_COLORS[0],
             bars: chartData.map((_, i) => ({ color: barColors[i] })),
         },
     ]
@@ -73,11 +76,12 @@ export function MultipleChoiceBarChart({
         showAxisLines: false,
         maxCategoryLabelWidth: CATEGORY_LABEL_WIDTH,
         xTickFormatter: (_label, index) => chartData[index]?.label ?? '',
+        // Counts: d3 picks fractional tick steps on small domains, which round to duplicate labels.
+        yTickFormatter: (value) => (Number.isInteger(value) ? String(value) : ''),
         margins: { top: 4, right: 20, bottom: 22 },
         bars: {
             cornerRadius: 3,
             minBandSize: 32,
-            bandPadding: 0.4,
             track: { hover: false },
             valueDomain: [0, axisMax],
         },

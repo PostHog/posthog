@@ -1,40 +1,54 @@
-import { hexToRGBA } from 'lib/utils'
-
 import { computeBarColors } from './questionVizTransforms'
 
 const BLUE = '#1D4BFF'
 const PINK = '#CD0F74'
 const TEAL = '#43827E'
 
+function mixed(hex: string, keep: number, towards: number): string {
+    const r = parseInt(hex.slice(1, 3), 16)
+    const g = parseInt(hex.slice(3, 5), 16)
+    const b = parseInt(hex.slice(5, 7), 16)
+    const mix = (channel: number): number => Math.round(channel * keep + towards * (1 - keep))
+    return `rgb(${mix(r)},${mix(g)},${mix(b)})`
+}
+
 describe('computeBarColors', () => {
     const labels = ['a', 'b', 'c']
     const baseColors = [BLUE, PINK, TEAL]
 
     it('returns the base colors unchanged when nothing is highlighted', () => {
-        expect(computeBarColors(baseColors, labels, null, false)).toEqual(baseColors)
+        expect(computeBarColors(baseColors, labels, null, false, false)).toEqual(baseColors)
     })
 
-    it('keeps the highlighted bar at full color and dims the rest with the active alpha', () => {
-        expect(computeBarColors(baseColors, labels, 'b', true)).toEqual([
-            hexToRGBA(BLUE, 0.22),
+    it('keeps the highlighted bar at full color and dims the rest with the active strength', () => {
+        expect(computeBarColors(baseColors, labels, 'b', true, false)).toEqual([
+            mixed(BLUE, 0.22, 255),
             PINK,
-            hexToRGBA(TEAL, 0.22),
+            mixed(TEAL, 0.22, 255),
         ])
     })
 
-    it('uses the lighter armed alpha when no filter is active', () => {
-        expect(computeBarColors(baseColors, labels, 'a', false)).toEqual([
+    it('uses the lighter armed strength when no filter is active', () => {
+        expect(computeBarColors(baseColors, labels, 'a', false, false)).toEqual([
             BLUE,
-            hexToRGBA(PINK, 0.35),
-            hexToRGBA(TEAL, 0.35),
+            mixed(PINK, 0.35, 255),
+            mixed(TEAL, 0.35, 255),
+        ])
+    })
+
+    it('dims toward black in dark mode so dimmed bars stay opaque over the bar track', () => {
+        expect(computeBarColors(baseColors, labels, 'b', true, true)).toEqual([
+            mixed(BLUE, 0.22, 0),
+            PINK,
+            mixed(TEAL, 0.22, 0),
         ])
     })
 
     it('dims every bar when the highlighted label matches none of them', () => {
-        expect(computeBarColors(baseColors, labels, 'missing', true)).toEqual([
-            hexToRGBA(BLUE, 0.22),
-            hexToRGBA(PINK, 0.22),
-            hexToRGBA(TEAL, 0.22),
+        expect(computeBarColors(baseColors, labels, 'missing', true, false)).toEqual([
+            mixed(BLUE, 0.22, 255),
+            mixed(PINK, 0.22, 255),
+            mixed(TEAL, 0.22, 255),
         ])
     })
 })

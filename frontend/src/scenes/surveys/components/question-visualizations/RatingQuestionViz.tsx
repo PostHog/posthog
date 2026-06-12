@@ -30,6 +30,7 @@ import {
 } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import {
@@ -501,6 +502,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
 
     const { answerFilters } = useValues(surveyLogic)
     const { setAnswerFilters } = useActions(surveyLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
     const { data } = processedData
     const npsBreakdown = calculateNpsBreakdownFromProcessedData(processedData)
     const thumbsBreakdown = isThumbQuestion(question) ? calculateThumbsBreakdown(processedData) : null
@@ -549,8 +551,8 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
         const baseColors = chartLabels.map((label) =>
             isNpsRatingQuestion ? NPS_BUCKET_COLORS[getNpsBucketByRatingLabel(label).bucket] : barColor
         )
-        return computeBarColors(baseColors, chartLabels, highlightedRatingLabel, !!activeRatingLabel)
-    }, [activeRatingLabel, barColor, chartLabels, highlightedRatingLabel, isNpsRatingQuestion])
+        return computeBarColors(baseColors, chartLabels, highlightedRatingLabel, !!activeRatingLabel, isDarkModeOn)
+    }, [activeRatingLabel, barColor, chartLabels, highlightedRatingLabel, isNpsRatingQuestion, isDarkModeOn])
 
     const npsBucketByIndex = useMemo(
         () =>
