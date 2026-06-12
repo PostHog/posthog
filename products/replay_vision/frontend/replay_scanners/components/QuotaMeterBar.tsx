@@ -22,14 +22,19 @@ interface QuotaMeterBarProps {
     className?: string
 }
 
-/** Quota meter: solid used segment plus projection segments; later segments absorb overflow past 100%. */
-export function QuotaMeterBar({ usedPct, projected, valueNow, label, className }: QuotaMeterBarProps): JSX.Element {
+/** Segment widths fill left to right; later segments absorb overflow past 100%. */
+export function clampSegmentWidths(pcts: number[]): number[] {
     let headroom = 100
-    const widths = [usedPct, ...projected.map((segment) => segment.pct)].map((pct) => {
+    return pcts.map((pct) => {
         const width = Math.max(Math.min(pct, headroom), 0)
         headroom -= width
         return width
     })
+}
+
+/** Quota meter: solid used segment plus projection segments; later segments absorb overflow past 100%. */
+export function QuotaMeterBar({ usedPct, projected, valueNow, label, className }: QuotaMeterBarProps): JSX.Element {
+    const widths = clampSegmentWidths([usedPct, ...projected.map((segment) => segment.pct)])
     return (
         <div
             className={clsx('flex h-3 rounded overflow-hidden bg-fill-tertiary', className)}

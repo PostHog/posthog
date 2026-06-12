@@ -637,18 +637,25 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(self.mock_refresh_estimate.called, expect_refresh)
 
-    def test_reenabling_does_not_inline_refresh(self) -> None:
-        # The refresher keeps disabled scanners' estimates fresh, so enable stays a pure Postgres write.
+    @parameterized.expand(
+        [
+            ("fresh_estimate_skips_inline_refresh", timedelta(hours=1), False),
+            ("stale_estimate_refreshes_inline", timedelta(days=2), True),
+        ]
+    )
+    def test_reenabling_refreshes_inline_only_when_stale(
+        self, _name: str, estimate_age: timedelta, expect_refresh: bool
+    ) -> None:
         scanner = self._create_scanner(enabled=False)
         ReplayScanner.objects.filter(pk=scanner.pk).update(
-            estimated_monthly_observations=10, estimated_at=timezone.now()
+            estimated_monthly_observations=10, estimated_at=timezone.now() - estimate_age
         )
         self.mock_refresh_estimate.reset_mock()
 
         resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": True}, format="json")
 
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.mock_refresh_estimate.assert_not_called()
+        self.assertEqual(self.mock_refresh_estimate.called, expect_refresh)
 
     def test_update_backfills_a_never_computed_estimate(self) -> None:
         scanner = self._create_scanner()

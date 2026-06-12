@@ -1,4 +1,4 @@
-import { projectQuota, quotaUx } from './quotaProjection'
+import { projectQuota, quotaUx, splitProjectedPct } from './quotaProjection'
 import { makeQuota } from './quotaTestUtils'
 
 describe('projectQuota', () => {
@@ -64,6 +64,20 @@ describe('projectQuota', () => {
         const proj = projectQuota(makeQuota({ usage_this_month: 8_000, projected_monthly_observations: 30_000 }))
         expect(proj.percentLabel).toBe(280)
         expect(proj.projectedPct).toBeCloseTo(200, 0)
+    })
+})
+
+describe('splitProjectedPct', () => {
+    it('apportions by monthly volume', () => {
+        expect(splitProjectedPct(30, 100, 200)).toEqual({ thisScannerPct: 10, othersPct: 20 })
+    })
+
+    it('gives everything to this scanner when the fleet is empty', () => {
+        expect(splitProjectedPct(30, 100, 0)).toEqual({ thisScannerPct: 30, othersPct: 0 })
+    })
+
+    it('defaults the share to zero (no division by zero) when both volumes are zero', () => {
+        expect(splitProjectedPct(30, 0, 0)).toEqual({ thisScannerPct: 0, othersPct: 30 })
     })
 })
 

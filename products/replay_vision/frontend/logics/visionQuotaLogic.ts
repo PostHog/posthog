@@ -11,6 +11,8 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'visionQuotaLogic']),
 
     actions({
+        // Declared here so the action stays zero-arg despite the loader's `breakpoint` parameter.
+        loadQuota: true,
         // Optimistic shift of the fleet projection (e.g. ±scanner estimate on toggle); loadQuota reconciles.
         adjustProjectedMonthly: (delta: number) => ({ delta }),
     }),

@@ -351,6 +351,26 @@ describe('replayScannersLogic', () => {
             expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(300)
             quotaLogic.unmount()
         })
+
+        it('a failed delete reverts the optimistic projection shift', async () => {
+            useMocks({
+                // The quota GET must be mocked: `toFinishAllListeners` waits out the quota loader too.
+                get: { '/api/projects/:team/vision/quota/': quotaFixture },
+                delete: { '/api/projects/:team/vision/scanners/:id/': () => [500, {}] },
+            })
+            const quotaLogic = visionQuotaLogic()
+            quotaLogic.mount()
+            quotaLogic.actions.loadQuotaSuccess(quotaFixture)
+            logic.actions.loadScannersSuccess(
+                [makeScanner({ id: 'a', enabled: true, estimated_monthly_observations: 200 })],
+                1
+            )
+
+            await expectLogic(logic, () => logic.actions.deleteScanner('a')).toFinishAllListeners()
+
+            expect(quotaLogic.values.quota?.projected_monthly_observations).toBe(500)
+            quotaLogic.unmount()
+        })
     })
 
     it('setChartDateRange updates the chart date range', async () => {

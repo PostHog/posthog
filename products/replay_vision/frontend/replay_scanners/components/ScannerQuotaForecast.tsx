@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { QUOTA_STATUS_STYLES, type QuotaStatus, projectQuota } from '../../utils/quotaProjection'
+import { QUOTA_STATUS_STYLES, type QuotaStatus, projectQuota, splitProjectedPct } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
@@ -28,21 +28,19 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const used = quota?.usage_this_month ?? 0
     const cap = quota?.monthly_quota ?? 0
 
-    // The fleet sum already contains this scanner's stored estimate when it's enabled, so only the
-    // delta between the proposed config and that stored contribution is added on top.
+    // The fleet sum already contains this scanner's stored estimate when it's enabled. Deriving the
+    // delta from the clamped `othersMonthly` keeps the projection and the bar split consistent even
+    // when a stale stored estimate exceeds the reported fleet sum.
     const storedContribution = scanner.enabled ? (scanner.estimated_monthly_observations ?? 0) : 0
-    const projection = projectQuota(quota, projected !== null ? projected - storedContribution : 0)
+    const fleetMonthly = quota?.projected_monthly_observations ?? 0
+    const othersMonthly = Math.max(fleetMonthly - storedContribution, 0)
+    const projection = projectQuota(quota, projected !== null ? othersMonthly + projected - fleetMonthly : 0)
     const { status, percentLabel, resetsOn, usedPct, projectedPct } = projection
 
     const effectiveStatus: QuotaStatus = projected === null ? 'safe' : status
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
 
-    // Split the projection between the rest of the fleet and this scanner; the bar clamps overflow.
-    const othersMonthly = Math.max((quota?.projected_monthly_observations ?? 0) - storedContribution, 0)
-    const combinedMonthly = othersMonthly + (projected ?? 0)
-    const thisScannerShare = combinedMonthly > 0 ? (projected ?? 0) / combinedMonthly : 0
-    const othersPct = projectedPct * (1 - thisScannerShare)
-    const thisScannerPct = projectedPct * thisScannerShare
+    const { thisScannerPct, othersPct } = splitProjectedPct(projectedPct, projected ?? 0, othersMonthly)
 
     const breakdown = (
         <div className="text-xs space-y-0.5">

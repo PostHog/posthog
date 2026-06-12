@@ -79,6 +79,18 @@ export function projectQuota(quota: VisionQuotaApi | null, scannerProjectedMonth
     }
 }
 
+/** Apportion a projected percentage between this scanner and the rest of the fleet by monthly volume. */
+export function splitProjectedPct(
+    projectedPct: number,
+    thisScannerMonthly: number,
+    othersMonthly: number
+): { thisScannerPct: number; othersPct: number } {
+    const combined = thisScannerMonthly + othersMonthly
+    const thisScannerPct = combined > 0 ? (projectedPct * thisScannerMonthly) / combined : 0
+    // Exact complement so the two segments always sum to the full projection.
+    return { thisScannerPct, othersPct: projectedPct - thisScannerPct }
+}
+
 /**
  * Disabled-reason / tooltip for scan triggers based on the monthly observation quota.
  * Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable on metered orgs.
