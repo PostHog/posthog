@@ -291,7 +291,6 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:
         was_enabled = instance.enabled
-        was_emitting_signals = instance.emits_signals
         try:
             scanner = super().update(instance, validated_data)
         except IntegrityError as e:
@@ -303,8 +302,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         )
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
-        if not was_emitting_signals:
-            _ensure_signals_source_enabled(scanner)
+        _ensure_signals_source_enabled(scanner)
         return scanner
 
     @staticmethod
