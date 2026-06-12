@@ -141,6 +141,7 @@ the row lists both.
 | postmark         | HTTP                        | requests                                                        | ✅                          |
 | productboard     | HTTP                        | requests                                                        | ✅                          |
 | recurly          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| ramp             | HTTP                        | requests                                                        | ✅                          |
 | recharge         | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift         | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
@@ -284,7 +285,6 @@ doesn't conflict with concurrent PRs.
 - planetscale
 - qualtrics
 - quickbooks
-- ramp
 - ringcentral
 - sage_intacct
 - sailthru

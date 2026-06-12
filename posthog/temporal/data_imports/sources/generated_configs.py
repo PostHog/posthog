@@ -1075,7 +1075,9 @@ class QuickBooksSourceConfig(config.Config):
 
 @config.config
 class RampSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
