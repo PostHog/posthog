@@ -44,7 +44,7 @@ class TestTemplateKlaviyoUser(BaseHogFunctionTemplateTest):
                 "method": "POST",
                 "headers": {
                     "Authorization": "Klaviyo-API-Key API_KEY",
-                    "revision": "2024-10-15",
+                    "revision": "2026-04-15",
                     "Content-Type": "application/json",
                 },
                 "body": {
@@ -138,7 +138,7 @@ class TestTemplateKlaviyoEvent(BaseHogFunctionTemplateTest):
                 "method": "POST",
                 "headers": {
                     "Authorization": "Klaviyo-API-Key API_KEY",
-                    "revision": "2024-10-15",
+                    "revision": "2026-04-15",
                     "Content-Type": "application/json",
                 },
                 "body": {
