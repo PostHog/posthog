@@ -34,7 +34,7 @@
 .SourceMapsWizard__flash {
     position: absolute;
     inset: 0;
-    color: #36c46f;
+    color: var(--color-success);
     pointer-events: none;
     animation: SourceMapsWizard-flash 1500ms ease-out forwards;
 }
