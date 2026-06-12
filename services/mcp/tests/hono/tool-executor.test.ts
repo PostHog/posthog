@@ -228,4 +228,33 @@ describe('ToolExecutor', () => {
             expect(result.content[0].text).toContain('not found')
         })
     })
+
+    describe('exec inner-call analytics', () => {
+        it('emits canonical $mcp_* properties on inner tool-call events', async () => {
+            const filteredTools = catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === 'user-get')
+            const state = makeState(filteredTools, { useSingleExec: true })
+
+            // The stub context has no real API, so the inner handler fails — the
+            // inner-call event must still carry the canonical properties.
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'call user-get {}' } }, state)
+
+            const trackEvent = state.reqCtx.trackEvent as ReturnType<typeof vi.fn>
+            // The inner-call event is emitted via a fire-and-forget async IIFE.
+            await vi.waitFor(() => {
+                if (trackEvent.mock.calls.length === 0) {
+                    throw new Error('trackEvent not called yet')
+                }
+            })
+            const [event, properties] = trackEvent.mock.calls[0]!
+            expect(event).toBe('mcp_tool_call')
+            expect(properties).toMatchObject({
+                $mcp_tool_name: 'user-get',
+                $mcp_is_error: true,
+                $mcp_tool_category: 'Core',
+                tool_name: 'user-get',
+                success: false,
+            })
+            expect(typeof properties.$mcp_duration_ms).toBe('number')
+        })
+    })
 })

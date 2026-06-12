@@ -244,6 +244,13 @@ export class ToolExecutor {
                 await state.reqCtx.trackEvent(
                     AnalyticsEvent.MCP_TOOL_CALL,
                     {
+                        // Canonical $mcp_* mirrors so exec-routed inner calls share the
+                        // same event shape as native tools/call events ($mcp_tool_name is
+                        // what MCP analytics keys on); the snake_case keys spread from
+                        // `properties` below stay for queries written against them.
+                        $mcp_tool_name: toolName,
+                        $mcp_is_error: !properties.success,
+                        $mcp_duration_ms: properties.duration_ms,
                         tool_name: toolName,
                         ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
                         ...properties,
