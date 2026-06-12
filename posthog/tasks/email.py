@@ -608,10 +608,9 @@ def send_batch_export_run_failure(
     message.send()
 
 
-# The digest "day" rolls over at this hour UTC rather than midnight, so the daily
-# block resets — and the catch-up email lands — during waking hours for US and EU,
-# right alongside the 09:30 UTC CDP destinations digest. The catch-up cron in
-# scheduled.py is anchored to this constant.
+# The digest "day" rolls over at this hour UTC (not midnight) so the daily block
+# resets — and the catch-up email lands — during waking hours for US and EU.
+# The catch-up cron in scheduled.py is anchored to this constant.
 EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC = 10
 
 
@@ -634,9 +633,8 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     digest_day = (timezone.now() - datetime.timedelta(hours=EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC)).date()
     campaign_key = f"external_data_failure_digest_{team_id}_{digest_day.strftime('%Y-%m-%d')}"
 
-    # Every job in a failure burst schedules its own delayed digest task; the first
-    # one to send wins. Bail before the recipient/permission queries and render —
-    # the per-recipient MessagingRecord lock in _send_email stays the real gate.
+    # Every job in a burst schedules its own delayed digest task; the first to send
+    # wins and the rest bail here, before the expensive recipient queries and render.
     if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
         return False
 
@@ -646,9 +644,8 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
         logger.warning("Team %d not found for external data failure digest", team_id)
         return False
 
-    # Gradual rollout: gated per team behind a flag (absent flag = off everywhere).
-    # Gated teams are never stamped, so once the flag opens up for them the catch-up
-    # delivers their currently-failing schemas naturally.
+    # Rollout gate (absent flag = off). Gated teams are never stamped, so when the
+    # flag opens up the catch-up delivers their currently-failing schemas naturally.
     if not settings.TEST and not posthoganalytics.feature_enabled(
         key="external-data-failure-digest-email",
         distinct_id=str(team.uuid),
@@ -681,10 +678,9 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     )
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
-    # Send synchronously and report delivery from MessagingRecord state: _send_email
-    # swallows SMTP/provider failures (capture_exception without re-raising), so its
-    # completion proves nothing — sent_at is only written after an actual delivery.
-    # Stamping on enqueue would permanently silence paused schemas if delivery failed.
+    # _send_email swallows provider failures without retrying, so only
+    # MessagingRecord.sent_at proves delivery — stamping on enqueue would
+    # permanently silence paused schemas whenever a send failed.
     message.send(send_async=False)
     return MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists()
 

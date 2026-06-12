@@ -368,9 +368,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send matview failure digest",
     )
 
-    # Flush external data sync failures swallowed by the one-email-per-day block.
-    # Runs just after the digest day rolls over (see
-    # EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), when the date-keyed block resets.
+    # Just after the digest day rolls over (EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC),
+    # when the date-keyed campaign block resets.
     sender.add_periodic_task(
         crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
         send_external_data_failure_digest_catchup.s(),

@@ -24,12 +24,10 @@ EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_external_data_failure_digest_task(team_id: int) -> None:
-    # Serialize per team: a task racing a concurrent in-flight send could pass the
-    # daily-dedup check before the winner's sent_at lands, then mistake the winner's
-    # delivery for its own and stamp schemas that were never in the delivered email —
-    # silencing a paused schema permanently. The loser must do nothing instead: any
-    # failure the winner's email didn't cover stays un-stamped, so a later task or
-    # the daily catch-up delivers it.
+    # Serialize per team: a racing task could mistake an in-flight winner's delivery
+    # for its own and stamp schemas the delivered email never contained, permanently
+    # silencing a paused schema. The loser skips instead — anything the winner didn't
+    # cover stays un-stamped for a later task or the catch-up.
     try:
         with get_client().lock(
             f"external_data_failure_digest:{team_id}",

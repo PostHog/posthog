@@ -66,9 +66,8 @@ def notify_external_data_sync_failures(team_id: int) -> None:
         if not failing_schemas:
             return
 
-        # Group schemas by source for the email (the template regroups on source_id,
-        # which needs them consecutive). Sources with paused schemas sort first; the
-        # paused-first query order within each source is preserved by the grouping.
+        # The template regroups on source_id, which needs schemas consecutive per
+        # source; sources with paused schemas come first.
         schemas_by_source: dict[str, list[ExternalDataSchema]] = {}
         for schema in failing_schemas:
             schemas_by_source.setdefault(str(schema.source_id), []).append(schema)
