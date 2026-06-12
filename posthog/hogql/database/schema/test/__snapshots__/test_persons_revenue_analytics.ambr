@@ -195,7 +195,7 @@
                        subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
      GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
-  WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
+  WHERE equals(persons.id, '00000000-0000-0000-0000-000000000000')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -239,7 +239,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -489,7 +489,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -741,7 +741,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -992,7 +992,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -1243,7 +1243,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -1495,7 +1495,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -1891,7 +1891,7 @@
                            toString(person_id) AS customer_id,
                            NULL AS status,
                            min_timestamp AS started_at,
-                           if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
+                           if(greater(max_timestamp_plus_dropoff_days, today()), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
                            NULL AS metadata
                     FROM
                       (SELECT events__person.id AS person_id,
@@ -1967,7 +1967,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -2213,7 +2213,7 @@
                   inner.email AS email,
                   inner.phone AS phone,
                   inner.address AS address,
-                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+                  if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                   inner.country AS country,
                   inner.cohort AS cohort,
                   inner.initial_coupon AS initial_coupon,
@@ -2419,7 +2419,7 @@
                        subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
      GROUP BY person_id) AS persons_revenue_analytics
-  WHERE ifNull(equals(persons_revenue_analytics.person_id, toUUIDOrNull('00000000-0000-4000-8000-000000000000')), 0)
+  WHERE equals(persons_revenue_analytics.person_id, toUUIDOrNull('00000000-0000-4000-8000-000000000000'))
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
@@ -2481,18 +2481,18 @@
                                                                                                                                         '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata,
                                                                                                                                                                                        '{}'), k), JSONExtractKeys(ifNull(inner.metadata,
                                                                                                                                                                                                                          '{}')))), map('posthog_person_distinct_id_source',
-                                                                                                                                                                                                                                       'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id,
-                                                                                                                                                                                                                                                                          ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata,
-                                                                                                                                                                                                                                                                                                                                               '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata,
-                                                                                                                                                                                                                                                                                                                                                                                              '{}'), k), JSONExtractKeys(ifNull(inner.metadata,
-                                                                                                                                                                                                                                                                                                                                                                                                                                '{}')))), map('posthog_person_distinct_id',
-                                                                                                                                                                                                                                                                                                                                                                                                                                              inner.resolved_distinct_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                              'posthog_person_distinct_id_source',
-                                                                                                                                                                                                                                                                                                                                                                                                                                              inner.resolved_source))), inner.metadata)) AS metadata,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       inner.country AS country,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       inner.cohort AS cohort,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       inner.initial_coupon AS initial_coupon,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       inner.initial_coupon_id AS initial_coupon_id
+                                                                                                                                                                                                                                       'customer'))), if(notEquals(inner.resolved_distinct_id,
+                                                                                                                                                                                                                                                                   ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata,
+                                                                                                                                                                                                                                                                                                                                    '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata,
+                                                                                                                                                                                                                                                                                                                                                                                   '{}'), k), JSONExtractKeys(ifNull(inner.metadata,
+                                                                                                                                                                                                                                                                                                                                                                                                                     '{}')))), map('posthog_person_distinct_id',
+                                                                                                                                                                                                                                                                                                                                                                                                                                   inner.resolved_distinct_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                   'posthog_person_distinct_id_source',
+                                                                                                                                                                                                                                                                                                                                                                                                                                   inner.resolved_source))), inner.metadata)) AS metadata,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                            inner.country AS country,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                            inner.cohort AS cohort,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                            inner.initial_coupon AS initial_coupon,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                            inner.initial_coupon_id AS initial_coupon_id
   FROM (
   SELECT outer.id AS id,
          'stripe.posthog_test' AS source_label,
@@ -2884,8 +2884,8 @@
   GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id,
                                              mrr_agg.customer_id))
   GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
-  WHERE ifNull(equals(persons.id,
-                      toUUIDOrNull('00000000-0000-4000-8000-000000000000')), 0)
+  WHERE equals(persons.id,
+               toUUIDOrNull('00000000-0000-4000-8000-000000000000'))
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
@@ -2923,7 +2923,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_0_disabled.1
   '''
-  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM (
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total, breakdown_value AS breakdown_value, rowNumberInAllBlocks() AS row_number
@@ -3056,7 +3056,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+                      arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -3275,7 +3275,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events.1
   '''
-  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM (
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total, breakdown_value AS breakdown_value, rowNumberInAllBlocks() AS row_number
@@ -3394,7 +3394,7 @@
 # ---
 # name: TestPersonsRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined.1
   '''
-  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  SELECT groupArray(1)(date)[1] AS date, arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total, arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM (
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total, breakdown_value AS breakdown_value, rowNumberInAllBlocks() AS row_number
@@ -3541,7 +3541,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
      GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
-  WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
+  WHERE equals(persons.id, '00000000-0000-0000-0000-000000000000')
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,

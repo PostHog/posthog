@@ -3013,7 +3013,7 @@
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
                     groups.group_key) AS groups
-        WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
+        WHERE equals(groups.index, 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
@@ -3458,7 +3458,7 @@
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
                     groups.group_key) AS groups
-        WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
+        WHERE equals(groups.index, 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
@@ -4149,7 +4149,7 @@
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
                     groups.group_key) AS groups
-        WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
+        WHERE equals(groups.index, 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
@@ -4594,7 +4594,7 @@
            WHERE equals(groups.team_id, 99999)
            GROUP BY groups.group_type_index,
                     groups.group_key) AS groups
-        WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
+        WHERE equals(groups.index, 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
   LIMIT 100
