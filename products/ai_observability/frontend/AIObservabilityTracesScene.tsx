@@ -21,6 +21,7 @@ import { isTracesQuery } from '~/queries/utils'
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { normalizeMessages } from './messageNormalization'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
@@ -31,7 +32,6 @@ import {
     formatLLMUsage,
     getTraceTimestamp,
     LLM_TRACES_PAGE_SIZE,
-    normalizeMessages,
     sanitizeTraceUrlSearchParams,
 } from './utils'
 
@@ -403,7 +403,7 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
 
-type NormalizedMessage = ReturnType<typeof normalizeMessages>[number]
+type NormalizedMessage = ReturnType<typeof normalizeMessages>['messages'][number]
 
 function hasDisplayableContent(message: NormalizedMessage): boolean {
     const { content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
@@ -500,13 +500,13 @@ function safeNormalize(
     raw: unknown,
     defaultRole: string,
     { strict }: { strict: boolean } = { strict: false }
-): ReturnType<typeof normalizeMessages> {
+): NormalizedMessage[] {
     const unwrapped = unwrapMessageContainer(raw, strict)
     if (unwrapped == null) {
         return []
     }
     try {
-        return normalizeMessages(unwrapped, defaultRole)
+        return normalizeMessages(unwrapped, defaultRole).messages
     } catch (e) {
         console.warn('Error normalizing trace messages', e)
         return []

@@ -26,7 +26,7 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tracing::{info, warn, Level};
 
-use capture::config::{CaptureMode, Config, KafkaConfig};
+use capture::config::{CaptureMode, Config, EnvelopeCompression, KafkaConfig};
 use capture::server::serve;
 use capture::setup;
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -129,6 +129,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_metrics_producer_max_retries: None,
         kafka_metrics_topic_metadata_refresh_interval_ms: None,
         kafka_metrics_metadata_max_age_ms: None,
+        kafka_replay_envelope_compression: EnvelopeCompression::None,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -148,7 +149,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_s3_region: "us-east-1".to_string(),
     ai_s3_access_key_id: None,
     ai_s3_secret_access_key: None,
-    request_timeout_seconds: Some(10),
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
@@ -291,7 +291,7 @@ impl ServerHandle {
         self.client
             .post(format!("http://{:?}/i/v1/analytics/events", self.addr))
             .header("authorization", format!("Bearer {token}"))
-            .header("PostHog-Sdk-Info", "posthog-rust/1.0.0")
+            .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
             .header("PostHog-Attempt", "1")
             .header("PostHog-Request-Id", uuid::Uuid::new_v4().to_string())
             .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")

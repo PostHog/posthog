@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -121,6 +121,12 @@ export const ExperimentsListParams = /* @__PURE__ */ zod.object({
 export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state. Defaults to non-archived experiments only.'),
     created_by_id: zod.number().optional().describe('Filter to experiments created by the given user ID.'),
+    event: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.'
+        ),
     feature_flag_id: zod.number().optional().describe('Filter to experiments linked to the given feature flag ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -161,7 +167,6 @@ export const experimentsCreateBodyNameMax = 400
 export const experimentsCreateBodyDescriptionMax = 3000
 
 export const experimentsCreateBodyArchivedDefault = false
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -242,7 +247,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         feature_flag_key: zod
             .string()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -326,10 +331,22 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                    ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
                                 kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(experimentsCreateBodyExposureCriteriaOneExposureConfigOneKindDefault),
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+                                    ),
                                 properties: zod
                                     .array(
                                         zod.object({
@@ -1396,7 +1413,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -2451,7 +2468,6 @@ export const experimentsPartialUpdateBodyNameMax = 400
 
 export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -2530,7 +2546,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -2611,11 +2627,21 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                    ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
                                 kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(
-                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOneKindDefault
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
                                     ),
                                 properties: zod
                                     .array(
@@ -3683,7 +3709,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -4732,10 +4758,10 @@ export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
 
 /**
  * Archive an ended experiment.
-
-Hides the experiment from the default list view. The experiment can be
-restored at any time by updating archived=false. Returns 400 if the
-experiment is already archived or has not ended yet.
+ *
+ * Hides the experiment from the default list view. The experiment can be
+ * restored at any time by updating archived=false. Returns 400 if the
+ * experiment is already archived or has not ended yet.
  */
 export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -4747,11 +4773,29 @@ export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Copy an experiment into another project in the same organization as a new draft.
+ */
+export const ExperimentsCopyToProjectCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
+    target_team_id: zod.number().describe('The team ID to copy the experiment to.'),
+    feature_flag_key: zod.string().optional().describe('Optional feature flag key to use in the destination team.'),
+    name: zod.string().optional().describe('Optional name for the copied experiment.'),
+})
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
  */
 export const ExperimentsDuplicateCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -4767,7 +4811,6 @@ export const experimentsDuplicateCreateBodyNameMax = 400
 export const experimentsDuplicateCreateBodyDescriptionMax = 3000
 
 export const experimentsDuplicateCreateBodyArchivedDefault = false
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -4848,7 +4891,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
         feature_flag_key: zod
             .string()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -4932,11 +4975,21 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                    ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
                                 kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(
-                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneKindDefault
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
                                     ),
                                 properties: zod
                                     .array(
@@ -6004,7 +6057,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -7041,27 +7094,27 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
 
 /**
  * End a running experiment without shipping a variant.
-
-Sets end_date to now and marks the experiment as stopped. The feature
-flag is NOT modified — users continue to see their assigned variants
-and exposure events ($feature_flag_called) continue to be recorded.
-However, only data up to end_date is included in experiment results.
-
-Use this when:
-
-- You want to freeze the results window without changing which variant
-  users see.
-- A variant was already shipped manually via the feature flag UI and
-  the experiment just needs to be marked complete.
-
-The end_date can be adjusted after ending via PATCH if it needs to be
-backdated (e.g. to match when the flag was actually paused).
-
-Other options:
-- Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
-- Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
-
-Returns 400 if the experiment is not running.
+ *
+ * Sets end_date to now and marks the experiment as stopped. The feature
+ * flag is NOT modified — users continue to see their assigned variants
+ * and exposure events ($feature_flag_called) continue to be recorded.
+ * However, only data up to end_date is included in experiment results.
+ *
+ * Use this when:
+ *
+ * - You want to freeze the results window without changing which variant
+ *   users see.
+ * - A variant was already shipped manually via the feature flag UI and
+ *   the experiment just needs to be marked complete.
+ *
+ * The end_date can be adjusted after ending via PATCH if it needs to be
+ * backdated (e.g. to match when the flag was actually paused).
+ *
+ * Other options:
+ * - Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
+ * - Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
+ *
+ * Returns 400 if the experiment is not running.
  */
 export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7091,11 +7144,11 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Launch a draft experiment.
-
-Validates the experiment is in draft state, activates its linked feature flag,
-sets start_date to the current server time, and transitions the experiment to running.
-Returns 400 if the experiment has already been launched or if the feature flag
-configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ *
+ * Validates the experiment is in draft state, activates its linked feature flag,
+ * sets start_date to the current server time, and transitions the experiment to running.
+ * Returns 400 if the experiment has already been launched or if the feature flag
+ * configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
  */
 export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7108,12 +7161,12 @@ export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
 
 /**
  * Pause a running experiment.
-
-Deactivates the linked feature flag so it is no longer returned by the
-/decide endpoint. Users fall back to the application default (typically
-the control experience), and no new exposure events are recorded (i.e.
-$feature_flag_called is not fired).
-Returns 400 if the experiment is not running or is already paused.
+ *
+ * Deactivates the linked feature flag so it is no longer returned by the
+ * /decide endpoint. Users fall back to the application default (typically
+ * the control experience), and no new exposure events are recorded (i.e.
+ * $feature_flag_called is not fired).
+ * Returns 400 if the experiment is not running or is already paused.
  */
 export const ExperimentsPauseCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7126,14 +7179,14 @@ export const ExperimentsPauseCreateParams = /* @__PURE__ */ zod.object({
 
 /**
  * Reset an experiment back to draft state.
-
-Clears start/end dates, conclusion, and archived flag. The feature
-flag is left unchanged — users continue to see their assigned variants.
-
-Previously collected events still exist but won't be included in
-results unless the start date is manually adjusted after re-launch.
-
-Returns 400 if the experiment is already in draft state.
+ *
+ * Clears start/end dates, conclusion, and archived flag. The feature
+ * flag is left unchanged — users continue to see their assigned variants.
+ *
+ * Previously collected events still exist but won't be included in
+ * results unless the start date is manually adjusted after re-launch.
+ *
+ * Returns 400 if the experiment is already in draft state.
  */
 export const ExperimentsResetCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7146,11 +7199,11 @@ export const ExperimentsResetCreateParams = /* @__PURE__ */ zod.object({
 
 /**
  * Resume a paused experiment.
-
-Reactivates the linked feature flag so it is returned by /decide again.
-Users are re-bucketed deterministically into the same variants they had
-before the pause, and exposure tracking resumes.
-Returns 400 if the experiment is not running or is not paused.
+ *
+ * Reactivates the linked feature flag so it is returned by /decide again.
+ * Users are re-bucketed deterministically into the same variants they had
+ * before the pause, and exposure tracking resumes.
+ * Returns 400 if the experiment is not running or is not paused.
  */
 export const ExperimentsResumeCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7163,25 +7216,25 @@ export const ExperimentsResumeCreateParams = /* @__PURE__ */ zod.object({
 
 /**
  * Ship a variant and (optionally) end the experiment.
-
-Updates the feature flag so the selected variant gets 100% of the variant
-distribution. By default, existing release conditions on the flag are preserved
-untouched — the variant is served only to users who already match them. Pass
-``release_to_everyone: true`` to also prepend a catch-all release condition
-that rolls the variant out to 100% of users (overrides any existing release
-conditions on the flag).
-
-Can be called on both running and stopped experiments. If the experiment is
-still running, it will also be ended (end_date set and status marked as stopped).
-If the experiment has already ended, only the flag is rewritten - this supports
-the "end first, ship later" workflow.
-
-If an approval policy requires review before changes on the flag take effect,
-the API returns 409 with a change_request_id. The experiment is NOT ended until
-the change request is approved and the user retries.
-
-Returns 400 if the experiment is in draft state, the variant_key is not found
-on the flag, or the experiment has no linked feature flag.
+ *
+ * Updates the feature flag so the selected variant gets 100% of the variant
+ * distribution. By default, existing release conditions on the flag are preserved
+ * untouched — the variant is served only to users who already match them. Pass
+ * ``release_to_everyone: true`` to also prepend a catch-all release condition
+ * that rolls the variant out to 100% of users (overrides any existing release
+ * conditions on the flag).
+ *
+ * Can be called on both running and stopped experiments. If the experiment is
+ * still running, it will also be ended (end_date set and status marked as stopped).
+ * If the experiment has already ended, only the flag is rewritten - this supports
+ * the "end first, ship later" workflow.
+ *
+ * If an approval policy requires review before changes on the flag take effect,
+ * the API returns 409 with a change_request_id. The experiment is NOT ended until
+ * the change request is approved and the user retries.
+ *
+ * Returns 400 if the experiment is in draft state, the variant_key is not found
+ * on the flag, or the experiment has no linked feature flag.
  */
 export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7220,10 +7273,10 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
  */
 export const ExperimentsTimeseriesResultsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7249,9 +7302,9 @@ export const ExperimentsTimeseriesResultsRetrieveQueryParams = /* @__PURE__ */ z
 
 /**
  * Unarchive an archived experiment.
-
-Restores the experiment to the default list view. Returns 400 if the
-experiment is not currently archived.
+ *
+ * Restores the experiment to the default list view. Returns 400 if the
+ * experiment is not currently archived.
  */
 export const ExperimentsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7264,10 +7317,10 @@ export const ExperimentsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
 
 /**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
  */
 export const ExperimentsStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod

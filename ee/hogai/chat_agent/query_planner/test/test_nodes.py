@@ -22,11 +22,12 @@ from posthog.schema import (
 
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+
 from ee.hogai.chat_agent.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models import AgentArtifact, Conversation
 
 
 class DummyToolkit(TaxonomyAgentToolkit):

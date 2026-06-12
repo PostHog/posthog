@@ -456,7 +456,7 @@ def apply_interval_to_datetime(dt: dict, interval: dict) -> dict:
 
     zone = dt["zone"] if is_hog_datetime(dt) else "UTC"
     if is_hog_datetime(dt):
-        base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+        base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
         base_dt = pytz.timezone(zone).localize(base_dt)
     else:
         base_dt = datetime.datetime(dt["year"], dt["month"], dt["day"], tzinfo=pytz.timezone(zone))
@@ -544,7 +544,9 @@ def date_diff(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     def to_dt(obj):
         if is_hog_datetime(obj):
             z = obj["zone"]
-            return pytz.timezone(z).localize(datetime.datetime.utcfromtimestamp(obj["dt"]))
+            return pytz.timezone(z).localize(
+                datetime.datetime.fromtimestamp(obj["dt"], datetime.UTC).replace(tzinfo=None)
+            )
         elif is_hog_date(obj):
             return pytz.UTC.localize(datetime.datetime(obj["year"], obj["month"], obj["day"]))
         else:
@@ -584,7 +586,7 @@ def date_trunc(args: list[Any], team: Optional["Team"], stdout: Optional[list[st
         raise ValueError("Expected a DateTime for dateTrunc")
 
     zone = dt["zone"]
-    base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+    base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
     base_dt = pytz.timezone(zone).localize(base_dt)
 
     if unit == "year":
@@ -707,7 +709,9 @@ def extract(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
     def to_dt(obj):
         if is_hog_datetime(obj):
             z = obj["zone"]
-            return pytz.timezone(z).localize(datetime.datetime.utcfromtimestamp(obj["dt"]))
+            return pytz.timezone(z).localize(
+                datetime.datetime.fromtimestamp(obj["dt"], datetime.UTC).replace(tzinfo=None)
+            )
         elif is_hog_date(obj):
             return pytz.UTC.localize(datetime.datetime(obj["year"], obj["month"], obj["day"]))
         else:
@@ -813,7 +817,7 @@ def toStartOfWeek(args: list[Any], team: Optional["Team"], stdout: Optional[list
             dt = toDateTime(f"{dt['year']}-{dt['month']:02d}-{dt['day']:02d}")
         else:
             raise ValueError("Expected a Date or DateTime")
-    base_dt = datetime.datetime.utcfromtimestamp(dt["dt"])
+    base_dt = datetime.datetime.fromtimestamp(dt["dt"], datetime.UTC).replace(tzinfo=None)
     zone = dt["zone"]
     base_dt = pytz.timezone(zone).localize(base_dt)
     weekday = base_dt.isoweekday()  # Monday=1, Sunday=7
@@ -964,9 +968,9 @@ STL: dict[str, STLFunction] = {
         maxArgs=None,
     ),
     "match": STLFunction(
-        fn=lambda args, team, stdout, timeout: False
-        if args[1] is None or args[0] is None
-        else bool(re.search(re.compile(args[1]), args[0])),
+        fn=lambda args, team, stdout, timeout: (
+            False if args[1] is None or args[0] is None else bool(re.search(re.compile(args[1]), args[0]))
+        ),
         minArgs=2,
         maxArgs=2,
     ),
@@ -1014,16 +1018,18 @@ STL: dict[str, STLFunction] = {
         fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2]), minArgs=3, maxArgs=3
     ),
     "position": STLFunction(
-        fn=lambda args, team, stdout, timeout: (args[0].index(str(args[1])) + 1)
-        if isinstance(args[0], str) and str(args[1]) in args[0]
-        else 0,
+        fn=lambda args, team, stdout, timeout: (
+            (args[0].index(str(args[1])) + 1) if isinstance(args[0], str) and str(args[1]) in args[0] else 0
+        ),
         minArgs=2,
         maxArgs=2,
     ),
     "positionCaseInsensitive": STLFunction(
-        fn=lambda args, team, stdout, timeout: (args[0].lower().index(str(args[1]).lower()) + 1)
-        if isinstance(args[0], str) and str(args[1]).lower() in args[0].lower()
-        else 0,
+        fn=lambda args, team, stdout, timeout: (
+            (args[0].lower().index(str(args[1]).lower()) + 1)
+            if isinstance(args[0], str) and str(args[1]).lower() in args[0].lower()
+            else 0
+        ),
         minArgs=2,
         maxArgs=2,
     ),
@@ -1059,9 +1065,9 @@ STL: dict[str, STLFunction] = {
     "keys": STLFunction(fn=keys, minArgs=1, maxArgs=1),
     "values": STLFunction(fn=values, minArgs=1, maxArgs=1),
     "indexOf": STLFunction(
-        fn=lambda args, team, stdout, timeout: (args[0].index(args[1]) + 1)
-        if isinstance(args[0], list) and args[1] in args[0]
-        else 0,
+        fn=lambda args, team, stdout, timeout: (
+            (args[0].index(args[1]) + 1) if isinstance(args[0], list) and args[1] in args[0] else 0
+        ),
         minArgs=2,
         maxArgs=2,
     ),

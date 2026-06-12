@@ -5,7 +5,12 @@ import type { Schemas } from '@/api/generated'
 import {
     EndpointsCreateBody,
     EndpointsDestroyParams,
+    EndpointsLastExecutionTimesCreateBody,
     EndpointsListQueryParams,
+    EndpointsLogsRetrieveParams,
+    EndpointsLogsRetrieveQueryParams,
+    EndpointsMaterializationPreviewCreateBody,
+    EndpointsMaterializationPreviewCreateParams,
     EndpointsMaterializationStatusRetrieveParams,
     EndpointsOpenapiSpecRetrieveParams,
     EndpointsOpenapiSpecRetrieveQueryParams,
@@ -89,6 +94,31 @@ const endpointGet = (): ToolBase<typeof EndpointGetSchema, WithPostHogUrl<Schema
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/`,
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
+    },
+})
+
+const EndpointLogsSchema = EndpointsLogsRetrieveParams.omit({ project_id: true }).extend(
+    EndpointsLogsRetrieveQueryParams.shape
+)
+
+const endpointLogs = (): ToolBase<typeof EndpointLogsSchema, unknown> => ({
+    name: 'endpoint-logs',
+    schema: EndpointLogsSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointLogsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/logs/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                instance_id: params.instance_id,
+                level: params.level,
+                limit: params.limit,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/endpoints')
     },
 })
 
@@ -276,14 +306,65 @@ const endpointsGetAll = (): ToolBase<
     },
 })
 
+const EndpointsLastExecutionTimesSchema = EndpointsLastExecutionTimesCreateBody
+
+const endpointsLastExecutionTimes = (): ToolBase<
+    typeof EndpointsLastExecutionTimesSchema,
+    Schemas.QueryStatusResponse
+> => ({
+    name: 'endpoints-last-execution-times',
+    schema: EndpointsLastExecutionTimesSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointsLastExecutionTimesSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.names !== undefined) {
+            body['names'] = params.names
+        }
+        const result = await context.api.request<Schemas.QueryStatusResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/last_execution_times/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EndpointsMaterializationPreviewSchema = EndpointsMaterializationPreviewCreateParams.omit({
+    project_id: true,
+}).extend(EndpointsMaterializationPreviewCreateBody.shape)
+
+const endpointsMaterializationPreview = (): ToolBase<typeof EndpointsMaterializationPreviewSchema, unknown> => ({
+    name: 'endpoints-materialization-preview',
+    schema: EndpointsMaterializationPreviewSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointsMaterializationPreviewSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        if (params.bucket_overrides !== undefined) {
+            body['bucket_overrides'] = params.bucket_overrides
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_preview/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/endpoints/${params.name}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-create': endpointCreate,
     'endpoint-delete': endpointDelete,
     'endpoint-get': endpointGet,
+    'endpoint-logs': endpointLogs,
     'endpoint-materialization-status': endpointMaterializationStatus,
     'endpoint-openapi-spec': endpointOpenapiSpec,
     'endpoint-run': endpointRun,
     'endpoint-update': endpointUpdate,
     'endpoint-versions': endpointVersions,
     'endpoints-get-all': endpointsGetAll,
+    'endpoints-last-execution-times': endpointsLastExecutionTimes,
+    'endpoints-materialization-preview': endpointsMaterializationPreview,
 }

@@ -6,6 +6,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.models import OrganizationMembership
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountProperties
@@ -33,6 +34,8 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
         "billing_id": {"type": "string", "nullable": True},
         "sfdc_id": {"type": "string", "nullable": True},
         "zendesk_id": {"type": "string", "nullable": True},
+        "slack_channel_id": {"type": "string", "nullable": True},
+        "usage_dashboard_link": {"type": "string", "nullable": True},
     },
 }
 
@@ -135,7 +138,10 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        help_text="Identifier for the account in an external system (e.g. CRM ID). Optional.",
+        help_text=(
+            "Identifier linking this account to its source customer — the analytics group key "
+            "(the customer's organization id), used to match billing and external records. Optional."
+        ),
     )
     properties = AccountPropertiesField(
         source="_properties",
@@ -144,7 +150,8 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         help_text=(
             "Typed account properties: assignment fields (csm, account_executive, account_owner) "
             "and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, "
-            "sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected."
+            "sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty "
+            "object. Unknown keys are rejected."
         ),
     )
     tags = serializers.ListField(
@@ -222,6 +229,21 @@ def _format_pydantic_errors(exc: PydanticValidationError) -> list[str]:
         loc = ".".join(str(part) for part in err["loc"])
         messages.append(f"{loc}: {err['msg']}" if loc else err["msg"])
     return messages
+
+
+class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
+    """Slim organization-member representation for Customer analytics account rows."""
+
+    user = UserBasicSerializer(
+        read_only=True,
+        help_text="Basic profile of the member's user (uuid, distinct_id, first_name, last_name, email).",
+    )
+
+    class Meta:
+        model = OrganizationMembership
+        fields = ["id", "user"]
+        read_only_fields = ["id", "user"]
+        extra_kwargs = {"id": {"help_text": "Organization membership ID."}}
 
 
 class AccountNotebookSerializer(serializers.ModelSerializer):

@@ -49,6 +49,7 @@ class AvailableFeature(StrEnum):
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     AUDIT_LOGS = "audit_logs"
     APPROVALS = "approvals"
+    XAA_AUTHENTICATION = "xaa_authentication"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -317,6 +318,7 @@ PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 # Server-side evaluation via posthoganalytics; keep in sync with frontend FEATURE_FLAGS.
 HACKATHONS_SUBSCRIPTIONS_FEATURE_FLAG_KEY = "hackathons_subscriptions"
 SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY = "subscription-ai-summary-prompt-guide"
+SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY = "alerts-15-minute-interval"
 EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"

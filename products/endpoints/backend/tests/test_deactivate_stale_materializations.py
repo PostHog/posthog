@@ -54,7 +54,6 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
             created_by=self.user,
             is_active=True,
             last_executed_at=last_executed_at,
-            current_version=1,
         )
         table = DataWarehouseTable.objects.create(
             team=self.team,

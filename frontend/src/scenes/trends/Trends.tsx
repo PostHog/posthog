@@ -112,7 +112,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
             if (hogChartsTrendsEnabled) {
-                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
+                return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
             }
             if (hogChartsStickinessEnabled) {
                 return <StickinessBarChart context={context} />
@@ -143,7 +143,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         }
         if (display === ChartDisplayType.ActionsBarValue) {
             if (hogChartsTrendsEnabled) {
-                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
+                return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
             }
             return <ActionsHorizontalBar {...commonProps} />
         }

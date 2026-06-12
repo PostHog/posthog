@@ -4,9 +4,11 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { examples } from '~/queries/examples'
 import {
     DashboardFilter,
     HogQLFilters,
+    HogQLQuery,
     HogQLVariable,
     Node,
     NodeKind,
@@ -157,6 +159,18 @@ export const manifest: ProductManifest = {
             iconType: 'insight/lifecycle',
             iconColor: ['var(--color-insight-lifecycle-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
+            sceneKeys: ['Insight'],
+        },
+        {
+            path: `Insight/SQL`,
+            type: 'insight',
+            href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+            // The sibling insight items get a "New " prefix automatically because their hrefs include "new";
+            // the SQL editor href doesn't, so set the label explicitly to stay consistent.
+            displayLabel: 'New SQL',
+            iconType: 'insight/hog',
+            iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
+            visualOrder: INSIGHT_VISUAL_ORDER.sql,
             sceneKeys: ['Insight'],
         },
     ],

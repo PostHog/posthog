@@ -1,5 +1,6 @@
 import { Client, Connection } from '@temporalio/client'
 
+import { EncryptionCodec } from '~/common/temporal/codec'
 import { Hub, RawKafkaEvent } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
@@ -88,6 +89,28 @@ describe('TemporalService', () => {
                     },
                 },
             })
+        })
+
+        it('configures an encryption codec when a secret key is set', async () => {
+            hub.TEMPORAL_SECRET_KEY = 'test-secret-key-for-codec-000000'
+            hub.TEMPORAL_FALLBACK_SECRET_KEYS = 'fallback-key-one-000000000000000,fallback-key-two-000000000000000'
+
+            const newService = new TemporalService(hub)
+            await newService.startEvaluationRunWorkflow('test', createMockEvent({ uuid: 'test-uuid' }))
+
+            const clientOptions = (Client as unknown as jest.Mock).mock.calls[0][0]
+            expect(clientOptions.dataConverter.payloadCodecs).toHaveLength(1)
+            expect(clientOptions.dataConverter.payloadCodecs[0]).toBeInstanceOf(EncryptionCodec)
+        })
+
+        it('sends payloads unencrypted when no secret key is set', async () => {
+            hub.TEMPORAL_SECRET_KEY = undefined
+
+            const newService = new TemporalService(hub)
+            await newService.startEvaluationRunWorkflow('test', createMockEvent({ uuid: 'test-uuid' }))
+
+            const clientOptions = (Client as unknown as jest.Mock).mock.calls[0][0]
+            expect(clientOptions.dataConverter).toBeUndefined()
         })
 
         it('disconnects client properly', async () => {

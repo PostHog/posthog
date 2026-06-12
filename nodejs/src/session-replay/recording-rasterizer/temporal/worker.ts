@@ -5,12 +5,13 @@ import * as http from 'http'
 import * as prometheus from 'prom-client'
 import express from 'ultimate-express'
 
+import { EncryptionCodec } from '~/common/temporal/codec'
+
 import { BrowserPool } from '../capture/browser-pool'
 import { playerHtmlCache } from '../capture/capture-page'
 import { config } from '../config'
 import { createLogger } from '../logger'
 import { createActivities } from './activities'
-import { EncryptionCodec } from './codec'
 
 prometheus.collectDefaultMetrics()
 
@@ -125,7 +126,9 @@ async function main(): Promise<void> {
         taskQueue: config.taskQueue,
         activities: createActivities(pool, playerHtml),
         maxConcurrentActivityTaskExecutions: config.maxConcurrentActivities,
-        dataConverter: config.secretKey ? { payloadCodecs: [new EncryptionCodec(config.secretKey)] } : undefined,
+        dataConverter: config.secretKey
+            ? { payloadCodecs: [new EncryptionCodec(config.secretKey, config.fallbackKeys)] }
+            : undefined,
         // Throttle heartbeat *server flushes* (not heartbeat() calls) to 2s. Without
         // this override, the SDK throttles to 80% of the activity's heartbeat_timeout
         // (30s → 24s), which means capture-phase frame progress never reaches the

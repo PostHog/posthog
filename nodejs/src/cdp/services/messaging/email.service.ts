@@ -86,8 +86,16 @@ export class EmailService {
         let success: boolean = false
 
         try {
-            if (!integration || integration.kind !== 'email' || integration.team_id !== invocation.teamId) {
-                throw new Error('Email integration not found')
+            // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
+            if (!integration || integration.team_id !== invocation.teamId) {
+                throw new Error(
+                    "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
+                )
+            }
+            if (integration.kind !== 'email') {
+                throw new Error(
+                    "The integration configured for this step is not an email channel — select an email sender in the workflow's email step."
+                )
             }
 
             const from = this.resolveFromSender(integration)
@@ -112,8 +120,8 @@ export class EmailService {
             result.finished = true
         }
 
-        // Finally we create the response object as the VM expects
-        result.invocation.state.vmState!.stack.push({
+        // Push the response to the VM stack if running inline (not from the email queue)
+        result.invocation.state.vmState?.stack.push({
             success,
         })
 
@@ -222,7 +230,7 @@ export class EmailService {
             FeedbackForwardingEmailAddress: from.email,
         }
 
-        const isTransactionalEmail = result.invocation.hogFunction.metadata?.message_category_type === 'transactional'
+        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         // Automatically add unsubscribe headers for non-transactional emails
         if (sendEmailParams.Content?.Simple && !isTransactionalEmail) {
             sendEmailParams.Content.Simple.Headers = this.generateUnsubscribeHeaders({

@@ -37,6 +37,16 @@ def _datetime_to_plain_iso8601(value: datetime) -> str:
     return value.isoformat().replace("+00:00", "Z")
 
 
+def _updated_at_filter(updated_at_gte: datetime) -> dict[str, Any]:
+    """Build Plain's server-side ``updatedAt`` filter for incremental syncs.
+
+    Plain's ``DatetimeFilter`` exposes ``after`` (>= the given timestamp) and ``before`` (< it);
+    it has no ``gte`` field, so sending one is rejected with a 400. ``after`` matches the inclusive
+    lower-bound semantics we want for incremental syncs.
+    """
+    return {"updatedAt": {"after": _datetime_to_plain_iso8601(updated_at_gte)}}
+
+
 def _parse_plain_datetime(value: str | datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -80,10 +90,13 @@ def _flatten_node(node: dict[str, Any]) -> dict[str, Any]:
             flattened["customerEmail"] = customer.get("email")
 
     if "assignedToUser" in flattened and isinstance(flattened["assignedToUser"], dict):
-        user = flattened.pop("assignedToUser")
-        flattened["assignedToUserId"] = user.get("id") if user else None
-        flattened["assignedToUserName"] = user.get("fullName") if user else None
-        flattened["assignedToUserEmail"] = user.get("email") if user else None
+        assignee = flattened.pop("assignedToUser")
+        # Customer.assignedToUser is a UserActor wrapping a nested `user`; Thread.assignedTo (aliased
+        # to assignedToUser) resolves to the assignee object directly. Handle both shapes.
+        user = assignee.get("user") if isinstance(assignee.get("user"), dict) else assignee
+        flattened["assignedToUserId"] = user.get("id")
+        flattened["assignedToUserName"] = user.get("fullName")
+        flattened["assignedToUserEmail"] = user.get("email")
 
     if "company" in flattened and isinstance(flattened["company"], dict):
         company = flattened.pop("company")
@@ -147,9 +160,8 @@ def _flatten_timeline_entry(entry: dict[str, Any], thread_id: str) -> dict[str, 
                 flattened["fromName"] = entry_data["from"].get("name")
         elif entry_data.get("__typename") == "NoteEntry":
             flattened["noteId"] = entry_data.get("noteId")
-            flattened["text"] = entry_data.get("text")
-        elif entry_data.get("__typename") == "CustomTimelineEntry":
-            flattened["customEntryId"] = entry_data.get("customTimelineEntryId")
+            flattened["text"] = entry_data.get("noteText")
+        elif entry_data.get("__typename") == "CustomEntry":
             flattened["title"] = entry_data.get("title")
             flattened["externalId"] = entry_data.get("externalId")
 
@@ -233,7 +245,7 @@ def _fetch_paginated_endpoint(
     variables: dict[str, Any] = {"first": PLAIN_DEFAULT_PAGE_SIZE}
 
     if updated_at_gte is not None:
-        variables["filter"] = {"updatedAt": {"gte": _datetime_to_plain_iso8601(updated_at_gte)}}
+        variables["filter"] = _updated_at_filter(updated_at_gte)
 
     has_next_page = True
     while has_next_page:
@@ -265,7 +277,7 @@ def _fetch_timeline_entries(
     """
     variables: dict[str, Any] = {"first": PLAIN_DEFAULT_PAGE_SIZE}
     if created_at_gte is not None:
-        variables["filter"] = {"updatedAt": {"gte": _datetime_to_plain_iso8601(created_at_gte)}}
+        variables["filter"] = _updated_at_filter(created_at_gte)
 
     has_next_page = True
     while has_next_page:

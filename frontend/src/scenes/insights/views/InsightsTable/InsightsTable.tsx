@@ -138,6 +138,7 @@ export function InsightsTable({
         hasBreakdownFilter(breakdownFilter) &&
         !(breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 1)
 
+    // Untruncated — BreakdownColumnItem clips for display but needs the full value for hover and copy
     const formatItemBreakdownLabel = hasBreakdownFilter(breakdownFilter)
         ? (item: IndexedTrendResult): string =>
               formatBreakdownLabel(
@@ -145,7 +146,9 @@ export function InsightsTable({
                   breakdownFilter,
                   allCohorts?.results,
                   formatPropertyValueForDisplay,
-                  breakdownFilter.breakdowns ? 0 : undefined
+                  breakdownFilter.breakdowns ? 0 : undefined,
+                  undefined,
+                  false
               )
         : undefined
 
@@ -275,7 +278,9 @@ export function InsightsTable({
                     breakdownFilter,
                     allCohorts?.results,
                     formatPropertyValueForDisplay,
-                    index
+                    index,
+                    undefined,
+                    false
                 )
 
             const columnKey = `breakdown-${breakdown.property?.toString() || index}`

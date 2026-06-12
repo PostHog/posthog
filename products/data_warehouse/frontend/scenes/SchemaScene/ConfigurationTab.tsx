@@ -36,6 +36,7 @@ import {
 import {
     StatusTagSetting,
     SyncFrequencyLabelMap,
+    allowedSyncFrequencies,
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
@@ -567,14 +568,9 @@ function ScheduleSection({
 }): JSX.Element {
     const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
     const isCdc = schema.sync_type === 'cdc'
-    const makeOption = (value: DataWarehouseSyncInterval): LemonSelectOption<DataWarehouseSyncInterval> => ({
-        value,
-        label: SyncFrequencyLabelMap[value],
-    })
-    const cdcOnlyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [makeOption('1min')]
-    const standardOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = (
-        ['5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'] as const
-    ).map(makeOption)
+    const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = allowedSyncFrequencies(
+        schema.sync_type
+    ).map((value) => ({ value, label: SyncFrequencyLabelMap[value] }))
 
     const [draftFrequency, setDraftFrequency] = useState<DataWarehouseSyncInterval>(
         schema.sync_frequency || (isCdc ? '5min' : '6hour')
@@ -642,7 +638,7 @@ function ScheduleSection({
                         }
                         value={draftFrequency}
                         onChange={(value) => setDraftFrequency(value as DataWarehouseSyncInterval)}
-                        options={isCdc ? [...cdcOnlyOptions, ...standardOptions] : standardOptions}
+                        options={frequencyOptions}
                     />
                 </div>
                 <AnchorTimeField

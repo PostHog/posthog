@@ -5,7 +5,6 @@ from uuid import UUID, uuid4
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from posthog.models.exported_recording import ExportedRecording
 from posthog.session_recordings.recordings.errors import BlockFetchError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.session_replay.export_recording.activities import (
@@ -20,6 +19,8 @@ from posthog.temporal.session_replay.export_recording.activities import (
     store_export_data,
 )
 from posthog.temporal.session_replay.export_recording.types import ExportContext, ExportRecordingInput, RedisConfig
+
+from products.replay.backend.models.exported_recording import ExportedRecording
 
 TEST_RECORDING_ID = UUID("01938a67-1234-7000-8000-000000000001")
 TEST_REDIS_CONFIG = RedisConfig(redis_url="redis://test-redis:6379", redis_ttl=3600)
@@ -428,11 +429,9 @@ async def test_store_export_data_success(tmp_path):
 
         mock_path_cls.return_value.__truediv__ = MagicMock(side_effect=truediv_side_effect)
         mock_export_dir.__truediv__ = MagicMock(
-            side_effect=lambda p: mock_clickhouse_dir
-            if p == "clickhouse"
-            else mock_data_dir
-            if p == "data"
-            else MagicMock()
+            side_effect=lambda p: (
+                mock_clickhouse_dir if p == "clickhouse" else mock_data_dir if p == "data" else MagicMock()
+            )
         )
 
         mock_record_qs.aget = AsyncMock(return_value=mock_record)

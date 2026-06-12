@@ -47,6 +47,12 @@ export class SessionRecordingIngesterMetrics {
         help: 'The number of messages redirected to overflow due to event ingestion restrictions',
     })
 
+    private static readonly messagesByEncoding = new Counter({
+        name: 'recording_blob_ingestion_v2_messages_by_encoding',
+        help: 'The number of messages received from Kafka broken down by envelope content-encoding',
+        labelNames: ['content_encoding'],
+    })
+
     public static incrementMessageReceived(partition: number): void {
         this.messageReceived.labels(partition.toString()).inc()
     }
@@ -57,6 +63,10 @@ export class SessionRecordingIngesterMetrics {
 
     public static observeOverflowedByRestrictions(count: number): void {
         this.messagesOverflowedByRestrictions.inc(count)
+    }
+
+    public static incrementMessagesByEncoding(encoding: string): void {
+        this.messagesByEncoding.labels(encoding).inc()
     }
 
     public static resetSessionsRevoked(): void {

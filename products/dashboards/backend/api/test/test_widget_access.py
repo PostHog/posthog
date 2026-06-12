@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework.exceptions import PermissionDenied
 
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
@@ -29,7 +29,6 @@ class TestWidgetAccess(BaseTest):
 
     def test_registry_entry_without_product_access_allows(self) -> None:
         entry: WidgetRegistryEntry = {
-            "validate_config": lambda config: config,
             "query_fn": lambda team, config: {},
             "required_scopes": [],
         }
@@ -93,6 +92,29 @@ class TestWidgetAccess(BaseTest):
         assert entry is not None
         authenticator = PersonalAPIKeyAuthentication()
         authenticator.personal_api_key = PersonalAPIKey(scopes=["error_tracking:write"])
+        request = MagicMock()
+        request.successful_authenticator = authenticator
+
+        self.assertIsNone(get_widget_api_scope_error(entry, request))
+
+    def test_get_widget_api_scope_error_denies_missing_scope_on_id_jag(self) -> None:
+        entry = get_widget_registry_entry("session_replay_list")
+        assert entry is not None
+        authenticator = IDJagAccessTokenAuthentication()
+        authenticator.scopes = ["dashboard:read", "dashboard:write"]
+        request = MagicMock()
+        request.successful_authenticator = authenticator
+
+        self.assertEqual(
+            get_widget_api_scope_error(entry, request),
+            "API key missing required scope 'session_recording:read'",
+        )
+
+    def test_get_widget_api_scope_error_allows_id_jag_with_required_scope(self) -> None:
+        entry = get_widget_registry_entry("session_replay_list")
+        assert entry is not None
+        authenticator = IDJagAccessTokenAuthentication()
+        authenticator.scopes = ["dashboard:write", "session_recording:read"]
         request = MagicMock()
         request.successful_authenticator = authenticator
 

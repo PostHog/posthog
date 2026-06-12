@@ -69,7 +69,6 @@ from posthog.schema import (
     WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTrendsQuery,
 )
 
 from posthog.hogql import ast
@@ -93,7 +92,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
@@ -296,7 +295,6 @@ RunnableQueryNode = Union[
     WebStatsTableQuery,
     WebGoalsQuery,
     WebNotableChangesQuery,
-    WebTrendsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsAggregatedQuery,
@@ -608,18 +606,6 @@ def get_query_runner(
             user=user,
         )
 
-    if kind == "WebTrendsQuery":
-        from products.web_analytics.backend.hogql_queries.web_trends_query_runner import WebTrendsQueryRunner
-
-        return WebTrendsQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
     if kind == "WebExternalClicksTableQuery":
         from products.web_analytics.backend.hogql_queries.external_clicks import WebExternalClicksTableQueryRunner
 
@@ -833,7 +819,9 @@ def get_query_runner(
         )
 
     if kind == "ExperimentFunnelsQuery":
-        from .experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
+        from products.experiments.backend.hogql_queries.experiment_funnels_query_runner import (
+            ExperimentFunnelsQueryRunner,
+        )
 
         return ExperimentFunnelsQueryRunner(
             query=query,
@@ -845,7 +833,9 @@ def get_query_runner(
         )
 
     if kind == "ExperimentTrendsQuery":
-        from .experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
+        from products.experiments.backend.hogql_queries.experiment_trends_query_runner import (
+            ExperimentTrendsQueryRunner,
+        )
 
         return ExperimentTrendsQueryRunner(
             query=query,
@@ -857,7 +847,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentQuery":
-        from .experiments.experiment_query_runner import ExperimentQueryRunner
+        from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 
         return ExperimentQueryRunner(
             query=query,
@@ -869,7 +859,9 @@ def get_query_runner(
         )
 
     if kind == "ExperimentExposureQuery":
-        from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+        from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
+            ExperimentExposuresQueryRunner,
+        )
 
         return ExperimentExposuresQueryRunner(
             query=cast(ExperimentExposureQuery | dict[str, Any], query),
@@ -1409,7 +1401,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         concurrency_limit = self.get_api_queries_concurrency_limit()
         is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
-        is_api_key_access = get_query_tag_value("access_method") == "personal_api_key"
+        is_api_key_access = is_api_key_access_method(get_query_tag_value("access_method"))
 
         if self.is_query_service:
             tag_queries(chargeable=1)
