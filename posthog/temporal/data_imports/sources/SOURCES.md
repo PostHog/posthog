@@ -49,6 +49,7 @@ the row lists both.
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
 | attio            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| azure_devops     | HTTP                        | requests                                                        | ✅                          |
 | bamboohr         | HTTP                        | requests                                                        | ✅                          |
 | bigquery         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
@@ -213,7 +214,6 @@ doesn't conflict with concurrent PRs.
 - attentive
 - auth0
 - azure_blob
-- azure_devops
 - bigcommerce
 - box
 - braintree

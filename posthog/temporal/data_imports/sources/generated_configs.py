@@ -215,7 +215,8 @@ class AzureBlobSourceConfig(config.Config):
 
 @config.config
 class AzureDevOpsSourceConfig(config.Config):
-    pass
+    organization: str
+    personal_access_token: str
 
 
 @config.config
