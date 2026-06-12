@@ -44,9 +44,12 @@ the row lists both.
 
 | Source           | Comm method                 | Primary library                                                 | Tracked transport           |
 | ---------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
+| adroll           | HTTP                        | requests                                                        | ✅                          |
 | aircall          | HTTP                        | requests                                                        | ✅                          |
 | airtable         | HTTP                        | requests                                                        | ✅                          |
+| amazon_ads       | HTTP                        | requests                                                        | ✅                          |
 | amplitude        | HTTP                        | requests                                                        | ✅                          |
+| appsflyer        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
 | attio            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -54,6 +57,7 @@ the row lists both.
 | bamboohr         | HTTP                        | requests                                                        | ✅                          |
 | bigquery         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| braintree        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze            | HTTP                        | requests                                                        | ✅                          |
 | brevo            | HTTP                        | requests                                                        | ✅                          |
 | brex             | HTTP                        | requests                                                        | ✅                          |
@@ -61,6 +65,7 @@ the row lists both.
 | calendly         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor | HTTP                        | requests                                                        | ✅                          |
 | chargebee        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| coda             | HTTP                        | requests                                                        | ✅                          |
 | commercetools    | HTTP                        | requests                                                        | ✅                          |
 | confluence       | HTTP                        | requests                                                        | ✅                          |
 | chartmogul       | HTTP                        | requests                                                        | ✅                          |
@@ -83,6 +88,7 @@ the row lists both.
 | elasticsearch    | HTTP                        | requests                                                        | ✅                          |
 | eventbrite       | HTTP                        | requests                                                        | ✅                          |
 | front            | HTTP                        | requests                                                        | ✅                          |
+| fullstory        | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | gitlab           | HTTP                        | requests                                                        | ✅                          |
 | gocardless       | HTTP                        | requests                                                        | ✅                          |
@@ -112,6 +118,7 @@ the row lists both.
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
 | mollie           | HTTP                        | requests                                                        | ✅                          |
+| monday           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | mongodb          | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql            | DB protocol                 | pymysql                                                         | ➖                          |
@@ -129,10 +136,12 @@ the row lists both.
 | pipedrive        | HTTP                        | requests                                                        | ✅                          |
 | plain            | HTTP                        | requests                                                        | ✅                          |
 | polar            | HTTP                        | requests                                                        | ✅                          |
+| plaid            | HTTP                        | requests                                                        | ✅                          |
 | postgres         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark         | HTTP                        | requests                                                        | ✅                          |
 | productboard     | HTTP                        | requests                                                        | ✅                          |
 | recurly          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| ramp             | HTTP                        | requests                                                        | ✅                          |
 | recharge         | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift         | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
@@ -205,7 +214,6 @@ doesn't conflict with concurrent PRs.
 - adobe_analytics
 - adobe_commerce
 - adp_workforce_now
-- adroll
 - adyen
 - amazon_ads
 - amazon_cloudwatch
@@ -217,13 +225,11 @@ doesn't conflict with concurrent PRs.
 - amazon_sqs
 - apollo
 - apple_search_ads
-- appsflyer
 - attentive
 - auth0
 - azure_blob
 - bigcommerce
 - box
-- braintree
 - branch
 - campaign_manager_360
 - checkout_com
@@ -231,7 +237,6 @@ doesn't conflict with concurrent PRs.
 - clari
 - cloudflare
 - cockroachdb
-- coda
 - constant_contact
 - copper
 - cosmosdb
@@ -253,7 +258,6 @@ doesn't conflict with concurrent PRs.
 - facebook_pages
 - firebase
 - freshbooks
-- fullstory
 - gladly
 - google_ad_manager
 - google_analytics
@@ -270,7 +274,6 @@ doesn't conflict with concurrent PRs.
 - marketo
 - matomo
 - microsoft_teams
-- monday
 - netsuite
 - onedrive
 - opsgenie
@@ -285,11 +288,9 @@ doesn't conflict with concurrent PRs.
 - paylocity
 - paypal
 - pendo
-- plaid
 - planetscale
 - qualtrics
 - quickbooks
-- ramp
 - ringcentral
 - sage_intacct
 - sailthru

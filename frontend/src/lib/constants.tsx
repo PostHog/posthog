@@ -277,11 +277,8 @@ export const FEATURE_FLAGS = {
     DWH_SOURCE_METRICS: 'dwh-source-metrics', // owner: #team-warehouse-sources
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
-    ERROR_TRACKING_FORCE_QUERY_V3: 'error-tracking-force-query-v3', // owner: #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
-    ERROR_TRACKING_QUERY_V2: 'error-tracking-query-v2', // owner: #team-error-tracking
-    ERROR_TRACKING_QUERY_V3: 'error-tracking-query-v3', // owner: #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING: 'error-tracking-rate-limiting', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING_PER_ISSUE: 'error-tracking-rate-limiting-per-issue', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RECOMMENDATIONS: 'error-tracking-recommendations', // owner: @ablaszkiewicz #team-error-tracking
