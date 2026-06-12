@@ -30,7 +30,7 @@ class RaycastClientMetadataView(View):
 
         metadata = {
             "client_id": client_id,
-            "client_name": "Raycast",
+            "client_name": "Raycast extension for PostHog",
             "redirect_uris": [
                 "https://raycast.com/redirect?packageName=Extension",
                 "https://raycast.com/redirect?packageName=posthog",
