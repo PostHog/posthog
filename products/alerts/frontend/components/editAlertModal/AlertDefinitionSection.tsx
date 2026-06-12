@@ -66,17 +66,14 @@ export interface AlertDefinitionSectionProps {
 const PREVIEW_TABLE_MAX_ROWS = 10
 
 /** Per-row view of what the alert would evaluate: breaching rows first (any-row) or the most
- * recent rows (last-row backtest), capped to keep the modal compact. */
+ * recent rows (last-row), capped to keep the modal compact. Shown even before a threshold is set —
+ * seeing the rows is how users orient on what to alert on; the breach column appears once bounds exist. */
 function HogQLAlertPreviewRowsTable({
     preview,
 }: {
     preview: Extract<HogQLAlertPreview, { status: 'ok' }>
 }): JSX.Element | null {
     const isAnyRow = preview.mode === 'any_row'
-    // For last-row evaluation the table is only interesting as a backtest, so require a threshold.
-    if (!isAnyRow && preview.breachingRows === null) {
-        return null
-    }
     const rows = isAnyRow
         ? [...preview.rows].sort((a, b) => Number(b.breaching) - Number(a.breaching)).slice(0, PREVIEW_TABLE_MAX_ROWS)
         : preview.rows.slice(-PREVIEW_TABLE_MAX_ROWS) // chronological: the most recent rows
@@ -102,12 +99,17 @@ function HogQLAlertPreviewRowsTable({
                         ? [
                               {
                                   title: '',
-                                  render: (_: unknown, row: HogQLAlertPreviewRow) =>
-                                      row.breaching ? (
-                                          <LemonTag type="warning">breach</LemonTag>
-                                      ) : (
-                                          <LemonTag type="success">ok</LemonTag>
-                                      ),
+                                  // In last-row mode only the final row is evaluated, so only it gets a
+                                  // tag — historical rows stay untagged (the banner carries the
+                                  // would-have-breached count) instead of reading as live breaches.
+                                  render: (_: unknown, row: HogQLAlertPreviewRow, index: number) =>
+                                      isAnyRow || index === rows.length - 1 ? (
+                                          row.breaching ? (
+                                              <LemonTag type="warning">breach</LemonTag>
+                                          ) : (
+                                              <LemonTag type="success">ok</LemonTag>
+                                          )
+                                      ) : null,
                               },
                           ]
                         : []),
