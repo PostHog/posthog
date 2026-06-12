@@ -391,10 +391,9 @@ tools:
             as fixed), and/or append `priority` / `actionability` / `suggested_reviewers` judgments. Judgments are
             append-only — the newest one becomes the report's effective value and earlier ones remain as the audit
             trail, so "changing" a judgment means appending a new one. All scout-authored prose (title, summary,
-            judgment explanations) passes a safety filter (`skipped_reason=unsafe_content` when blocked). Illegal
-            state transitions return 409, including any transition on a report the pipeline currently holds
-            (`candidate` / `in_progress`). Prefer this over `signals-scout-create-report` whenever a matching report
-            already exists.
+            judgment explanations) passes a safety filter (`skipped_reason=unsafe_content` when blocked). Illegal state
+            transitions return 409, including any transition on a report the pipeline currently holds (`candidate` /
+            `in_progress`). Prefer this over `signals-scout-create-report` whenever a matching report already exists.
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false
