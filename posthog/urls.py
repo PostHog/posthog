@@ -32,6 +32,7 @@ from posthog.api import (
 from posthog.api.github_callback.personal_finish import github_link_complete
 from posthog.api.id_jag import IdJagViewSet
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
 from posthog.api.sdk_health import sdk_health
@@ -359,6 +360,11 @@ urlpatterns = [
         WIZARD_METADATA_PATH,
         WizardClientMetadataView.as_view(),
         name="wizard-client-metadata",
+    ),
+    path(
+        RAYCAST_METADATA_PATH,
+        RaycastClientMetadataView.as_view(),
+        name="raycast-client-metadata",
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
