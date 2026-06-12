@@ -718,7 +718,7 @@ def _fetch_and_parse(url: str, *, etag: str | None) -> tuple[url_fetch.FetchResu
     if not url_fetch.is_html_content_type(result.content_type):
         raise UrlFetchFailedError("Unsupported content type.")
 
-    title, text = html_parse.parse_html(result.body, result.final_url)
+    title, text = html_parse.parse_html(result.body, result.final_url, content_type=result.content_type)
     if not text.strip():
         raise EmptyContentError("Could not extract any text from the URL.")
     if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
@@ -1262,10 +1262,11 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
         return _mark_error(str(exc))
 
     try:
-        candidate_urls = discover.discover(source.crawl_mode, normalized, config)
+        discovery = discover.discover(source.crawl_mode, normalized, config)
     except discover.DiscoverError as exc:
         return _mark_error(str(exc))
 
+    candidate_urls = discovery.urls
     if not candidate_urls:
         return _mark_error("Crawl discovered no URLs. Check the entry URL and globs.")
 
@@ -1280,7 +1281,7 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
     if not safe_urls:
         return _mark_error("Crawl discovered no safe URLs to fetch.")
 
-    outcomes = crawl.fetch_many(safe_urls)
+    outcomes = crawl.fetch_many(safe_urls, prefetched=discovery.prefetched)
     ok_outcomes = [o for o in outcomes if o.status == "ok"]
 
     if not ok_outcomes:
@@ -1347,7 +1348,8 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         config = _resolve_crawl_config(source.crawl_config)
         normalized = _validate_url(source.source_url)
         try:
-            discovered = discover.discover(source.crawl_mode, normalized, config)
+            discovery = discover.discover(source.crawl_mode, normalized, config)
+            discovered = discovery.urls
         except discover.DiscoverError as exc:
             raise UrlFetchFailedError(str(exc)) from exc
     except (InvalidUrlError, UrlFetchFailedError) as exc:
@@ -1390,7 +1392,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         existing = existing_by_url.get(u)
         return existing.etag if existing and existing.etag else None
 
-    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for)
+    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
     # `discovered_set` is built by normalizing the raw discovered URLs (lowercased
     # scheme+host, no fragment) so keys match `existing_by_url` (which uses the
     # normalized stable_id). We do NOT use `safe_urls` here — that would tombstone
