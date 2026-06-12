@@ -23,7 +23,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema, RowFilter } from '~/types'
 
 import {
     SyncMethodForm,
@@ -42,6 +42,7 @@ import {
 } from 'products/data_warehouse/frontend/utils'
 
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
+import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
 // null means "all columns" on either side, so switching to null after a partial list flags
@@ -92,14 +93,17 @@ export function ConfigurationTab({
             return <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
         case 'columns':
             return (
-                <ColumnsSection
-                    source={source}
-                    schema={schema}
-                    updateSchema={updateSchema}
-                    resyncSchema={resyncSchema}
-                    refreshSchemas={refreshSchemas}
-                    refreshingSchemas={refreshingSchemas}
-                />
+                <div className="flex flex-col gap-6">
+                    <ColumnsSection
+                        source={source}
+                        schema={schema}
+                        updateSchema={updateSchema}
+                        resyncSchema={resyncSchema}
+                        refreshSchemas={refreshSchemas}
+                        refreshingSchemas={refreshingSchemas}
+                    />
+                    <RowFiltersSection source={source} schema={schema} updateSchema={updateSchema} />
+                </div>
             )
         case 'schedule':
             return (
@@ -543,6 +547,56 @@ function ColumnsSection({
                             {({ disabledReason }) => (
                                 <fieldset disabled={!!disabledReason}>
                                     <ColumnSelectionPicker schema={schema} onSave={handleSave} />
+                                </fieldset>
+                            )}
+                        </SourceEditorAction>
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}
+
+function RowFiltersSection({
+    source,
+    schema,
+    updateSchema,
+}: {
+    source: ExternalDataSource | null
+    schema: ExternalDataSourceSchema
+    updateSchema: (schema: ExternalDataSourceSchema) => void
+}): JSX.Element {
+    const available = schema.available_columns ?? []
+    const hasAvailableColumns = available.length > 0
+    const activeCount = schema.row_filters?.length ?? 0
+
+    const handleSave = (nextRowFilters: RowFilter[] | null): void => {
+        updateSchema({ ...schema, row_filters: nextRowFilters })
+        lemonToast.success('Row filters saved')
+    }
+
+    return (
+        <div>
+            <SectionHeader
+                title="Row filters"
+                description="Sync only rows that match these conditions. Filters are ANDed together and applied on the next sync — they don't remove rows already synced."
+            />
+            <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
+                {!hasAvailableColumns ? (
+                    <div className="text-sm text-muted-alt py-2 text-center">
+                        No columns discovered yet — pull schemas from the Columns section above to add row filters.
+                    </div>
+                ) : (
+                    <>
+                        <span className="text-sm text-secondary">
+                            {activeCount === 0
+                                ? 'Syncing all rows'
+                                : `${activeCount} ${activeCount === 1 ? 'filter' : 'filters'} active`}
+                        </span>
+                        <SourceEditorAction source={source}>
+                            {({ disabledReason }) => (
+                                <fieldset disabled={!!disabledReason}>
+                                    <RowFilterEditor schema={schema} onSave={handleSave} />
                                 </fieldset>
                             )}
                         </SourceEditorAction>
