@@ -51,6 +51,12 @@ def _hosts(environment: str) -> dict[str, str]:
     return hosts
 
 
+@retry(
+    retry=retry_if_exception_type((CheckoutComRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential_jitter(initial=1, max=60),
+    reraise=True,
+)
 def _mint_token(session: requests.Session, environment: str, client_id: str, client_secret: str) -> str:
     """Exchange client credentials for a bearer token (~1h lifetime)."""
     response = session.post(
@@ -59,6 +65,10 @@ def _mint_token(session: requests.Session, environment: str, client_id: str, cli
         auth=(client_id, client_secret),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
+    # A transient auth-host blip (429/5xx) during an in-flight re-mint must not
+    # kill the whole sync — retry it like any other retryable API error.
+    if response.status_code == 429 or response.status_code >= 500:
+        raise CheckoutComRetryableError(f"Checkout.com auth error (retryable): status={response.status_code}")
     response.raise_for_status()
     return response.json()["access_token"]
 
@@ -104,7 +114,7 @@ def get_rows(
     )
     def fetch(params: dict[str, Any]) -> dict[str, Any]:
         nonlocal token
-        url = f"{api_base}/disputes?{urlencode(params)}"
+        url = f"{api_base}/{endpoint}?{urlencode(params)}"
         response = session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
 
         # Tokens last ~1h; re-mint once if the sync outlives one.
