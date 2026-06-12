@@ -26,15 +26,9 @@ import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converte
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import {
     KafkaDownstreamProducerEnvConfig,
-    KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
-    KafkaWarpstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
 import { ProducerName } from '../ingestion/common/outputs'
@@ -82,9 +76,6 @@ export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
     IngestionOutputsConfig &
     HogTransformerServiceConfig &
-    KafkaProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
     KafkaUpstreamProducerEnvConfig &
     KafkaDownstreamProducerEnvConfig &
     KafkaBrokerConfig &
@@ -167,9 +158,6 @@ export class IngestionApiServer implements NodeServer {
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),

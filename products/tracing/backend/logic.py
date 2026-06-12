@@ -359,9 +359,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "trace_start": (result[13] or result[8]).replace(tzinfo=ZoneInfo("UTC")),
                 # OTel span attributes the user set, as a key-value map.
                 "attributes": result[14],
+                # OTel resource attributes (who/what emitted the span: service.version, host, k8s, ...).
+                "resource_attributes": result[15],
                 # Per-trace duration key (max matching-span duration); the offset-pagination key for
                 # the slowest/fastest sorts. Falls back to this row's own duration.
-                "trace_duration": result[15] if result[15] is not None else result[10],
+                "trace_duration": result[16] if result[16] is not None else result[10],
             }
             results.append(row)
 
@@ -501,6 +503,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 {where} as matched_filter,
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
                 {attributes},
+                {resource_attributes},
                 max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration
             FROM posthog.trace_spans
             WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
@@ -511,10 +514,14 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
                 "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
-                # The attribute map dominates payload size (db.statement holds multi-KB SQL). When
-                # excluded we still SELECT a column so the positional result mapping stays stable —
-                # an empty map instead of the real one.
+                # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
+                # process.command_args etc. bulk up the resource map). When excluded we still
+                # SELECT a column so the positional result mapping stays stable — an empty map
+                # instead of the real one.
                 "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                "resource_attributes": parse_expr(
+                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                ),
             },
         )
         assert isinstance(query, ast.SelectQuery)

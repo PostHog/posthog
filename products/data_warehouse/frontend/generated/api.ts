@@ -25,8 +25,10 @@ import type {
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
+    ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
+    ExternalDataSourcesStoredCredentialsListParams,
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
@@ -56,6 +58,11 @@ import type {
     QueryTabStateApi,
     QueryTabStateListParams,
     ResetPasswordResponseApi,
+    SourceConnectLinkApi,
+    SourceCredentialApi,
+    SourceCredentialCreateApi,
+    SourceSetupApi,
+    SourceSetupResponseApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -1073,6 +1080,44 @@ export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
     )
 }
 
+export const getExternalDataSourcesConnectLinkRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataSourcesConnectLinkRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/connect_link/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/connect_link/`
+}
+
+/**
+ * Return a secure browser link for connecting a data warehouse source.
+ *
+ * The link opens a minimal connect page rendering the source's full connection form — OAuth options
+ * included — with no table selection and no source creation. The user authenticates in their browser,
+ * secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
+ * credential id to data-warehouse-source-setup.
+ */
+export const externalDataSourcesConnectLinkRetrieve = async (
+    projectId: string,
+    params: ExternalDataSourcesConnectLinkRetrieveParams,
+    options?: RequestInit
+): Promise<SourceConnectLinkApi> => {
+    return apiMutator<SourceConnectLinkApi>(getExternalDataSourcesConnectLinkRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExternalDataSourcesConnectionsListUrl = (
     projectId: string,
     params?: ExternalDataSourcesConnectionsListParams
@@ -1129,6 +1174,34 @@ export const externalDataSourcesDatabaseSchemaCreate = async (
     })
 }
 
+export const getExternalDataSourcesSetupCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/setup/`
+}
+
+/**
+ * One-shot data warehouse source setup.
+ *
+ * Validate credentials, discover available tables, enable them all with sensible sync defaults
+ * (incremental where supported, else append, else full refresh), and create the source in a single
+ * call — the caller never has to assemble a `schemas` array. For sources that support webhooks
+ * (e.g. Stripe), a webhook is auto-registered after creation: on success webhook-capable tables
+ * switch to real-time webhook sync (unlocking webhook-only tables); on failure the polling
+ * defaults stay in place. For fine-grained table/sync control, use the lower-level
+ * `database_schema` + `create` flow instead.
+ */
+export const externalDataSourcesSetupCreate = async (
+    projectId: string,
+    sourceSetupApi: SourceSetupApi,
+    options?: RequestInit
+): Promise<SourceSetupResponseApi> => {
+    return apiMutator<SourceSetupResponseApi>(getExternalDataSourcesSetupCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourceSetupApi),
+    })
+}
+
 export const getExternalDataSourcesSourcePrefixCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/external_data_sources/source_prefix/`
 }
@@ -1146,6 +1219,70 @@ export const externalDataSourcesSourcePrefixCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+export const getExternalDataSourcesStoreCredentialsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/store_credentials/`
+}
+
+/**
+ * Validate and store credentials for a data warehouse source without creating the source.
+ *
+ * Backs the source connect page: the user enters credentials directly in PostHog, they are
+ * checked against a live connection, then stashed encrypted in a temporary store. The returned
+ * credential id can be passed to `setup` as {'credential_id': <id>} to create the source — so
+ * secrets never travel through an agent conversation. The stash is single-use: it is deleted
+ * as soon as `setup` consumes it, and expires after 24 hours if never consumed.
+ */
+export const externalDataSourcesStoreCredentialsCreate = async (
+    projectId: string,
+    sourceCredentialCreateApi: SourceCredentialCreateApi,
+    options?: RequestInit
+): Promise<SourceCredentialApi> => {
+    return apiMutator<SourceCredentialApi>(getExternalDataSourcesStoreCredentialsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourceCredentialCreateApi),
+    })
+}
+
+export const getExternalDataSourcesStoredCredentialsListUrl = (
+    projectId: string,
+    params?: ExternalDataSourcesStoredCredentialsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/stored_credentials/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/stored_credentials/`
+}
+
+/**
+ * List credentials stored via the source connect page that haven't been consumed yet.
+ *
+ * Returns metadata only (id, source type, timestamps) — never the secrets themselves. Stored
+ * credentials are temporary: they disappear once consumed by `setup` or when they expire.
+ * Newest first, so after a user confirms they've finished the connect page, the first entry
+ * for the source type is the one to pass to `setup`.
+ */
+export const externalDataSourcesStoredCredentialsList = async (
+    projectId: string,
+    params?: ExternalDataSourcesStoredCredentialsListParams,
+    options?: RequestInit
+): Promise<SourceCredentialApi[]> => {
+    return apiMutator<SourceCredentialApi[]>(getExternalDataSourcesStoredCredentialsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -18,12 +18,17 @@ import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
+    let observeSpy: jest.Mock
 
     beforeEach(() => {
+        observeSpy = jest.fn(() => [202, { workflow_id: 'wf-test' }])
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
                 '/api/projects/:team/vision/scanners/:id/observations/': { results: [] },
+            },
+            post: {
+                '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
             },
         })
         initKeaTests()
@@ -427,6 +432,33 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.setScannerValues({ name: 'Edited' })).toMatchValues({
                 hasUnsavedChanges: true,
             })
+        })
+    })
+
+    describe('triggerOnDemandObservation', () => {
+        it.each([
+            { name: 'empty string', input: '' },
+            { name: 'whitespace only', input: '   ' },
+        ])('bails on $name session ID without calling the API', async ({ input }) => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                await expectLogic(persisted, () =>
+                    persisted.actions.triggerOnDemandObservation(input)
+                ).toDispatchActions(['triggerOnDemandObservationFailure'])
+                expect(persisted.values.triggeringOnDemandObservation).toBe(false)
+                expect(observeSpy).not.toHaveBeenCalled()
+            } finally {
+                persisted.unmount()
+            }
+        })
+
+        it('bails when scanner ID is new (unsaved scanner)', async () => {
+            await expectLogic(logic, () => logic.actions.triggerOnDemandObservation('019a3f47-8c2d')).toDispatchActions(
+                ['triggerOnDemandObservationFailure']
+            )
+            expect(logic.values.triggeringOnDemandObservation).toBe(false)
+            expect(observeSpy).not.toHaveBeenCalled()
         })
     })
 })

@@ -437,17 +437,17 @@ snapshots:
     components-errors-error-display--with-cymbal-errors--light:
         hash: v1.k794b7964.33d6457d0ce96480ffe75e0d1889a14c66404e0c7c02a54dce29c76bcbdb1ee7.c4GXiWMq_NCrT4lXQRtJq8OiQDEvF2bhYqF1MP33SbA
     components-funneltooltip--default--dark:
-        hash: v1.k794b7964.bcfe936a27842a0d95191b90dfb314c4890cb4025524e30f25536dff996ec365.vu3NUNz79u8cWuHM0lwIP0AbzHY-C1wUTplbAtntBVs
+        hash: v1.k794b7964.bab695922c9d31c701004295faa30132f46f2ab604a637f32a838edf70853720.JXPgEOYFNBge00rd18LqAMiS8r2wHcaZBMeiFmmk60I
     components-funneltooltip--default--light:
-        hash: v1.k794b7964.116baa150064ec850e8a8f7995770c7acee5b1bd81f9397374f8e1d792b12599.EYhO-wNg845BYs4xbK9-tyOvU20naVvoiTBjupumWaY
+        hash: v1.k794b7964.c26616a68f479a26b44537cdd13974f2c46dc6a540d2f3249a69cdbfb479120a.ynNwEh7lw1ywF1jGOBSfm7QP3LiZkwV7bPzLVyuL5SY
     components-funneltooltip--with-long-name--dark:
-        hash: v1.k794b7964.19ee50438dc118df8fc68d8cc07b3b981a1bf30bbd8871c025bd476834c970bc.YuxHiiUnsT4WLmgn_aRGFJbHQ2wUYx35WkLakE9UD5M
+        hash: v1.k794b7964.6908c14fcbb1dd1889bef7bec2d32c98e65f94112094456efabf14fc936db891.4WbbTP66kzbS4E5_PpIiU25_aVwhS3vcT-ORN8hXrnA
     components-funneltooltip--with-long-name--light:
-        hash: v1.k794b7964.bb34eded7c94f08e9c95aeef284fefc59c2c424e0c8b93a0ca4362164705d3b8.H09REJiVmSrfE-arsFga9Fh4VrUyVH1PygWp_p4lQ0g
+        hash: v1.k794b7964.7e82debb1d5ece284b60d6b1d3a3bae78b702caf1774c1cb7594ed94ba830212.IDOPYXXq4ZjI1WOUbw9MBPGrSrrh00lqozPixmgij2U
     components-funneltooltip--with-long-unbroken-name--dark:
-        hash: v1.k794b7964.2d9602ee41a7bf1fffcc420691ee6bb5779bb53ed86f87629418d1d4b19d9021.5qUSHhD466Azu_FCxYzA5kjrkqdB2DkMa9vwkmXfzPI
+        hash: v1.k794b7964.633aa1a51a21fc04a50b35f312429078b3ea5f3c84d4e82a67d1ab2c02788840.VGWrj0ULaO_Ts7lUwvrQupH931Bk1e0x52JHPYJLUI0
     components-funneltooltip--with-long-unbroken-name--light:
-        hash: v1.k794b7964.c3ed7c7214cf8e9125032164d18737c91163ee5d53424b4eaf65874bdb36932a.r9_3bFMy13SMvTb4VXC4j-fap3OeSXZWWXc1iEATNWk
+        hash: v1.k794b7964.f83258788b1281380a1b78d0584c4034b78abd78941b650048e8ef3f3a237096.nyeJwxyLnxbUk0-jc1dgWqasWaODcGUq8B71urHyIsM
     components-hedgehogmode--profile-picture-hog--dark:
         hash: v1.k794b7964.969bdab0c4f15b4457bc162b9ad87ec0341d5e98ed3a9279494cc2f019c12250.5eEGiofVhJFttdE4ETVy01n1PTA-WrkIsgHZEB9rG5I
     components-hedgehogmode--profile-picture-hog--light:
@@ -3882,6 +3882,10 @@ snapshots:
         hash: v1.k794b7964.7e6363d616aabde2fa6db252c233d4b7e651dd3ed0be35e55d51264b4e994438.7k8-ggET0l7Q1xUgeTCbh-Gy0s8rDpdVjFHER1HvBcA
     mcp-apps-cohorts--static--light:
         hash: v1.k794b7964.7a0889e7d21c79da2f04c4a187ab6d2b63158edd0e8737cda5a6254197eb3822.Qz8oGpJlwUIi5k43JRBxSAAJo-2fB-qceXOSk8SqTWI
+    mcp-apps-email-template--plain-text-fallback--light:
+        hash: v1.k794b7964.0b1f7127b75364574793fa13d6df88361bc4656a62f6192f100c6d7ca6d9a242.9YDZrP8mjrQTwp7fZ6eFGbSa6iYT7PjJEszdl06k28I
+    mcp-apps-email-template--rendered--light:
+        hash: v1.k794b7964.5e512ddfaa318512c1495ded61c5e023474938aa61f295fecffff933a404bda6.JgWQLaxJqSve1qcp7ugrRNg-9AAvSw9HGwXuKZlFjKw
     mcp-apps-error-tracking--active--light:
         hash: v1.k794b7964.3c4efa7c47d8f2863f3cec2c180dbf617b7a9b4253892f83900241929ab831b4.PQds2YnDLqkVbifI_HkTi1Uh7fkqL_P_ptcsfpXAwdA
     mcp-apps-error-tracking--chained-exceptions--light:

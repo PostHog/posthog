@@ -260,23 +260,25 @@ def _conversation_parts_generator(
 
 
 def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
-    """Walk `POST /companies/list` page by page (no server-side timestamp
-    filter — full refresh)."""
-    body: dict[str, Any] = {"per_page": INTERCOM_ENDPOINTS["companies"].page_size}
-    next_url: str | None = None
+    """Walk every company via `GET /companies/scroll` (full refresh).
+
+    `POST /companies/list` is hard-capped at 10,000 companies — paging past
+    that ceiling makes Intercom return `400 bad_request: page limit reached,
+    please use scroll API`. The Scroll API has no such ceiling: each response
+    carries a `scroll_param` to feed into the next request, and the walk ends
+    when `data` comes back empty (the scroll param then expires). Only one
+    scroll can be open per workspace at a time — fine here, since this is the
+    sole scroll user and a schema never syncs concurrently with itself."""
+    scroll_param: str | None = None
     while True:
-        if next_url is None:
-            payload = _intercom_post(session, "/companies/list", body)
-        else:
-            # `pages.next` is a full URL carrying the page cursor in its query
-            # string. `/companies/list` is POST-only — a GET against it 404s —
-            # so we re-POST the same body to the next-page URL, mirroring how
-            # the REST next-URL paginator advances the other list endpoints
-            # (it preserves the POST method + body and only swaps the URL).
-            payload = _intercom_post(session, next_url, body)
-        yield from (payload.get("data") or [])
-        next_url = (payload.get("pages") or {}).get("next")
-        if not next_url:
+        params = {"scroll_param": scroll_param} if scroll_param else None
+        payload = _intercom_get(session, "/companies/scroll", params=params)
+        data = payload.get("data") or []
+        if not data:
+            return
+        yield from data
+        scroll_param = payload.get("scroll_param")
+        if not scroll_param:
             return
 
 

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronDown, IconClock, IconRefresh, IconX } from '@posthog/icons'
 import {
@@ -276,9 +276,16 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         setSelectedTicketIds(selectedKeys)
     }, [selectedKeys, setSelectedTicketIds])
 
-    // Clear hook selection when kea resets (e.g. after bulk update or page reload)
+    // Clear hook selection only when kea's selection is reset *externally* (e.g. after a bulk
+    // update or page reload). We detect that as a non-empty -> empty transition. Reacting to
+    // `selectedTicketIds.length === 0` alone would also fire during the brief window right after
+    // the first selection, before the effect above has pushed `selectedKeys` into kea — which
+    // would immediately wipe the selection the user just made.
+    const prevSelectedTicketIdCount = useRef(selectedTicketIds.length)
     useEffect(() => {
-        if (selectedTicketIds.length === 0 && selectedKeys.length > 0) {
+        const wasSelected = prevSelectedTicketIdCount.current > 0
+        prevSelectedTicketIdCount.current = selectedTicketIds.length
+        if (wasSelected && selectedTicketIds.length === 0 && selectedKeys.length > 0) {
             clearSelection()
         }
     }, [selectedTicketIds, selectedKeys, clearSelection])

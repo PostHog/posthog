@@ -1342,6 +1342,11 @@ class ExternalDataSourceType(StrEnum):
     SAP_SUCCESS_FACTORS = "SapSuccessFactors"
     ORACLE_EBS = "OracleEbs"
     ORACLE_FUSION = "OracleFusion"
+    AMAZON_SNS = "AmazonSNS"
+    AMAZON_EVENT_BRIDGE = "AmazonEventBridge"
+    AMAZON_SQS = "AmazonSQS"
+    AMAZON_KINESIS = "AmazonKinesis"
+    AMAZON_CLOUD_WATCH = "AmazonCloudWatch"
     CUSTOM = "Custom"
 
 

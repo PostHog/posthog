@@ -140,36 +140,3 @@ tools:
     insights-thresholds-retrieve:
         operation: insights_thresholds_retrieve
         enabled: false
-    logs-alerts-create:
-        operation: logs_alerts_create
-        enabled: false
-    logs-alerts-destinations-create:
-        operation: logs_alerts_destinations_create
-        enabled: false
-    logs-alerts-destinations-delete-create:
-        operation: logs_alerts_destinations_delete_create
-        enabled: false
-    logs-alerts-destroy:
-        operation: logs_alerts_destroy
-        enabled: false
-    logs-alerts-events-list:
-        operation: logs_alerts_events_list
-        enabled: false
-    logs-alerts-list:
-        operation: logs_alerts_list
-        enabled: false
-    logs-alerts-partial-update:
-        operation: logs_alerts_partial_update
-        enabled: false
-    logs-alerts-reset-create:
-        operation: logs_alerts_reset_create
-        enabled: false
-    logs-alerts-retrieve:
-        operation: logs_alerts_retrieve
-        enabled: false
-    logs-alerts-simulate-create:
-        operation: logs_alerts_simulate_create
-        enabled: false
-    logs-alerts-update:
-        operation: logs_alerts_update
-        enabled: false

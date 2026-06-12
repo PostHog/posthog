@@ -36,6 +36,7 @@ class TestGetSandboxMcpConfigs(TestCase):
             ("https://app.posthog.com", "https://mcp.posthog.com/mcp"),
             ("https://us.posthog.com", "https://mcp.posthog.com/mcp"),
             ("https://eu.posthog.com", "https://mcp-eu.posthog.com/mcp"),
+            ("https://app.dev.posthog.dev", "https://mcp.dev.posthog.dev/mcp"),
         ]
     )
     def test_derives_mcp_config_from_site_url(self, site_url: str, expected_mcp_url: str) -> None:
