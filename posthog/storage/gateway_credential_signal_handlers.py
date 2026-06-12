@@ -200,6 +200,20 @@ def _clear_oauth_on_delete(sender: type[OAuthAccessToken], instance: OAuthAccess
         clear_gateway_credential(cache_hash)
 
 
+def _reproject_user_sync_then_async(user_id: int) -> None:
+    # Revocation must clear synchronously so the blob can't outlive the request; the
+    # credential's own revocation already does. Reproject (not a blind clear) so any
+    # blobs still valid for the user's other orgs survive. Celery is the retry/warm path.
+    def _invalidate() -> None:
+        try:
+            reproject_user_gateway_credentials_task(user_id)
+        except Exception as e:
+            logger.exception("Synchronous gateway credential reprojection failed", user_id=user_id, error=str(e))
+        reproject_user_gateway_credentials_task.delay(user_id)
+
+    transaction.on_commit(_invalidate)
+
+
 def _reproject_user_on_save(sender: type[User], instance: User, created: bool, **kwargs: Any) -> None:
     # Only OAuth carries a user. Deactivation must clear it (the token row doesn't
     # change on is_active flips); reactivation re-grants.
@@ -210,8 +224,7 @@ def _reproject_user_on_save(sender: type[User], instance: User, created: bool, *
     if old_is_active is None or old_is_active == instance.is_active:
         return
 
-    user_id = instance.pk
-    transaction.on_commit(lambda: reproject_user_gateway_credentials_task.delay(user_id))
+    _reproject_user_sync_then_async(instance.pk)
 
 
 def _reproject_on_membership_delete(
@@ -221,8 +234,7 @@ def _reproject_on_membership_delete(
     # the user — the policy now fails closed for a non-member and clears the blob.
     if not settings.AI_GATEWAY_REDIS_URL:
         return
-    user_id = instance.user_id
-    transaction.on_commit(lambda: reproject_user_gateway_credentials_task.delay(user_id))
+    _reproject_user_sync_then_async(instance.user_id)
 
 
 def _snapshot_oauth_application(sender: type[OAuthApplication], instance: OAuthApplication, **kwargs: Any) -> None:

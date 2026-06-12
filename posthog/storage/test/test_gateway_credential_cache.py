@@ -430,6 +430,30 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
         mock_delay.assert_called_with(user.pk)
 
+    def test_user_deactivation_clears_blob_synchronously(self):
+        # The on_commit invalidation reprojects synchronously, so a deactivated user's
+        # blob is gone without waiting for the Celery task — only .delay is the retry path.
+        oauth = self._make_oauth(GATEWAY_SCOPE)
+        project_gateway_credential(oauth)
+        cache_hash = credential_hash(oauth)
+        assert self._read_blob(cache_hash) is not None
+
+        with (
+            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
+            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
+            patch(
+                "posthog.storage.gateway_credential_signal_handlers.reproject_user_gateway_credentials_task.delay"
+            ) as mock_delay,
+        ):
+            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+            mock_transaction.on_commit.side_effect = lambda fn: fn()
+            user = User.objects.get(pk=self.user.pk)
+            user.is_active = False
+            user.save()
+
+        self.assertIsNone(self._read_blob(cache_hash))
+        mock_delay.assert_called_with(self.user.pk)
+
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch("posthog.storage.gateway_credential_signal_handlers.reproject_user_gateway_credentials_task.delay")
