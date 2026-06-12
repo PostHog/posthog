@@ -150,9 +150,9 @@ pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total
 /// Produce failures to `cohort_membership_changed_shadow` (counter).
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
 
-/// Sweep cycles that fired (counter).
+/// Sweep cycles that fired, labelled by `loop` (`eviction`|`redrive`|`merge_gc`) (counter).
 pub const SWEEP_CYCLES_TOTAL: &str = "sweep_cycles_total";
-/// Wall-clock duration of one sweep cycle (histogram, seconds).
+/// Wall-clock duration of one sweep cycle, labelled by `loop` (histogram, seconds).
 pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
 /// Keys the sweep evicted, labelled by `variant` (counter).
 pub const SWEEP_KEYS_EVICTED_TOTAL: &str = "sweep_keys_evicted_total";
@@ -191,6 +191,14 @@ pub const MERGE_PENDING_TRANSFERS_GAUGE: &str = "merge_pending_transfers";
 pub const MERGE_DRAIN_DURATION_SECONDS: &str = "merge_drain_duration_seconds";
 /// Latency of one transfer apply (histogram, seconds).
 pub const MERGE_APPLY_DURATION_SECONDS: &str = "merge_apply_duration_seconds";
+
+/// Merge-CF keys scanned by the GC sweep, labelled by `cf` (counter).
+pub const MERGE_GC_KEYS_SCANNED_TOTAL: &str = "merge_gc_keys_scanned_total";
+/// Merge-CF keys the GC sweep deleted (expired or undecodable), labelled by `cf` (counter).
+pub const MERGE_GC_KEYS_DELETED_TOTAL: &str = "merge_gc_keys_deleted_total";
+/// Merge-CF values the GC sweep could not decode, labelled by `cf` (counter). Each is deleted and
+/// folded into [`MERGE_GC_KEYS_DELETED_TOTAL`] (an unreadable timestamp can never age out).
+pub const MERGE_GC_UNDECODABLE_TOTAL: &str = "merge_gc_undecodable_total";
 
 /// Keys the sweep popped but did not evict, labelled by `reason` (counter). Conservation:
 /// `popped == evicted + dropped`.

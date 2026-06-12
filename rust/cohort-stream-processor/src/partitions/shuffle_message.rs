@@ -31,6 +31,15 @@ pub enum ShuffleMessage {
     },
     /// Periodic tick to re-produce any `cf_pending_transfers` entries left by a failed produce.
     RedrivePendingTransfers,
+    /// Periodic tick to garbage-collect expired merge idempotence markers and tombstones. Both
+    /// cutoffs are computed at tick time by the sweeper (`now − retention`), so the worker stays
+    /// clock-free — same posture as [`Sweep`](ShuffleMessage::Sweep)'s `due_before_ms`. Marker CFs
+    /// (`cf_merge_drains_applied`, `cf_merge_applied`) evict below `marker_cutoff_ms`; tombstones
+    /// (`cf_merge_tombstones`) evict below `tombstone_cutoff_ms`.
+    MergeCfGc {
+        marker_cutoff_ms: i64,
+        tombstone_cutoff_ms: i64,
+    },
 }
 
 #[cfg(test)]
@@ -95,7 +104,8 @@ mod tests {
             ShuffleMessage::Sweep { .. }
             | ShuffleMessage::Merge { .. }
             | ShuffleMessage::Transfer { .. }
-            | ShuffleMessage::RedrivePendingTransfers => unreachable!("constructed an Event"),
+            | ShuffleMessage::RedrivePendingTransfers
+            | ShuffleMessage::MergeCfGc { .. } => unreachable!("constructed an Event"),
         }
     }
 
@@ -109,7 +119,30 @@ mod tests {
             ShuffleMessage::Event { .. }
             | ShuffleMessage::Merge { .. }
             | ShuffleMessage::Transfer { .. }
-            | ShuffleMessage::RedrivePendingTransfers => unreachable!("constructed a Sweep"),
+            | ShuffleMessage::RedrivePendingTransfers
+            | ShuffleMessage::MergeCfGc { .. } => unreachable!("constructed a Sweep"),
+        }
+    }
+
+    #[test]
+    fn merge_cf_gc_variant_carries_both_cutoffs() {
+        let message = ShuffleMessage::MergeCfGc {
+            marker_cutoff_ms: 100,
+            tombstone_cutoff_ms: 200,
+        };
+        match message {
+            ShuffleMessage::MergeCfGc {
+                marker_cutoff_ms,
+                tombstone_cutoff_ms,
+            } => {
+                assert_eq!(marker_cutoff_ms, 100);
+                assert_eq!(tombstone_cutoff_ms, 200);
+            }
+            ShuffleMessage::Event { .. }
+            | ShuffleMessage::Sweep { .. }
+            | ShuffleMessage::Merge { .. }
+            | ShuffleMessage::Transfer { .. }
+            | ShuffleMessage::RedrivePendingTransfers => unreachable!("constructed a MergeCfGc"),
         }
     }
 
@@ -127,7 +160,8 @@ mod tests {
             ShuffleMessage::Event { .. }
             | ShuffleMessage::Sweep { .. }
             | ShuffleMessage::Transfer { .. }
-            | ShuffleMessage::RedrivePendingTransfers => unreachable!("constructed a Merge"),
+            | ShuffleMessage::RedrivePendingTransfers
+            | ShuffleMessage::MergeCfGc { .. } => unreachable!("constructed a Merge"),
         }
 
         let transfer = ShuffleMessage::Transfer {
@@ -142,7 +176,8 @@ mod tests {
             ShuffleMessage::Event { .. }
             | ShuffleMessage::Sweep { .. }
             | ShuffleMessage::Merge { .. }
-            | ShuffleMessage::RedrivePendingTransfers => unreachable!("constructed a Transfer"),
+            | ShuffleMessage::RedrivePendingTransfers
+            | ShuffleMessage::MergeCfGc { .. } => unreachable!("constructed a Transfer"),
         }
     }
 }

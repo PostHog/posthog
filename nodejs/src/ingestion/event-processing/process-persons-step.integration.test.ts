@@ -15,14 +15,19 @@ import {
     getTeam,
     resetTestDatabase,
 } from '../../../tests/helpers/sql'
-import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../config/kafka-topics'
+import {
+    KAFKA_INGESTION_WARNINGS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_MERGE_EVENTS,
+} from '../../config/kafka-topics'
 import { Hub, Person, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
 import { UUIDT } from '../../utils/utils'
 import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../analytics/outputs'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '../analytics/outputs'
 import { INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
@@ -44,6 +49,8 @@ describe('createProcessPersonsStep', () => {
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 100,
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 1,
+        PERSON_MERGE_EVENTS_ENABLED: false,
+        PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
         PERSON_PROPERTIES_UPDATE_ALL: false,
     }
@@ -67,6 +74,12 @@ describe('createProcessPersonsStep', () => {
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 KAFKA_INGESTION_WARNINGS,
+                mockProducer,
+                'test'
+            ),
+            [PERSON_MERGE_EVENTS_OUTPUT]: new SingleIngestionOutput(
+                PERSON_MERGE_EVENTS_OUTPUT,
+                KAFKA_PERSON_MERGE_EVENTS,
                 mockProducer,
                 'test'
             ),

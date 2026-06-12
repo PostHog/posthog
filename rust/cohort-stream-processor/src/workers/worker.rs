@@ -38,6 +38,7 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey};
 use crate::sweep::EvictionQueue;
 use crate::workers::event_path::{process_event, SkipReason};
+use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
@@ -98,6 +99,8 @@ async fn run_worker(
     info!(partition_id, "stage 1 worker started");
 
     let mut queue = EvictionQueue::<Stage1Key>::new();
+    // Per-worker merge-CF GC resume cursors (in-memory; loss on rebalance is benign — see MergeGcCursor).
+    let mut gc_cursor = MergeGcCursor::default();
 
     while let Some(batch) = receiver.recv().await {
         let last_updated = now_last_updated();
@@ -160,6 +163,19 @@ async fn run_worker(
                 }
                 ShuffleMessage::RedrivePendingTransfers => {
                     handle_redrive(partition_id, &store, &merge).await;
+                }
+                ShuffleMessage::MergeCfGc {
+                    marker_cutoff_ms,
+                    tombstone_cutoff_ms,
+                } => {
+                    handle_merge_gc(
+                        partition_id,
+                        &store,
+                        &mut gc_cursor,
+                        marker_cutoff_ms,
+                        tombstone_cutoff_ms,
+                        merge.gc_scan_limit,
+                    );
                 }
             }
         }
@@ -700,6 +716,7 @@ mod tombstone_redirect_tests {
             merge_tracker: Arc::new(OffsetTracker::new()),
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
+            gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
         })
     }
 

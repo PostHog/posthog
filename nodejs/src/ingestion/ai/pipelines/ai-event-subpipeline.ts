@@ -10,7 +10,7 @@ import { GroupTypeManager } from '../../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../../worker/ingestion/persons/persons-store'
 import { AiEventOutput, AsyncOutput, EVENTS_OUTPUT, EventOutput } from '../../analytics/outputs'
-import { PersonDistinctIdsOutput, PersonsOutput } from '../../analytics/outputs'
+import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '../../analytics/outputs'
 import { IngestionWarningsOutput } from '../../common/outputs'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { createEmitEventStep } from '../../event-processing/emit-event-step'
@@ -38,7 +38,12 @@ export interface AiEventSubpipelineInput {
 export interface AiEventSubpipelineConfig {
     options: EventPipelineRunnerOptions
     outputs: IngestionOutputs<
-        EventOutput | AiEventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
+        | EventOutput
+        | AiEventOutput
+        | IngestionWarningsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager

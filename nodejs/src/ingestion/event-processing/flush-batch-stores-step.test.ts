@@ -3,7 +3,7 @@ import { MessageSizeTooLarge } from '../../utils/db/error'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { FlushResult, PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../analytics/outputs'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '../analytics/outputs'
 import { emitIngestionWarning } from '../common/ingestion-warnings'
 import { INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
 import { AfterBatchInput } from '../pipelines/batching-pipeline'
@@ -34,7 +34,10 @@ describe('flush-batch-stores-step', () => {
         } as any
 
         mockOutputs = createMockIngestionOutputs<
-            typeof PERSONS_OUTPUT | typeof PERSON_DISTINCT_IDS_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+            | typeof PERSONS_OUTPUT
+            | typeof PERSON_DISTINCT_IDS_OUTPUT
+            | typeof INGESTION_WARNINGS_OUTPUT
+            | typeof PERSON_MERGE_EVENTS_OUTPUT
         >()
 
         storesConfig = {

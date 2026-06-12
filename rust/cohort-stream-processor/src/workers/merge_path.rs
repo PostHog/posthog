@@ -37,6 +37,13 @@ use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{count_by_status, transition_metric_label};
 
 /// Inline bounded backoff for the transfer produce.
+///
+/// Worst-case worker hold = `(max_retries + 1)` produce attempts, each fast-failing at the transfer
+/// sink's `message.timeout.ms`, plus the sum of the backoff sleeps. With the defaults — 6 attempts ×
+/// the 2 s transfer timeout ([`crate::config::Config::merge_transfer_message_timeout_ms`]) + ≈15.5 s
+/// of backoff ≈ **27.5 s** — that fits the 30 s graceful-shutdown window (the binding constraint
+/// here, tighter than the 60 s liveness deadline), and only because the transfer sink uses its own
+/// short timeout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TransferRetryPolicy {
     /// Retries after the initial attempt (total attempts = `max_retries + 1`).
@@ -64,6 +71,10 @@ impl TransferRetryPolicy {
     }
 }
 
+/// Default merge-CF GC per-tick, per-CF scan cap when the deps are built without explicit config
+/// (tests). Mirrors `Config::merge_gc_scan_limit`'s default.
+pub const DEFAULT_MERGE_GC_SCAN_LIMIT: usize = 10_000;
+
 /// Merge-protocol dependencies shared across all workers and the dispatcher.
 pub struct MergeWorkerDeps {
     pub transfer_sink: Arc<dyn TransferSink>,
@@ -71,6 +82,8 @@ pub struct MergeWorkerDeps {
     pub merge_tracker: Arc<OffsetTracker>,
     pub transfer_tracker: Arc<OffsetTracker>,
     pub retry: TransferRetryPolicy,
+    /// Max keys scanned (and at most deleted) per merge CF, per partition, per GC tick.
+    pub gc_scan_limit: usize,
 }
 
 impl MergeWorkerDeps {
@@ -82,6 +95,7 @@ impl MergeWorkerDeps {
             merge_tracker: Arc::new(OffsetTracker::new()),
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
+            gc_scan_limit: DEFAULT_MERGE_GC_SCAN_LIMIT,
         })
     }
 }
@@ -472,6 +486,7 @@ fn empty_team_filters() -> TeamFilters {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use envconfig::Envconfig;
     use tempfile::TempDir;
     use uuid::Uuid;
 
@@ -499,6 +514,35 @@ mod tests {
         );
         let total: Duration = backoffs.iter().sum();
         assert_eq!(total, Duration::from_millis(15_500), "≈15.5 s end to end");
+    }
+
+    /// The inline transfer-retry worst case — every produce attempt fast-failing at the dedicated
+    /// transfer timeout, plus all backoff sleeps — must stay inside the 30 s graceful-shutdown window
+    /// (the binding constraint, tighter than the 60 s liveness deadline). Sourced from the live config
+    /// default and the retry-policy default so a drift in *either* trips this test.
+    #[test]
+    fn inline_transfer_retry_worst_case_fits_the_graceful_shutdown_window() {
+        let config = crate::config::Config::init_from_hashmap(&std::collections::HashMap::new())
+            .expect("envconfig defaults load");
+        let policy = config.transfer_retry_policy();
+
+        // total attempts = initial + retries; each can block for the full transfer message timeout.
+        let attempts = policy.max_retries + 1;
+        let per_attempt =
+            Duration::from_millis(u64::from(config.merge_transfer_message_timeout_ms));
+        let produce_block = per_attempt * attempts;
+
+        let backoff: Duration = (1..=policy.max_retries).map(|a| policy.backoff(a)).sum();
+        let worst_case = produce_block + backoff;
+
+        // 6 × 2 s + 15.5 s = 27.5 s with the current defaults.
+        assert_eq!(worst_case, Duration::from_millis(27_500));
+
+        const GRACEFUL_SHUTDOWN_WINDOW: Duration = Duration::from_secs(30);
+        assert!(
+            worst_case <= GRACEFUL_SHUTDOWN_WINDOW,
+            "inline transfer retry worst case {worst_case:?} exceeds the {GRACEFUL_SHUTDOWN_WINDOW:?} graceful-shutdown window",
+        );
     }
 
     #[test]
@@ -579,6 +623,7 @@ mod tests {
             merge_tracker: Arc::new(OffsetTracker::new()),
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
+            gc_scan_limit: DEFAULT_MERGE_GC_SCAN_LIMIT,
         }
     }
 

@@ -2,15 +2,26 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
-import { PersonDistinctIdsOutput, PersonsOutput } from '../../../ingestion/analytics/outputs'
+import {
+    PERSON_MERGE_EVENTS_OUTPUT,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from '../../../ingestion/analytics/outputs'
 import { IngestionWarningsOutput } from '../../../ingestion/common/outputs'
 import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
-import { Team } from '../../../types'
+import { InternalPerson, Team } from '../../../types'
+import { buildPersonMergeEventMessage } from './person-merge-event'
 import { MergeMode } from './person-merge-types'
 import { PersonMessage } from './person-message'
 import { PersonsStore } from './persons-store'
 
-export type PersonOutputs = IngestionOutputs<PersonsOutput | PersonDistinctIdsOutput | IngestionWarningsOutput>
+export type PersonOutputs = IngestionOutputs<
+    PersonsOutput | PersonDistinctIdsOutput | IngestionWarningsOutput | PersonMergeEventsOutput
+>
+
+/** Gate + partition-count for the cross-partition merge-event producer. */
+export type MergeEventsConfig = { enabled: boolean; partitionCount: number }
 
 /**
  * Lightweight data holder containing all the context needed for person processing.
@@ -31,7 +42,8 @@ export class PersonContext {
         public readonly measurePersonJsonbSize: number = 0,
         public readonly mergeMode: MergeMode,
         public readonly updateAllProperties: boolean = false, // When true, all property changes trigger person updates
-        public readonly shouldUpdateLastSeenAt: boolean = false
+        public readonly shouldUpdateLastSeenAt: boolean = false,
+        public readonly mergeEventsConfig: MergeEventsConfig = { enabled: false, partitionCount: 64 }
     ) {
         this.eventProperties = event.properties!
     }
@@ -42,5 +54,29 @@ export class PersonContext {
                 this.outputs.produce(msg.output, { value: msg.value, key: null, teamId: this.team.id })
             )
         )
+    }
+
+    /**
+     * Emit a person_merge_events message for the cohort-stream-processor. Resolved no-op when the
+     * gate is off. The message is explicitly partitioned by `(team_id, P_old)` so it reaches the
+     * worker holding P_old's state — see `buildPersonMergeEventMessage`.
+     */
+    async producePersonMergeEvent(sourcePerson: InternalPerson, targetPerson: InternalPerson): Promise<void> {
+        if (!this.mergeEventsConfig.enabled) {
+            return
+        }
+        const { key, partition, value } = buildPersonMergeEventMessage(
+            this.team.id,
+            sourcePerson.uuid,
+            targetPerson.uuid,
+            Date.now(),
+            this.mergeEventsConfig.partitionCount
+        )
+        await this.outputs.produce(PERSON_MERGE_EVENTS_OUTPUT, {
+            value,
+            key,
+            partition,
+            teamId: this.team.id,
+        })
     }
 }

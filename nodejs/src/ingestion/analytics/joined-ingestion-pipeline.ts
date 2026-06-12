@@ -43,6 +43,7 @@ import {
     EventOutput,
     HeatmapsOutput,
     PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
     PersonsOutput,
 } from './outputs'
 import {
@@ -73,6 +74,7 @@ export interface JoinedIngestionPipelineConfig {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
         | AppMetricsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig

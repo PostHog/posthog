@@ -2,15 +2,27 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 
-import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
-import { ASYNC_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/ingestion/analytics/outputs'
+import {
+    KAFKA_INGESTION_WARNINGS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_MERGE_EVENTS,
+} from '~/config/kafka-topics'
+import {
+    ASYNC_OUTPUT,
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+    PERSON_MERGE_EVENTS_OUTPUT,
+} from '~/ingestion/analytics/outputs'
 import { INGESTION_WARNINGS_OUTPUT } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/ingestion/outputs/single-ingestion-output'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
+import { murmur2Partition } from '~/kafka/murmur2'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
+import { parseJSON } from '~/utils/json-parse'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
 import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
 
@@ -70,6 +82,12 @@ function createPersonOutputs(kafkaProducer: KafkaProducerWrapper): PersonOutputs
         [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
             INGESTION_WARNINGS_OUTPUT,
             KAFKA_INGESTION_WARNINGS,
+            kafkaProducer,
+            'test'
+        ),
+        [PERSON_MERGE_EVENTS_OUTPUT]: new SingleIngestionOutput(
+            PERSON_MERGE_EVENTS_OUTPUT,
+            KAFKA_PERSON_MERGE_EVENTS,
             kafkaProducer,
             'test'
         ),
@@ -288,7 +306,8 @@ describe('PersonState.processEvent()', () => {
         processPerson = true,
         timestampParam = timestamp,
         team = mainTeam,
-        mergeMode = createDefaultSyncMergeMode()
+        mergeMode = createDefaultSyncMergeMode(),
+        mergeEventsConfig?: { enabled: boolean; partitionCount: number }
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -310,7 +329,10 @@ describe('PersonState.processEvent()', () => {
             createPersonOutputs(kafkaProducer),
             personsStore,
             0,
-            mergeMode
+            mergeMode,
+            false,
+            false,
+            mergeEventsConfig ?? { enabled: false, partitionCount: 64 }
         )
         return new PersonMergeService(context)
     }
@@ -2896,6 +2918,173 @@ describe('PersonState.processEvent()', () => {
             await clickhouse.delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
             const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(person!)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
+        })
+
+        const getMergeEventMessages = () =>
+            mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_PERSON_MERGE_EVENTS)
+
+        it(`does not emit a person_merge_events message when the gate is off (default)`, async () => {
+            mockProducerObserver.resetKafkaProducer()
+            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+                distinctId: secondUserDistinctId,
+            })
+
+            // No mergeEventsConfig → gate defaults off.
+            const mergeService = personMergeService({}, hub, personRepository)
+            const result = await mergeService.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: second,
+                otherPersonDistinctId: secondUserDistinctId,
+            })
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            expect(getMergeEventMessages()).toHaveLength(0)
+        })
+
+        it(`emits exactly one person_merge_events message with correct key, partition, and payload when the gate is on`, async () => {
+            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+                distinctId: secondUserDistinctId,
+            })
+
+            // The local test broker has no 64-partition person_merge_events topic, so resolve that
+            // produce in-process while routing every other message to the real broker via the
+            // prototype method (the instance method would recurse through this spy). We inspect the
+            // spy's call args directly rather than the shared observer.
+            const realProduce = KafkaProducerWrapper.prototype.produce
+            const produceSpy = jest
+                .spyOn(kafkaProducer, 'produce')
+                .mockImplementation((message) =>
+                    message.topic === KAFKA_PERSON_MERGE_EVENTS
+                        ? Promise.resolve()
+                        : realProduce.call(kafkaProducer, message)
+                )
+
+            const mergeService = personMergeService(
+                {},
+                hub,
+                personRepository,
+                true,
+                timestamp,
+                mainTeam,
+                createDefaultSyncMergeMode(),
+                { enabled: true, partitionCount: 64 }
+            )
+            const result = await mergeService.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: second,
+                otherPersonDistinctId: secondUserDistinctId,
+            })
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have succeeded')
+            }
+            // kafkaAck wraps both the person messages and the merge event; it must resolve.
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            const mergeProduceCalls = produceSpy.mock.calls.filter(
+                (call) => call[0].topic === KAFKA_PERSON_MERGE_EVENTS
+            )
+            expect(mergeProduceCalls).toHaveLength(1)
+
+            // second (P_old) is the deleted source; first (P_new) is the target.
+            const expectedKey = `${teamId}:${secondUserUuid}`
+            const mergeMessage = mergeProduceCalls[0][0]
+            expect(mergeMessage.key).toBe(expectedKey)
+            expect(mergeMessage.partition).toBe(murmur2Partition(expectedKey, 64))
+
+            const payload = parseJSON((mergeMessage.value as Buffer).toString())
+            expect(payload).toMatchObject({
+                team_id: teamId,
+                old_person_uuid: secondUserUuid,
+                new_person_uuid: firstUserUuid,
+                schema_version: 1,
+            })
+            expect(typeof payload.merged_at_ms).toBe('number')
+        })
+
+        it(`does not emit a person_merge_events message when the merge rolls back (moveDistinctIds throws)`, async () => {
+            mockProducerObserver.resetKafkaProducer()
+            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+                distinctId: secondUserDistinctId,
+            })
+
+            const mergeService = personMergeService(
+                {},
+                hub,
+                personRepository,
+                true,
+                timestamp,
+                mainTeam,
+                createDefaultSyncMergeMode(),
+                { enabled: true, partitionCount: 64 }
+            )
+            // Force the transaction to fail before the post-commit emission point.
+            jest.spyOn(BatchWritingPersonsStore.prototype, 'inTransaction').mockRejectedValueOnce(
+                new Error('moveDistinctIds blew up')
+            )
+
+            await expect(
+                mergeService.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: firstUserDistinctId,
+                    otherPerson: second,
+                    otherPersonDistinctId: secondUserDistinctId,
+                })
+            ).rejects.toThrow()
+
+            expect(getMergeEventMessages()).toHaveLength(0)
+        })
+
+        it(`does not emit a person_merge_events message when the merge is not allowed (already identified)`, async () => {
+            mockProducerObserver.resetKafkaProducer()
+            // Both persons already identified → $identify refuses the merge (isMergeAllowed=false).
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, {
+                distinctId: oldUserDistinctId,
+            })
+            await createPerson(hub, timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, {
+                distinctId: newUserDistinctId,
+            })
+
+            const result = await personMergeService(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: { $anon_distinct_id: oldUserDistinctId },
+                },
+                hub,
+                personRepository,
+                true,
+                timestamp,
+                mainTeam,
+                createDefaultSyncMergeMode(),
+                { enabled: true, partitionCount: 64 }
+            ).handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Refused merges still return a success result')
+            }
+            await kafkaProducer.flush()
+            await result.kafkaAck
+
+            // Both persons survive; no merge happened, so no merge event.
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(2)
+            expect(getMergeEventMessages()).toHaveLength(0)
         })
 
         it(`hitting the move limit drops the event: no merge, no IDs moved, goes to DLQ`, async () => {

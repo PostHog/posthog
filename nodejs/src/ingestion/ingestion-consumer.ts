@@ -42,6 +42,7 @@ import {
     EventOutput,
     HeatmapsOutput,
     PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
     PersonsOutput,
 } from './analytics/outputs'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
@@ -81,6 +82,7 @@ export interface IngestionConsumerDeps {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
         | AppMetricsOutput
         | TophogOutput
     >
@@ -282,6 +284,8 @@ export class IngestionConsumer {
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
+                PERSON_MERGE_EVENTS_ENABLED: this.config.PERSON_MERGE_EVENTS_ENABLED,
+                PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             },

@@ -19,6 +19,7 @@ use cohort_stream_processor::consumers::{
     TransferRoute,
 };
 use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
+use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
 use cohort_stream_processor::partitions::{
@@ -117,9 +118,15 @@ async fn async_main(config: Config) -> Result<()> {
         .context("creating shadow producer")?,
     );
 
+    // Only the transfer sink gets the shorter `message.timeout.ms`: its produce runs inline on a
+    // partition worker under a bounded retry loop, so a long per-attempt timeout would multiply into
+    // a worker hold past the 30 s graceful-shutdown window. The membership and re-key sinks keep the
+    // shared 20 s — membership drops on fail (at-most-once) and the re-key produce rides the
+    // events-path offset gate (held-then-redelivered), so neither blocks a worker for the full timeout.
+    let transfer_kafka_config = config.build_transfer_kafka_config();
     let transfer_sink: Arc<dyn TransferSink> = Arc::new(
         KafkaTransferSink::new(
-            &kafka_config,
+            &transfer_kafka_config,
             config.cohort_merge_state_transfer_topic.clone(),
         )
         .await
@@ -136,6 +143,7 @@ async fn async_main(config: Config) -> Result<()> {
         merge_tracker: Arc::new(OffsetTracker::new()),
         transfer_tracker: Arc::new(OffsetTracker::new()),
         retry: config.transfer_retry_policy(),
+        gc_scan_limit: config.merge_gc_scan_limit,
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -225,12 +233,25 @@ async fn async_main(config: Config) -> Result<()> {
     tokio::spawn(run_sweep_loop(
         DispatchSweeper::new(dispatcher.clone(), config.sweep_safety_margin_ms as i64),
         config.sweep_interval(),
+        "eviction",
         consumer_handle.shutdown_token(),
     ));
 
     tokio::spawn(run_sweep_loop(
         RedriveSweeper::new(dispatcher.clone()),
         config.merge_redrive_interval(),
+        "redrive",
+        consumer_handle.shutdown_token(),
+    ));
+
+    tokio::spawn(run_sweep_loop(
+        MergeGcSweeper::new(
+            dispatcher.clone(),
+            config.merge_marker_retention_ms as i64,
+            config.merge_tombstone_retention_ms as i64,
+        ),
+        config.merge_gc_interval(),
+        "merge_gc",
         consumer_handle.shutdown_token(),
     ));
 

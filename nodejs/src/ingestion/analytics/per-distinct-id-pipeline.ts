@@ -22,6 +22,7 @@ import {
     EventOutput,
     HeatmapsOutput,
     PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
     PersonsOutput,
 } from './outputs'
 
@@ -30,7 +31,13 @@ export type PerDistinctIdPipelineInput = EventSubpipelineInput & HeatmapSubpipel
 export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions
     outputs: IngestionOutputs<
-        EventOutput | AiEventOutput | HeatmapsOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
+        | EventOutput
+        | AiEventOutput
+        | HeatmapsOutput
+        | IngestionWarningsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
     teamManager: TeamManager

@@ -34,7 +34,10 @@ pub fn due_before_ms(now_ms: i64, safety_margin_ms: i64) -> i64 {
 }
 
 /// Drive the periodic sweep until `cancel` fires, invoking `sweeper.run_once()` once per tick and
-/// recording [`SWEEP_CYCLES_TOTAL`] + [`SWEEP_CYCLE_DURATION_SECONDS`].
+/// recording [`SWEEP_CYCLES_TOTAL`] + [`SWEEP_CYCLE_DURATION_SECONDS`], both labelled by `loop_name`.
+///
+/// `loop_name` (`eviction`|`redrive`|`merge_gc`) labels the cycle metrics so the three concurrent
+/// loops — same timer machinery, different cadences — stay distinguishable.
 ///
 /// - **`MissedTickBehavior::Skip`**: if a sweep runs long or the task is starved, the timer drops the
 ///   ticks it slept through rather than firing a catch-up burst — one sweep then resumes on the
@@ -42,24 +45,33 @@ pub fn due_before_ms(now_ms: i64, safety_margin_ms: i64) -> i64 {
 /// - **`biased` select, cancel first**: a shutdown requested mid-interval is honored before the next
 ///   tick. An in-flight `run_once` is never interrupted — `select!` only races the two *futures*, so
 ///   once `run_once` is being polled it runs to completion before the loop re-checks `cancel`.
-pub async fn run_sweep_loop<S: Sweeper>(sweeper: S, interval: Duration, cancel: CancellationToken) {
+pub async fn run_sweep_loop<S: Sweeper>(
+    sweeper: S,
+    interval: Duration,
+    loop_name: &'static str,
+    cancel: CancellationToken,
+) {
     let mut ticker = tokio::time::interval(interval);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    info!(interval_ms = interval.as_millis(), "sweep loop started");
+    info!(
+        interval_ms = interval.as_millis(),
+        loop_name, "sweep loop started"
+    );
 
     loop {
         tokio::select! {
             biased;
             _ = cancel.cancelled() => {
-                info!("sweep loop stopping on shutdown signal");
+                info!(loop_name, "sweep loop stopping on shutdown signal");
                 break;
             }
             _ = ticker.tick() => {
                 let started = Instant::now();
                 sweeper.run_once().await;
-                histogram!(SWEEP_CYCLE_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
-                counter!(SWEEP_CYCLES_TOTAL).increment(1);
-                debug!("sweep cycle completed");
+                histogram!(SWEEP_CYCLE_DURATION_SECONDS, "loop" => loop_name)
+                    .record(started.elapsed().as_secs_f64());
+                counter!(SWEEP_CYCLES_TOTAL, "loop" => loop_name).increment(1);
+                debug!(loop_name, "sweep cycle completed");
             }
         }
     }
@@ -107,7 +119,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let interval = Duration::from_secs(30);
 
-        let handle = tokio::spawn(run_sweep_loop(sweeper, interval, cancel.clone()));
+        let handle = tokio::spawn(run_sweep_loop(sweeper, interval, "test", cancel.clone()));
 
         // `tokio::time::interval`'s first tick fires immediately, so the loop sweeps once at startup.
         tokio::task::yield_now().await;
@@ -131,7 +143,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let interval = Duration::from_secs(30);
 
-        let handle = tokio::spawn(run_sweep_loop(sweeper, interval, cancel.clone()));
+        let handle = tokio::spawn(run_sweep_loop(sweeper, interval, "test", cancel.clone()));
         tokio::task::yield_now().await; // immediate first tick
         assert_eq!(count.load(Ordering::SeqCst), 1);
 

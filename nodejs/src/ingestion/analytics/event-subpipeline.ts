@@ -23,7 +23,14 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../pipelines/extensions/tophog'
 import { isDropResult } from '../pipelines/results'
-import { AsyncOutput, EVENTS_OUTPUT, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
+import {
+    AsyncOutput,
+    EVENTS_OUTPUT,
+    EventOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from './outputs'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -34,7 +41,9 @@ export interface EventSubpipelineInput {
 
 export interface EventSubpipelineConfig {
     options: EventPipelineRunnerOptions
-    outputs: IngestionOutputs<EventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput>
+    outputs: IngestionOutputs<
+        EventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput | PersonMergeEventsOutput
+    >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService

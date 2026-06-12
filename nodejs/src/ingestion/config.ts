@@ -137,6 +137,10 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_TOPIC: string
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
+    // Kill switch for emitting person_merge_events to the cohort-stream-processor.
+    PERSON_MERGE_EVENTS_ENABLED: boolean
+    // Must equal the person_merge_events topic partition count and the Rust COHORT_PARTITION_COUNT.
+    PERSON_MERGE_EVENTS_PARTITION_COUNT: number
 
     // Group batch writing config
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
@@ -248,6 +252,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_ASYNC_TOPIC: '',
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+        PERSON_MERGE_EVENTS_ENABLED: false,
+        PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
 
         // Group batch writing config
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
@@ -390,6 +396,9 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_PERSON_DISTINCT_IDS_SECONDARY_PERCENTAGE: number
     INGESTION_OUTPUT_PERSON_DISTINCT_IDS_SECONDARY_TEAM_DENYLIST: string
 
+    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC: string
+    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_PRODUCER: ProducerName
+
     INGESTION_OUTPUT_APP_METRICS_TOPIC: string
     INGESTION_OUTPUT_APP_METRICS_PRODUCER: ProducerName
     INGESTION_OUTPUT_APP_METRICS_SECONDARY_TOPIC: string
@@ -481,6 +490,9 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         INGESTION_OUTPUT_PERSON_DISTINCT_IDS_SECONDARY_MODE: 'off',
         INGESTION_OUTPUT_PERSON_DISTINCT_IDS_SECONDARY_PERCENTAGE: 0,
         INGESTION_OUTPUT_PERSON_DISTINCT_IDS_SECONDARY_TEAM_DENYLIST: '',
+        // Empty topic skips the startup topic-existence check.
+        INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC: '',
+        INGESTION_OUTPUT_PERSON_MERGE_EVENTS_PRODUCER: DEFAULT_PRODUCER,
         INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         INGESTION_OUTPUT_APP_METRICS_PRODUCER: DEFAULT_PRODUCER,
         INGESTION_OUTPUT_APP_METRICS_SECONDARY_TOPIC: '',

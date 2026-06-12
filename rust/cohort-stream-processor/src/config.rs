@@ -120,10 +120,55 @@ pub struct Config {
     #[envconfig(default = "8000")]
     pub merge_transfer_retry_cap_ms: u64,
 
+    /// `message.timeout.ms` for the transfer producer alone — much shorter than the shared 20 s so a
+    /// single produce attempt fast-fails against a black-hole broker instead of stalling a worker.
+    /// The inline retry loop wraps `merge_transfer_max_retries + 1` attempts; the budget only holds
+    /// inside the 30 s graceful-shutdown window if each attempt itself fast-fails. See
+    /// `build_transfer_kafka_config` and the budget arithmetic in `workers::merge_path`.
+    #[envconfig(default = "2000")]
+    pub merge_transfer_message_timeout_ms: u32,
+
     /// How often the redrive scans `cf_pending_transfers` and re-produces staged transfers whose
     /// inline retry budget was exhausted.
     #[envconfig(default = "60000")]
     pub merge_redrive_interval_ms: u64,
+
+    // --- Merge-CF garbage collection retention ---
+    //
+    // The merge idempotence markers (`cf_merge_drains_applied`, `cf_merge_applied`) and the redirect
+    // tombstones (`cf_merge_tombstones`) are written once and never overwritten, so they accumulate
+    // until evicted. A periodic scan-based sweep deletes entries whose value timestamp is older than
+    // the retention floor below. Marker CFs use `merge_marker_retention_ms`; tombstones use the
+    // longer `merge_tombstone_retention_ms` (they also guard the events topics, not just the merge
+    // topic). `cf_pending_transfers` is the redrive's outbox and is NEVER GC'd here.
+    //
+    // STANDING COUPLING: these floors are derived from the Kafka topic `retention.ms` values pinned
+    // in Terraform (`person_merge_events`/`cohort_merge_state_transfer` = 7d, `cohort_stream_events`
+    // = 24h, `clickhouse_events_json` = 7d). If any of those `retention.ms` values change, these
+    // knobs MUST follow — a marker evicted before its source topic's retention lapses re-opens the
+    // replay-dedup window it exists to close.
+    /// Retention floor for both merge marker CFs (`cf_merge_drains_applied`, `cf_merge_applied`). A
+    /// marker is GC'd once its `drained_at_ms` / `applied_at_ms` is older than `now − this`. Default
+    /// 8d = 7d merge-topic retention + 1d safety: a marker must outlive every replay of the
+    /// 7d-retention `person_merge_events` / `cohort_merge_state_transfer` topics.
+    #[envconfig(default = "691200000")]
+    pub merge_marker_retention_ms: u64,
+
+    /// Retention floor for `cf_merge_tombstones`. A tombstone is GC'd once its `merged_at_ms` is
+    /// older than `now − this`. Default 9d = `clickhouse_events_json` 7d + `cohort_stream_events`
+    /// 24h + 1d safety: a tombstone must outlive every straggler event the redirect closes.
+    #[envconfig(default = "777600000")]
+    pub merge_tombstone_retention_ms: u64,
+
+    /// How often the merge-CF GC sweep fires. Default 1h.
+    #[envconfig(default = "3600000")]
+    pub merge_gc_interval_ms: u64,
+
+    /// Max keys scanned (and at most deleted) per CF, per partition, per GC tick. Bounds the GC's
+    /// per-tick work; the per-CF resume cursor continues where the last tick stopped. Default 10k —
+    /// at the prod merge rate (~16k markers/day/partition) that is ~15× headroom over the 1h cadence.
+    #[envconfig(default = "10000")]
+    pub merge_gc_scan_limit: usize,
 
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
@@ -235,6 +280,11 @@ impl Config {
     /// How often the pending-transfer redrive fires.
     pub fn merge_redrive_interval(&self) -> Duration {
         Duration::from_millis(self.merge_redrive_interval_ms)
+    }
+
+    /// How often the merge-CF GC sweep fires.
+    pub fn merge_gc_interval(&self) -> Duration {
+        Duration::from_millis(self.merge_gc_interval_ms)
     }
 
     /// RocksDB settings for the state store.
@@ -353,6 +403,17 @@ impl Config {
             kafka_producer_sticky_partitioning_linger_ms: None,
         }
     }
+
+    /// Producer config for the merge state-transfer sink: the shared config with a shorter
+    /// `message.timeout.ms`. The transfer produce runs inline on a partition worker under a bounded
+    /// retry loop, so a long per-attempt timeout multiplies into a worst-case worker hold that blows
+    /// the 30 s graceful-shutdown window (see the budget arithmetic in `workers::merge_path`).
+    pub fn build_transfer_kafka_config(&self) -> KafkaConfig {
+        KafkaConfig {
+            kafka_message_timeout_ms: self.merge_transfer_message_timeout_ms,
+            ..self.build_kafka_config()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -387,7 +448,12 @@ mod tests {
             merge_transfer_max_retries: 5,
             merge_transfer_retry_base_ms: 500,
             merge_transfer_retry_cap_ms: 8000,
+            merge_transfer_message_timeout_ms: 2000,
             merge_redrive_interval_ms: 60_000,
+            merge_marker_retention_ms: 691_200_000,
+            merge_tombstone_retention_ms: 777_600_000,
+            merge_gc_interval_ms: 3_600_000,
+            merge_gc_scan_limit: 10_000,
             kafka_session_timeout_ms: 60000,
             pod_name: None,
             pod_hostname: None,
@@ -557,6 +623,80 @@ mod tests {
             config.merge_redrive_interval(),
             Duration::from_millis(60_000)
         );
+        // The transfer sink fast-fails per attempt; the shared sink keeps the 20 s timeout.
+        assert_eq!(config.merge_transfer_message_timeout_ms, 2000);
+        assert_eq!(
+            config
+                .build_transfer_kafka_config()
+                .kafka_message_timeout_ms,
+            2000,
+        );
+        assert_eq!(config.build_kafka_config().kafka_message_timeout_ms, 20_000);
+    }
+
+    #[test]
+    fn merge_gc_defaults_match_the_tdd_retention_floors() {
+        let config = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        // 8d = 7d merge-topic retention + 1d safety — covers both marker CFs.
+        assert_eq!(config.merge_marker_retention_ms, 691_200_000);
+        assert_eq!(
+            config.merge_marker_retention_ms,
+            (7 + 1) * 24 * 60 * 60 * 1000,
+        );
+        // 9d = events 7d + stream 24h + 1d safety.
+        assert_eq!(config.merge_tombstone_retention_ms, 777_600_000);
+        assert_eq!(
+            config.merge_tombstone_retention_ms,
+            (7 * 24 + 24 + 24) * 60 * 60 * 1000,
+        );
+        assert_eq!(config.merge_gc_interval(), Duration::from_millis(3_600_000));
+        assert_eq!(config.merge_gc_scan_limit, 10_000);
+    }
+
+    #[test]
+    fn merge_gc_knobs_override_from_env() {
+        let env: std::collections::HashMap<String, String> = [
+            ("MERGE_MARKER_RETENTION_MS", "123"),
+            ("MERGE_TOMBSTONE_RETENTION_MS", "456"),
+            ("MERGE_GC_INTERVAL_MS", "789"),
+            ("MERGE_GC_SCAN_LIMIT", "5"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.merge_marker_retention_ms, 123);
+        assert_eq!(config.merge_tombstone_retention_ms, 456);
+        assert_eq!(config.merge_gc_interval(), Duration::from_millis(789));
+        assert_eq!(config.merge_gc_scan_limit, 5);
+    }
+
+    #[test]
+    fn build_transfer_kafka_config_overrides_only_the_message_timeout() {
+        let config = test_config();
+        let shared = config.build_kafka_config();
+        let transfer = config.build_transfer_kafka_config();
+        // Only `message.timeout.ms` differs; every other producer knob is inherited.
+        assert_eq!(transfer.kafka_message_timeout_ms, 2000);
+        assert_eq!(shared.kafka_message_timeout_ms, 20_000);
+        assert_eq!(
+            transfer.kafka_producer_partitioner,
+            shared.kafka_producer_partitioner,
+        );
+        assert_eq!(transfer.kafka_hosts, shared.kafka_hosts);
+        assert_eq!(
+            transfer.kafka_compression_codec,
+            shared.kafka_compression_codec
+        );
+        assert_eq!(
+            transfer.kafka_producer_linger_ms,
+            shared.kafka_producer_linger_ms
+        );
+        assert_eq!(
+            transfer.kafka_producer_queue_mib,
+            shared.kafka_producer_queue_mib
+        );
     }
 
     #[test]
@@ -569,6 +709,7 @@ mod tests {
             ("MERGE_TRANSFER_MAX_RETRIES", "2"),
             ("MERGE_TRANSFER_RETRY_BASE_MS", "100"),
             ("MERGE_TRANSFER_RETRY_CAP_MS", "400"),
+            ("MERGE_TRANSFER_MESSAGE_TIMEOUT_MS", "750"),
             ("MERGE_REDRIVE_INTERVAL_MS", "5000"),
         ]
         .into_iter()
@@ -589,6 +730,13 @@ mod tests {
             },
         );
         assert_eq!(config.merge_redrive_interval(), Duration::from_millis(5000));
+        assert_eq!(config.merge_transfer_message_timeout_ms, 750);
+        assert_eq!(
+            config
+                .build_transfer_kafka_config()
+                .kafka_message_timeout_ms,
+            750,
+        );
     }
 
     #[test]

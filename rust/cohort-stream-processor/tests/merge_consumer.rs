@@ -49,7 +49,9 @@ use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord}
 use cohort_stream_processor::store::{
     CohortStore, LeafStateKey, Stage1Key, StoreConfig, TombstoneKey,
 };
-use cohort_stream_processor::workers::{MergeWorkerDeps, TransferRetryPolicy};
+use cohort_stream_processor::workers::{
+    MergeWorkerDeps, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT,
+};
 use common_kafka::config::KafkaConfig;
 use futures::FutureExt;
 use lifecycle::{ComponentOptions, Handle, Manager};
@@ -601,6 +603,7 @@ async fn spawn_instance(
         merge_tracker: Arc::new(OffsetTracker::new()),
         transfer_tracker: Arc::new(OffsetTracker::new()),
         retry: TransferRetryPolicy::default(),
+        gc_scan_limit: DEFAULT_MERGE_GC_SCAN_LIMIT,
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(

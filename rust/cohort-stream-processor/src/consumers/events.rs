@@ -319,6 +319,18 @@ impl EventDispatcher {
             .await;
     }
 
+    /// Route a [`ShuffleMessage::MergeCfGc`] tick to every owned partition's worker, so each
+    /// garbage-collects expired merge markers/tombstones. The cutoffs are computed by the sweeper and
+    /// passed through verbatim, keeping the worker clock-free. Same no-spawn posture as
+    /// [`route_sweep`](Self::route_sweep) — a GC tick must never resurrect a revoked partition.
+    pub async fn route_merge_gc(&self, marker_cutoff_ms: i64, tombstone_cutoff_ms: i64) {
+        self.route_to_owned(|| ShuffleMessage::MergeCfGc {
+            marker_cutoff_ms,
+            tombstone_cutoff_ms,
+        })
+        .await;
+    }
+
     /// Shared skeleton for time-driven ticks: draining gate → owned snapshot → route (no spawn).
     async fn route_to_owned(&self, make_message: impl Fn() -> ShuffleMessage) {
         if self.draining.load(Ordering::SeqCst) {
@@ -662,7 +674,7 @@ mod tests {
 
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder, TeamId};
     use crate::merge::transfer::{
-        MergeStateTransfer, PendingTransfer, PersonMergeEvent, TransferLeaf,
+        MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, TransferLeaf,
         MERGE_EVENT_SCHEMA_VERSION,
     };
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
@@ -892,6 +904,7 @@ mod tests {
             merge_tracker: Arc::new(OffsetTracker::new()),
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
+            gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
@@ -2021,6 +2034,91 @@ mod tests {
             merge.transfer_tracker.committable_offsets().get(&target),
             Some(&2),
             "both copies settled (applied + AlreadyApplied)",
+        );
+    }
+
+    #[tokio::test]
+    async fn route_merge_gc_is_benign_with_no_workers_or_unowned_partitions() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        // Owned but workerless: routes the tick, never spawns a worker.
+        dispatcher.assign_partition(0);
+        dispatcher.route_merge_gc(1_000, 500).await;
+        assert_eq!(dispatcher.workers.len(), 0, "GC never spawns a worker");
+        assert_eq!(
+            dispatcher.router.partition_count(),
+            0,
+            "no channel registered"
+        );
+
+        // Unowned: nothing to route.
+        dispatcher.revoke_partition_sync(0);
+        dispatcher.route_merge_gc(1_000, 500).await;
+    }
+
+    #[tokio::test]
+    async fn route_merge_gc_round_trip_deletes_expired_markers_and_keeps_fresh_ones() {
+        let (_dir, store) = temp_store();
+        let catalog = behavioral_catalog();
+        let dispatcher = dispatcher_with(&store, catalog);
+
+        let partition = 3i32;
+        let partition_id = partition as u16;
+        dispatcher.assign_partition(partition);
+
+        // An event spawns the worker so the routed GC tick has a live channel to land on.
+        dispatcher
+            .dispatch(vec![consumed(person(1), partition, 0)])
+            .await;
+
+        // Stage one expired and one fresh tombstone directly. Cutoffs: marker 10_000, tombstone 5_000.
+        let marker_cutoff = 10_000;
+        let tombstone_cutoff = 5_000;
+        let expired = TombstoneKey {
+            partition_id,
+            team_id: TEAM as u64,
+            person: person(10),
+        };
+        let fresh = TombstoneKey {
+            partition_id,
+            team_id: TEAM as u64,
+            person: person(11),
+        };
+        store
+            .write_batch(|batch| {
+                batch.put_tombstone(
+                    &expired,
+                    &Tombstone {
+                        new_person: person(99),
+                        merged_at_ms: tombstone_cutoff - 1,
+                    }
+                    .encode(),
+                );
+                batch.put_tombstone(
+                    &fresh,
+                    &Tombstone {
+                        new_person: person(99),
+                        merged_at_ms: tombstone_cutoff + 1,
+                    }
+                    .encode(),
+                );
+            })
+            .unwrap();
+
+        dispatcher
+            .route_merge_gc(marker_cutoff, tombstone_cutoff)
+            .await;
+        // Shutdown drains the worker, so the routed GC message is fully processed.
+        let _tracker = dispatcher.shutdown().await;
+
+        assert!(
+            store.get_tombstone(&expired).unwrap().is_none(),
+            "the expired tombstone was GC'd end to end",
+        );
+        assert!(
+            store.get_tombstone(&fresh).unwrap().is_some(),
+            "the in-retention tombstone survived",
         );
     }
 

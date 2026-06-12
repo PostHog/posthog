@@ -86,6 +86,9 @@ pub enum StoreError {
     },
 }
 
+/// One scanned key/value pair as raw bytes — the merge-CF GC decodes each per CF.
+pub type RawKv = (Vec<u8>, Vec<u8>);
+
 /// Handle to the per-process state store.
 #[derive(Clone)]
 pub struct CohortStore {
@@ -248,6 +251,58 @@ impl CohortStore {
         Ok(out)
     }
 
+    /// Scan up to `limit` raw `(key, value)` pairs from one partition's slice of a merge CF, in key
+    /// order, resuming strictly *after* `start_after` (exclusive) when given.
+    ///
+    /// Returns raw bytes (not typed keys/values) so the merge-CF GC handler can decode each CF's own
+    /// value-timestamp shape (`DrainStamp` / `ApplyStamp` / `Tombstone`) and keep the last key as its
+    /// resume cursor. Intended for the GC-able merge CFs only; `cf_pending_transfers` is the redrive's
+    /// outbox and no GC path passes it (see [`crate::merge::gc`]).
+    pub fn scan_merge_cf(
+        &self,
+        cf: Cf,
+        partition_id: u16,
+        start_after: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<Vec<RawKv>, StoreError> {
+        let (prefix_start, prefix_end) = keys::partition_range(partition_id);
+        let handle = self.cf(cf)?;
+
+        // Resume after the cursor when it falls inside this partition, else at the prefix start.
+        // `successor` is the smallest key strictly greater than the cursor, turning the inclusive
+        // `IteratorMode::From(_, Forward)` seek into an exclusive resume.
+        let begin: Vec<u8> = match start_after {
+            Some(cursor) if cursor >= prefix_start.as_slice() && cursor < prefix_end.as_slice() => {
+                successor(cursor)
+            }
+            _ => prefix_start.clone(),
+        };
+
+        let mut read_opts = ReadOptions::default();
+        read_opts.set_iterate_upper_bound(prefix_end);
+        let iter = self.db.iterator_cf_opt(
+            handle,
+            read_opts,
+            IteratorMode::From(&begin, Direction::Forward),
+        );
+
+        let mut out = Vec::with_capacity(limit.min(1024));
+        for item in iter {
+            if out.len() == limit {
+                break;
+            }
+            let (key_bytes, value) = item.map_err(|source| {
+                counter!(STORE_ERRORS_TOTAL, "op" => OP_SCAN).increment(1);
+                StoreError::Backend {
+                    op: OP_SCAN,
+                    source,
+                }
+            })?;
+            out.push((key_bytes.to_vec(), value.to_vec()));
+        }
+        Ok(out)
+    }
+
     /// Reclaim all state for one partition on rebalance.
     pub fn delete_partition(&self, partition_id: u16) -> Result<(), StoreError> {
         let (start, end) = keys::partition_range(partition_id);
@@ -357,6 +412,12 @@ impl BatchBuilder<'_> {
             .put_cf(self.merge_drains_applied, key.encode(), value);
     }
 
+    /// GC-delete one expired Phase 1 idempotence marker.
+    pub fn delete_merge_drain_applied(&mut self, key: &MergeDrainKey) {
+        self.batch
+            .delete_cf(self.merge_drains_applied, key.encode());
+    }
+
     /// Stage a packaged merge into the outbox.
     pub fn put_pending_transfer(&mut self, key: &PendingTransferKey, value: &[u8]) {
         self.batch
@@ -373,10 +434,20 @@ impl BatchBuilder<'_> {
         self.batch.put_cf(self.merge_applied, key.encode(), value);
     }
 
+    /// GC-delete one expired Phase 2 idempotence marker.
+    pub fn delete_merge_applied(&mut self, key: &MergeAppliedKey) {
+        self.batch.delete_cf(self.merge_applied, key.encode());
+    }
+
     /// Stage the redirect tombstone for a merged-away person.
     pub fn put_tombstone(&mut self, key: &TombstoneKey, value: &[u8]) {
         self.batch
             .put_cf(self.merge_tombstones, key.encode(), value);
+    }
+
+    /// GC-delete one expired redirect tombstone.
+    pub fn delete_tombstone(&mut self, key: &TombstoneKey) {
+        self.batch.delete_cf(self.merge_tombstones, key.encode());
     }
 
     /// Raw put by pre-encoded key bytes. Restricted to [`OpaqueCf`].
@@ -387,6 +458,15 @@ impl BatchBuilder<'_> {
         };
         self.batch.put_cf(handle, key, value);
     }
+}
+
+/// The smallest byte string strictly greater than `key`: `key` with a trailing `0x00` appended.
+/// Used to turn an inclusive `IteratorMode::From` seek into an exclusive resume past a cursor.
+fn successor(key: &[u8]) -> Vec<u8> {
+    let mut next = Vec::with_capacity(key.len() + 1);
+    next.extend_from_slice(key);
+    next.push(0x00);
+    next
 }
 
 fn db_options(config: &StoreConfig) -> Options {
@@ -509,6 +589,80 @@ mod tests {
         assert!(
             store.multi_get_stage1(&[]).unwrap().is_empty(),
             "an empty key set reads no values",
+        );
+    }
+
+    #[test]
+    fn scan_merge_cf_resumes_after_the_cursor_and_honors_the_limit_and_partition_bounds() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let tombstone_key = |partition_id: u16, person: u128| TombstoneKey {
+            partition_id,
+            team_id: 7,
+            person: Uuid::from_u128(person),
+        };
+
+        // Four tombstones in partition 5, one in partition 6 (must never surface for a p=5 scan).
+        store
+            .write_batch(|batch| {
+                for person in 1..=4u128 {
+                    batch.put_tombstone(&tombstone_key(5, person), b"v");
+                }
+                batch.put_tombstone(&tombstone_key(6, 9), b"other-partition");
+            })
+            .unwrap();
+
+        // First page: limit 2, no cursor → the two smallest keys in partition 5.
+        let page1 = store
+            .scan_merge_cf(Cf::MergeTombstones, 5, None, 2)
+            .unwrap();
+        assert_eq!(page1.len(), 2);
+        let decoded: Vec<_> = page1
+            .iter()
+            .map(|(k, _)| TombstoneKey::decode(k).unwrap().person)
+            .collect();
+        assert_eq!(
+            decoded,
+            vec![Uuid::from_u128(1), Uuid::from_u128(2)],
+            "key-ordered ascending",
+        );
+
+        // Second page: resume strictly after the last key from page 1.
+        let cursor = page1.last().unwrap().0.clone();
+        let page2 = store
+            .scan_merge_cf(Cf::MergeTombstones, 5, Some(&cursor), 10)
+            .unwrap();
+        let decoded2: Vec<_> = page2
+            .iter()
+            .map(|(k, _)| TombstoneKey::decode(k).unwrap().person)
+            .collect();
+        assert_eq!(
+            decoded2,
+            vec![Uuid::from_u128(3), Uuid::from_u128(4)],
+            "resumes past the cursor, never re-emits it, and stays inside partition 5",
+        );
+
+        // A cursor at the partition's last key → empty (exhausted), wrapping is the caller's job.
+        let last_cursor = page2.last().unwrap().0.clone();
+        let exhausted = store
+            .scan_merge_cf(Cf::MergeTombstones, 5, Some(&last_cursor), 10)
+            .unwrap();
+        assert!(exhausted.is_empty(), "no keys past the partition's last");
+
+        // A cursor that is not in this partition falls back to a fresh prefix scan.
+        let foreign_cursor = tombstone_key(6, 9).encode().to_vec();
+        let fresh = store
+            .scan_merge_cf(Cf::MergeTombstones, 5, Some(&foreign_cursor), 10)
+            .unwrap();
+        assert_eq!(
+            fresh.len(),
+            4,
+            "out-of-partition cursor rescans from the start"
         );
     }
 

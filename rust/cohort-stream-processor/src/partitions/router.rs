@@ -225,7 +225,8 @@ mod tests {
                 ShuffleMessage::Sweep { .. }
                 | ShuffleMessage::Merge { .. }
                 | ShuffleMessage::Transfer { .. }
-                | ShuffleMessage::RedrivePendingTransfers => {
+                | ShuffleMessage::RedrivePendingTransfers
+                | ShuffleMessage::MergeCfGc { .. } => {
                     unreachable!("router tests route only events")
                 }
             })

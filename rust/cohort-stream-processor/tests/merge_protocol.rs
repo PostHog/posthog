@@ -16,10 +16,13 @@ use cohort_stream_processor::partitions::{partition_of, COHORT_PARTITION_COUNT};
 use cohort_stream_processor::producer::{now_last_updated, MembershipStatus};
 use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord};
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, PendingTransferKey, Stage1Key, StoreConfig, TombstoneKey,
+    CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage1Key,
+    StoreConfig, TombstoneKey,
 };
 use cohort_stream_processor::sweep::EvictionQueue;
-use cohort_stream_processor::workers::{compose_stage2, process_event};
+use cohort_stream_processor::workers::{
+    compose_stage2, handle_merge_gc, process_event, MergeGcCursor,
+};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -747,5 +750,192 @@ fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
     assert_eq!(
         after, staged,
         "an empty re-drain must not overwrite the pending transfer",
+    );
+}
+
+/// End-to-end retention: a cross-partition drain + apply writes a drain marker + tombstone on P_old's
+/// partition and an apply marker on P_new's. While still in retention (cutoff < merged_at) the GC is
+/// a no-op and the markers keep deduping replays; once the cutoff advances past merged_at the GC
+/// reclaims all three, and a replayed merge/transfer then re-runs (the dedup window has closed).
+#[test]
+fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = build_filters();
+
+    let p_old = Uuid::from_u128(0x9C1D);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    let p_new_part = part(p_new);
+    assert_ne!(
+        p_old_part, p_new_part,
+        "test requires a cross-partition pair"
+    );
+
+    fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
+    fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
+
+    // Drain (coords (5, 100)) + apply (transfer coords (5, 7)). All three CF entries carry MERGED_AT.
+    let mut old_queue = EvictionQueue::<Stage1Key>::new();
+    let transfer = match handle_merge_event(
+        p_old_part,
+        &store,
+        &filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        &mut old_queue,
+    )
+    .unwrap()
+    {
+        DrainOutcome::Drained { transfer } => transfer,
+        other => panic!("expected Drained, got {other:?}"),
+    };
+    let mut new_queue = EvictionQueue::<Stage1Key>::new();
+    assert!(matches!(
+        handle_transfer(
+            p_new_part,
+            &store,
+            &filters,
+            &transfer,
+            (5, 7),
+            &mut new_queue
+        )
+        .unwrap(),
+        ApplyOutcome::Applied { .. }
+    ));
+
+    let drain_key = MergeDrainKey {
+        partition_id: p_old_part,
+        team_id: TEAM as u64,
+        old_person: p_old,
+        merge_msg_partition: 5,
+        merge_msg_offset: 100,
+    };
+    let applied_key = MergeAppliedKey {
+        partition_id: p_new_part,
+        team_id: TEAM as u64,
+        new_person: p_new,
+        source_partition: 5,
+        source_offset: 100,
+    };
+    let tombstone_key = TombstoneKey {
+        partition_id: p_old_part,
+        team_id: TEAM as u64,
+        person: p_old,
+    };
+    assert!(store.get_merge_drain_applied(&drain_key).unwrap().is_some());
+    assert!(store.get_merge_applied(&applied_key).unwrap().is_some());
+    assert!(store.get_tombstone(&tombstone_key).unwrap().is_some());
+
+    // (a) In retention: cutoffs strictly before merged_at → GC deletes nothing on either partition.
+    let mut old_cursor = MergeGcCursor::default();
+    let mut new_cursor = MergeGcCursor::default();
+    let in_retention = MERGED_AT - 1;
+    handle_merge_gc(
+        p_old_part,
+        &store,
+        &mut old_cursor,
+        in_retention,
+        in_retention,
+        10_000,
+    );
+    handle_merge_gc(
+        p_new_part,
+        &store,
+        &mut new_cursor,
+        in_retention,
+        in_retention,
+        10_000,
+    );
+
+    assert!(
+        store.get_merge_drain_applied(&drain_key).unwrap().is_some(),
+        "in-retention drain marker survives",
+    );
+    assert!(
+        store.get_merge_applied(&applied_key).unwrap().is_some(),
+        "in-retention apply marker survives",
+    );
+    assert!(
+        store.get_tombstone(&tombstone_key).unwrap().is_some(),
+        "in-retention tombstone survives",
+    );
+
+    // The surviving markers still dedupe a replay: re-drain at the SAME coords short-circuits, and
+    // the duplicate transfer (fresh transfer coords, same source coords) is AlreadyApplied.
+    assert_eq!(
+        handle_merge_event(
+            p_old_part,
+            &store,
+            &filters,
+            &merge_event(p_old, p_new),
+            (5, 100),
+            &mut old_queue,
+        )
+        .unwrap(),
+        DrainOutcome::AlreadyDrained,
+        "the in-retention drain marker still dedupes the replayed merge",
+    );
+    assert_eq!(
+        handle_transfer(
+            p_new_part,
+            &store,
+            &filters,
+            &transfer,
+            (63, 9_999),
+            &mut new_queue
+        )
+        .unwrap(),
+        ApplyOutcome::AlreadyApplied,
+        "the in-retention apply marker still dedupes the replayed transfer",
+    );
+
+    // (b) Out of retention: cutoffs strictly after merged_at → GC reclaims all three.
+    let out_of_retention = MERGED_AT + 1;
+    handle_merge_gc(
+        p_old_part,
+        &store,
+        &mut old_cursor,
+        out_of_retention,
+        out_of_retention,
+        10_000,
+    );
+    handle_merge_gc(
+        p_new_part,
+        &store,
+        &mut new_cursor,
+        out_of_retention,
+        out_of_retention,
+        10_000,
+    );
+
+    assert!(
+        store.get_merge_drain_applied(&drain_key).unwrap().is_none(),
+        "out-of-retention drain marker reclaimed",
+    );
+    assert!(
+        store.get_merge_applied(&applied_key).unwrap().is_none(),
+        "out-of-retention apply marker reclaimed",
+    );
+    assert!(
+        store.get_tombstone(&tombstone_key).unwrap().is_none(),
+        "out-of-retention tombstone reclaimed",
+    );
+
+    // With the drain marker gone, a replay at the same coords no longer short-circuits — it re-drains
+    // (P_old's state is already gone, so the re-drain packages nothing). This confirms the dedup
+    // window closed only because the storage was reclaimed, not by accident.
+    let reclaimed_redrain = handle_merge_event(
+        p_old_part,
+        &store,
+        &filters,
+        &merge_event(p_old, p_new),
+        (5, 100),
+        &mut old_queue,
+    )
+    .unwrap();
+    assert!(
+        matches!(&reclaimed_redrain, DrainOutcome::Drained { transfer } if transfer.leaves.is_empty()),
+        "after GC the marker no longer dedupes; the replay re-drains (empty), got {reclaimed_redrain:?}",
     );
 }

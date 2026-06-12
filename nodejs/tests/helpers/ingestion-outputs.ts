@@ -12,6 +12,7 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_MERGE_EVENTS,
 } from '../../src/config/kafka-topics'
 import {
     AI_EVENTS_OUTPUT,
@@ -20,6 +21,7 @@ import {
     HEATMAPS_OUTPUT,
     PERSONS_OUTPUT,
     PERSON_DISTINCT_IDS_OUTPUT,
+    PERSON_MERGE_EVENTS_OUTPUT,
 } from '../../src/ingestion/analytics/outputs'
 import {
     APP_METRICS_OUTPUT,
@@ -57,6 +59,7 @@ export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) 
         [GROUPS_OUTPUT]: testOutput(GROUPS_OUTPUT, KAFKA_GROUPS, kafkaProducer),
         [PERSONS_OUTPUT]: testOutput(PERSONS_OUTPUT, KAFKA_PERSON, kafkaProducer),
         [PERSON_DISTINCT_IDS_OUTPUT]: testOutput(PERSON_DISTINCT_IDS_OUTPUT, KAFKA_PERSON_DISTINCT_ID, kafkaProducer),
+        [PERSON_MERGE_EVENTS_OUTPUT]: testOutput(PERSON_MERGE_EVENTS_OUTPUT, KAFKA_PERSON_MERGE_EVENTS, kafkaProducer),
         [APP_METRICS_OUTPUT]: testOutput(APP_METRICS_OUTPUT, KAFKA_APP_METRICS_2, kafkaProducer),
         [LOG_ENTRIES_OUTPUT]: testOutput(LOG_ENTRIES_OUTPUT, KAFKA_LOG_ENTRIES, kafkaProducer),
         [TOPHOG_OUTPUT]: testOutput(TOPHOG_OUTPUT, KAFKA_CLICKHOUSE_TOPHOG, kafkaProducer),
