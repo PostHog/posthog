@@ -8,6 +8,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
@@ -22,7 +23,6 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
 import { AccessDenied } from '../AccessDenied'

@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'

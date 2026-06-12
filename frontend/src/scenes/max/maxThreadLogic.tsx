@@ -18,23 +18,6 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
-import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { uuid } from 'lib/utils'
-import { maxContextLogic } from 'scenes/max/maxContextLogic'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { NotebookTarget } from 'scenes/notebooks/types'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
-
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { openNotebook } from '~/models/notebooksModel'
 import {
     AgentMode,
     ApprovalDecisionStatus,
@@ -54,6 +37,24 @@ import {
     SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '@posthog/query-frontend/schema/schema-assistant-messages'
+
+import api, { ApiError } from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { openNotebook } from '~/models/notebooksModel'
 import {
     Conversation,
     ConversationDetail,

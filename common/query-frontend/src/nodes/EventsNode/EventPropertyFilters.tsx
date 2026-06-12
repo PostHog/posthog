@@ -1,10 +1,6 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-
-import { groupsModel } from '~/models/groupsModel'
 import {
     EventsNode,
     EventsQuery,
@@ -14,6 +10,11 @@ import {
     TracesQuery,
 } from '@posthog/query-frontend/schema/schema-general'
 import { isHogQLQuery, isSessionAttributionExplorerQuery, isSessionsQuery } from '@posthog/query-frontend/utils'
+
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter } from '~/types'
 
 interface EventPropertyFiltersProps<

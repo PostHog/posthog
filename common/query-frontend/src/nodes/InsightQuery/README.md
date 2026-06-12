@@ -1,25 +1,25 @@
 # InsightQuery
 
-This folder has no component of its own — it holds shared helpers for the *insight query* family of sources: `TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `PathsQuery`, `StickinessQuery`, and `LifecycleQuery` (the `InsightQueryNode` union in `../../schema/schema-general.ts`).
+This folder has no component of its own — it holds shared helpers for the _insight query_ family of sources: `TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `PathsQuery`, `StickinessQuery`, and `LifecycleQuery` (the `InsightQueryNode` union in `../../schema/schema-general.ts`).
 It provides per-kind default queries and the conversion layer between modern query nodes and the legacy `FilterType` format that older insights, URLs, and APIs still use.
 
 ## Rendering
 
-Insight queries are *sources*, not standalone renderable nodes.
+Insight queries are _sources_, not standalone renderable nodes.
 Wrap one in an `InsightVizNode` and pass it to `<Query />`:
 
 ```tsx
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
-<Query
-    query={{
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.LifecycleQuery,
-            series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
-        },
-    }}
+;<Query
+  query={{
+    kind: NodeKind.InsightVizNode,
+    source: {
+      kind: NodeKind.LifecycleQuery,
+      series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+    },
+  }}
 />
 ```
 

@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
@@ -18,7 +20,6 @@ import { urls } from 'scenes/urls'
 import { ReplayTile } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
 export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.Element {

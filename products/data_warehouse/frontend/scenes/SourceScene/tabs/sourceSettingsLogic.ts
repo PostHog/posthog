@@ -5,12 +5,12 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { objectsEqual, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataJob,

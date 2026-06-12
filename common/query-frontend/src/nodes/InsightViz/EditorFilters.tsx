@@ -2,10 +2,8 @@ import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
-
-import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { pluralize } from 'lib/utils'
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { FunnelVizType } from '@posthog/query-frontend/nodes/FunnelsQuery/views/FunnelVizType'
 import { Attribution } from '@posthog/query-frontend/nodes/InsightViz/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from '@posthog/query-frontend/nodes/InsightViz/EditorFilters/FunnelsAdvanced'
 import { FunnelsQuerySteps } from '@posthog/query-frontend/nodes/InsightViz/EditorFilters/FunnelsQuerySteps'
@@ -22,14 +20,21 @@ import { RetentionCondition } from '@posthog/query-frontend/nodes/InsightViz/Edi
 import { RetentionOptions } from '@posthog/query-frontend/nodes/InsightViz/EditorFilters/RetentionOptions'
 import { SamplingDeprecationNotice } from '@posthog/query-frontend/nodes/InsightViz/EditorFilters/SamplingDeprecationNotice'
 import { WebAnalyticsEditorFilters } from '@posthog/query-frontend/nodes/InsightViz/EditorFilters/WebAnalyticsEditorFilters'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { FunnelVizType } from '@posthog/query-frontend/nodes/FunnelsQuery/views/FunnelVizType'
+import { StickinessCriteria } from '@posthog/query-frontend/nodes/InsightViz/StickinessCriteria'
+import {
+    FunnelsQuery,
+    InsightQueryNode,
+    WebOverviewQuery,
+    WebStatsTableQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+import { isWebAnalyticsInsightQuery } from '@posthog/query-frontend/utils'
+
+import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { pluralize } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { StickinessCriteria } from '@posthog/query-frontend/nodes/InsightViz/StickinessCriteria'
-import { FunnelsQuery, InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '@posthog/query-frontend/schema/schema-general'
-import { isWebAnalyticsInsightQuery } from '@posthog/query-frontend/utils'
 import {
     AvailableFeature,
     ChartDisplayType,

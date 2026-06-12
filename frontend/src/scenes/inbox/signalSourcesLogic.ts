@@ -3,12 +3,12 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { ExternalDataSourceType } from '@posthog/query-frontend/schema/schema-general'
+import { SignalSourceProduct, SignalSourceType } from '@posthog/query-frontend/schema/schema-signals'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { ExternalDataSourceType } from '@posthog/query-frontend/schema/schema-general'
-import { SignalSourceProduct, SignalSourceType } from '@posthog/query-frontend/schema/schema-signals'
 import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'

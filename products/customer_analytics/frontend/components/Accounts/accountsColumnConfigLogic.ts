@@ -3,14 +3,15 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { extractDisplayLabel } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { DatabaseSchemaField, DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { extractDisplayLabel } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { DatabaseSchemaField, DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 import type { DataWarehouseViewLink } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'

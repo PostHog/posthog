@@ -14,6 +14,7 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -27,7 +28,6 @@ import { pluralize } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataSchemaStatus,

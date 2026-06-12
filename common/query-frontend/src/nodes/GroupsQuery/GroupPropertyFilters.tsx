@@ -1,9 +1,10 @@
 import { useState } from 'react'
 
+import { GroupsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { GroupsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { AnyGroupScopeFilter } from '~/types'
 
 interface GroupPropertyFiltersProps {

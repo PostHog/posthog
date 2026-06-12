@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { DataColorToken } from 'lib/colors'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -11,7 +12,6 @@ import { dataColorThemesLogic } from 'scenes/settings/environment/dataColorTheme
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardMode } from '~/types'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'

@@ -1,4 +1,5 @@
 import { EventsNode, InsightVizNode, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { BaseMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { SchemaPropertyGroupProperty } from '../schema/schemaManagementLogic'

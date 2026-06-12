@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { IconArrowRight, IconCheckCircle, IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
+import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,7 +14,6 @@ import { DataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
 
 import { NewSourcesWizard } from 'products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'

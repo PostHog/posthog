@@ -1,12 +1,18 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import {
+    AlertConditionType,
+    BreakdownFilter,
+    GoalLine,
+    InsightThresholdType,
+} from '@posthog/query-frontend/schema/schema-general'
+import { isInsightVizNode, isTrendsQuery, hasBreakdownFilter } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
-import { AlertConditionType, BreakdownFilter, GoalLine, InsightThresholdType } from '@posthog/query-frontend/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery, hasBreakdownFilter } from '@posthog/query-frontend/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'

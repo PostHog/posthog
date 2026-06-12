@@ -10,6 +10,8 @@ import {
     pluginEvent,
 } from 'posthog-js/rrweb-types'
 
+import { LogMessage, RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -33,7 +35,6 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
-import { LogMessage, RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     CommentType,

@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect, type LemonSelectProps } from '@posthog/lemon-ui'
-
 import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { LabelIndicator, StatusIndicator } from '../Indicators'

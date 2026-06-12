@@ -1,8 +1,8 @@
 import { combineUrl } from 'kea-router'
 
-import { urls } from 'scenes/urls'
-
 import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
+import { urls } from 'scenes/urls'
 
 import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
 

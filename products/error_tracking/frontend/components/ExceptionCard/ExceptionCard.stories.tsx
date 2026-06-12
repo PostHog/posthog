@@ -2,10 +2,11 @@ import { Meta } from '@storybook/react'
 import { BindLogic, useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { ErrorEventType } from 'lib/components/Errors/types'
 
 import { mswDecorator } from '~/mocks/browser'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { TEST_EVENTS } from '../../__mocks__/events'
 import { StyleVariables } from '../StyleVariables'

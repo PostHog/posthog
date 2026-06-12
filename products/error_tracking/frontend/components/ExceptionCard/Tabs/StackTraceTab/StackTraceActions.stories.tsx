@@ -1,11 +1,11 @@
 import { Meta } from '@storybook/react'
 
 import { LemonCard } from '@posthog/lemon-ui'
+import { ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { ExceptionLogicWrapper } from '../../../../__mocks__/events'
 import { StyleVariables } from '../../../StyleVariables'

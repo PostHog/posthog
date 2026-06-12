@@ -1,7 +1,7 @@
 import { IconArrowRight, IconFunnels } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { InsightType } from '~/types'
 
 import { getDefaultMetricTitle } from './utils'

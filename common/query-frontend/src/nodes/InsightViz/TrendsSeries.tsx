@@ -1,21 +1,21 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
+import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightQueryNode } from '@posthog/query-frontend/utils'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet } from 'lib/utils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
-import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
-import { LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
-import { isInsightQueryNode } from '@posthog/query-frontend/utils'
 import { ChartDisplayType, FilterType } from '~/types'
 
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'

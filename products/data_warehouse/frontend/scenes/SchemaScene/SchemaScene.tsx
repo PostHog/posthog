@@ -3,6 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,7 +14,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 

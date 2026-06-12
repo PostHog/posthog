@@ -1,6 +1,7 @@
 import { useActions } from 'kea'
 
 import { IconChevronRight, IconExternal } from '@posthog/icons'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,7 +10,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { Query } from '@posthog/query-frontend/Query/Query'
 import { QueryBasedInsightModel } from '~/types'
 
 import { InsightIcon } from './SavedInsights'

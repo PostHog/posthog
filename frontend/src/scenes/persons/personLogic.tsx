@@ -2,12 +2,13 @@ import { actions, connect, kea, key, path, props, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
-import { HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { hogql } from '@posthog/query-frontend/utils'
 import { Breadcrumb, PersonType } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'

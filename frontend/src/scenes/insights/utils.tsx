@@ -3,19 +3,8 @@ import { ReactNode } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonButtonProps } from '@posthog/lemon-ui'
-
-import api from 'lib/api'
-import { DataColorTheme, DataColorToken } from 'lib/colors'
-import { dayjs } from 'lib/dayjs'
-import { ensureStringIsNotBlank, humanFriendlyNumber, isEmptyObject, isObject, objectsEqual } from 'lib/utils'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
-import { urls } from 'scenes/urls'
-
-import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
-import { removeUndefinedAndNull } from '~/lib/utils'
-import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '@posthog/query-frontend/examples'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -43,6 +32,17 @@ import {
     isGroupNode,
     isInsightVizNode,
 } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
+import { DataColorTheme, DataColorToken } from 'lib/colors'
+import { dayjs } from 'lib/dayjs'
+import { ensureStringIsNotBlank, humanFriendlyNumber, isEmptyObject, isObject, objectsEqual } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { urls } from 'scenes/urls'
+
+import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
+import { removeUndefinedAndNull } from '~/lib/utils'
+import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {

@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { CSSProperties, useState } from 'react'
 
+import { FunnelPathsFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import { Popover } from 'lib/lemon-ui/Popover'
 
-import { FunnelPathsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'

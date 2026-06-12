@@ -23,6 +23,8 @@
  */
 import { useCallback, useMemo, useRef, useState } from 'react'
 
+import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     hasRecentContext,
     recentTaxonomicFiltersLogic,
@@ -44,8 +46,6 @@ import { isQuickFilterItem } from 'lib/components/TaxonomicFilter/types'
 import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { UseGroupListInput, UseGroupListResult } from './useGroupList'
 import { useTaxonomicGroupsContext } from './useTaxonomicGroupsContext'

@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonColorButton } from '@posthog/lemon-ui'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { resultCustomizationsModalLogic } from '@posthog/query-frontend/nodes/InsightViz/resultCustomizationsModalLogic'
 import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
-import { resultCustomizationsModalLogic } from '@posthog/query-frontend/nodes/InsightViz/resultCustomizationsModalLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function ColorCustomizationColumnTitle(): JSX.Element {
     return <>Color</>

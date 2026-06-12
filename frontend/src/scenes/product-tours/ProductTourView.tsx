@@ -4,6 +4,8 @@ import { useState } from 'react'
 
 import { IconCode, IconCursorClick, IconDocument, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DateRange, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -31,8 +33,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { DateRange, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     ActivityScope,
     FeatureFlagFilters,

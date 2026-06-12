@@ -5,6 +5,8 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
+import { FileSystemIconType, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -36,7 +38,6 @@ import {
 import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
-import { FileSystemIconType, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel } from '~/types'
 
 import { handleLoginRedirect } from './authentication/login/loginLogic'

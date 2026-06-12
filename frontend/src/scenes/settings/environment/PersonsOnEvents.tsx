@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
+import { HogQLQueryModifiers } from '@posthog/query-frontend/schema/schema-general'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -10,8 +11,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { HogQLQueryModifiers } from '@posthog/query-frontend/schema/schema-general'
 
 type PoEMode = NonNullable<HogQLQueryModifiers['personsOnEventsMode']>
 

@@ -4,12 +4,12 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { Variable, VariableType } from '@posthog/query-frontend/nodes/DataVisualization/types'
 
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Variable, VariableType } from '@posthog/query-frontend/nodes/DataVisualization/types'
 import { QueryBasedInsightModel } from '~/types'
 
 import { fetchInsightsUsingVariable } from './insightsLoader'

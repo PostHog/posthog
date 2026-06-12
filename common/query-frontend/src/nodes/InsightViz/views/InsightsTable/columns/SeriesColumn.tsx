@@ -1,10 +1,10 @@
 import clsx from 'clsx'
 
 import { Tooltip } from '@posthog/lemon-ui'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 import { TrendResult } from '~/types'
 

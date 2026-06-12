@@ -4,11 +4,10 @@ import { match } from 'ts-pattern'
 
 import { IconPerson } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { UnexpectedNeverError, fullName } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-
-import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { Assignee, assigneeSelectLogic } from './assigneeSelectLogic'
 

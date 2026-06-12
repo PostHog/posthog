@@ -1,10 +1,9 @@
 import { useMemo } from 'react'
 
 import { LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { AggregatedSpanRow } from '@posthog/query-frontend/schema/schema-general'
 
 import { humanFriendlyNumber } from 'lib/utils'
-
-import { AggregatedSpanRow } from '@posthog/query-frontend/schema/schema-general'
 
 import { formatDuration } from './TraceWaterfallView'
 

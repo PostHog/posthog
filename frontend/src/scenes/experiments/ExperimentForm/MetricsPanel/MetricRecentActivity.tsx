@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
-
 import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { metricRecentActivityLogic } from './metricRecentActivityLogic'

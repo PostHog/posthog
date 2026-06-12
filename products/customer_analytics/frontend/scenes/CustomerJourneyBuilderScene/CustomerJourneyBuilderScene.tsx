@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 

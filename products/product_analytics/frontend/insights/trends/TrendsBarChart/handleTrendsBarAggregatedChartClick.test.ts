@@ -1,6 +1,6 @@
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
-
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { EntityTypes } from '~/types'
 
 import type { TrendsChartClickDeps } from '../shared/handleTrendsChartClick'

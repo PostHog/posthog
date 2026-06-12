@@ -5,6 +5,7 @@ import type {
     InsightVizNode,
 } from '@posthog/query-frontend/schema/schema-general'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import type { InsightShortId } from '~/types'
 
 /**

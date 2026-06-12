@@ -1,11 +1,12 @@
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { ActorsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { ActorsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { CohortType, PersonType } from '~/types'
 
 import type { addPersonToCohortModalLogicType } from './addPersonToCohortModalLogicType'

@@ -3,16 +3,15 @@ import { combineUrl, router } from 'kea-router'
 
 import { IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { DataTableRow } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
+import { isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
-
-import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
-import { DataTableRow } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
-import { isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import { LazyPersonColumnCell, ToolsDisplay } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'

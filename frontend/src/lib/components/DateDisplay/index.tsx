@@ -1,9 +1,10 @@
 import './DateDisplay.scss'
 
+import { ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
+
 import { dayjs } from 'lib/dayjs'
 import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
 
-import { ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
 import { IntervalType } from '~/types'
 
 interface DateDisplayProps {

@@ -2,10 +2,10 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, propsCh
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import type { serviceFilterLogicType } from './serviceFilterLogicType'
 

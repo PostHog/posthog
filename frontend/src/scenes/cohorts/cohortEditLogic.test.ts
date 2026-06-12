@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import { v4 as uuidv4 } from 'uuid'
 
+import { ActorsQuery, DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
@@ -15,7 +17,6 @@ import { urls } from 'scenes/urls'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ActorsQuery, DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import {

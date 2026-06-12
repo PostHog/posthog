@@ -1,12 +1,11 @@
 import { useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { urls } from 'scenes/urls'
-
-import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { dataTableLogic } from './dataTableLogic'
 

@@ -1,6 +1,6 @@
-import { inStorybookTestRunner } from 'lib/utils'
-
 import { AssistantMessage } from '@posthog/query-frontend/schema/schema-assistant-messages'
+
+import { inStorybookTestRunner } from 'lib/utils'
 
 export const THINKING_MESSAGES = [
     'Booping', // playful interaction

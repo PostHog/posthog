@@ -1,8 +1,4 @@
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
-
 import type {
     ExperimentFunnelsQueryResponse,
     ExperimentTrendsQueryResponse,
@@ -10,6 +6,9 @@ import type {
 } from '@posthog/query-frontend/schema/schema-general'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import type { InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
+
+import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 /**
  * @deprecated

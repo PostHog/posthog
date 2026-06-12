@@ -1,6 +1,6 @@
-import api from 'lib/api'
-
 import { hogql } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
 
 import { Cluster, ClusterMetrics, ClusteringLevel } from './types'
 

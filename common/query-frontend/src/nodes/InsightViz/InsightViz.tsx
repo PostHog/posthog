@@ -4,14 +4,20 @@ import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper } from 'kea'
 import { useState } from 'react'
 
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import {
+    AnyResponseType,
+    DashboardFilter,
+    HogQLVariable,
+    InsightVizNode,
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
+
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 import { InsightLogicProps } from '~/types'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'

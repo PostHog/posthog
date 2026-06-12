@@ -5,13 +5,14 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import posthog from 'posthog-js'
 
+import { performQuery } from '@posthog/query-frontend/query'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '@posthog/query-frontend/query'
 import { initKeaTests } from '~/test/init'
 import {
     mockActionDefinition,

@@ -1,6 +1,7 @@
+import { LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
+
 import { getSurveyResponseValue } from 'scenes/surveys/utils'
 
-import { LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 import { Survey, SurveyEventProperties, SurveyQuestion } from '~/types'
 
 export interface GroupedResponse {

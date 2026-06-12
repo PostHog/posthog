@@ -1,3 +1,5 @@
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -6,7 +8,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { TasksList } from './components/TasksList'
 import { taskTrackerSceneLogic } from './logics/taskTrackerSceneLogic'

@@ -1,10 +1,11 @@
 import { connect, kea, path, selectors } from 'kea'
 
+import { MathType } from '@posthog/query-frontend/schema/schema-general'
+
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { MathType } from '@posthog/query-frontend/schema/schema-general'
 import {
     BaseMathType,
     CalendarHeatmapMathType,

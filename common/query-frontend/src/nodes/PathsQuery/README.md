@@ -7,21 +7,21 @@ An optional `funnelPathsFilter` shows paths leading to or from a specific funnel
 
 ## Rendering
 
-`PathsQuery` is an insight *source* — wrap it in an `InsightVizNode` and pass that to `<Query />`:
+`PathsQuery` is an insight _source_ — wrap it in an `InsightVizNode` and pass that to `<Query />`:
 
 ```tsx
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
-<Query
-    query={{
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.PathsQuery,
-            dateRange: { date_from: '-7d' },
-            pathsFilter: {},
-        },
-    }}
+;<Query
+  query={{
+    kind: NodeKind.InsightVizNode,
+    source: {
+      kind: NodeKind.PathsQuery,
+      dateRange: { date_from: '-7d' },
+      pathsFilter: {},
+    },
+  }}
 />
 ```
 

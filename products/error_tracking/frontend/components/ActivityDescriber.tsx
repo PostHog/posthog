@@ -2,6 +2,7 @@ import { useActions } from 'kea'
 import { useEffect } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
+import { ErrorTrackingIssue, ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     ActivityChange,
@@ -16,7 +17,6 @@ import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue, ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './Assignee/AssigneeDisplay'

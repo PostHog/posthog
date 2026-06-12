@@ -11,6 +11,7 @@ import { combineUrl } from 'kea-router'
 import type { editor } from 'monaco-editor'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+import { DataNode, HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -20,8 +21,6 @@ import { validateSavedQueryName } from 'scenes/data-warehouse/saved_queries/save
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { DataNode, HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 

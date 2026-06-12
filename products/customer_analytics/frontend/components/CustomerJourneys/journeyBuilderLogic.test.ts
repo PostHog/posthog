@@ -2,8 +2,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-
 import { FunnelsQuery, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps } from '~/types'
 

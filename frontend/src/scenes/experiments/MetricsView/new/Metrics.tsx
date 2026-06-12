@@ -2,12 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconInfo, IconList } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
 import { METRIC_CONTEXTS } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
-
-import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { experimentLogic } from '../../experimentLogic'
 import { modalsLogic } from '../../modalsLogic'

@@ -1,13 +1,13 @@
 import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'

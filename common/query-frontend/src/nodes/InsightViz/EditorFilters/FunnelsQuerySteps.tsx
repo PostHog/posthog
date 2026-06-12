@@ -2,18 +2,19 @@ import './FunnelsQuerySteps.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
 import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightQueryNode } from '@posthog/query-frontend/utils'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
-import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isInsightQueryNode } from '@posthog/query-frontend/utils'
 import { EditorFilterProps, FilterType } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'

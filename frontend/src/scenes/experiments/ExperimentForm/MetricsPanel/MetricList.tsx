@@ -1,9 +1,9 @@
 import { clsx } from 'clsx'
 
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+
 import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
 import type { MetricContext } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
-
-import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { MetricCard } from './MetricCard'
 

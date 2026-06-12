@@ -1,12 +1,12 @@
 import { useActions } from 'kea'
 
+import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     IntegrationChoice,
     IntegrationConfigureProps,
 } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { urls } from 'scenes/urls'
-
-import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 

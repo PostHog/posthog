@@ -1,10 +1,15 @@
-import { DateDisplay } from 'lib/components/DateDisplay'
-import type { OpenPersonsModalProps } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
-
-import { InsightActorsQuery, InsightVizNode, ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
+import type { OpenPersonsModalProps } from '@posthog/query-frontend/persons-modal/PersonsModal'
+import {
+    InsightActorsQuery,
+    InsightVizNode,
+    ResolvedDateRangeResponse,
+} from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { DateDisplay } from 'lib/components/DateDisplay'
+
 import { IntervalType } from '~/types'
 
 export interface TrendsChartClickDeps {

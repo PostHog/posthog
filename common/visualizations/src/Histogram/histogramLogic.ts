@@ -1,8 +1,9 @@
 import { actions, kea, path, reducers } from 'kea'
 
-import { FunnelLayout } from 'lib/constants'
 // eslint-disable-next-line import/no-cycle
 import { HistogramConfig, getConfig } from '@posthog/visualizations/Histogram/histogramUtils'
+
+import { FunnelLayout } from 'lib/constants'
 
 import type { histogramLogicType } from './histogramLogicType'
 

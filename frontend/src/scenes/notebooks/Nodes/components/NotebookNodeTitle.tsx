@@ -3,10 +3,9 @@ import posthog from 'posthog-js'
 import { KeyboardEvent, useEffect, useRef, useState } from 'react'
 
 import { LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-
-import { isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import { NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'

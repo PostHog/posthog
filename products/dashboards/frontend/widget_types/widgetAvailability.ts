@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import type { TeamPublicType, TeamType } from '~/types'
 
 /** New catalog-driven setup requirements: add here — CONTRIBUTING.md */

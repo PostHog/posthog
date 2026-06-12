@@ -1,8 +1,8 @@
 import { Meta } from '@storybook/react'
 
-import { GraphsHog } from 'lib/components/hedgehogs'
-
 import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
+import { GraphsHog } from 'lib/components/hedgehogs'
 
 import { ProductIntroduction, ProductIntroductionProps } from './ProductIntroduction'
 

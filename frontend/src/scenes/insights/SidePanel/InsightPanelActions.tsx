@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconCode2, IconCopy, IconEndpoints, IconPencil, IconPeople } from '@posthog/icons'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
@@ -18,13 +20,11 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '@posthog/query-frontend/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

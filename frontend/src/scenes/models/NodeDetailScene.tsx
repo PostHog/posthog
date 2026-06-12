@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NodeDetailDetails } from './NodeDetailDetails'

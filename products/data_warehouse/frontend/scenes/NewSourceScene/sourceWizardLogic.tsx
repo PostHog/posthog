@@ -5,6 +5,17 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import {
+    ExternalDataSourceType,
+    ProductIntentContext,
+    ProductKey,
+    SourceConfig,
+    SourceFieldConfig,
+    SourceFieldSwitchGroupConfig,
+    SuggestedTable,
+    VALID_NATIVE_MARKETING_SOURCES,
+    externalDataSources,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -18,17 +29,6 @@ import {
     VALID_SELF_MANAGED_MARKETING_SOURCES,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import {
-    ExternalDataSourceType,
-    ProductIntentContext,
-    ProductKey,
-    SourceConfig,
-    SourceFieldConfig,
-    SourceFieldSwitchGroupConfig,
-    SuggestedTable,
-    VALID_NATIVE_MARKETING_SOURCES,
-    externalDataSources,
-} from '@posthog/query-frontend/schema/schema-general'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,

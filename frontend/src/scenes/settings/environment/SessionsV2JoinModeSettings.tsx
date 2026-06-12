@@ -1,8 +1,8 @@
+import { HogQLQueryModifiers } from '@posthog/query-frontend/schema/schema-general'
+
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
-
-import { HogQLQueryModifiers } from '@posthog/query-frontend/schema/schema-general'
 
 import { TeamSettingRadio } from '../components/TeamSettingRadio'
 

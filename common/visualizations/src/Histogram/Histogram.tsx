@@ -4,14 +4,15 @@ import * as d3 from 'd3'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+// eslint-disable-next-line import/no-cycle
+import { histogramLogic } from '@posthog/visualizations/Histogram/histogramLogic'
+
 import { FunnelLayout } from 'lib/constants'
 // eslint-disable-next-line import/no-cycle
 import { animate, getOrCreateEl, wrap } from 'lib/d3/utils'
 import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-// eslint-disable-next-line import/no-cycle
-import { histogramLogic } from '@posthog/visualizations/Histogram/histogramLogic'
 
 import { D3HistogramDatum, INITIAL_CONFIG, createRoundedRectPath, getConfig } from './histogramUtils'
 

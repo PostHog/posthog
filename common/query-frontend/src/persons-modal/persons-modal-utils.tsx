@@ -1,13 +1,14 @@
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { pluralize } from 'lib/utils'
-
 import {
     InsightActorsQuery,
     InsightActorsQueryOptionsResponse,
     insightActorsQueryOptionsResponseKeys,
 } from '@posthog/query-frontend/schema/schema-general'
 import { isTrendsQuery } from '@posthog/query-frontend/utils'
+
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { pluralize } from 'lib/utils'
+
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { StepOrderValue } from '~/types'
 

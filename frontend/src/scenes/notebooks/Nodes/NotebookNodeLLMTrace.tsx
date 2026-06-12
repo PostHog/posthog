@@ -1,12 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
-
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-
-import { groupsModel } from '~/models/groupsModel'
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '@posthog/query-frontend/nodes/DataNode/DateRange'
 import { Reload } from '@posthog/query-frontend/nodes/DataNode/Reload'
@@ -18,6 +12,12 @@ import { EventPropertyFilters } from '@posthog/query-frontend/nodes/EventsNode/E
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { TracesQuery } from '@posthog/query-frontend/schema/schema-general'
 import { isTracesQuery } from '@posthog/query-frontend/utils'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+
+import { groupsModel } from '~/models/groupsModel'
 
 import { AIObservabilitySetupPrompt } from 'products/ai_observability/frontend/AIObservabilitySetupPrompt'
 import { aiObservabilitySharedLogic } from 'products/ai_observability/frontend/aiObservabilitySharedLogic'

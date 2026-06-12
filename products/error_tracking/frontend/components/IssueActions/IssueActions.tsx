@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonSelect } from '@posthog/lemon-ui'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, HogQLPropertyFilter, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'

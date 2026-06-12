@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconFilter } from '@posthog/icons'
+import { ErrorTrackingIssueFilteringToolOutput } from '@posthog/query-frontend/schema/schema-general'
 
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import MaxTool from 'scenes/max/MaxTool'
 
-import { ErrorTrackingIssueFilteringToolOutput } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'

@@ -3,14 +3,6 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { dayjs } from 'lib/dayjs'
-import { objectsEqual } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { teamLogic } from 'scenes/teamLogic'
-
 import {
     CurrencyCode,
     DataTableNode,
@@ -21,6 +13,14 @@ import {
     RevenueCurrencyPropertyConfig,
     SubscriptionDropoffMode,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { dayjs } from 'lib/dayjs'
+import { objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { ExternalDataSource } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'

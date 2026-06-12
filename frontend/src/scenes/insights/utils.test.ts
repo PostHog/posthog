@@ -1,4 +1,14 @@
 import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import {
+    ActionsNode,
+    BreakdownFilter,
+    EventsNode,
+    InsightQueryNode,
+    NodeKind,
+} from '@posthog/query-frontend/schema/schema-general'
+import { isEventsNode } from '@posthog/query-frontend/utils'
+
 import {
     compareInsightTopLevelSections,
     extractObjectDiffKeys,
@@ -10,10 +20,7 @@ import {
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
-import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isEventsNode } from '@posthog/query-frontend/utils'
 import { CompareLabelType, Entity, EntityFilter, FilterType, InsightType } from '~/types'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {

@@ -2,12 +2,13 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,

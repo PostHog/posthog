@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { AlertState } from '@posthog/query-frontend/schema/schema-general'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -11,9 +13,6 @@ import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
-
-import { AlertState } from '@posthog/query-frontend/schema/schema-general'
 import { alertLogic } from '../alertLogic'
 import { AlertsFiltersBar } from '../AlertsFiltersBar'
 import { alertsLogic } from '../alertsLogic'

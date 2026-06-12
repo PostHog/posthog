@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { IconLogomark } from '@posthog/icons'
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
+import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { ProjectMenu } from 'lib/components/Account/ProjectMenu'
@@ -12,7 +13,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { ZenModeButton } from './ZenModeButton'

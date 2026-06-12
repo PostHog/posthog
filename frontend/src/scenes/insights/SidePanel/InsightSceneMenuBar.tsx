@@ -15,6 +15,9 @@ import {
     IconTrash,
     IconWarning,
 } from '@posthog/icons'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '@posthog/query-frontend/utils'
 import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -28,7 +31,6 @@ import { urlForSubscriptions } from 'lib/components/Subscriptions/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -48,8 +50,6 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { tagsModel } from '~/models/tagsModel'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '@posthog/query-frontend/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

@@ -2,6 +2,7 @@ import { BaseEdge, Edge, EdgeLabelRenderer, EdgeProps, getSmoothStepPath } from 
 import { useActions, useValues } from 'kea'
 
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'

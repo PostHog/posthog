@@ -1,6 +1,6 @@
-import { Spinner } from 'lib/lemon-ui/Spinner'
-
 import { LLMTrace } from '@posthog/query-frontend/schema/schema-general'
+
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { AIObservabilityEventCard } from './AIObservabilityEventCard'
 

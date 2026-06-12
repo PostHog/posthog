@@ -4,13 +4,12 @@ import { useEffect } from 'react'
 
 import { IconPencil, IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { urls } from 'scenes/urls'
-
-import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { CustomerJourneySelect } from 'products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneySelect'
 import { CustomerJourneysEmptyState } from 'products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneysEmptyState'

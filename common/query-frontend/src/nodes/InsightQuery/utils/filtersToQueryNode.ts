@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
-import { isKeyOf, objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
+import { ProductAnalyticsInsightNodeKind } from '@posthog/query-frontend/nodes/InsightQuery/defaults'
 import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
     isFunnelsFilter,
@@ -11,8 +11,6 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-
-import { ProductAnalyticsInsightNodeKind } from '@posthog/query-frontend/nodes/InsightQuery/defaults'
 import {
     ActionsNode,
     AnalyticsQueryResponseBase,
@@ -52,6 +50,9 @@ import {
     isTrendsQuery,
     setLatestVersionsOnQuery,
 } from '@posthog/query-frontend/utils'
+
+import { isKeyOf, objectCleanWithEmpty } from 'lib/utils'
+
 import {
     ActionFilter,
     BaseMathType,

@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { LemonTag } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -8,7 +9,6 @@ import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/ManagedSourcesTable'
 import { SelfManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/SelfManagedSourcesTable'

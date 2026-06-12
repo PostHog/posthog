@@ -2,11 +2,11 @@ import { useActions } from 'kea'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
-import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import type { MetricContext } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { experimentMetricModalLogic } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { getDefaultMetricTitle, getMetricTag } from '~/scenes/experiments/MetricsView/shared/utils'

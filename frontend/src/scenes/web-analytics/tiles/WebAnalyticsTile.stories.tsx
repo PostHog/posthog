@@ -1,12 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
-
-import { mswDecorator } from '~/mocks/browser'
 import { examples } from '@posthog/query-frontend/examples'
 import { Query, QueryProps } from '@posthog/query-frontend/Query/Query'
 import { Node, WebAnalyticsOrderByFields } from '@posthog/query-frontend/schema/schema-general'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+
+import { mswDecorator } from '~/mocks/browser'
 
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
 import browserMock from './__mocks__/Browser.json'

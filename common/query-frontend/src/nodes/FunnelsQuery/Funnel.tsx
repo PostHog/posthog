@@ -2,9 +2,10 @@ import './Funnel.scss'
 
 import { useValues } from 'kea'
 
+import { FunnelLineGraph } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelLineGraph'
+
 import { FunnelLayout } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { FunnelLineGraph } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelLineGraph'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams, FunnelVizType } from '~/types'

@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
+
 import { QuickFilterSelector, quickFiltersLogic } from 'lib/components/QuickFilters'
 
-import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { QuickFilter } from '~/types'
 
 import { QuickFiltersConfigureButton } from './QuickFiltersConfigureButton'

@@ -1,12 +1,11 @@
 import { useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '@posthog/query-frontend/schema/schema-general'
 
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
-
-import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '@posthog/query-frontend/schema/schema-general'
 
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
 

@@ -3,12 +3,11 @@ import React, { useState } from 'react'
 
 import { printHogStringOutput } from '@posthog/hogvm'
 import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'
+import { renderHogQLX } from '@posthog/query-frontend/nodes/HogQLX/render'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { SceneExport } from 'scenes/sceneTypes'
-
-import { renderHogQLX } from '@posthog/query-frontend/nodes/HogQLX/render'
 
 import { ReplChunk as ReplChunkType, hogReplLogic } from './hogReplLogic'
 

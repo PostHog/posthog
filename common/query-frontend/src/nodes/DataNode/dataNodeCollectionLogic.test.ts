@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
+
 import { initKeaTests } from '~/test/init'
 
 describe('dataNodeCollectionLogic', () => {

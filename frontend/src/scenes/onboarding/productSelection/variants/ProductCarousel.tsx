@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconArrowRight, IconCheck, IconChevronLeft, IconChevronRight, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { Logomark } from 'lib/brand/Logomark'
 import {
@@ -23,8 +24,6 @@ import {
     SurprisedHog,
 } from 'lib/components/hedgehogs'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { OnboardingExitAction } from '../../exit'
 import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../../utils'

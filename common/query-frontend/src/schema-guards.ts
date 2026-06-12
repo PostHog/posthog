@@ -5,6 +5,7 @@ import {
     WebAnalyticsPropertyFilters,
     // eslint-disable-next-line import/no-cycle
 } from '@posthog/query-frontend/schema/schema-general'
+
 import { AnyPropertyFilter, SessionPropertyFilter } from '~/types'
 
 import * as validators from './validators.js'

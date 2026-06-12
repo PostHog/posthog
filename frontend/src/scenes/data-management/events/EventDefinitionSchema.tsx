@@ -3,11 +3,11 @@ import { useMemo, useState } from 'react'
 
 import { IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { Query } from '@posthog/query-frontend/Query/Query'
 import { urls } from '~/scenes/urls'
 import { EventDefinition, SchemaEnforcementMode } from '~/types'
 

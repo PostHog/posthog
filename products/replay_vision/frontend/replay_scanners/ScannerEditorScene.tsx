@@ -12,6 +12,7 @@ import {
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { BuilderHog2, DetectiveHog, XRayHog } from 'lib/components/hedgehogs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -22,7 +23,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'

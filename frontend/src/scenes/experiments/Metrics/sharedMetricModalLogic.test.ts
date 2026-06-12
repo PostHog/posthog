@@ -1,9 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { METRIC_CONTEXTS } from './experimentMetricModalLogic'

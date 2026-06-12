@@ -2,12 +2,6 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
-import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
-
 import {
     AnyResponseType,
     WebVitalsMetricBand,
@@ -15,6 +9,13 @@ import {
     WebVitalsPathBreakdownQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
+import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+
 import { PropertyFilterType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'

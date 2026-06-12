@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
 import { AggregatedSpanRow } from '@posthog/query-frontend/schema/schema-general'
+
 import { initKeaTests } from '~/test/init'
 
 import { tracingDataLogic } from './tracingDataLogic'

@@ -3,12 +3,12 @@ import { BindLogic } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonColorGlyph } from '@posthog/lemon-ui'
+import { ChartSettings } from '@posthog/query-frontend/schema/schema-general'
+import { PieChart as InsightPieChart } from '@posthog/visualizations/LineGraph/PieChart'
 
 import { getSeriesColor } from 'lib/colors'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { PieChart as InsightPieChart } from '@posthog/visualizations/LineGraph/PieChart'
 
-import { ChartSettings } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps, GraphType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'

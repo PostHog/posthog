@@ -2,10 +2,11 @@ import { actions, beforeUnmount, kea, listeners, path, reducers, selectors } fro
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 
+import { NodeKind, RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, SessionRecordingType } from '~/types'
 
 import type { sessionRecordingsKioskLogicType } from './sessionRecordingsKioskLogicType'

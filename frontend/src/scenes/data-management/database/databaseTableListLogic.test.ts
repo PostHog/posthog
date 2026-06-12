@@ -1,8 +1,9 @@
 import posthog from 'posthog-js'
 
+import { performQuery } from '@posthog/query-frontend/query'
+
 import { urls } from 'scenes/urls'
 
-import { performQuery } from '@posthog/query-frontend/query'
 import { initKeaTests } from '~/test/init'
 
 import { databaseTableListLogic } from './databaseTableListLogic'

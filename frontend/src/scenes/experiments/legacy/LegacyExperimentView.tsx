@@ -2,16 +2,16 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
-
-import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
-
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
     ExperimentFunnelsQuery,
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     ExperimentFunnelsQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
     LegacyExperimentHeader,
     LegacyExperimentInfo,

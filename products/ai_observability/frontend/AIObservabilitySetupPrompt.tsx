@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 

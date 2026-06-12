@@ -4,10 +4,10 @@ import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 

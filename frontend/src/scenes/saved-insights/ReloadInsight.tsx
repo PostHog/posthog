@@ -1,12 +1,11 @@
 import { useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
+import { Node } from '@posthog/query-frontend/schema/schema-general'
 
 import { parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { Node } from '@posthog/query-frontend/schema/schema-general'
 
 export function ReloadInsight(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)

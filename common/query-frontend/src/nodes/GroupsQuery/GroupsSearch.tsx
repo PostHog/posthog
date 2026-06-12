@@ -1,10 +1,9 @@
 import { IconInfo } from '@posthog/icons'
+import { useDebouncedQuery } from '@posthog/query-frontend/hooks/useDebouncedQuery'
+import { GroupsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-
-import { useDebouncedQuery } from '@posthog/query-frontend/hooks/useDebouncedQuery'
-import { GroupsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 interface GroupsSearchProps {
     query: GroupsQuery

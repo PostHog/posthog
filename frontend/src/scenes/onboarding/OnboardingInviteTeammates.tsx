@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonDivider } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { EmailUnavailableForInvitesBanner, InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
 import { InvitesTable } from 'scenes/settings/organization/Invites'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'

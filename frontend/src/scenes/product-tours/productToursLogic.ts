@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -14,7 +15,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import {
     Breadcrumb,
     ProductTour,

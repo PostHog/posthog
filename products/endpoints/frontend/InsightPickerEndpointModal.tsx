@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 
 import { IconEndpoints, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
+import { EndpointQueryNode, HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isNodeWithSource } from '@posthog/query-frontend/utils'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -11,8 +13,6 @@ import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightsTable } from 'scenes/saved-insights/SavedInsightsTable'
 import { urls } from 'scenes/urls'
 
-import { EndpointQueryNode, HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isNodeWithSource } from '@posthog/query-frontend/utils'
 import { InsightType, QueryBasedInsightModel } from '~/types'
 
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'

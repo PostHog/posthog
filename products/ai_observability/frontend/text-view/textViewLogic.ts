@@ -1,9 +1,9 @@
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-
 import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
 
 import { FALLBACK_DELAY_MS, TEXT_REPR_API_TIMEOUT_MS, UI_TEXT_REPR_MAX_LENGTH } from './constants'
 import type { textViewLogicType } from './textViewLogicType'

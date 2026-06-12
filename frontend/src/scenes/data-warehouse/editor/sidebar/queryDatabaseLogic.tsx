@@ -5,6 +5,13 @@ import { subscriptions } from 'kea-subscriptions'
 import { IconBolt, IconDatabase, IconDocument, IconEndpoints, IconFolder, IconPlug, IconPlus } from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
+import {
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaEndpointTable,
+    DatabaseSchemaField,
+    DatabaseSchemaManagedViewTable,
+    DatabaseSchemaTable,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
@@ -18,13 +25,6 @@ import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelect
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaEndpointTable,
-    DatabaseSchemaField,
-    DatabaseSchemaManagedViewTable,
-    DatabaseSchemaTable,
-} from '@posthog/query-frontend/schema/schema-general'
 import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,

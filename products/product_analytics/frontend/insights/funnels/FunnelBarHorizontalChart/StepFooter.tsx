@@ -1,7 +1,5 @@
 import clsx from 'clsx'
 
-import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     formatConvertedCount,
     formatConvertedPercentage,
@@ -11,9 +9,12 @@ import {
     getTooltipTitleForDroppedOff,
 } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
 import { ValueInspectorButton } from '@posthog/query-frontend/nodes/FunnelsQuery/ValueInspectorButton'
+import type { FunnelsFilter } from '@posthog/query-frontend/schema/schema-general'
+
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { type Noun } from '~/models/groupsModel'
-import type { FunnelsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { type FunnelStepWithConversionMetrics } from '~/types'
 
 interface StepFooterProps {

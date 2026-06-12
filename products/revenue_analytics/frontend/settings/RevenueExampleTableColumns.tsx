@@ -1,8 +1,8 @@
+import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
+
 import { humanFriendlyNumber } from 'lib/utils'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP } from 'lib/utils/geography/currency'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-
-import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
 
 export const Revenue = ({ value, currency }: { value: number; currency: string }): JSX.Element => {
     const { symbol, isPrefix } = getCurrencySymbol(currency ?? CurrencyCode.USD)

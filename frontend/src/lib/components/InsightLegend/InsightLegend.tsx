@@ -3,8 +3,9 @@ import './InsightLegend.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { InsightLegendRow } from './InsightLegendRow'
 

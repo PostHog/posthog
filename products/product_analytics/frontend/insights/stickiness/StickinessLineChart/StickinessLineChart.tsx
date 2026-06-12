@@ -1,21 +1,21 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
-
-import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
 import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
-import { teamLogic } from 'scenes/teamLogic'
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
-
-import { groupsModel } from '~/models/groupsModel'
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+import { TimeSeriesLineChart } from '@posthog/quill-charts'
+import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
+import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
+import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { groupsModel } from '~/models/groupsModel'
 
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import {

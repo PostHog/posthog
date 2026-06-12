@@ -2,6 +2,8 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { dateStringToDayJs, isValidRelativeOrAbsoluteDate } from 'lib/utils'
@@ -9,7 +11,6 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
 import { getCurrentTeamId } from '~/lib/utils/getAppContext'
-import { hogql } from '@posthog/query-frontend/utils'
 
 import { llmAnalyticsOfflineEvaluationsExperimentItemsCreate as aiObservabilityOfflineEvaluationsExperimentItemsCreate } from '../generated/api'
 import type { offlineEvaluationsLogicType } from './offlineEvaluationsLogicType'

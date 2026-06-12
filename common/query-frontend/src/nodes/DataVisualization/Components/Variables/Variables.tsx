@@ -14,13 +14,12 @@ import {
     Popover,
     lemonToast,
 } from '@posthog/lemon-ui'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { Variable } from '../../types'

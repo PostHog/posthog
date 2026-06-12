@@ -1,3 +1,5 @@
+import { LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
+
 import { dayjs } from 'lib/dayjs'
 import { InspectorListItemPerformance } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import {
@@ -15,7 +17,6 @@ import {
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 import { PerformanceEvent } from '~/types'
 
 describe('filtering inspector list items', () => {

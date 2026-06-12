@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { IconPiggyBank } from '@posthog/icons'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlLevel, AccessControlResourceType } from '../../../types'
 import {

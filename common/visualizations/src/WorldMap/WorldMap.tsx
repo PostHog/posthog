@@ -4,21 +4,22 @@ import { style } from 'd3'
 import { props, useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 
-import { gradateColor } from 'lib/utils'
-import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
-import { useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
-import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
-
-import { groupsModel } from '~/models/groupsModel'
 import { InsightQueryNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
+import { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
+import { useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
+
+import { gradateColor } from 'lib/utils'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { groupsModel } from '~/models/groupsModel'
 import { ChartParams, TrendResult } from '~/types'
 
-import { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 import { countryVectors } from './countryVectors'
 import { worldMapLogic } from './worldMapLogic'
 

@@ -1,8 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { EventPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 

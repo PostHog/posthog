@@ -2,14 +2,6 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
-
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { urls } from 'scenes/urls'
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
-
 import { Query } from '@posthog/query-frontend/Query/Query'
 import {
     AnyResponseType,
@@ -19,6 +11,13 @@ import {
     WebVitalsQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { urls } from 'scenes/urls'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getMetric } from './definitions'

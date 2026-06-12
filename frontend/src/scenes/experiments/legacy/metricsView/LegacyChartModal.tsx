@@ -1,6 +1,6 @@
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
-
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     LegacyExploreButton,
     LegacyResultsQuery,

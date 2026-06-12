@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
+import { ProductIntentContext, ProductKey, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
 
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
@@ -53,8 +55,6 @@ import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
 import { useWebTileOpenInsight, useWebTileOverflowMenuItems } from 'scenes/web-analytics/webTileHeaderHooks'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
-import { ProductIntentContext, ProductKey, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'

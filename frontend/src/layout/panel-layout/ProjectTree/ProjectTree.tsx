@@ -12,6 +12,7 @@ import {
     IconPlusSmall,
     IconStar,
 } from '@posthog/icons'
+import { FileSystemEntry, UserProductListReason } from '@posthog/query-frontend/schema/schema-general'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
@@ -42,7 +43,6 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { FileSystemEntry, UserProductListReason } from '@posthog/query-frontend/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'

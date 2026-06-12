@@ -1,10 +1,11 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
 

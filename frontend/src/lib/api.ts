@@ -2,26 +2,8 @@ import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-sou
 import { encodeParams } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
-import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { assertNotReadOnly } from 'lib/readOnlyGuard'
-import { objectClean, toParams } from 'lib/utils'
-import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
-import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
-import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import { SignalNode } from 'scenes/debug/signals/types'
-import { SignalReport, SignalReportArtefactResponse, SignalSourceConfig } from 'scenes/inbox/types'
-import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
-import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
-import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
-import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
-
-import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
+import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import {
     AggregatedSpanRow,
     AnyResponseType,
@@ -63,6 +45,26 @@ import {
     UserProductListItem,
 } from '@posthog/query-frontend/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import { ApiError } from 'lib/api-error'
+import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { assertNotReadOnly } from 'lib/readOnlyGuard'
+import { objectClean, toParams } from 'lib/utils'
+import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
+import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
+import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
+import { SignalNode } from 'scenes/debug/signals/types'
+import { SignalReport, SignalReportArtefactResponse, SignalSourceConfig } from 'scenes/inbox/types'
+import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
+import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
+import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+
+import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
+import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import {
     ActionType,
     ActivityScope,
@@ -247,7 +249,6 @@ import type {
     HogFlowTemplate,
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
-import { AgentMode } from '@posthog/query-frontend/schema.json'
 import type { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {

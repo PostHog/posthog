@@ -2,6 +2,8 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -11,7 +13,6 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
 import domainConnectJson from '~/mocks/fixtures/_domain_connect_check.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'

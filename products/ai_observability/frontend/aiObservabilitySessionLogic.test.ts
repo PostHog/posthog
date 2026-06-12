@@ -3,11 +3,12 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { NodeKind, TracesQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, TracesQuery } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType } from '~/types'
 

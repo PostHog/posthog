@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useRef, useState } from 'react'
 
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
+
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -13,7 +15,6 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
-import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 export interface FolderSelectProps {
     /** The folder to select */

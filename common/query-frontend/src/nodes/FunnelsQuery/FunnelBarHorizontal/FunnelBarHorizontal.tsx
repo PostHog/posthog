@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconInfinity } from '@posthog/icons'
+import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
@@ -11,7 +12,6 @@ import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 

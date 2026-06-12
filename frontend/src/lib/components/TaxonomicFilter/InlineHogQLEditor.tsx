@@ -1,7 +1,7 @@
+import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-
-import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
 
 export interface InlineHogQLEditorProps {
     value?: TaxonomicFilterValue

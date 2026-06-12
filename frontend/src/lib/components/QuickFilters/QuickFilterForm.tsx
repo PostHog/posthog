@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -10,7 +11,6 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, QuickFilterOption } from '~/types'
 
 import { allowedOperators, operatorsWithoutValues, quickFilterFormLogic } from './quickFilterFormLogic'

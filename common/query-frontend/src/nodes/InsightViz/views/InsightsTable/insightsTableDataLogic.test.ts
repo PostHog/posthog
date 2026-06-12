@@ -1,12 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
-
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { DataNode, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,

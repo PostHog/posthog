@@ -10,10 +10,9 @@ import {
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
+import { HeatmapGradientStop, HeatmapSettings } from '@posthog/query-frontend/schema/schema-general'
 
 import { getSeriesColorPalette } from 'lib/colors'
-
-import { HeatmapGradientStop, HeatmapSettings } from '@posthog/query-frontend/schema/schema-general'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { HEATMAP_GRADIENT_PRESETS, resolveGradientStops, sortGradientStops } from './heatmapUtils'

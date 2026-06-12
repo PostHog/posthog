@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { HogQLQueryModifiers, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-
-import { HogQLQueryModifiers, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 

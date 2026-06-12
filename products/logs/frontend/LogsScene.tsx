@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
@@ -12,7 +13,6 @@ import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsServices } from 'products/logs/frontend/components/LogsServices/LogsServices'

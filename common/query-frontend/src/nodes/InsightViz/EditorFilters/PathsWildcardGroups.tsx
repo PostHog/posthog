@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
+
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { EditorFilterProps } from '~/types'
 

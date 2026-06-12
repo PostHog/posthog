@@ -1,11 +1,10 @@
 import React, { type ReactNode } from 'react'
 
 import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import type { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
-
-import type { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 // Bucket naming rules (supports both S3 and GCS):
 // S3: https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html

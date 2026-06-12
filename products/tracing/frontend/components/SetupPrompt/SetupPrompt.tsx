@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { XRayHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -12,8 +13,6 @@ import javaImage from 'scenes/onboarding/sdks/logos/java.svg'
 import nodejsImage from 'scenes/onboarding/sdks/logos/nodejs.svg'
 import pythonImage from 'scenes/onboarding/sdks/logos/python.svg'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { tracingIngestionLogic } from './tracingIngestionLogic'
 

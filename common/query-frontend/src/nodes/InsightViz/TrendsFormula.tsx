@@ -3,10 +3,9 @@ import { useEffect, useState } from 'react'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-
 import { TrendsFormulaNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { EditorFilterProps } from '~/types'
 
 // When updating this regex, remember to update the regex with the same name in mixins/common.py

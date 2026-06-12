@@ -3,6 +3,7 @@ import React from 'react'
 
 import { IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { SupportForm } from 'lib/components/Support/SupportForm'
@@ -17,7 +18,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType } from '~/types'
 
 import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'

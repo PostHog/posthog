@@ -2,11 +2,12 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { DataTableNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'

@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { toast } from 'react-toastify'
 
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'
-
 import { retentionLogic } from '@posthog/query-frontend/nodes/RetentionQuery/retentionLogic'
 
 import { insightLogic } from 'scenes/insights/insightLogic'

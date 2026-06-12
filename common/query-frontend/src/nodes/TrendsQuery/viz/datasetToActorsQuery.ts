@@ -1,4 +1,5 @@
 import { InsightActorsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { GraphDataset } from '~/types'
 
 type DatasetToActorsInput = Pick<

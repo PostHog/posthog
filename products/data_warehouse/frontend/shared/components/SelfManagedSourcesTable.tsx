@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonInput, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { DatabaseSchemaDataWarehouseTable } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaDataWarehouseTable } from '@posthog/query-frontend/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
 import { sourceManagementLogic } from '../logics/sourceManagementLogic'

@@ -1,7 +1,8 @@
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
-
 import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '@posthog/query-frontend/utils'
+
+import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+
 import { TeamType } from '~/types'
 
 /** Indicates HogQL usage if team.live_events_columns = [HOGQL_COLUMNS_KEY, ...] */

@@ -22,6 +22,7 @@ import { useValues } from 'kea'
 import { ReactElement, useMemo, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
+import { AnyDataNode, DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
@@ -39,8 +40,6 @@ import {
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
-
-import { AnyDataNode, DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 import { TaxonomicMenuToggle } from './TaxonomicMenuToggle'
 

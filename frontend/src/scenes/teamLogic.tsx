@@ -2,6 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { CurrencyCode, CustomerAnalyticsConfig, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -20,7 +22,6 @@ import {
 } from 'lib/utils/product-intents'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
-import { CurrencyCode, CustomerAnalyticsConfig, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'

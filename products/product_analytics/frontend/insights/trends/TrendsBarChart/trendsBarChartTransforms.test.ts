@@ -1,6 +1,10 @@
-import { hexToRGBA } from 'lib/utils'
+import type {
+    CurrencyCode,
+    GoalLine as SchemaGoalLine,
+    TrendsFilter,
+} from '@posthog/query-frontend/schema/schema-general'
 
-import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
+import { hexToRGBA } from 'lib/utils'
 
 import {
     buildTrendsBarAggregatedSeries,

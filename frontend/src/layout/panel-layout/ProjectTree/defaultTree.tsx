@@ -61,6 +61,7 @@ import {
     IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
+import { FileSystemIconType, FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 
 import { urls } from 'scenes/urls'
 
@@ -71,7 +72,6 @@ import {
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
-import { FileSystemIconType, FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 import { FileSystemIconColor } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {

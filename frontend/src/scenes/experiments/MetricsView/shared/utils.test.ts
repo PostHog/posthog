@@ -1,5 +1,10 @@
-import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+import type {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { ExperimentMetricGoal, ExperimentMetricMathType } from '~/types'
 
 import {

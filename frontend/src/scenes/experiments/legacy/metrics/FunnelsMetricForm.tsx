@@ -2,20 +2,20 @@ import { useActions, useValues } from 'kea'
 
 import { LemonLabel } from '@posthog/lemon-ui'
 import { LemonInput } from '@posthog/lemon-ui'
+import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { getHogQLValue } from '@posthog/query-frontend/nodes/InsightViz/filters/AggregationSelect'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { AnyEntityNode, ExperimentFunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { getHogQLValue } from '@posthog/query-frontend/nodes/InsightViz/filters/AggregationSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { AnyEntityNode, ExperimentFunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import {
     FunnelAggregationSelect,

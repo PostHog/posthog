@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
+import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -9,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
 
 import { VARIABLE_TYPE_LABELS, formatVariableReference } from './constants'
 import { sqlVariablesLogic } from './sqlVariablesLogic'

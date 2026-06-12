@@ -3,14 +3,9 @@ import { useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
-
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { uuid } from 'lib/utils'
+import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
 import { ActionFilter as ActionFilterComponent } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-
-import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     ActionsNode,
     CoreEvent,
@@ -19,6 +14,11 @@ import {
     EventsNode,
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { uuid } from 'lib/utils'
+
 import {
     ActionFilter,
     BaseMathType,

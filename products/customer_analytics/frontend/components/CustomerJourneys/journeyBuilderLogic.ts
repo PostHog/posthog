@@ -2,18 +2,10 @@ import { actions, afterMount, connect, isBreakpoint, kea, listeners, path, reduc
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isEmptyObject } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
 import { funnelPathsExpansionLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelFlowGraph/funnelPathsExpansionLogic'
 import { PathExpansion } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelFlowGraph/pathFlowUtils'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-
 import { eventNameToEventsNode } from '@posthog/query-frontend/nodes/InsightQuery/utils/eventNameToEventsNode'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import {
     ActionsNode,
     AnyEntityNode,
@@ -23,6 +15,15 @@ import {
     InsightVizNode,
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isEmptyObject } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
 import { insightsApi } from '~/scenes/insights/utils/api'
 import {
     BreakdownAttributionType,

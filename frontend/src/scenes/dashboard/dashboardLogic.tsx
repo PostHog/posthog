@@ -27,6 +27,18 @@ import {
     type WidgetIssueMetadataContext,
     type WidgetIssueMetadataDelta,
 } from '@posthog/products-dashboards/frontend/widgets/error_tracking/applyWidgetIssueMetadataChange'
+import { variableDataLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variableDataLogic'
+import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
+import { getQueryBasedDashboard, getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import {
+    BreakdownFilter,
+    DashboardFilter,
+    DataVisualizationNode,
+    HogQLVariable,
+    NodeKind,
+    QuickFilterContext,
+    RefreshType,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError } from 'lib/api-error'
@@ -59,18 +71,6 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { variableDataLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variableDataLogic'
-import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
-import { getQueryBasedDashboard, getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
-import {
-    BreakdownFilter,
-    DashboardFilter,
-    DataVisualizationNode,
-    HogQLVariable,
-    NodeKind,
-    QuickFilterContext,
-    RefreshType,
-} from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,

@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
 import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -19,7 +20,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
 import {

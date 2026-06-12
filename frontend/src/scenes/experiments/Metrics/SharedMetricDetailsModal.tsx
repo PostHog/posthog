@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { urls } from 'scenes/urls'
-
-import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { MetricConversionWindow } from '../ExperimentForm/MetricsPanel/MetricConversionWindow'
 import { MetricEventDetails } from '../ExperimentForm/MetricsPanel/MetricEventDetails'

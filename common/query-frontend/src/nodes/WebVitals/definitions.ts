@@ -1,9 +1,8 @@
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
+import { WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '@posthog/query-frontend/schema/schema-general'
 
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { WebVitalsPercentile } from 'scenes/web-analytics/common'
-
-import { WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '@posthog/query-frontend/schema/schema-general'
 
 const PERCENTILE_NAME: Record<WebVitalsPercentile, string> = {
     p75: '75%',

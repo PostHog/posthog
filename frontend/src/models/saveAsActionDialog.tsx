@@ -1,5 +1,11 @@
 import posthog from 'posthog-js'
 
+import {
+    filterToActionStep,
+    generateActionNameFromFilter,
+} from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/saveAsActionUtils'
+import { LocalFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
+
 import api from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -12,11 +18,6 @@ import {
     applySubmitProperty,
     elementsToAction,
 } from 'scenes/activity/explore/createActionFromEvent'
-import {
-    filterToActionStep,
-    generateActionNameFromFilter,
-} from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/saveAsActionUtils'
-import { LocalFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'

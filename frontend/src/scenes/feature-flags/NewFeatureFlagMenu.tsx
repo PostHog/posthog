@@ -11,6 +11,7 @@ import {
     IconToggle,
     IconWrench,
 } from '@posthog/icons'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -23,7 +24,6 @@ import { createSuggestionGroup } from 'scenes/max/utils'
 import { urls } from 'scenes/urls'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
 import { INTENT_KEYS, INTENT_METADATA, TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'

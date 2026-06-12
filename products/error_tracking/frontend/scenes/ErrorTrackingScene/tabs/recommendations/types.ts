@@ -1,4 +1,5 @@
 import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
+
 import { HogFunctionSubTemplateIdType } from '~/types'
 
 export type ErrorTrackingRecommendationType = 'alerts' | 'long_running_issues' | 'rate_limits' | 'source_maps'

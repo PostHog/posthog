@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
+
+import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 
 import { EditorFilterProps, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 

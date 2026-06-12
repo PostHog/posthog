@@ -3,6 +3,11 @@ import { useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import {
+    ErrorTrackingRelationalIssue,
+    ProductIntentContext,
+    ProductKey,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { SceneComment } from 'lib/components/Scenes/SceneComment'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
@@ -21,7 +26,6 @@ import { urls } from 'scenes/urls'
 
 import { ScenePanel, ScenePanelDivider, ScenePanelInfoSection, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { ErrorTrackingRelationalIssue, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'

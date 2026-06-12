@@ -3,12 +3,13 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { DatabaseSchemaDataWarehouseTable } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSchemaDataWarehouseTable } from '@posthog/query-frontend/schema/schema-general'
 import {
     DataWarehouseViewLink,
     ExternalDataJobStatus,

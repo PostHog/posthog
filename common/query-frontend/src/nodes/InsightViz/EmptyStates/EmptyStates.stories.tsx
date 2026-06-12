@@ -5,9 +5,9 @@ import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import insight from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import { InsightShortId } from '~/types'
 
-import insight from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import funnelOneStep from './funnelOneStep.json'
 

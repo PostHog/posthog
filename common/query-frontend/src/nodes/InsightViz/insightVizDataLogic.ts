@@ -2,34 +2,16 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import {
-    DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
-    DISPLAY_TYPES_WITHOUT_LEGEND,
-} from 'lib/components/InsightLegend/utils'
-import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
-import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-import { AggregationType } from '@posthog/query-frontend/nodes/InsightViz/views/InsightsTable/insightsTableDataLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
-import { BASE_MATH_DEFINITIONS } from '@posthog/query-frontend/shared/mathsLogic'
-
-import { actionsModel } from '~/models/actionsModel'
 import {
     extractValidationError,
     extractValidationErrorCode,
     getAllEventNames,
     queryFromKind,
 } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { AggregationType } from '@posthog/query-frontend/nodes/InsightViz/views/InsightsTable/insightsTableDataLogic'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -55,6 +37,7 @@ import {
     TrendsQuery,
     VizSpecificOptions,
 } from '@posthog/query-frontend/schema/schema-general'
+import { BASE_MATH_DEFINITIONS } from '@posthog/query-frontend/shared/mathsLogic'
 import {
     filterForQuery,
     filterKeyForQuery,
@@ -99,6 +82,23 @@ import {
     supportsBarValueStacking,
     supportsPercentStackView,
 } from '@posthog/query-frontend/utils'
+
+import {
+    DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
+    DISPLAY_TYPES_WITHOUT_LEGEND,
+} from 'lib/components/InsightLegend/utils'
+import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
+import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+
+import { actionsModel } from '~/models/actionsModel'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, LabelGroupType, SlowQueryPossibilities } from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'

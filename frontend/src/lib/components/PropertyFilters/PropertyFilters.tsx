@@ -3,6 +3,8 @@ import './PropertyFilters.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
+import { AnyDataNode, DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
+
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
     AllowedProperties,
@@ -15,7 +17,6 @@ import {
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
-import { AnyDataNode, DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'

@@ -4,11 +4,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { Params } from 'scenes/sceneTypes'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, Breadcrumb, UniversalFiltersGroup } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'

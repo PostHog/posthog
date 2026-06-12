@@ -17,6 +17,7 @@ import {
     LemonTableColumns,
     LemonTag,
 } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -32,7 +33,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     AssigneeDisplay,

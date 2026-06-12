@@ -16,7 +16,6 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import {
     MaxErrorTrackingIssuePreview,
     MaxErrorTrackingSearchResponse,
@@ -30,6 +29,8 @@ import {
 } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { ArtifactContentType, NotebookArtifactContent } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { recordings } from '~/scenes/session-recordings/__mocks__/recordings'
 import { FilterLogicalOperator, InsightShortId, PendingApproval, PropertyFilterType, PropertyOperator } from '~/types'
 

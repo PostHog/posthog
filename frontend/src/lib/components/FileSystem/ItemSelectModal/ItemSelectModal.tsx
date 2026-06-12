@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 import { ReactNode, useRef, useState } from 'react'
 
 import { IconFolder, IconFolderOpen } from '@posthog/icons'
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -17,7 +18,6 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
-import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import { itemSelectModalLogic } from './itemSelectModalLogic'
 

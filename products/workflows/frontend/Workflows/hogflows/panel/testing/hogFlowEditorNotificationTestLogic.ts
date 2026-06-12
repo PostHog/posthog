@@ -3,14 +3,14 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
-import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { hogql } from '@posthog/query-frontend/utils'
 import { CyclotronJobInvocationGlobals, FilterLogicalOperator, PersonType, PropertyFilterType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'

@@ -1,13 +1,13 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { Link } from 'lib/lemon-ui/Link'
-import { humanFriendlyDuration, humanFriendlyNumber, humanizeBytes } from 'lib/utils'
-import { urls } from 'scenes/urls'
-
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { Link } from 'lib/lemon-ui/Link'
+import { humanFriendlyDuration, humanFriendlyNumber, humanizeBytes } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { EndpointsUsageFilters } from './EndpointsUsageFilters'
 import { endpointsUsageLogic } from './endpointsUsageLogic'

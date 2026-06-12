@@ -9,11 +9,10 @@ import { useMemo, useState } from 'react'
 
 import { IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSearchableSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { extractDisplayLabel } from '@posthog/query-frontend/nodes/DataTable/utils'
 
 import { IconOpenInNew, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-
-import { extractDisplayLabel } from '@posthog/query-frontend/nodes/DataTable/utils'
 
 import {
     ACCOUNTS_NAME_COLUMN,

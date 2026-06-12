@@ -5,10 +5,11 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { useState } from 'react'
 
+import { performQuery } from '@posthog/query-frontend/query'
+
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '@posthog/query-frontend/query'
 import { initKeaTests } from '~/test/init'
 
 import { TaxonomicFilterHeadless } from '../headless'

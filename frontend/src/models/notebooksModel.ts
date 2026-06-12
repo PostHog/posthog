@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { InsightVizNode, Node, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -17,7 +19,6 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { InsightVizNode, Node, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'

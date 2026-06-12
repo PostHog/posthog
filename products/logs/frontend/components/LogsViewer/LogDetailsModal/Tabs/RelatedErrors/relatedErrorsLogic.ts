@@ -1,11 +1,12 @@
 import { afterMount, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { MaxErrorTrackingIssuePreview } from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
+import { ErrorTrackingIssue, ErrorTrackingQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { MaxErrorTrackingIssuePreview } from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
-import { ErrorTrackingIssue, ErrorTrackingQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { relatedErrorsLogicType } from './relatedErrorsLogicType'

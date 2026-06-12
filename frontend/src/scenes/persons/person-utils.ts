@@ -1,5 +1,7 @@
 import './PersonDisplay.scss'
 
+import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
+
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { NUM_LETTERMARK_STYLES } from 'lib/lemon-ui/Lettermark/Lettermark'
 import { ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
@@ -7,7 +9,6 @@ import { isUUIDLike, midEllipsis } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
 import { PersonType } from '~/types'
 
 /**

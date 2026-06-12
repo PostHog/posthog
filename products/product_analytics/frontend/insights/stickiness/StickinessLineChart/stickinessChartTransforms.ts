@@ -1,6 +1,5 @@
 import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
-
 import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 
 import { ChartDisplayType } from '~/types'

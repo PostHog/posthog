@@ -2,12 +2,9 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
-
-import { useMocks } from '~/mocks/jest'
 import { examples } from '@posthog/query-frontend/examples'
 import { nodeKindToDefaultQuery } from '@posthog/query-frontend/nodes/InsightQuery/defaults'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import {
     EventsQuery,
     FunnelsQuery,
@@ -17,6 +14,11 @@ import {
     ProductKey,
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
@@ -32,8 +34,6 @@ import {
 } from '~/types'
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
-
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 
 describe('insightNavLogic', () => {
     let logic: ReturnType<typeof insightNavLogic.build>

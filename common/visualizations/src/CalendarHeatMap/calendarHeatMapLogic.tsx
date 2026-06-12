@@ -1,11 +1,12 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 import { InsightLogicProps, TrendResult } from '~/types'
 
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import type { calendarHeatMapLogicType } from './calendarHeatMapLogicType'
 import { DaysAbbreviated, HoursAbbreviated } from './utils'
 

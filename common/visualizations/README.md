@@ -37,19 +37,19 @@ Chart-type-specific plugins (`chartjs-plugin-annotation`, `chartjs-plugin-datala
 
 ## Inventory
 
-| Folder | What it is |
-| --- | --- |
-| `src/Chart.ts` | Chart.js wrapper: global plugin registration, storybook-safe `Chart` subclass, type re-exports |
-| `src/charts/` | Chart-agnostic building blocks: `ChartTheme`/`AxisFormat` types, value formatting, theme building, CSS variable color resolution |
-| `src/LineGraph/` | The main Chart.js insight renderer: line/bar/horizontal bar/area graphs plus `PieChart`, tooltip data mapping, and trends display option inputs |
-| `src/BoldNumber/` | Single big number display for trends and SQL insights, with comparison vs. previous period and auto-fitting text |
-| `src/BoxPlot/` | Box-and-whisker chart for trends, with legend and results table |
-| `src/Histogram/` | D3-based histogram, used for funnel time-to-convert distributions |
-| `src/WorldMap/` | Choropleth world map (hand-rolled country SVG paths) for country breakdowns |
-| `src/RegionMap/` | Choropleth state/province map built on `react-simple-maps` and topojson |
-| `src/CalendarHeatMap/` | Calendar heatmap (day-of-week × hour) display for trends |
-| `src/InsightTooltip/` | Shared tooltip component and the `useInsightTooltip` singleton hover/pinned tooltip manager |
-| `src/Sparkline/` | Compact, props-driven bar/line sparkline used across products |
+| Folder                 | What it is                                                                                                                                      |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/Chart.ts`         | Chart.js wrapper: global plugin registration, storybook-safe `Chart` subclass, type re-exports                                                  |
+| `src/charts/`          | Chart-agnostic building blocks: `ChartTheme`/`AxisFormat` types, value formatting, theme building, CSS variable color resolution                |
+| `src/LineGraph/`       | The main Chart.js insight renderer: line/bar/horizontal bar/area graphs plus `PieChart`, tooltip data mapping, and trends display option inputs |
+| `src/BoldNumber/`      | Single big number display for trends and SQL insights, with comparison vs. previous period and auto-fitting text                                |
+| `src/BoxPlot/`         | Box-and-whisker chart for trends, with legend and results table                                                                                 |
+| `src/Histogram/`       | D3-based histogram, used for funnel time-to-convert distributions                                                                               |
+| `src/WorldMap/`        | Choropleth world map (hand-rolled country SVG paths) for country breakdowns                                                                     |
+| `src/RegionMap/`       | Choropleth state/province map built on `react-simple-maps` and topojson                                                                         |
+| `src/CalendarHeatMap/` | Calendar heatmap (day-of-week × hour) display for trends                                                                                        |
+| `src/InsightTooltip/`  | Shared tooltip component and the `useInsightTooltip` singleton hover/pinned tooltip manager                                                     |
+| `src/Sparkline/`       | Compact, props-driven bar/line sparkline used across products                                                                                   |
 
 Each folder has its own README with exports, props, and consumers.
 

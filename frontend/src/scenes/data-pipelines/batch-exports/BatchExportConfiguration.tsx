@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconCheckCircle, IconPlus, IconX, IconInfo } from '@posthog/icons'
 import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -21,7 +22,6 @@ import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, BatchExportConfigurationTest, BatchExportConfigurationTestStep } from '~/types'
 
 import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'

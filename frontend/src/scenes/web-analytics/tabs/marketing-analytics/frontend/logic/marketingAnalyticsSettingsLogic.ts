@@ -1,9 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
-
 import {
     AttributionMode,
     CampaignFieldPreference,
@@ -21,6 +18,10 @@ import {
     SourceMap,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { ExternalDataSource } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'

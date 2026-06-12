@@ -9,14 +9,21 @@ It is the shared display layer behind `WebOverview` (the `WebOverviewQuery` rend
 ```tsx
 import { OverviewGrid } from '@posthog/query-frontend/nodes/OverviewGrid/OverviewGrid'
 
-<OverviewGrid
-    items={[
-        { key: 'visitors', value: 1234, previous: 1000, changeFromPreviousPct: 23.4, kind: 'unit' },
-        { key: 'bounce rate', value: 0.45, previous: 0.5, changeFromPreviousPct: -10, kind: 'percentage', isIncreaseBad: true },
-    ]}
-    loading={false}
-    numSkeletons={5}
-    labelFromKey={(key) => key.toUpperCase()}
+;<OverviewGrid
+  items={[
+    { key: 'visitors', value: 1234, previous: 1000, changeFromPreviousPct: 23.4, kind: 'unit' },
+    {
+      key: 'bounce rate',
+      value: 0.45,
+      previous: 0.5,
+      changeFromPreviousPct: -10,
+      kind: 'percentage',
+      isIncreaseBad: true,
+    },
+  ]}
+  loading={false}
+  numSkeletons={5}
+  labelFromKey={(key) => key.toUpperCase()}
 />
 ```
 

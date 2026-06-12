@@ -1,22 +1,22 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
-import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
-
-import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
-import { getBarColorFromStatus } from 'lib/colors'
 import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
 import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
-import { teamLogic } from 'scenes/teamLogic'
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
-
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
+import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
+import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
+import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
+
+import { getBarColorFromStatus } from 'lib/colors'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
 import type { LifecycleToggle } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'

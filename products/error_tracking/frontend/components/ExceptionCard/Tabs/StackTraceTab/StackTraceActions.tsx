@@ -2,12 +2,11 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconCode, IconInfo, IconWrench } from '@posthog/icons'
+import { ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { AgentPromptButton } from 'lib/components/AgentPromptButton'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
-
-import { ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { useStacktraceDisplay } from '../../../../hooks/use-stacktrace-display'
 import { GitMetadataParser } from '../../../ReleasesPreview/gitMetadataParser'

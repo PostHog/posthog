@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { FileSystemIconType, FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -8,7 +10,6 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemIconType, FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 import { UserShortcutPosition } from '~/types'
 
 import { editCustomProductsModalLogic } from './editCustomProductsModalLogic'

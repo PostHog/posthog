@@ -1,7 +1,8 @@
+import { AnyResponseType, SharingConfigurationSettings } from '@posthog/query-frontend/schema/schema-general'
+
 import { NotebookType } from 'scenes/notebooks/types'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { AnyResponseType, SharingConfigurationSettings } from '@posthog/query-frontend/schema/schema-general'
 import {
     CohortType,
     DashboardType,

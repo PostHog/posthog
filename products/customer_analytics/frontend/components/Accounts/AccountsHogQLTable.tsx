@@ -2,17 +2,16 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonButton, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '@posthog/query-frontend/types'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
-
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
-import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '@posthog/query-frontend/types'
 
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'

@@ -1,4 +1,5 @@
 import { EventsNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 /** Convert an event name (or full URL) into an EventsNode for use in funnel series.

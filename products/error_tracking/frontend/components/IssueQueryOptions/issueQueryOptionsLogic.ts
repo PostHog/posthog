@@ -3,9 +3,9 @@ import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { Params } from 'scenes/sceneTypes'
-
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { Params } from 'scenes/sceneTypes'
 
 import { syncSearchParams, updateSearchParams } from '../../utils'
 import type { issueQueryOptionsLogicType } from './issueQueryOptionsLogicType'

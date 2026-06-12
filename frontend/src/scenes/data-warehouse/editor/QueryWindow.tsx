@@ -5,6 +5,7 @@ import { memo, useMemo } from 'react'
 
 import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -22,7 +23,6 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FixErrorButton } from './components/FixErrorButton'

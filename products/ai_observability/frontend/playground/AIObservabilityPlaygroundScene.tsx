@@ -29,6 +29,7 @@ import {
     Link,
     LemonDivider,
 } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -42,7 +43,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'

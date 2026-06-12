@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { EventsNode, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -11,7 +12,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { EventsNode, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import {
     BasicSurveyQuestion,
     LinkSurveyQuestion,

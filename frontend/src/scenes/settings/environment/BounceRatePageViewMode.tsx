@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { HogQLQueryModifiers } from '@posthog/query-frontend/schema/schema-general'
+
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { HogQLQueryModifiers } from '@posthog/query-frontend/schema/schema-general'
 
 type BounceRatePageViewMode = NonNullable<HogQLQueryModifiers['bounceRatePageViewMode']>
 

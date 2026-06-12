@@ -4,6 +4,7 @@ import { examples } from '@posthog/query-frontend/examples'
 import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import { QuerySchema } from '@posthog/query-frontend/schema/schema-general'
+
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps } from '~/types'
 

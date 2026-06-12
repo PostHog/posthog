@@ -3,6 +3,15 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { performQuery } from '@posthog/query-frontend/query'
+import {
+    HogQLQuery,
+    HogQLQueryResponse,
+    NodeKind,
+    TrendsQuery,
+    TrendsQueryResponse,
+    WebAnalyticsPropertyFilter,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -16,15 +25,6 @@ import { ProductTab } from 'scenes/web-analytics/common'
 import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { performQuery } from '@posthog/query-frontend/query'
-import {
-    HogQLQuery,
-    HogQLQueryResponse,
-    NodeKind,
-    TrendsQuery,
-    TrendsQueryResponse,
-    WebAnalyticsPropertyFilter,
-} from '@posthog/query-frontend/schema/schema-general'
 import { BaseMathType, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { createStreamConnection } from './createStreamConnection'

@@ -1,10 +1,10 @@
 import { afterMount, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import posthog from 'posthog-js'
 
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
 
 import { WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import type { webAnalyticsLoadTimeLogicType } from './webAnalyticsLoadTimeLogicType'

@@ -4,6 +4,13 @@ import { useEffect } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import {
+    FileSystemImport,
+    ProductIntentContext,
+    ProductKey,
+    UserProductListItem,
+    UserProductListReason,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
@@ -12,13 +19,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { getTreeItemsProducts } from '~/products'
-import {
-    FileSystemImport,
-    ProductIntentContext,
-    ProductKey,
-    UserProductListItem,
-    UserProductListReason,
-} from '@posthog/query-frontend/schema/schema-general'
 
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 import { navPanelAdvertisementRecommendedLogic } from './navPanelAdvertisementRecommendedLogic'

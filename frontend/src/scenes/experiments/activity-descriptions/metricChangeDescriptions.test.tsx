@@ -7,6 +7,7 @@ import {
     ExperimentMetric,
     ExperimentRatioMetric,
 } from '@posthog/query-frontend/schema/schema-general'
+
 import { ExperimentMetricGoal, FunnelConversionWindowTimeUnit, StepOrderValue } from '~/types'
 
 import { getMetricChanges } from './metricChangeDescriptions'

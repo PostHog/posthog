@@ -2,6 +2,8 @@ import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { EndpointRequest, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -12,7 +14,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
-import { EndpointRequest, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { EndpointType, EndpointVersionType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'

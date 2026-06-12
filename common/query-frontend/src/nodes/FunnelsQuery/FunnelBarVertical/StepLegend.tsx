@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconClock } from '@posthog/icons'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'

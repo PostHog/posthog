@@ -8,6 +8,7 @@ import { useEffect } from 'react'
 
 import { IconDocument } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { JudgeHog, StarHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -25,7 +26,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
 import { BillingHero } from './BillingHero'

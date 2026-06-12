@@ -1,15 +1,15 @@
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
-
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import {
     ExperimentMeanMetric,
     ExperimentMetric,
     ExperimentMetricOutlierHandling as ExperimentMetricOutlierHandlingConfig,
     ExperimentRatioMetric,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 const DESCRIPTION = 'Set winsorization lower and upper bounds to cap metric values at the specified percentiles.'
 

@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ListHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -15,8 +16,6 @@ import nextjsImage from 'scenes/onboarding/sdks/logos/nextjs.svg'
 import nodejsImage from 'scenes/onboarding/sdks/logos/nodejs.svg'
 import pythonImage from 'scenes/onboarding/sdks/logos/python.svg'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { useOpenLogsSettingsPanel } from '../../hooks/useOpenLogsSettingsPanel'
 import { logsIngestionLogic } from './logsIngestionLogic'

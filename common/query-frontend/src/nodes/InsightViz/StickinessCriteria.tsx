@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonInput } from '@posthog/lemon-ui'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { StickinessOperator } from '@posthog/query-frontend/schema/schema-general'
 
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
-import { StickinessOperator } from '@posthog/query-frontend/schema/schema-general'
 import { EditorFilterProps, PropertyOperator } from '~/types'
 
 export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Element {

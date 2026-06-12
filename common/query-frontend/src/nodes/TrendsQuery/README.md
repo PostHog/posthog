@@ -6,24 +6,24 @@ It is the most general-purpose insight kind and powers most dashboard tiles.
 
 ## Rendering
 
-`TrendsQuery` is an insight *source*, not a standalone renderable node.
+`TrendsQuery` is an insight _source_, not a standalone renderable node.
 Wrap it in an `InsightVizNode` and pass that to `<Query />`:
 
 ```tsx
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
-<Query
-    query={{
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.TrendsQuery,
-            interval: 'day',
-            dateRange: { date_from: '-7d' },
-            series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview', math: 'total' }],
-            trendsFilter: { display: 'ActionsLineGraph' },
-        },
-    }}
+;<Query
+  query={{
+    kind: NodeKind.InsightVizNode,
+    source: {
+      kind: NodeKind.TrendsQuery,
+      interval: 'day',
+      dateRange: { date_from: '-7d' },
+      series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview', math: 'total' }],
+      trendsFilter: { display: 'ActionsLineGraph' },
+    },
+  }}
 />
 ```
 

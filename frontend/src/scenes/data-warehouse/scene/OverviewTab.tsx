@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonCard, LemonSegmentedButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { DataWarehouseSavedQueryOrigin } from '@posthog/query-frontend/schema/schema-general'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
-import { DataWarehouseSavedQueryOrigin } from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseActivityRecord } from '~/types'
 
 import { dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'

@@ -3,6 +3,8 @@ import { useEffect } from 'react'
 
 import { IconTrending } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { CurrencyCode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
@@ -18,8 +20,6 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { CurrencyCode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'

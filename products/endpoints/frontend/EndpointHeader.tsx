@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { IconBug } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { EndpointRequest } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightVizNode } from '@posthog/query-frontend/utils'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
@@ -10,8 +12,6 @@ import { objectsEqual } from 'lib/utils'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EndpointRequest } from '@posthog/query-frontend/schema/schema-general'
-import { isInsightVizNode } from '@posthog/query-frontend/utils'
 import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'

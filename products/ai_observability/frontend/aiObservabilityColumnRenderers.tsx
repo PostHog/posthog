@@ -4,15 +4,15 @@ import { useEffect } from 'react'
 
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { DataTableNode, DataVisualizationNode } from '@posthog/query-frontend/schema/schema-general'
+import { LLMTrace } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContextColumn } from '@posthog/query-frontend/types'
+import { hogql, isDataTableNode, isEventsQuery } from '@posthog/query-frontend/utils'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, DataVisualizationNode } from '@posthog/query-frontend/schema/schema-general'
-import { LLMTrace } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContextColumn } from '@posthog/query-frontend/types'
-import { hogql, isDataTableNode, isEventsQuery } from '@posthog/query-frontend/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'

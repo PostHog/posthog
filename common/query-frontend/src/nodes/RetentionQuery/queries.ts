@@ -1,9 +1,12 @@
-import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from '@posthog/query-frontend/nodes/RetentionQuery/types'
-import { sceneLogic } from 'scenes/sceneLogic'
-
+import {
+    RetentionTableAppearanceType,
+    RetentionTablePeoplePayload,
+} from '@posthog/query-frontend/nodes/RetentionQuery/types'
 import { performQuery } from '@posthog/query-frontend/query'
 import { ActorsQuery, NodeKind, RetentionQuery } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export function retentionToActorsQuery(
     query: RetentionQuery,

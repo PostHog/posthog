@@ -3,6 +3,11 @@ import { combineUrl, router } from 'kea-router'
 import React from 'react'
 
 import { LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { DataTableRow } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { isEventsQuery } from '@posthog/query-frontend/utils'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -27,11 +32,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
-import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
-import { DataTableRow } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
-import { isEventsQuery } from '@posthog/query-frontend/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'

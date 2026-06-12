@@ -1,10 +1,6 @@
 import { useValues } from 'kea'
 
 import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
-
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { urls } from 'scenes/urls'
-
 import {
     METRIC_DESCRIPTION,
     WEB_VITALS_THRESHOLDS,
@@ -12,6 +8,10 @@ import {
     getValueWithUnit,
 } from '@posthog/query-frontend/nodes/WebVitals/definitions'
 import { WebVitalsMetric } from '@posthog/query-frontend/schema/schema-general'
+
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { joinWithUiHost } from '~/toolbar/utils'
 

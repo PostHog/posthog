@@ -12,23 +12,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { Lettermark, LettermarkColor, Tooltip } from '@posthog/lemon-ui'
-
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconCalculate } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import { BreakdownTag } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/BreakdownTag'
-import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
-import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { MathCategory, apiValueToMathType, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
-import { urls } from 'scenes/urls'
-
 import {
     AnyEntityNode,
     BreakdownFilter,
@@ -48,6 +32,7 @@ import {
     DashboardFilter,
     TileFilters,
 } from '@posthog/query-frontend/schema/schema-general'
+import { MathCategory, apiValueToMathType, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 import {
     isActionsNode,
     isAnyDataWarehouseNode,
@@ -65,6 +50,21 @@ import {
     isTrendsQuery,
     hasBreakdownFilter,
 } from '@posthog/query-frontend/utils'
+
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconCalculate } from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
+import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends } from 'scenes/insights/utils'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { urls } from 'scenes/urls'
+
 import { AnyPropertyFilter, BaseMathType, FilterLogicalOperator, PropertyGroupFilter, UserBasicType } from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'

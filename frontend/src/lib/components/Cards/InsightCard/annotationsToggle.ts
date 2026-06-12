@@ -1,7 +1,8 @@
-import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-
 import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
 import { getShowAnnotations, isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '@posthog/query-frontend/utils'
+
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+
 import { ChartDisplayType, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 // Annotations only render for trends time-series charts and funnels with the historical-trends viz type.

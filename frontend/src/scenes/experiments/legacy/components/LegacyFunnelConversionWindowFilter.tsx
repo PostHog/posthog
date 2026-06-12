@@ -1,10 +1,10 @@
 import { IconInfo } from '@posthog/icons'
 import type { LemonSelectOption } from '@posthog/lemon-ui'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { TIME_INTERVAL_BOUNDS } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { TIME_INTERVAL_BOUNDS } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
 
 import { FunnelConversionWindowTimeUnit } from '~/types'
 

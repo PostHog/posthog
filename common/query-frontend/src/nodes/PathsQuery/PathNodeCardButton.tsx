@@ -3,12 +3,12 @@ import posthog from 'posthog-js'
 
 import { IconEllipsis, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonMenu, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
+import { PathsFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
-import { PathsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
 import { pathsDataLogicType } from './pathsDataLogicType'

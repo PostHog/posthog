@@ -10,6 +10,7 @@ import {
     AssigneeResolver,
 } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeSelect'
+import { ErrorTrackingIssueAssignee } from '@posthog/query-frontend/schema/schema-general'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -37,7 +38,6 @@ import {
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
-import { ErrorTrackingIssueAssignee } from '@posthog/query-frontend/schema/schema-general'
 import { GroupTypeIndex, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {

@@ -4,6 +4,9 @@ import { useMemo } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
@@ -32,9 +35,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import {
     EventDefinition,

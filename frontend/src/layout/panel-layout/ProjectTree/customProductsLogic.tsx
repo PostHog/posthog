@@ -2,11 +2,10 @@ import { kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import type { UserProductListItem } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
-
-import type { UserProductListItem } from '@posthog/query-frontend/schema/schema-general'
 
 import type { customProductsLogicType } from './customProductsLogicType'
 

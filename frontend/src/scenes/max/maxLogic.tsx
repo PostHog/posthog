@@ -3,6 +3,7 @@ import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { IconBook } from '@posthog/icons'
+import { AgentMode, RootAssistantMessage } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -18,7 +19,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
-import { AgentMode, RootAssistantMessage } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import {
     Breadcrumb,
     Conversation,

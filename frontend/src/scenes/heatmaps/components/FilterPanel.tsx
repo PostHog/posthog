@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -16,7 +17,6 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
-import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter'
 
 import { AnyPropertyFilter, CohortPropertyFilter, HeatmapType, PropertyFilterType, PropertyOperator } from '~/types'
 

@@ -1,7 +1,8 @@
+import { ExperimentFunnelMetric, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ExperimentFunnelMetric, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import { StepOrderValue } from '~/types'
 
 const funnelOrderOptions = [

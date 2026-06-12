@@ -1,12 +1,6 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
-
 import { isSessionPropertyFilters } from '@posthog/query-frontend/schema-guards'
 import {
     DataTableNode,
@@ -15,6 +9,13 @@ import {
     SessionAttributionExplorerQuery,
     SessionAttributionGroupBy,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
+
 import { Breadcrumb, SessionPropertyFilter } from '~/types'
 
 import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'

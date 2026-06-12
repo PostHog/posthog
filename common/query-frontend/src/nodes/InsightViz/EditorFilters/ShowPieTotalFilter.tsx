@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox } from '@posthog/lemon-ui'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 
 import { ChartDisplayType } from '~/types'
 

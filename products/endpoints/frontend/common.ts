@@ -1,6 +1,6 @@
-import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 
 /** Must match ENDPOINT_NAME_REGEX in products/endpoints/backend/api.py */
 const ENDPOINT_NAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/

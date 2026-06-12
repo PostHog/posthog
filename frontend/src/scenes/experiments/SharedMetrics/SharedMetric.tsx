@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconBalance, IconCheckCircle, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
+import { ExperimentMetric, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -27,7 +28,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { tagsModel } from '~/models/tagsModel'
-import { ExperimentMetric, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'

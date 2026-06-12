@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 
+import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 import { AnomalyPointsLayer, ReferenceLines } from '@posthog/quill-charts'
 
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
-import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 import type { InsightLogicProps } from '~/types'
 

@@ -2,9 +2,10 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { v4 as uuidv4 } from 'uuid'
 
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 

@@ -1,6 +1,6 @@
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
-
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { CompareLabelType, EntityTypes } from '~/types'
 
 import { handleTrendsChartClick, type TrendsChartClickDeps } from './handleTrendsChartClick'

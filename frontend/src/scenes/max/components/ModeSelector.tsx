@@ -4,12 +4,12 @@ import { useCallback, useMemo } from 'react'
 
 import { IconArrowRight, IconWrench } from '@posthog/icons'
 import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
+import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { ConversationType } from '~/types'
 
 import {

@@ -1,8 +1,6 @@
-import type { Series, TooltipConfig } from '@posthog/quill-charts'
-
 import type { RetentionTrendPayload } from '@posthog/query-frontend/nodes/RetentionQuery/types'
-
 import type { GoalLine as SchemaGoalLine } from '@posthog/query-frontend/schema/schema-general'
+import type { Series, TooltipConfig } from '@posthog/quill-charts'
 
 import type { GoalLineLike } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
 

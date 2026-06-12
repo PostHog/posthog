@@ -1,11 +1,11 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { BoxPlotDatum } from '@posthog/query-frontend/schema/schema-general'
+
 import { InsightLogicProps } from '~/types'
 
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import type { boxPlotChartLogicType } from './boxPlotChartLogicType'
 
 export interface BoxPlotChartDatum {

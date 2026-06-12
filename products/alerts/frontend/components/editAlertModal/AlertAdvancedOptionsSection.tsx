@@ -2,11 +2,10 @@ import { Group } from 'kea-forms'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-
-import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
 
 import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 

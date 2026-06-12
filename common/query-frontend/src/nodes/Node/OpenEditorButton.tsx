@@ -1,8 +1,8 @@
+import { Node } from '@posthog/query-frontend/schema/schema-general'
+
 import { IconPreview } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
-
-import { Node } from '@posthog/query-frontend/schema/schema-general'
 
 export interface OpenEditorButtonProps extends LemonButtonWithoutSideActionProps {
     query: Node | null

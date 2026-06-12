@@ -2,10 +2,10 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelStepWithConversionMetrics } from '~/types'

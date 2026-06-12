@@ -6,14 +6,6 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import api from 'lib/api'
-import { dataColorVars } from 'lib/colors'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
-
 import {
     LogMessage,
     LogsQuery,
@@ -22,6 +14,14 @@ import {
     ProductKey,
 } from '@posthog/query-frontend/schema/schema-general'
 import { integer } from '@posthog/query-frontend/schema/type-utils'
+
+import api from 'lib/api'
+import { dataColorVars } from 'lib/colors'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDetailedTime } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'

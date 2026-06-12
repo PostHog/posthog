@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -16,7 +17,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from './constants'

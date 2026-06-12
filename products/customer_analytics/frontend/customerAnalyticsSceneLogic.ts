@@ -1,14 +1,6 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { FunnelLayout } from 'lib/constants'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { capitalizeFirstLetter, getDefaultInterval, wordPluralize } from 'lib/utils'
-import { sceneConfigurations } from 'scenes/scenes'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-
-import { groupsModel } from '~/models/groupsModel'
 import {
     ActionsNode,
     AnyEntityNode,
@@ -18,6 +10,15 @@ import {
     FunnelsDataWarehouseNode,
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { FunnelLayout } from 'lib/constants'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { capitalizeFirstLetter, getDefaultInterval, wordPluralize } from 'lib/utils'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { groupsModel } from '~/models/groupsModel'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import {
     BaseMathType,

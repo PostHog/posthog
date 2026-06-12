@@ -1,11 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
+import { MaxErrorTrackingIssuePreview } from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ErrorTrackingIssueCard } from 'scenes/max/messages/ErrorTrackingIssueCard'
-
-import { MaxErrorTrackingIssuePreview } from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
 
 import { RelatedErrorsLogicProps, relatedErrorsLogic } from './relatedErrorsLogic'
 

@@ -3,6 +3,13 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
+import {
+    CustomChannelCondition,
+    CustomChannelField,
+    CustomChannelOperator,
+    CustomChannelRule,
+    DefaultChannelTypes,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -17,13 +24,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    CustomChannelCondition,
-    CustomChannelField,
-    CustomChannelOperator,
-    CustomChannelRule,
-    DefaultChannelTypes,
-} from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 const combinerOptions = [

@@ -3,13 +3,6 @@
 
 import { combineUrl } from 'kea-router'
 
-import { AlertType } from 'lib/components/Alerts/types'
-import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
-import { toParams } from 'lib/utils'
-import type { Params } from 'scenes/sceneTypes'
-import { SurveysTabs } from 'scenes/surveys/surveysLogic'
-import { urls } from 'scenes/urls'
-
 import { examples } from '@posthog/query-frontend/examples'
 import type { FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 import {
@@ -27,6 +20,14 @@ import {
     TileFilters,
 } from '@posthog/query-frontend/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '@posthog/query-frontend/utils'
+
+import { AlertType } from 'lib/components/Alerts/types'
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
+import { toParams } from 'lib/utils'
+import type { Params } from 'scenes/sceneTypes'
+import { SurveysTabs } from 'scenes/surveys/surveysLogic'
+import { urls } from 'scenes/urls'
+
 import { ActivityScope } from '~/types'
 
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from '../../products/ai_observability/frontend/clusters/constants'

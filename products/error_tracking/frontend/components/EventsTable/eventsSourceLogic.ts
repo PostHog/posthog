@@ -1,6 +1,6 @@
-import { ErrorEventType } from 'lib/components/Errors/types'
-
 import { EventsQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { ErrorEventType } from 'lib/components/Errors/types'
 
 import { DataSourceLogicProps, createDataSourceLogic } from '../DataSourceTable'
 

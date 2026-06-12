@@ -1,13 +1,14 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { HOGQL_COLUMNS_KEY } from '@posthog/query-frontend/nodes/DataTable/defaultEventsQuery'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { HOGQL_COLUMNS_KEY } from '@posthog/query-frontend/nodes/DataTable/defaultEventsQuery'
 import { GroupTypeIndex } from '~/types'
 
 import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'

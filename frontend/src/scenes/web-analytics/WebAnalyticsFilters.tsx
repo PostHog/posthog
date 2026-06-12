@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react'
 
 import { IconFilter, IconGlobe, IconPhone, IconPlus, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
+import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
 
 import { baseModifier } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
@@ -31,7 +32,6 @@ import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 
-import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
 import { PropertyFilterType, PropertyMathType } from '~/types'
 
 import { ProductTab, faviconUrl } from './common'

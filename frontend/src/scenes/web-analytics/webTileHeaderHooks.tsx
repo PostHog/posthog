@@ -3,13 +3,12 @@ import { useMemo } from 'react'
 
 import { IconExpand45 } from '@posthog/icons'
 import { LemonButtonProps, LemonMenuItem } from '@posthog/lemon-ui'
-
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { insightVizDataCollectionId, insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import {
+    insightVizDataCollectionId,
+    insightVizDataNodeKey,
+} from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import {
     ProductIntentContext,
     ProductKey,
@@ -17,6 +16,10 @@ import {
     TrendsQueryResponse,
     WebStatsTableQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+
 import { ExporterFormat, InsightLogicProps } from '~/types'
 
 import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'

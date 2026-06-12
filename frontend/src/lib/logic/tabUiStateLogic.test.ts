@@ -1,9 +1,10 @@
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-
 import { dataTableLogic } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
 import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
+
 import { initKeaTests } from '~/test/init'
 
 jest.mock('@posthog/query-frontend/query')

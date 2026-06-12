@@ -1,9 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { llmTaggersLogic } from './llmTaggersLogic'

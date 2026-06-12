@@ -1,9 +1,10 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
+
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 
-import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 import { UniversalFiltersGroup } from '~/types'
 
 import type { tracingFiltersLogicType } from './tracingFiltersLogicType'

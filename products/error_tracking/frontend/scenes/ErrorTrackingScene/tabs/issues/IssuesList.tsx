@@ -2,11 +2,6 @@ import { BindLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
-
-import { humanFriendlyLargeNumber } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
-
-import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
@@ -16,6 +11,11 @@ import {
     QueryContextColumnComponent,
     QueryContextColumnTitleComponent,
 } from '@posthog/query-frontend/types'
+
+import { humanFriendlyLargeNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
+
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'

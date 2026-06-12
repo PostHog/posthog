@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-
 import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
 import { isHogQLQuery } from '@posthog/query-frontend/utils'
+
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'

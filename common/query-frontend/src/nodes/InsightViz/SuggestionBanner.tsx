@@ -2,11 +2,10 @@ import { useEffect, useRef } from 'react'
 
 import { IconInfo, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { Node } from '@posthog/query-frontend/schema/schema-general'
 
 import { pluralize } from 'lib/utils'
 import { compareInsightTopLevelSections } from 'scenes/insights/utils'
-
-import { Node } from '@posthog/query-frontend/schema/schema-general'
 
 export interface SuggestionBannerProps {
     previousQuery: Node

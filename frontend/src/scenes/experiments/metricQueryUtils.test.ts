@@ -1,6 +1,3 @@
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-
 import type {
     ActionsNode,
     EventsNode,
@@ -9,6 +6,10 @@ import type {
 } from '@posthog/query-frontend/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+
 import {
     ChartDisplayType,
     ExperimentMetricMathType,

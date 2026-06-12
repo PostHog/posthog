@@ -4,13 +4,17 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import {
+    DatabaseSchemaBatchExportTable,
+    ProductIntentContext,
+    ProductKey,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaBatchExportTable, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import {
     BatchExportConfiguration,
     BatchExportConfigurationTest,

@@ -8,33 +8,6 @@ import posthog from 'posthog-js'
 import { IconGear } from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
-
-import api from 'lib/api'
-import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Link } from 'lib/lemon-ui/Link/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import {
-    UnexpectedNeverError,
-    getDefaultInterval,
-    isNotNil,
-    isValidRelativeOrAbsoluteDate,
-    objectsEqual,
-} from 'lib/utils'
-import { isDefinitionStale } from 'lib/utils/definitions'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
-
 import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '@posthog/query-frontend/nodes/WebVitals/definitions'
 import { hogqlQuery } from '@posthog/query-frontend/query'
@@ -62,6 +35,33 @@ import {
     WebVitalsMetric,
 } from '@posthog/query-frontend/schema/schema-general'
 import { hogql } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import {
+    UnexpectedNeverError,
+    getDefaultInterval,
+    isNotNil,
+    isValidRelativeOrAbsoluteDate,
+    objectsEqual,
+} from 'lib/utils'
+import { isDefinitionStale } from 'lib/utils/definitions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
 import {
     AvailableFeature,
     BaseMathType,

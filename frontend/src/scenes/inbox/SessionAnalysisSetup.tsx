@@ -1,14 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
+
 import { Logomark } from 'lib/brand/Logomark'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { Thread } from 'scenes/max/Thread'
-
-import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { signalSourcesLogic } from './signalSourcesLogic'
 

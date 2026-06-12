@@ -3,6 +3,9 @@ import { loaders } from 'kea-loaders'
 import { decodeParams, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -18,8 +21,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     ActivityScope,
     AnyPropertyFilter,

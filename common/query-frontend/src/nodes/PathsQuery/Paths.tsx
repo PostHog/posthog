@@ -3,13 +3,13 @@ import './Paths.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { InsightEmptyState, InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-
 import { FunnelPathsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { shouldQueryBeAsync } from '@posthog/query-frontend/utils'
+
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { PathNodeCard } from './PathNodeCard'
 import { pathsDataLogic } from './pathsDataLogic'

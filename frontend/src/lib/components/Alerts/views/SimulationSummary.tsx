@@ -1,11 +1,11 @@
 import annotationPlugin from 'chartjs-plugin-annotation'
 import { useState } from 'react'
 
+import { DetectorConfig } from '@posthog/query-frontend/schema/schema-general'
 import { Chart } from '@posthog/visualizations/Chart'
+
 import { useChart } from 'lib/hooks/useChart'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-
-import { DetectorConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { AlertSimulationResult, BreakdownSimulationResult } from '../types'
 

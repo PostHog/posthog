@@ -7,6 +7,7 @@ import type {
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
 import { BaseMathType } from '~/types'
 
 import { getEventPropertiesForMetric } from './eventUsageLogic'

@@ -1,13 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { dayjs, type Dayjs } from 'lib/dayjs'
-
 import {
     AlertCalculationInterval,
     AlertConditionType,
     AlertState,
     InsightThresholdType,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { dayjs, type Dayjs } from 'lib/dayjs'
+
 import type { QueryBasedInsightModel } from '~/types'
 import type { UserBasicType } from '~/types'
 

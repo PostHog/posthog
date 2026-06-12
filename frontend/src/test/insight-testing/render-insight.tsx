@@ -1,12 +1,19 @@
 import { render } from '@testing-library/react'
 import { useState } from 'react'
 
+import {
+    FunnelsQuery,
+    InsightVizNode,
+    NodeKind,
+    StickinessQuery,
+    TrendsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery, InsightVizNode, NodeKind, StickinessQuery, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 import { FunnelVizType } from '~/types'
 
 import { initKeaTests } from '../init'

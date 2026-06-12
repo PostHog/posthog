@@ -1,11 +1,11 @@
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-
 import {
     ExperimentMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
     NewExperimentQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
+
 import { VariantTag } from '~/scenes/experiments/ExperimentView/VariantTag'
 import {
     ExperimentVariantResult,

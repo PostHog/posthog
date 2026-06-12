@@ -1,14 +1,15 @@
 import { useActions, useValues } from 'kea'
 
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { isInsightVizNode, isRetentionQuery } from '@posthog/query-frontend/utils'
+
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { isInsightVizNode, isRetentionQuery } from '@posthog/query-frontend/utils'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 

@@ -2,10 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { P, match } from 'ts-pattern'
 
-import { FunnelLayout } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
-
 import { performQuery } from '@posthog/query-frontend/query'
 import type {
     ExperimentEventExposureConfig,
@@ -15,6 +11,11 @@ import type {
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
 import { ExperimentMetricType, NodeKind, isExperimentFunnelMetric } from '@posthog/query-frontend/schema/schema-general'
+
+import { FunnelLayout } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+
 import {
     addExposureToMetric,
     compose,

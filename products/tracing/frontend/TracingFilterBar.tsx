@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 
 import { IconChevronDown, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -17,7 +18,6 @@ import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
 
-import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnyPropertyFilter,
     DateMappingOption,

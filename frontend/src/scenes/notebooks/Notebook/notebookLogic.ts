@@ -21,6 +21,9 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import type { NotebookArtifactContent } from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { AnyResponseType, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isHogQLQuery, isSavedInsightNode } from '@posthog/query-frontend/utils'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
@@ -49,9 +52,6 @@ import {
     notebooksModel,
     openNotebook,
 } from '~/models/notebooksModel'
-import type { NotebookArtifactContent } from '@posthog/query-frontend/schema/schema-assistant-messages'
-import { AnyResponseType, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isHogQLQuery, isSavedInsightNode } from '@posthog/query-frontend/utils'
 import {
     AccessControlLevel,
     InsightModel,

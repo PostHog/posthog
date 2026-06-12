@@ -1,5 +1,3 @@
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-
 import {
     EventsQuery,
     HogQLQuery,
@@ -14,6 +12,8 @@ import {
     isSessionsQuery,
     isTracesQuery,
 } from '@posthog/query-frontend/utils'
+
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 interface DateRangeProps<
     Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | SessionsQuery | TracesQuery,

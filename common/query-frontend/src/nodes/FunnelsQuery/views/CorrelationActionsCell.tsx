@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
-
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { funnelCorrelationDetailsLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelCorrelationDetailsLogic'
 import { funnelCorrelationLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelCorrelationLogic'
 import { funnelPropertyCorrelationLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelPropertyCorrelationLogic'
+
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelCorrelation, FunnelCorrelationResultsType } from '~/types'

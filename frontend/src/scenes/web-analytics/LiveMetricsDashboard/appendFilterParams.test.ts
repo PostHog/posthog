@@ -1,4 +1,5 @@
 import { WebAnalyticsPropertyFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import { PropertyFilterBaseValue, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { appendFilterParams } from './liveWebAnalyticsMetricsLogic'

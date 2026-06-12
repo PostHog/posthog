@@ -3,17 +3,16 @@ import { useCallback, useState } from 'react'
 
 import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
-
-import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
-import { dayjs } from 'lib/dayjs'
-import { useChart } from 'lib/hooks/useChart'
-import { humanFriendlyLargeNumber, humanFriendlyNumber, pluralize } from 'lib/utils'
-
 import {
     ExperimentExposureCriteria,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
+import { dayjs } from 'lib/dayjs'
+import { useChart } from 'lib/hooks/useChart'
+import { humanFriendlyLargeNumber, humanFriendlyNumber, pluralize } from 'lib/utils'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'

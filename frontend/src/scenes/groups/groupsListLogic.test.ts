@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { GroupsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { initKeaTests } from '~/test/init'
 import { AppContext, GroupPropertyFilter, PropertyFilterType } from '~/types'
 

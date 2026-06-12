@@ -2,9 +2,10 @@ import './FunnelCorrelation.scss'
 
 import { useMountedLogic, useValues } from 'kea'
 
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { funnelCorrelationUsageLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelCorrelationUsageLogic'
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { AvailableFeature, FunnelVizType } from '~/types'

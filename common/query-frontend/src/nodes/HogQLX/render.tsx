@@ -2,10 +2,10 @@ import React from 'react'
 
 import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { Sparkline } from '@posthog/visualizations/Sparkline/Sparkline'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
-import { Sparkline } from '@posthog/visualizations/Sparkline/Sparkline'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 import { LightErrorBoundary } from '~/layout/ErrorBoundary/ErrorBoundary'

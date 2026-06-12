@@ -2,11 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     buildTrendsQuery,
     chart,

@@ -2,15 +2,16 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import React, { useState } from 'react'
 
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { Node } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
+
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { LemonMenuItemList } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { Node } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 import { InsightSceneSource } from '~/types'
 
 import { InsightCardProps } from './InsightCard'

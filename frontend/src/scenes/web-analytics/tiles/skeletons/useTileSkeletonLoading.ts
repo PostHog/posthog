@@ -1,11 +1,11 @@
 import { useValues } from 'kea'
 import { createElement } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { insightVizDataCollectionId, insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import {
+    insightVizDataCollectionId,
+    insightVizDataNodeKey,
+} from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import { getCachedResults } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import {
     AnyResponseType,
@@ -15,6 +15,10 @@ import {
     InsightVizNode,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { InsightLogicProps } from '~/types'
 
 interface WebAnalyticsTileSkeletonGateProps {

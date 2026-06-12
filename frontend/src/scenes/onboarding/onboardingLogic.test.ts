@@ -1,11 +1,12 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { OnboardingStepKey } from '~/types'
 

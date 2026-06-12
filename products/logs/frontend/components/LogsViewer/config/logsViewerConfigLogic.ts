@@ -1,6 +1,7 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { LogsSparklineBreakdownBy } from '@posthog/query-frontend/schema/schema-general'
+
 import { FilterLogicalOperator } from '~/types'
 
 import { LogsViewerConfig, LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'

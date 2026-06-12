@@ -2,11 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, screen, waitFor } from '@testing-library/react'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { buildTrendsQuery, personsModal, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
 

@@ -12,9 +12,9 @@ import {
 import { useActions, useValues } from 'kea'
 import { createContext, useContext, useState } from 'react'
 
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-
 import type { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
+
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { iconForType } from './defaultTree'
 import { projectTreeDataLogic } from './projectTreeDataLogic'

@@ -3,6 +3,8 @@ import { useState } from 'react'
 
 import { IconCopy, IconEllipsis, IconPencil, IconStack, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+import type { Breakdown, EventsNode, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -12,8 +14,6 @@ import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { isEventExposureConfig } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
-import type { Breakdown, EventsNode, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { MetricTitle } from './MetricTitle'

@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 
 import { IconCopy, IconEllipsis, IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
+import { MathCategory, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -24,7 +25,6 @@ import {
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { teamLogic } from 'scenes/teamLogic'
-import { MathCategory, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 
 import { BaseMathType, EntityTypes, InsightType } from '~/types'
 

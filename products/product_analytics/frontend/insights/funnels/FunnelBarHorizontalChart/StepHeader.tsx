@@ -1,10 +1,11 @@
 import clsx from 'clsx'
 
-import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { humanFriendlyDuration } from 'lib/utils'
 import { DuplicateStepIndicator } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelBarHorizontal/DuplicateStepIndicator'
 import { FunnelStepMore } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelStepMore'
 import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
+
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { humanFriendlyDuration } from 'lib/utils'
 
 import { type FunnelStepWithConversionMetrics } from '~/types'
 

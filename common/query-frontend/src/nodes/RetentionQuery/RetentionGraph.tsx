@@ -1,18 +1,19 @@
 import { useActions, useValues } from 'kea'
 
+import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
+import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType, GraphDataset, GraphType } from '~/types'
 
 import { RetentionBarChart } from 'products/product_analytics/frontend/insights/retention/RetentionBarChart/RetentionBarChart'
 import { RetentionLineChart } from 'products/product_analytics/frontend/insights/retention/RetentionLineChart/RetentionLineChart'
 
-import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
 import { retentionGraphLogic } from './retentionGraphLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 

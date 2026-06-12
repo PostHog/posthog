@@ -1,3 +1,5 @@
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     breakdownFilterToTaxonomicFilterType,
     convertPropertiesToPropertyGroup,
@@ -8,8 +10,6 @@ import {
     propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
-
-import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     AnyPropertyFilter,

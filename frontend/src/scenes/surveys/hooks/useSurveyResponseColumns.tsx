@@ -3,12 +3,12 @@ import { useMemo } from 'react'
 
 import { IconLlmAnalytics, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { QueryContextColumn } from '@posthog/query-frontend/types'
 
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyResponse, isScaleTwoRating } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { QueryContextColumn } from '@posthog/query-frontend/types'
 import { SurveyQuestionType } from '~/types'
 
 const getTraceIdFromRecord = (record: unknown): string | null => {

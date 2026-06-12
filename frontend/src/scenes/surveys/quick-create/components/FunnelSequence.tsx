@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { EventsNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { quickSurveyFormLogic } from 'scenes/surveys/quick-create/quickSurveyFormLogic'
 import { FunnelContext } from 'scenes/surveys/utils/opportunityDetection'
-
-import { EventsNode } from '@posthog/query-frontend/schema/schema-general'
 
 export function FunnelSequence({ steps }: { steps: FunnelContext['steps'] }): JSX.Element {
     const { selectedEvents, cancelEvents, delaySeconds } = useValues(quickSurveyFormLogic)

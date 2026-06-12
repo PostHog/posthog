@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { CampaignFieldPreference, MatchField } from '@posthog/query-frontend/schema/schema-general'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { CampaignFieldPreference, MatchField } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { getEnabledNativeMarketingSources } from '../../logic/utils'

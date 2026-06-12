@@ -4,6 +4,7 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { DataVisualizationNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 

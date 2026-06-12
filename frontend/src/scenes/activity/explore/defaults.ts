@@ -1,5 +1,6 @@
 import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { AnyPropertyFilter, TeamPublicType, TeamType } from '~/types'
 
 export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): DataTableNode => ({

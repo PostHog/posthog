@@ -3,6 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
@@ -19,7 +20,6 @@ import { personLogic } from 'scenes/persons/personLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { PersonType } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'

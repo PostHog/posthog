@@ -1,8 +1,6 @@
 import { BuiltLogic } from 'kea'
 import { languages } from 'monaco-editor'
 
-import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
-
 import { performQuery } from '@posthog/query-frontend/query'
 import {
     AutocompleteCompletionItemKind,
@@ -11,6 +9,8 @@ import {
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 
 import { getContextSourceQuery } from './sourceQueryUtils'
 

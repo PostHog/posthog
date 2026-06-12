@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { IconPauseFilled, IconPlayFilled, IconRefresh, IconTerminal } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { LiveRecordingsCount, LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -17,7 +18,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab, PropertyOperator } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'

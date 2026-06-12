@@ -4,6 +4,8 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { performQuery } from '@posthog/query-frontend/query'
+import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -28,8 +30,6 @@ import {
 } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { performQuery } from '@posthog/query-frontend/query'
-import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     CyclotronJobInvocationGlobals,
     CyclotronJobTestInvocationResult,

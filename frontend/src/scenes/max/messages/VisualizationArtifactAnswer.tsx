@@ -4,6 +4,15 @@ import React, { useLayoutEffect, useMemo, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconEye, IconHide, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import {
+    ArtifactMessage,
+    ArtifactSource,
+    VisualizationArtifactContent,
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { DataVisualizationNode, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '@posthog/query-frontend/utils'
 
 import {
     InsightBreakdownSummary,
@@ -17,15 +26,6 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Query } from '@posthog/query-frontend/Query/Query'
-import {
-    ArtifactMessage,
-    ArtifactSource,
-    VisualizationArtifactContent,
-} from '@posthog/query-frontend/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
-import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '@posthog/query-frontend/utils'
 import { InsightShortId } from '~/types'
 
 import { MessageStatus } from '../maxLogic'

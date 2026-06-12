@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 
 import { IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
-
 import { DangerousOperationResponse } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { maxThreadLogic } from './maxThreadLogic'

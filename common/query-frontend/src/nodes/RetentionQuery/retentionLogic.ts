@@ -1,20 +1,21 @@
 import { mean, sum } from 'd3'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { ProcessedRetentionPayload } from '@posthog/query-frontend/nodes/RetentionQuery/types'
+import { RetentionFilter, RetentionResult } from '@posthog/query-frontend/schema/schema-general'
+import { isRetentionQuery, hasBreakdownFilter } from '@posthog/query-frontend/utils'
+
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatDateRange } from 'lib/utils'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL, formatBreakdownLabel } from 'scenes/insights/utils'
-import { ProcessedRetentionPayload } from '@posthog/query-frontend/nodes/RetentionQuery/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { RetentionFilter, RetentionResult } from '@posthog/query-frontend/schema/schema-general'
-import { isRetentionQuery, hasBreakdownFilter } from '@posthog/query-frontend/utils'
 import { BreakdownKeyType, CohortType, DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
 import type { retentionLogicType } from './retentionLogicType'

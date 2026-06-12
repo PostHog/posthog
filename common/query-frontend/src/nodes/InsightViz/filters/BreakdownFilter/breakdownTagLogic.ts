@@ -1,12 +1,13 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+
 import {
     breakdownFilterToTaxonomicFilterType,
     filterToTaxonomicFilterType,
     propertyFilterTypeToPropertyDefinitionType,
 } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 

@@ -1,15 +1,3 @@
-import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS, RETENTION_RECURRING } from 'lib/constants'
-import { SummaryContext, summarizeInsight } from 'scenes/insights/summarizeInsight'
-import {
-    BASE_MATH_DEFINITIONS,
-    COUNT_PER_ACTOR_MATH_DEFINITIONS,
-    HOGQL_MATH_DEFINITIONS,
-    MathCategory,
-    MathDefinition,
-    PROPERTY_MATH_DEFINITIONS,
-} from '@posthog/query-frontend/shared/mathsLogic'
-
-import { Noun } from '~/models/groupsModel'
 import {
     DataTableNode,
     FunnelsQuery,
@@ -21,6 +9,19 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+import {
+    BASE_MATH_DEFINITIONS,
+    COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    HOGQL_MATH_DEFINITIONS,
+    MathCategory,
+    MathDefinition,
+    PROPERTY_MATH_DEFINITIONS,
+} from '@posthog/query-frontend/shared/mathsLogic'
+
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS, RETENTION_RECURRING } from 'lib/constants'
+import { SummaryContext, summarizeInsight } from 'scenes/insights/summarizeInsight'
+
+import { Noun } from '~/models/groupsModel'
 import {
     BaseMathType,
     CohortType,

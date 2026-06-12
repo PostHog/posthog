@@ -2,11 +2,12 @@ import { afterMount, connect, kea, key, listeners, path, props, reducers, select
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
-import { hogql } from '@posthog/query-frontend/utils'
 import { Survey, SurveyEventProperties } from '~/types'
 
 import { aiObservabilityTraceDataLogic } from '../aiObservabilityTraceDataLogic'

@@ -13,6 +13,7 @@ import {
     LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
+import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -22,8 +23,6 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import {

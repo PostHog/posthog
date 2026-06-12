@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { BindLogic } from 'kea'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart } from '@posthog/visualizations/LineGraph/PieChart'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 
 import { ChoiceQuestionProcessedResponses, GraphType, InsightLogicProps, MultipleSurveyQuestion } from '~/types'

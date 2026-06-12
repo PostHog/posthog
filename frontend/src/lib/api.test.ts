@@ -1,9 +1,10 @@
 import posthog from 'posthog-js'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { ApiConfig, ApiRequest } from 'lib/api'
 import type { ApiError } from 'lib/api'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 describe('API helper', () => {

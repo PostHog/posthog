@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -18,7 +19,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     CitedText,

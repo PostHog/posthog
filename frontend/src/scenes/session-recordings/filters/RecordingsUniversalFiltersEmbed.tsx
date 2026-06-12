@@ -29,6 +29,9 @@ import {
     LemonTag,
     Popover,
 } from '@posthog/lemon-ui'
+import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter'
+import { AndOrFilterSelect } from '@posthog/query-frontend/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CategoryDropdown } from 'lib/components/TaxonomicFilter/CategoryDropdown'
@@ -48,7 +51,6 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
-import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
@@ -56,8 +58,6 @@ import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { AndOrFilterSelect } from '@posthog/query-frontend/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     PropertyOperator,
     RecordingUniversalFilters,

@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
+import { taxonomicEventFilterToHogQL } from '@posthog/query-frontend/utils'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
 
-import { taxonomicEventFilterToHogQL } from '@posthog/query-frontend/utils'
 import { EditorFilterProps } from '~/types'
 
 export function PathsHogQL({ insightProps }: EditorFilterProps): JSX.Element {

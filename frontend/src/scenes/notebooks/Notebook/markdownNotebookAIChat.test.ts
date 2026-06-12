@@ -1,6 +1,6 @@
-import { ThreadMessage } from 'scenes/max/maxThreadLogic'
-
 import { AssistantMessageType } from '@posthog/query-frontend/schema/schema-assistant-messages'
+
+import { ThreadMessage } from 'scenes/max/maxThreadLogic'
 
 import {
     NotebookAIChatMessage,

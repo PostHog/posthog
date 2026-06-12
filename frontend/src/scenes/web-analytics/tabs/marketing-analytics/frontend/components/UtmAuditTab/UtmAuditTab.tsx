@@ -14,14 +14,13 @@ import {
     Popover,
     Tooltip,
 } from '@posthog/lemon-ui'
-
-import { IconLink } from 'lib/lemon-ui/icons'
-
 import {
     MARKETING_INTEGRATION_CONFIGS,
     NativeMarketingSource,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { IconLink } from 'lib/lemon-ui/icons'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import type { AggregatedUtmSource, CampaignAuditResult, HealthTab, UtmEvent } from '../../logic/utmAuditLogic'

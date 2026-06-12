@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 export type RetentionMeanType = 'simple' | 'weighted'
 

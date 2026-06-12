@@ -1,7 +1,8 @@
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { OnboardingDataWarehouseSourcesStep } from 'scenes/onboarding/data-warehouse/OnboardingDataWarehouseSourcesStep'
 import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 // `completeRedirectUrl` intentionally omitted: data warehouse falls through to

@@ -13,6 +13,7 @@ import {
     IconTrash,
 } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
@@ -35,7 +36,6 @@ import {
     SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'

@@ -2,9 +2,9 @@ import equal from 'fast-deep-equal'
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { Params } from 'scenes/sceneTypes'
-
 import { DateRange } from '@posthog/query-frontend/schema/schema-general'
+
+import { Params } from 'scenes/sceneTypes'
 
 import { syncSearchParams, updateSearchParams } from '../../utils'
 import type { breakdownFiltersLogicType } from './breakdownFiltersLogicType'

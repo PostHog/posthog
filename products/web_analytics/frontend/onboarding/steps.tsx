@@ -1,3 +1,5 @@
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProductConfiguration'
 import { type ProductConfigOption } from 'scenes/onboarding/onboardingProductConfigurationLogic'
@@ -7,7 +9,6 @@ import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboa
 import { OnboardingWebAnalyticsAuthorizedDomainsStep } from 'scenes/onboarding/web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
 
 // Helper preserved from Onboarding.tsx — lives here because only Web Analytics + Product

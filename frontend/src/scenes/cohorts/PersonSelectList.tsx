@@ -7,15 +7,14 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTag } from '@posthog/lemon-ui'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { ActorsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
-
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { ActorsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 const ROW_HEIGHT = 44
 

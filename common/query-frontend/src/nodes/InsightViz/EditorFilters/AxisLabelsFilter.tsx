@@ -2,9 +2,8 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonInput, LemonLabel } from '@posthog/lemon-ui'
-import { normalizeAxisLabel } from '@posthog/quill-charts'
-
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 

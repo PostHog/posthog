@@ -2,6 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
+
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -12,7 +14,6 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
-import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'

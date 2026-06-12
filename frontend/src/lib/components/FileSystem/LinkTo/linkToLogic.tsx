@@ -1,13 +1,14 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { calculateMovePath, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import type { linkToLogicType } from './linkToLogicType'
 

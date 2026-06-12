@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -12,8 +13,6 @@ import {
     convertUniversalFiltersToRecordingsQuery,
     recordingsQueryToUniversalFilters,
 } from 'scenes/session-recordings/filters/recordingsQueryConversions'
-
-import { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'

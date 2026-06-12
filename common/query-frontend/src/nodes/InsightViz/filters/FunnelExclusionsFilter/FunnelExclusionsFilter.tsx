@@ -1,15 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { legacyEntityToNode } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
 import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-
-import { legacyEntityToNode } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
 import { ActionsNode, EventsNode } from '@posthog/query-frontend/schema/schema-general'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
 import { ActionFilter as ActionFilterType, EntityTypes, FilterType } from '~/types'
 
 import { ExclusionRow } from './ExclusionRow'

@@ -15,14 +15,13 @@ import {
 import posthog from 'posthog-js'
 
 import { LemonMenuItems } from '@posthog/lemon-ui'
+import { isHogQLQuery, isNodeWithSource } from '@posthog/query-frontend/utils'
 
 import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 import { hashCodeForString } from 'lib/utils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
-
-import { isHogQLQuery, isNodeWithSource } from '@posthog/query-frontend/utils'
 
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {

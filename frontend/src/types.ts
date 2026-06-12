@@ -6,40 +6,7 @@ import { ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
-
-import { PaginatedResponse } from 'lib/api'
-import { ChartDataset, ChartType, InteractionItem } from '@posthog/visualizations/Chart'
-import { AlertType } from 'lib/components/Alerts/types'
-import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
-import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
-import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
-import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import {
-    BIN_COUNT_AUTO,
-    ENTITY_MATCH_TYPE,
-    FunnelLayout,
-    OrganizationMembershipLevel,
-    PROPERTY_MATCH_TYPE,
-    PluginsAccessLevel,
-    RETENTION_FIRST_EVER_OCCURRENCE,
-    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
-    RETENTION_MEAN_NONE,
-    RETENTION_RECURRING,
-    ShownAsValue,
-    TeamMembershipLevel,
-} from 'lib/constants'
-import { Dayjs, dayjs } from 'lib/dayjs'
-import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
-import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
-import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
-import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { AggregationAxisFormat } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
-import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
-import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
-
 import { RootAssistantMessage } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -78,6 +45,38 @@ import type {
     UserProductListItem,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+import { ChartDataset, ChartType, InteractionItem } from '@posthog/visualizations/Chart'
+
+import { PaginatedResponse } from 'lib/api'
+import type { AlertType } from 'lib/components/Alerts/types'
+import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
+import type { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import type { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    BIN_COUNT_AUTO,
+    ENTITY_MATCH_TYPE,
+    FunnelLayout,
+    OrganizationMembershipLevel,
+    PROPERTY_MATCH_TYPE,
+    PluginsAccessLevel,
+    RETENTION_FIRST_EVER_OCCURRENCE,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+    RETENTION_MEAN_NONE,
+    RETENTION_RECURRING,
+    ShownAsValue,
+    TeamMembershipLevel,
+} from 'lib/constants'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
+import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
+import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
+import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
+import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'

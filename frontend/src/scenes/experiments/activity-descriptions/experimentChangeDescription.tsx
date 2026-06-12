@@ -2,6 +2,8 @@ import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { match } from 'ts-pattern'
 
+import type { ExperimentExposureCriteria, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+
 import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -10,7 +12,6 @@ import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import { getExposureConfigDisplayName } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
-import type { ExperimentExposureCriteria, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import { Experiment, ExperimentConclusion } from '~/types'
 
 import { getMetricChanges } from './metricChangeDescriptions'

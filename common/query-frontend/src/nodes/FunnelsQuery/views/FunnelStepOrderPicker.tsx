@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
-
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { FunnelsFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { FunnelsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { StepOrderValue } from '~/types'
 
 interface StepOption {

@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -14,7 +16,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Dataset } from '~/types'
 
 import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'

@@ -1,7 +1,7 @@
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
+
 import { downloadFile, slugify } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
-import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from './aiObservabilityTraceDataLogic'
 import { normalizeMessages } from './messageNormalization'

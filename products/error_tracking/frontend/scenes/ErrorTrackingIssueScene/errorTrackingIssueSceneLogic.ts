@@ -4,6 +4,14 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import {
+    DateRange,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAggregations,
+    ErrorTrackingRelationalIssue,
+    SimilarIssue,
+} from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import {
     ErrorEventProperties,
@@ -20,13 +28,6 @@ import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import {
-    DateRange,
-    ErrorTrackingIssue,
-    ErrorTrackingIssueAggregations,
-    ErrorTrackingRelationalIssue,
-    SimilarIssue,
-} from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'

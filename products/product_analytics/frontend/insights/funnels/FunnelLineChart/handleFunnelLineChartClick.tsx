@@ -1,12 +1,5 @@
-import { DateDisplay } from 'lib/components/DateDisplay'
-import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { hasBreakdown } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
 import type { OpenPersonsModalProps } from '@posthog/query-frontend/persons-modal/PersonsModal'
-
-import type { Noun } from '~/models/groupsModel'
-import type { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import {
     type BreakdownFilter,
     type FunnelsActorsQuery,
@@ -14,6 +7,14 @@ import {
     NodeKind,
     type ResolvedDateRangeResponse,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { DateDisplay } from 'lib/components/DateDisplay'
+import { dayjs } from 'lib/dayjs'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
+
+import type { Noun } from '~/models/groupsModel'
+import type { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import type { CohortType, IntervalType } from '~/types'
 
 import type { FunnelSeriesMeta } from '../shared/funnelSeriesMeta'

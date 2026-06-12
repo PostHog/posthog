@@ -5,11 +5,12 @@ import DOMPurify from 'dompurify'
 import posthog from 'posthog-js'
 import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 
+import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
+
 import { TTEditor } from 'lib/components/RichContentEditor/types'
 import { percentage, tryJsonParse, uuid } from 'lib/utils'
 import { formatCurrency } from 'lib/utils/geography/currency'
 
-import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
 import { Group } from '~/types'
 
 import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../types'

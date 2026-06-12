@@ -1,8 +1,5 @@
 import { IconInfo, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
-
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-
 import {
     AlertCalculationInterval,
     COPODDetectorConfig,
@@ -23,6 +20,8 @@ import {
     SingleDetectorConfig,
     ZScoreDetectorConfig,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
 /** Default anomaly probability threshold for all detectors. Higher = fewer alerts. */
 const DEFAULT_THRESHOLD = 0.95

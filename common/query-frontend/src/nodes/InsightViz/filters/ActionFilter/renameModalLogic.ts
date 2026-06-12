@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, path, props, reducers } from 'kea'
 
 import { entityFilterLogic } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
+
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 import { EntityFilterTypes } from '~/types'

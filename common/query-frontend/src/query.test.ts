@@ -1,10 +1,11 @@
 import posthog from 'posthog-js'
 
+import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '@posthog/query-frontend/query'
+import { EventsQuery, HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '@posthog/query-frontend/query'
-import { EventsQuery, HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 

@@ -2,11 +2,12 @@ import './RenderQuery.scss'
 
 import { useEffect, useState } from 'react'
 
-import { useThemedHtml } from 'lib/hooks/useThemedHtml'
-
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { AnyResponseType, Node } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { useThemedHtml } from 'lib/hooks/useThemedHtml'
+
 import { DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 interface RenderQueryExternalPayload {

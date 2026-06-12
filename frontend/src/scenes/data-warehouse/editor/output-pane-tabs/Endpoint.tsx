@@ -11,12 +11,12 @@ import {
     Link,
     lemonToast,
 } from '@posthog/lemon-ui'
+import { variablesLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variablesLogic'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { variablesLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variablesLogic'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'

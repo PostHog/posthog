@@ -3,6 +3,8 @@ import { useValues } from 'kea'
 import { Ref, forwardRef, useEffect, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
+import { LocalFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
+import { AnyDataNode, DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -18,10 +20,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { LocalFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
-
-import { AnyDataNode, DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 import { taxonomicMenuPreferenceLogic } from './taxonomicMenuPreferenceLogic'
 import { TaxonomicMenuToggle } from './TaxonomicMenuToggle'

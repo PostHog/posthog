@@ -1,5 +1,6 @@
 import { AssistantMessageType } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { ThreadMessage } from '../maxThreadLogic'

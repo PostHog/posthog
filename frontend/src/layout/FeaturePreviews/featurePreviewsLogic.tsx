@@ -2,6 +2,8 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { EarlyAccessFeature, posthog } from 'posthog-js'
 
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FeatureFlagKey } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -11,8 +13,6 @@ import { createFeaturePreviewSearch } from 'lib/utils/fuseSearch'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
 

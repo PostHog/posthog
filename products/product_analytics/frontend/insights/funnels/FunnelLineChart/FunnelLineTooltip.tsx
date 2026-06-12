@@ -1,12 +1,11 @@
 import { useCallback, useMemo } from 'react'
 
-import type { TooltipContext } from '@posthog/quill-charts'
-
 import { hasBreakdown } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
+import type { BreakdownFilter, DateRange } from '@posthog/query-frontend/schema/schema-general'
+import type { TooltipContext } from '@posthog/quill-charts'
 import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
 import { getDatumTitle, type SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 
-import type { BreakdownFilter, DateRange } from '@posthog/query-frontend/schema/schema-general'
 import type { IntervalType } from '~/types'
 
 import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'

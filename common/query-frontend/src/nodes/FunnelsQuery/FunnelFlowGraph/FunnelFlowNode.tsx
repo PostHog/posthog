@@ -4,11 +4,11 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
+import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { ValueInspectorButton } from '../ValueInspectorButton'

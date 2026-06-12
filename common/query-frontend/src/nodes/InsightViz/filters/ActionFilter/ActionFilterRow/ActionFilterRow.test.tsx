@@ -6,8 +6,9 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { entityFilterLogic } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'

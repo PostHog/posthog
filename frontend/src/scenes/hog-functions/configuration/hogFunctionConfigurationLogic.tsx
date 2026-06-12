@@ -8,6 +8,18 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { performQuery } from '@posthog/query-frontend/query'
+import {
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    TrendsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 
 import api from 'lib/api'
 import {
@@ -27,18 +39,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { performQuery } from '@posthog/query-frontend/query'
-import {
-    DataTableNode,
-    EventsNode,
-    EventsQuery,
-    NodeKind,
-    ProductIntentContext,
-    ProductKey,
-    TrendsQuery,
-} from '@posthog/query-frontend/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,

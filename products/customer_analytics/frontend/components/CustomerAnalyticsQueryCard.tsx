@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
+import { AnyEntityNode, ProductKey, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { InsightMetaContent } from 'lib/components/Cards/InsightCard/InsightMeta'
@@ -11,7 +12,6 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isValidFunnelQuery } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { AnyEntityNode, ProductKey, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import {

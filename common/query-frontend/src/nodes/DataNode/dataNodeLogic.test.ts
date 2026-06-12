@@ -4,6 +4,7 @@ import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLo
 import { performQuery } from '@posthog/query-frontend/query'
 import { DashboardFilter, HogQLVariable, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
 import { initKeaTests } from '~/test/init'
 
 jest.mock('@posthog/query-frontend/query', () => {

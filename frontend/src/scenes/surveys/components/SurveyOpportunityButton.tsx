@@ -5,14 +5,6 @@ import { useEffect, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { formatPercentage } from 'lib/utils'
-import { addProductIntent, addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { useMaxTool } from 'scenes/max/useMaxTool'
-import { urls } from 'scenes/urls'
-
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import {
@@ -23,6 +15,14 @@ import {
     ProductKey,
     QuerySchema,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { formatPercentage } from 'lib/utils'
+import { addProductIntent, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { useMaxTool } from 'scenes/max/useMaxTool'
+import { urls } from 'scenes/urls'
+
 import { InsightLogicProps } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from '../constants'

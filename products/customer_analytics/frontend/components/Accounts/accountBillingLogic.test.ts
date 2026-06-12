@@ -1,8 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { insightsApi } from 'scenes/insights/utils/api'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { QueryBasedInsightModel } from '~/types'
 

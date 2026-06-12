@@ -1,7 +1,8 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { type UserProductListItem, UserProductListReason } from '@posthog/query-frontend/schema/schema-general'
+
+import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 
 import type { navPanelAdvertisementRecommendedLogicType } from './navPanelAdvertisementRecommendedLogicType'
 

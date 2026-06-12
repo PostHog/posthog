@@ -1,13 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { objectsEqual, sortedKeys } from 'lib/utils'
-import { RequiredExcept } from 'lib/utils/types'
-import { teamLogic } from 'scenes/teamLogic'
-
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '@posthog/query-frontend/nodes/DataTable/queryFeatures'
 import { insightVizDataCollectionId } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
@@ -21,6 +13,14 @@ import {
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
 import { isDataTableNode, isEventsQuery } from '@posthog/query-frontend/utils'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
+import { objectsEqual, sortedKeys } from 'lib/utils'
+import { RequiredExcept } from 'lib/utils/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { dataTableLogicType } from './dataTableLogicType'
 import { getColumnsForQuery, removeExpressionComment } from './utils'

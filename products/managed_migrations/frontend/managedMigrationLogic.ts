@@ -3,12 +3,13 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { managedMigrationLogicType } from './managedMigrationLogicType'

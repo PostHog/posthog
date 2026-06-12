@@ -1,5 +1,9 @@
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { Breakdown, BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     breakdownFilterToTaxonomicFilterType,
     propertyFilterTypeToPropertyDefinitionType,
@@ -11,11 +15,8 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { Breakdown, BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { BreakdownType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'

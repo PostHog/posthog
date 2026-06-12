@@ -5,11 +5,6 @@ import type { editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import api from 'lib/api'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { urls } from 'scenes/urls'
-
 import {
     DatabaseSchemaMaterializedViewTable,
     DatabaseSchemaTable,
@@ -18,6 +13,10 @@ import {
     HogQLQuery,
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSettingsSceneLogicType } from './dataWarehouseSettingsSceneLogicType'

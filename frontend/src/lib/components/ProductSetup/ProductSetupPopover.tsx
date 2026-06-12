@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconExternal, IconLock, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { SetupTaskId } from 'lib/components/ProductSetup'
@@ -14,7 +15,6 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getTreeItemsProducts } from '~/products'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
 import { globalSetupLogic } from './globalSetupLogic'

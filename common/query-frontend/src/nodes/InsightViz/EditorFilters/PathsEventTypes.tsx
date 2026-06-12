@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 
+import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
+import { PathsFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
-
-import { PathsFilter } from '@posthog/query-frontend/schema/schema-general'
-import { EditorFilterProps, PathType } from '~/types'
-
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
+
+import { EditorFilterProps, PathType } from '~/types'
 
 export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))

@@ -6,14 +6,14 @@ import React from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { InsightEmptyState, InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 
 import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils'
-import { InsightEmptyState, InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'

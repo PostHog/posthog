@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { DataNode } from '@posthog/query-frontend/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery } from '@posthog/query-frontend/utils'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
 

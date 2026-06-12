@@ -1,6 +1,7 @@
+import { EventsNode, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { dayjs } from 'lib/dayjs'
 
-import { EventsNode, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     FunnelConversionWindowTimeUnit,
     FunnelCorrelation,

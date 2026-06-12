@@ -1,12 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
-import * as libUtils from 'lib/utils'
 import {
     entityFilterLogic,
     singleFilterToGroupFilter,
     splitGroupFilterToLocalFilters,
     toLocalFilters,
 } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
+
+import * as libUtils from 'lib/utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'

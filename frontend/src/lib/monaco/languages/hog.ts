@@ -3,10 +3,10 @@
 import { Monaco } from '@monaco-editor/react'
 import { languages } from 'monaco-editor'
 
+import { HogLanguage } from '@posthog/query-frontend/schema/schema-general'
+
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
-
-import { HogLanguage } from '@posthog/query-frontend/schema/schema-general'
 
 export const conf: () => languages.LanguageConfiguration = () => ({
     wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g,

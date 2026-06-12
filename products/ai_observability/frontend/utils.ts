@@ -1,11 +1,11 @@
 import * as PartialJSON from 'partial-json'
 
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { isObject, isString } from 'lib/utils'
-
-import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
-import { hogql } from '@posthog/query-frontend/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './evaluations/constants'

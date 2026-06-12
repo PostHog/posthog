@@ -1,6 +1,3 @@
-import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
 import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import {
     isExperimentFunnelMetric,
@@ -8,6 +5,10 @@ import {
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { ExperimentMetricMathType } from '~/types'
 
 const VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2

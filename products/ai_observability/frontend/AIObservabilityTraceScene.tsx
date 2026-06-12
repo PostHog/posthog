@@ -37,6 +37,8 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { InsightEmptyState, InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -49,7 +51,6 @@ import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { identifierToHuman, pluralize } from 'lib/utils'
-import { InsightEmptyState, InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -58,7 +59,6 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
-import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'

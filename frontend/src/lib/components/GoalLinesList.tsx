@@ -1,13 +1,12 @@
 import { IconGear, IconTrash } from '@posthog/icons'
 import { LemonColorGlyph, LemonColorPicker, LemonLabel, LemonMenu, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { GoalLine } from '@posthog/query-frontend/schema/schema-general'
 
 import { getSeriesColorPalette } from 'lib/colors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-
-import { GoalLine } from '@posthog/query-frontend/schema/schema-general'
 
 interface GoalLinesListProps {
     goalLines: GoalLine[]

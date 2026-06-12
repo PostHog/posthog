@@ -38,7 +38,7 @@ Or use them directly:
 ```tsx
 import { EventPropertyFilters } from '@posthog/query-frontend/nodes/EventsNode/EventPropertyFilters'
 
-<EventPropertyFilters query={eventsQuery} setQuery={setEventsQuery} />
+;<EventPropertyFilters query={eventsQuery} setQuery={setEventsQuery} />
 ```
 
 ## Key files

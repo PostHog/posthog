@@ -1,8 +1,8 @@
 import { combineUrl } from 'kea-router'
 
-import { urls } from 'scenes/urls'
-
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
+import { urls } from 'scenes/urls'
 
 import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 

@@ -2,14 +2,15 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { teamLogic } from 'scenes/teamLogic'
-
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { dataTableLogic } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
 import { performQuery } from '@posthog/query-frontend/query'
 import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { initKeaTests } from '~/test/init'
 
 jest.mock('@posthog/query-frontend/query')

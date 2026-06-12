@@ -6,13 +6,13 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EnrichedTraceTreeNode } from '../aiObservabilityTraceDataLogic'

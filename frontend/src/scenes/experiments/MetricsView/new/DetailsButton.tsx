@@ -1,6 +1,5 @@
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-
 import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 export function DetailsButton({

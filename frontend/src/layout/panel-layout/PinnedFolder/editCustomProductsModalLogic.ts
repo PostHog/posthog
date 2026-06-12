@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -8,7 +9,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getDefaultTreeProducts } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 import { UserShortcutPosition } from '~/types'
 
 import { getCategoryOrder } from '../ProjectTree/utils'

@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -11,7 +12,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'

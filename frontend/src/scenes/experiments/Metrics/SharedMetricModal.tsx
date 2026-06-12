@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { Experiment } from '~/types'
 
 import { InlineTagEditor } from '../SharedMetrics/InlineTagEditor'

@@ -1,6 +1,10 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     clickAtIndex,
     getHogChartTooltip,
@@ -8,11 +12,6 @@ import {
     waitForHogChartTooltip,
 } from '@posthog/quill-charts/testing'
 
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
-
-import { TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'

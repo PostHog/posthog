@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { SessionEventDetails } from 'scenes/sessions/components/SessionEventDetails'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { RecordingEventType } from '~/types'
 
 import { ItemCategory, RendererProps, TimelineItem } from '..'

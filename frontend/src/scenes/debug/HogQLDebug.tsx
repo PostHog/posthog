@@ -1,8 +1,5 @@
 import { BindLogic, useValues } from 'kea'
 
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Modifiers } from 'scenes/debug/Modifiers'
-
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '@posthog/query-frontend/nodes/DataNode/DateRange'
 import { ElapsedTime } from '@posthog/query-frontend/nodes/DataNode/ElapsedTime'
@@ -10,6 +7,9 @@ import { Reload } from '@posthog/query-frontend/nodes/DataNode/Reload'
 import { EventPropertyFilters } from '@posthog/query-frontend/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '@posthog/query-frontend/nodes/HogQLQuery/HogQLQueryEditor'
 import { HogQLQuery, HogQLQueryModifiers, HogQLQueryResponse } from '@posthog/query-frontend/schema/schema-general'
+
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Modifiers } from 'scenes/debug/Modifiers'
 
 import { QueryTabs } from './QueryTabs'
 

@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { makeDelay } from 'lib/utils'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -8,7 +10,6 @@ import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_METRIC_RESULT_WITH_ASYMMETRIC_INTERVALS from '~/mocks/fixtures/api/experiments/_experiment_metric_result_asymmetric_interval.json'
 import EXPERIMENT_WITH_ASYMMETRIC_INTERVALS from '~/mocks/fixtures/api/experiments/_experiment_with_asymmetric_credible_interval.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 const meta: Meta = {
     component: App,

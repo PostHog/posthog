@@ -1,8 +1,8 @@
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
-
 import type { InsightActorsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import type { ActionFilter, GraphDataset } from '~/types'
 
 /** Verifies that the hog-charts TrendsPieChart click handler builds the same `InsightActorsQuery`

@@ -8,6 +8,7 @@ import {
     ExperimentTrendsQuery,
     ExperimentMetric,
 } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     legacyGetHighestProbabilityVariant,
     legacyGetIndexForVariant,

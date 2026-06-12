@@ -1,8 +1,6 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { objectsEqual } from 'lib/utils'
-
 import { performQuery } from '@posthog/query-frontend/query'
 import {
     DatabaseSchemaDataWarehouseTable,
@@ -15,6 +13,8 @@ import {
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import { objectsEqual } from 'lib/utils'
 
 import type { databaseTableListLogicType } from './databaseTableListLogicType'
 

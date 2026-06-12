@@ -2,13 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { IconMessage, IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter/TestAccountFilter'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Link } from 'lib/lemon-ui/Link'
 import { truncate } from 'lib/utils'
-import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter/TestAccountFilter'
 import { urls } from 'scenes/urls'
 
 import { Survey, SurveyEventName, SurveyQuestionType } from '~/types'

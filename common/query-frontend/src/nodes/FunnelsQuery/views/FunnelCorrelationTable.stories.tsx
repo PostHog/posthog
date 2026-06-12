@@ -2,13 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/InsightViz'
+import { getCachedResults } from '@posthog/query-frontend/nodes/InsightViz/utils'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import funnelCorrelation from '~/mocks/fixtures/api/projects/team_id/insights/funnelCorrelation.json'
-import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/InsightViz'
-import { getCachedResults } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { InsightLogicProps } from '~/types'
 
 import { FunnelCorrelationTable } from './FunnelCorrelationTable'

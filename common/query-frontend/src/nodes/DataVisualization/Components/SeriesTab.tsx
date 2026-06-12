@@ -17,13 +17,13 @@ import {
     Popover,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { INSIGHT_UNIT_OPTIONS_SHORT } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { ResultCustomizationBy } from '@posthog/query-frontend/schema/schema-general'
 
 import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { INSIGHT_UNIT_OPTIONS_SHORT } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
 
-import { ResultCustomizationBy } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'

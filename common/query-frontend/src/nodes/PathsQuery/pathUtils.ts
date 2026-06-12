@@ -1,8 +1,9 @@
 import { RGBColor } from 'd3'
 
+import { FunnelPathsFilter, PathsFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import { tryDecodeURIComponent } from 'lib/utils'
 
-import { FunnelPathsFilter, PathsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { FunnelPathType } from '~/types'
 
 import { PATH_NODE_CARD_HEIGHT, PATH_NODE_CARD_OVERLAP_GAP, PATH_NODE_CARD_TOP_OFFSET } from './constants'

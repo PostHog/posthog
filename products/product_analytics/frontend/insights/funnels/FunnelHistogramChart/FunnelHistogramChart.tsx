@@ -2,14 +2,14 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo, type ErrorInfo } from 'react'
 
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig } from '@posthog/quill-charts'
-
 import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
+
 import { humanFriendlyNumber } from 'lib/utils'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 

@@ -3,6 +3,12 @@ import { useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import {
+    ProductIntentContext,
+    ProductKey,
+    RevenueAnalyticsEventItem,
+    SubscriptionDropoffMode,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,12 +19,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    ProductIntentContext,
-    ProductKey,
-    RevenueAnalyticsEventItem,
-    SubscriptionDropoffMode,
-} from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'

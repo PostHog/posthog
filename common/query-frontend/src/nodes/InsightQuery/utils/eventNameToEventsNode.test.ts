@@ -1,4 +1,5 @@
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { eventNameToEventsNode } from './eventNameToEventsNode'

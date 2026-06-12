@@ -1,8 +1,8 @@
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-
 import { useDebouncedQuery } from '@posthog/query-frontend/hooks/useDebouncedQuery'
 import { ActorsQuery, PersonsNode } from '@posthog/query-frontend/schema/schema-general'
 import { isQueryForGroup } from '@posthog/query-frontend/utils'
+
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 type ActorType = 'person' | 'group'
 interface PersonSearchProps {

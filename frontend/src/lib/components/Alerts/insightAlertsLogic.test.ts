@@ -1,11 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
+import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
+
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 

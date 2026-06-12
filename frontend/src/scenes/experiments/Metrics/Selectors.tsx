@@ -2,15 +2,15 @@ import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSelectOption, LemonSelectSection } from '@posthog/lemon-ui'
+import { TIME_INTERVAL_BOUNDS } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
+import { FUNNEL_STEP_COUNT_LIMIT } from '@posthog/query-frontend/nodes/InsightViz/EditorFilters/FunnelsQuerySteps'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { TIME_INTERVAL_BOUNDS } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
-import { FUNNEL_STEP_COUNT_LIMIT } from '@posthog/query-frontend/nodes/InsightViz/EditorFilters/FunnelsQuerySteps'
 
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownAttributionType, FunnelConversionWindowTimeUnit, StepOrderValue } from '~/types'

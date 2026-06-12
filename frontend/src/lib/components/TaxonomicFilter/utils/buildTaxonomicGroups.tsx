@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { combineUrl } from 'kea-router'
 
 import { IconFlag, IconServer } from '@posthog/icons'
+import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     buildAutocaptureSeriesShortcuts,
@@ -40,7 +41,6 @@ import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/Sa
 
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 import { getCoreFilterDefinition, getFilterLabel } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {

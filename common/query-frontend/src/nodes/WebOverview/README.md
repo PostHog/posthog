@@ -12,14 +12,14 @@ See `WebOverviewQuery` in `src/schema/schema-general.ts`.
 ```tsx
 import { Query } from '@posthog/query-frontend/Query/Query'
 
-<Query
-    query={{
-        kind: 'WebOverviewQuery',
-        dateRange: { date_from: '-7d' },
-        properties: [],
-        compareFilter: { compare: true },
-        filterTestAccounts: true,
-    }}
+;<Query
+  query={{
+    kind: 'WebOverviewQuery',
+    dateRange: { date_from: '-7d' },
+    properties: [],
+    compareFilter: { compare: true },
+    filterTestAccounts: true,
+  }}
 />
 ```
 

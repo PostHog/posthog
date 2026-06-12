@@ -19,6 +19,7 @@ import {
     IconTrash,
 } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -43,7 +44,6 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { tagsModel } from '~/models/tagsModel'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, EndpointVersionType } from '~/types'
 
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'

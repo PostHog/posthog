@@ -1,8 +1,8 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 
-import api from 'lib/api'
-
 import { HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
 
 import type { aiObservabilitySessionFeedbackLogicType } from './aiObservabilitySessionFeedbackLogicType'
 

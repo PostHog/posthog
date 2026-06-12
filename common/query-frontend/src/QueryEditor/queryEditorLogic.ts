@@ -1,9 +1,9 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
 import { QueryEditorProps } from '@posthog/query-frontend/QueryEditor/QueryEditor'
 import { Node } from '@posthog/query-frontend/schema/schema-general'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { queryEditorLogicType } from './queryEditorLogicType'
 

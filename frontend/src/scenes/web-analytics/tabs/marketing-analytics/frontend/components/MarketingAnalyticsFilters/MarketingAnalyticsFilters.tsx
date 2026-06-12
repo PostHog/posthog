@@ -1,15 +1,15 @@
 import { BindLogic } from 'kea'
 import { useActions, useValues } from 'kea'
 
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
+import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
+
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { Scene } from 'scenes/sceneTypes'
-
-import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
-import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'

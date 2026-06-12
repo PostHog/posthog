@@ -1,5 +1,7 @@
 import { useActions } from 'kea'
 
+import type { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import 'scenes/session-recordings/playlist/SessionRecordingPreview.scss'
@@ -9,7 +11,6 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
-import type { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 import type { SessionRecordingType } from '~/types'
 
 import {

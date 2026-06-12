@@ -1,9 +1,9 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-
 import { NodeKind, TraceQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
 
 import type { aiObservabilityAIDataLogicType } from './aiObservabilityAIDataLogicType'
 import { readAiInput, readAiOutput } from './utils'

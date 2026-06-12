@@ -2,13 +2,14 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
 import { reverseProxyCheckerLogic } from '../ReverseProxyChecker/reverseProxyCheckerLogic'

@@ -1,16 +1,11 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { identifierToHuman } from 'lib/utils'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
-import { urls } from 'scenes/urls'
-
 import { expandGroupNodes } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
 import { nodeKindToInsightType } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { getDefaultQuery } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import {
     ActionsNode,
@@ -65,11 +60,17 @@ import {
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '@posthog/query-frontend/utils'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { identifierToHuman } from 'lib/utils'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+import { urls } from 'scenes/urls'
+
 import { BaseMathType, InsightLogicProps, InsightType, IntervalType } from '~/types'
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
-import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {

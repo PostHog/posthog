@@ -1,10 +1,11 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { hogql } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
+
 import { SessionEventType } from '~/types'
 
 import { teamLogic } from '../teamLogic'

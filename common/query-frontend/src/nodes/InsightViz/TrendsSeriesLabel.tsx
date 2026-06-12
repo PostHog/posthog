@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconCalculator } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
 import { EditorFilterProps } from '~/types'
 
 export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Element {

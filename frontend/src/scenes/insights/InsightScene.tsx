@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { NotFound } from 'lib/components/NotFound'
 import { InsightAsScene } from 'scenes/insights/InsightAsScene'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -9,7 +11,6 @@ import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ItemMode } from '~/types'
 
 export function InsightScene(): JSX.Element {

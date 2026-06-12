@@ -17,6 +17,8 @@ import {
     LemonSkeleton,
     Link,
 } from '@posthog/lemon-ui'
+import { MAX_SELECT_RETURNED_ROWS } from '@posthog/query-frontend/nodes/DataTable/DataTableExport'
+import { InsightErrorState, InsightValidationError } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -30,7 +32,6 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, isGroupType, isSessionType, midEllipsis, pluralize } from 'lib/utils'
-import { InsightErrorState, InsightValidationError } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -38,7 +39,6 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { MAX_SELECT_RETURNED_ROWS } from '@posthog/query-frontend/nodes/DataTable/DataTableExport'
 import { ActorType, ExporterFormat, PropertiesTimelineFilterType, PropertyDefinitionType } from '~/types'
 
 import { cleanedInsightActorsQueryOptions } from './persons-modal-utils'

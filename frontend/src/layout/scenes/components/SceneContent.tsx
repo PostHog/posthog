@@ -1,10 +1,10 @@
 import { useMountedLogic, useValues } from 'kea'
 import { createContext } from 'react'
 
+import type { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { cn } from 'lib/utils/css-classes'
-
-import type { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 /**
  * Context to provide the sceneProductKey to child components (like SceneTitleSection)

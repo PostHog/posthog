@@ -2,6 +2,9 @@ import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
+import { InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -11,12 +14,10 @@ import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'

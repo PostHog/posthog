@@ -18,6 +18,10 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -45,9 +49,6 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isDataTableNode } from '@posthog/query-frontend/utils'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,

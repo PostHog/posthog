@@ -20,6 +20,30 @@ import {
     IconScreen,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { ElapsedTime } from '@posthog/query-frontend/nodes/DataNode/ElapsedTime'
+import { LoadPreviewText } from '@posthog/query-frontend/nodes/DataNode/LoadNext'
+import { QueryExecutionDetails } from '@posthog/query-frontend/nodes/DataNode/QueryExecutionDetails'
+import {
+    copyTableToCsv,
+    copyTableToExcel,
+    copyTableToJson,
+    copyTableToMarkdown,
+} from '@posthog/query-frontend/nodes/DataTable/clipboardUtils'
+import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
+import { PieChart } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/PieChart'
+import { TwoDimensionalHeatmap } from '@posthog/query-frontend/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
+import { seriesBreakdownLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/seriesBreakdownLogic'
+import { SideBar } from '@posthog/query-frontend/nodes/DataVisualization/Components/SideBar'
+import { Table } from '@posthog/query-frontend/nodes/DataVisualization/Components/Table'
+import { TableDisplay } from '@posthog/query-frontend/nodes/DataVisualization/Components/TableDisplay'
+import { DataTableVisualizationProps } from '@posthog/query-frontend/nodes/DataVisualization/DataVisualization'
+import { dataVisualizationLogic } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
+import { displayLogic } from '@posthog/query-frontend/nodes/DataVisualization/displayLogic'
+import { renderHogQLX } from '@posthog/query-frontend/nodes/HogQLX/render'
+import { InsightErrorState, StatelessInsightLoadingState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { type DataTableNode, type HogQLQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { HogQLBoldNumber } from '@posthog/visualizations/BoldNumber/BoldNumber'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -32,36 +56,12 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
-import { InsightErrorState, StatelessInsightLoadingState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { HogQLBoldNumber } from '@posthog/visualizations/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { ElapsedTime } from '@posthog/query-frontend/nodes/DataNode/ElapsedTime'
-import { LoadPreviewText } from '@posthog/query-frontend/nodes/DataNode/LoadNext'
-import { QueryExecutionDetails } from '@posthog/query-frontend/nodes/DataNode/QueryExecutionDetails'
-import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
-import { PieChart } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/PieChart'
-import { TwoDimensionalHeatmap } from '@posthog/query-frontend/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
-import { seriesBreakdownLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/seriesBreakdownLogic'
-import { SideBar } from '@posthog/query-frontend/nodes/DataVisualization/Components/SideBar'
-import { Table } from '@posthog/query-frontend/nodes/DataVisualization/Components/Table'
-import { TableDisplay } from '@posthog/query-frontend/nodes/DataVisualization/Components/TableDisplay'
-import { DataTableVisualizationProps } from '@posthog/query-frontend/nodes/DataVisualization/DataVisualization'
-import { dataVisualizationLogic } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
-import { displayLogic } from '@posthog/query-frontend/nodes/DataVisualization/displayLogic'
-import { renderHogQLX } from '@posthog/query-frontend/nodes/HogQLX/render'
-import { type DataTableNode, type HogQLQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType, type ExportContext, ExporterFormat } from '~/types'
 
-import {
-    copyTableToCsv,
-    copyTableToExcel,
-    copyTableToJson,
-    copyTableToMarkdown,
-} from '@posthog/query-frontend/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'

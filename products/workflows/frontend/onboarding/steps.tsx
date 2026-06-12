@@ -1,4 +1,5 @@
 import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
@@ -10,7 +11,6 @@ import {
 import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 const WorkflowsInstallHeader = (): JSX.Element => {

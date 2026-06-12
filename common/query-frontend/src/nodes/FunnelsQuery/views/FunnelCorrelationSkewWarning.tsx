@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 
 import { IconFeedback } from 'lib/lemon-ui/icons'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const FunnelCorrelationSkewWarning = (): JSX.Element | null => {

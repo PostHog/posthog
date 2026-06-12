@@ -3,11 +3,11 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { HogQLQueryResponse, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { ErrorTrackingSettings } from 'lib/components/Errors/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
-import { HogQLQueryResponse, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import type { issueRateLimitConfigLogicType } from './issueRateLimitConfigLogicType'
 import { DEFAULT_BUCKET_MINUTES, ExceptionVolumeBucket, getBucketOption } from './rateLimitConfigLogic'

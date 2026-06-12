@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -25,7 +26,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { annotationsModel } from '~/models/annotationsModel'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 
 import { AnnotationModal } from './AnnotationModal'

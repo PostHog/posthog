@@ -1,6 +1,7 @@
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 export function WorldMapColumnTitle(): JSX.Element {
     return <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />

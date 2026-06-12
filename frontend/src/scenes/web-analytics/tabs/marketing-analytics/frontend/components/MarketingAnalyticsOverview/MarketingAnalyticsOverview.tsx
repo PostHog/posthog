@@ -1,10 +1,8 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { OverviewGrid, OverviewItem } from '@posthog/query-frontend/nodes/OverviewGrid/OverviewGrid'
 import {
     AnyResponseType,
@@ -12,6 +10,8 @@ import {
     MarketingAnalyticsAggregatedQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {

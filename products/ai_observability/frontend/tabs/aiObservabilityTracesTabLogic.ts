@@ -1,12 +1,13 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'

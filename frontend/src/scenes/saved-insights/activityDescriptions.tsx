@@ -3,6 +3,11 @@ import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
+import { filtersToQueryNode } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import { InsightQueryNode, QuerySchema, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightQueryNode, hasBreakdownFilter } from '@posthog/query-frontend/utils'
+
 import {
     ActivityChange,
     ActivityLogItem,
@@ -24,10 +29,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { filtersToQueryNode } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightQueryNode, QuerySchema, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
-import { isInsightQueryNode, hasBreakdownFilter } from '@posthog/query-frontend/utils'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {

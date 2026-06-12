@@ -4,10 +4,9 @@ import { useMemo } from 'react'
 
 import { IconSparkles, IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { fixSQLErrorsLogic } from '../fixSQLErrorsLogic'
 import { sqlEditorLogic } from '../sqlEditorLogic'

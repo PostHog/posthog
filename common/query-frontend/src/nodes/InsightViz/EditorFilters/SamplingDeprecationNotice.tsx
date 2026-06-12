@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
-
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { InsightLogicProps } from '~/types'

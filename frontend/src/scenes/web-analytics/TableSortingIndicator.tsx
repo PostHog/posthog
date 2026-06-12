@@ -3,10 +3,9 @@ import { useActions, useValues } from 'kea'
 
 import { IconSort, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { WebAnalyticsOrderByFields } from '@posthog/query-frontend/schema/schema-general'
 
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
-
-import { WebAnalyticsOrderByFields } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductTab } from './common'
 

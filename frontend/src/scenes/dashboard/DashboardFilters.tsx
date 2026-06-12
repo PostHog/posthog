@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconCollapse, IconEllipsis, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -14,7 +15,6 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'

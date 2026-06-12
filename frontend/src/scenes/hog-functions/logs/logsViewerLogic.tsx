@@ -15,12 +15,12 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { logsViewerLogicType } from './logsViewerLogicType'

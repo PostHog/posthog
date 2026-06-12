@@ -1,5 +1,4 @@
 import { IconCheck, IconX } from '@posthog/icons'
-
 import { MultiQuestionForm as MultiQuestionFormType } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { MessageTemplate } from './MessageTemplate'

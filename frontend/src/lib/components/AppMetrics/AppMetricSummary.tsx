@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
 
 import { LemonLabel, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
+import { AxisSeries } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
 
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils'
 
-import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
-import { AxisSeries } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
 import { ChartDisplayType } from '~/types'
 
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'

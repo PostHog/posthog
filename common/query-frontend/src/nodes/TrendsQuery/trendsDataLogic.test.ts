@@ -1,12 +1,19 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import {
+    DataNode,
+    LifecycleQuery,
+    NodeKind,
+    ResultCustomizationBy,
+    TrendsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { DataNode, LifecycleQuery, NodeKind, ResultCustomizationBy, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 

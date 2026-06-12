@@ -1,7 +1,13 @@
-import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
-
 import { QueryFeature, getQueryFeatures } from '@posthog/query-frontend/nodes/DataTable/queryFeatures'
-import { DataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import {
+    DataNode,
+    DataTableNode,
+    EventsQuery,
+    HogQLExpression,
+    NodeKind,
+} from '@posthog/query-frontend/schema/schema-general'
+
+import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 
 export const defaultDataTableEventColumns: HogQLExpression[] = [
     '*',

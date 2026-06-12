@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { IconClock } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { FileSystemEntry, FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 
 import { keybindToKeyboardShortcutProps } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -22,7 +23,6 @@ import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry, FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 
 import { recentItemsMenuLogic } from './recentItemsMenuLogic'
 

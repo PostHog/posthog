@@ -1,10 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { isNotNil } from 'lib/utils'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
-import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
-
 import {
     CompareFilter,
     ConversionGoalFilter,
@@ -21,6 +16,12 @@ import {
     NodeKind,
     getEffectiveExcludedColumns,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { isNotNil } from 'lib/utils'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
+import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
+
 import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'

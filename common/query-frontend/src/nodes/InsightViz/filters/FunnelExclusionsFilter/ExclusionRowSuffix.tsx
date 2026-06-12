@@ -2,14 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { IconFilter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
-
-import { IconWithCount } from 'lib/lemon-ui/icons'
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { getClampedFunnelStepRange } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
 import { entityFilterLogic } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-
 import { AnyEntityNode, FunnelsDataWarehouseNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import { IconWithCount } from 'lib/lemon-ui/icons'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 type ExclusionRowSuffixComponentBaseProps = {
     index: number

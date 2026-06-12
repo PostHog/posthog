@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { Link } from '@posthog/lemon-ui'
+import { AlertState, InsightThresholdType } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -11,7 +12,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertState, InsightThresholdType } from '@posthog/query-frontend/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import { InsightAlertsLogicProps, insightAlertsLogic } from '../insightAlertsLogic'

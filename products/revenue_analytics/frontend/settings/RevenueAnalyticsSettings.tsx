@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonTabs, Link } from '@posthog/lemon-ui'
+import { RevenueAnalyticsEventItem } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
@@ -21,7 +22,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { RevenueAnalyticsEventItem } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'

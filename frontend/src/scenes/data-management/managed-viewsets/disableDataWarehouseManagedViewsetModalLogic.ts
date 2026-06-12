@@ -1,9 +1,10 @@
 import { actions, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 
-import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseManagedViewsetSavedQuery } from '~/types'
 
 import type { disableDataWarehouseManagedViewsetModalLogicType } from './disableDataWarehouseManagedViewsetModalLogicType'

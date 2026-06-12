@@ -1,6 +1,11 @@
 import { useValues } from 'kea'
 
+import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import { Chart, ChartType, DeepPartial, LegendOptions, defaults } from '@posthog/visualizations/Chart'
+import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
+
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -8,13 +13,9 @@ import { ciRanges, movingAverage } from 'lib/statistics'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
 
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 
-import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
 export function ActionsLineGraph({

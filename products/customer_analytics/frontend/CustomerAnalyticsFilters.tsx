@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -15,8 +17,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'

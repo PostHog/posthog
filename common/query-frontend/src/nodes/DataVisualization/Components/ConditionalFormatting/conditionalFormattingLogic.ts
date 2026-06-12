@@ -2,9 +2,9 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
-
 import { ConditionalFormattingRule } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { FORMATTING_TEMPLATES, FormattingTemplate } from '../../types'

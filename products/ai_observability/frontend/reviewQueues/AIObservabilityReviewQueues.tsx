@@ -10,13 +10,13 @@ import {
     LemonTableColumns,
     LemonTag,
 } from '@posthog/lemon-ui'
+import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
-import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 
 import { createdAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from '~/scenes/urls'

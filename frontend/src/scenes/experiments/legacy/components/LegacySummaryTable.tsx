@@ -3,13 +3,17 @@ import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentTrendsQuery,
+    isExperimentTrendsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery, isExperimentTrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,

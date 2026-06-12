@@ -5,9 +5,6 @@ import { useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
-
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { ColumnFeature } from '@posthog/query-frontend/nodes/DataTable/DataTable'
 import { Query } from '@posthog/query-frontend/Query/Query'
 import {
@@ -19,6 +16,9 @@ import {
     MarketingAnalyticsTableQuery,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '@posthog/query-frontend/types'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 

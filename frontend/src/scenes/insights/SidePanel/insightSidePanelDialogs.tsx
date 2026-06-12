@@ -1,8 +1,8 @@
+import { AnyDataNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-
-import { AnyDataNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 const RESOURCE_TYPE = 'insight'
 

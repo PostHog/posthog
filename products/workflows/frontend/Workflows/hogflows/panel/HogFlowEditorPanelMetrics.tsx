@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
+import { AxisSeries } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
 
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
-import { AxisSeries } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
 import { ChartDisplayType } from '~/types'
 
 import { EXIT_NODE_ID, TRIGGER_NODE_ID } from '../../workflowLogic'

@@ -1,6 +1,7 @@
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { NEW_SURVEY } from 'scenes/surveys/constants'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, SurveyEventProperties, SurveyQuestionType } from '~/types'
 
 import {

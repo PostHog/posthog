@@ -1,23 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import { DataColorTheme, DataColorToken } from 'lib/colors'
-import { dayjs } from 'lib/dayjs'
-import { isMultiSeriesFormula } from 'lib/utils'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-import {
-    BREAKDOWN_NULL_NUMERIC_LABEL,
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_NUMERIC_LABEL,
-    BREAKDOWN_OTHER_STRING_LABEL,
-    getTrendDatasetKey,
-    getTrendResultCustomization,
-    getTrendResultCustomizationColorToken,
-    getTrendResultCustomizationKey,
-} from 'scenes/insights/utils'
-
 import {
     BreakdownFilter,
     EventsNode,
@@ -30,6 +14,23 @@ import {
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
 import { hasBreakdownFilter } from '@posthog/query-frontend/utils'
+
+import { DataColorTheme, DataColorToken } from 'lib/colors'
+import { dayjs } from 'lib/dayjs'
+import { isMultiSeriesFormula } from 'lib/utils'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { getColorFromToken } from 'scenes/dataThemeLogic'
+import {
+    BREAKDOWN_NULL_NUMERIC_LABEL,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_NUMERIC_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    getTrendDatasetKey,
+    getTrendResultCustomization,
+    getTrendResultCustomizationColorToken,
+    getTrendResultCustomizationKey,
+} from 'scenes/insights/utils'
+
 import {
     ChartDisplayType,
     CountPerActorMathType,

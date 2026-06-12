@@ -1,6 +1,9 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import type { DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
+
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import type { TablePreviewExpressionColumn } from 'lib/components/TablePreview/types'
 import { getDataWarehouseItemWithFieldDefaults } from 'lib/components/TaxonomicFilter/dataWarehouseItemUtils'
@@ -9,9 +12,7 @@ import type {
     TaxonomicFilterGroup,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 
-import type { DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'

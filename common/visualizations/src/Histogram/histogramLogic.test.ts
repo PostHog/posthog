@@ -1,5 +1,6 @@
-import { FunnelLayout } from 'lib/constants'
 import { getConfig } from '@posthog/visualizations/Histogram/histogramUtils'
+
+import { FunnelLayout } from 'lib/constants'
 
 import { initKeaTests } from '~/test/init'
 

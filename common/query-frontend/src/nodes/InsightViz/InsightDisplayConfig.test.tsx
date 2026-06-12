@@ -4,14 +4,15 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 

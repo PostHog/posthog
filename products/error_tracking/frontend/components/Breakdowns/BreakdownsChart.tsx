@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { Query } from '@posthog/query-frontend/Query/Query'
+
 import { FilterLogicalOperator } from '~/types'
 
 import { errorTrackingIssueBreakdownQuery } from '../../queries'

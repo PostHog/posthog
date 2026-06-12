@@ -3,6 +3,9 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { examples } from '@posthog/query-frontend/examples'
+import { InsightVizNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -10,8 +13,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { examples } from '@posthog/query-frontend/examples'
-import { InsightVizNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
 

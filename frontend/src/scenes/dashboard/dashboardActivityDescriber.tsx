@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
-import { DashboardFilter, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
 
 import { Link } from '@posthog/lemon-ui'
+import { DashboardFilter, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     ActivityChange,

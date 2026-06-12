@@ -5,13 +5,13 @@ import React from 'react'
 
 import { IconCollapse, IconPlayFilled, IconX } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { FunnelPathType } from '~/types'
 

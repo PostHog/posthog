@@ -1,8 +1,8 @@
 import { z } from 'zod'
 
-import { ApiError } from 'lib/api-error'
-
 import type { ErrorTrackingQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { ApiError } from 'lib/api-error'
 
 import {
     errorTrackingWidgetConfigSchema,

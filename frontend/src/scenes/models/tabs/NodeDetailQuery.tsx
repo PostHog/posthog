@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'

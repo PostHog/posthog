@@ -3,6 +3,11 @@ import { useEffect } from 'react'
 
 import { IconCheck, IconNotebook } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import {
+    MaxErrorTrackingIssuePreview,
+    MaxErrorTrackingSearchResponse,
+} from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
+import { AssistantTool } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -16,11 +21,6 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    MaxErrorTrackingIssuePreview,
-    MaxErrorTrackingSearchResponse,
-} from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
-import { AssistantTool } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'

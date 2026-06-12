@@ -7,6 +7,17 @@ import React, { useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
+import {
+    InsightErrorState,
+    InsightLoadingState,
+    InsightTimeoutState,
+    InsightValidationError,
+} from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { extractValidationError } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DashboardFilter, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
+
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -15,20 +26,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
-import {
-    InsightErrorState,
-    InsightLoadingState,
-    InsightTimeoutState,
-    InsightValidationError,
-} from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { extractValidationError } from '@posthog/query-frontend/nodes/InsightViz/utils'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { DashboardFilter, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,

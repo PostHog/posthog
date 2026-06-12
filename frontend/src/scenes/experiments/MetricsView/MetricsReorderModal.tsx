@@ -8,7 +8,6 @@ import { useEffect, useState } from 'react'
 
 import { IconDrag } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonModal, LemonTag } from '@posthog/lemon-ui'
-
 import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'

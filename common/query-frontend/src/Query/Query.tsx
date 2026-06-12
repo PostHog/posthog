@@ -1,12 +1,6 @@
 import { BuiltLogic, LogicWrapper } from 'kea'
 import { Suspense, lazy, useEffect, useState } from 'react'
 
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { HogDebug } from 'scenes/debug/HogDebug'
-import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
-
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '@posthog/query-frontend/nodes/DataNode/DataNode'
 import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/InsightViz'
@@ -22,6 +16,13 @@ import {
     Node,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { HogDebug } from 'scenes/debug/HogDebug'
+import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
+
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { EndpointsUsageOverviewNode, EndpointsUsageTrendsNode } from 'products/endpoints/frontend/nodes'
 import {
@@ -53,7 +54,9 @@ import {
     isWebVitalsQuery,
 } from '../utils'
 
-const WebVitals = lazy(() => import('@posthog/query-frontend/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals })))
+const WebVitals = lazy(() =>
+    import('@posthog/query-frontend/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals }))
+)
 const WebVitalsPathBreakdown = lazy(() =>
     import('../nodes/WebVitals/WebVitalsPathBreakdown').then((m) => ({ default: m.WebVitalsPathBreakdown }))
 )

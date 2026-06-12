@@ -1,6 +1,14 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
+import { isExperimentMetric } from '@posthog/query-frontend/schema-guards'
+import {
+    ExperimentExposureCriteria,
+    ExperimentMetric,
+    ProductIntentContext,
+    ProductKey,
+} from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -12,13 +20,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { isExperimentMetric } from '@posthog/query-frontend/schema-guards'
-import {
-    ExperimentExposureCriteria,
-    ExperimentMetric,
-    ProductIntentContext,
-    ProductKey,
-} from '@posthog/query-frontend/schema/schema-general'
 import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'

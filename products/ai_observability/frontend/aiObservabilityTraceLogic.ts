@@ -3,17 +3,6 @@ import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { addProductIntent } from 'lib/utils/product-intents'
-import { urls } from 'scenes/urls'
-
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import {
@@ -26,6 +15,18 @@ import {
     TraceNeighborsQueryResponse,
     TraceQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { addProductIntent } from 'lib/utils/product-intents'
+import { urls } from 'scenes/urls'
+
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from '~/types'
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'

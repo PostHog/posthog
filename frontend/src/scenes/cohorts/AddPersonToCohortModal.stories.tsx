@@ -1,9 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { PersonSelectList } from './PersonSelectList'
 

@@ -2,21 +2,21 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import api, { ApiError } from 'lib/api'
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { userLogic } from 'scenes/userLogic'
-
 import {
     AlertCalculationInterval,
     AlertConditionType,
     InsightThresholdType,
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api, { ApiError } from 'lib/api'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
+import { userLogic } from 'scenes/userLogic'
+
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 

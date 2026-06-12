@@ -1,5 +1,4 @@
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
-
 import type { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { type AggregatedDisplayLabelDeps, getAggregatedDisplayLabel } from './getAggregatedDisplayLabel'

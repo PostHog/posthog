@@ -9,6 +9,10 @@ import posthog from 'posthog-js'
 import { useCallback } from 'react'
 
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { MathCategory, mathTypeToApiValues, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -25,14 +29,10 @@ import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { getEventNamesForAction } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { MathCategory, mathTypeToApiValues, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnyPropertyFilter,
     BaseMathType,

@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
+
 import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
 
 import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { CurrencyDropdown } from './CurrencyDropdown'

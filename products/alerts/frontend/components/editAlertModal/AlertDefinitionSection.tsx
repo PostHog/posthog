@@ -10,6 +10,7 @@ import {
     LemonSelect,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { AlertConditionType, InsightThresholdType } from '@posthog/query-frontend/schema/schema-general'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
 import { AlertSimulationResult } from 'lib/components/Alerts/types'
@@ -17,8 +18,6 @@ import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils'
-
-import { AlertConditionType, InsightThresholdType } from '@posthog/query-frontend/schema/schema-general'
 
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 

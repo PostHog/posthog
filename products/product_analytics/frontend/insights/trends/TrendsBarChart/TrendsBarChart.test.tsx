@@ -2,11 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'

@@ -1,5 +1,3 @@
-import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
-
 import {
     AttributionMode,
     ConversionGoalFilter,
@@ -14,6 +12,9 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+
 import { HogQLMathType, ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'

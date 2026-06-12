@@ -1,6 +1,3 @@
-// TODO: Move the below scss to somewhere more common
-import '@posthog/visualizations/InsightTooltip/InsightTooltip.scss'
-
 import 'chartjs-adapter-dayjs-3'
 
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
@@ -11,10 +8,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+// TODO: Move the below scss to somewhere more common
+import '@posthog/visualizations/InsightTooltip/InsightTooltip.scss'
 import { IconX } from '@posthog/icons'
 import { LemonTable, lemonToast } from '@posthog/lemon-ui'
+import { ChartSettings, GoalLine, YAxisSettings } from '@posthog/query-frontend/schema/schema-general'
 import { createXAxisTickCallback } from '@posthog/quill-charts'
-
 import {
     ActiveElement,
     Chart,
@@ -30,15 +29,15 @@ import {
     TooltipModel,
 } from '@posthog/visualizations/Chart'
 import { resolveVariableColor } from '@posthog/visualizations/charts/utils/color'
+import { unpinTooltip, useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
+
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { hexToRGBA, uuid } from 'lib/utils'
-import { unpinTooltip, useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ChartSettings, GoalLine, YAxisSettings } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'

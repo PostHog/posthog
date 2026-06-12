@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { LemonTreeSelectMode, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -11,7 +12,6 @@ import { LemonTreeSelectMode, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonT
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'

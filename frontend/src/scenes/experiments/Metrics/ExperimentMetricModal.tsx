@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
-
 import type { ExperimentExposureCriteria, ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+
 import type { Experiment } from '~/types'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'

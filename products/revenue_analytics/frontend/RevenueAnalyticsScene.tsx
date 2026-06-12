@@ -2,6 +2,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonBanner, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -15,8 +17,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { Onboarding } from './Onboarding'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'

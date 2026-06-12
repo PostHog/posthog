@@ -2,11 +2,12 @@ import { actions, afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
-import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { QuickFilter } from '~/types'
 
 import { QuickFiltersEvents } from './consts'

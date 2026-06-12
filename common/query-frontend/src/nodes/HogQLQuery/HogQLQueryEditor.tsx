@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { IconMagicWand } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
+import { HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -15,8 +16,6 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { CodeEditorLogicProps, codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { urls } from 'scenes/urls'
-
-import { HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 

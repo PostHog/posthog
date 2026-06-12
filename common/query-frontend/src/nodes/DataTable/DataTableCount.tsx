@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 
-import { pluralize } from 'lib/utils'
-
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { isActorsQuery, isEventsQuery, isGroupsQuery, isSessionsQuery } from '@posthog/query-frontend/utils'
+
+import { pluralize } from 'lib/utils'
 
 export function DataTableCount(): JSX.Element | null {
     const { totalCount, totalCountLoading, filteredCount, filteredCountLoading, hasActiveFilters, query } =

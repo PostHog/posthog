@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 
+import { LocalFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { LocalFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'

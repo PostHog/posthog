@@ -2,6 +2,9 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconGraph, IconRetentionHeatmap, IconTrends, IconUserPaths } from '@posthog/icons'
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { type InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import { escapeRegex } from 'lib/actionUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,9 +14,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
-import { type InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isHogQLQuery } from '@posthog/query-frontend/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'

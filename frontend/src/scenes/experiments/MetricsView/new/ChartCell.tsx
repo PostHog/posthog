@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+
 import { generateViolinPath } from '~/scenes/experiments/MetricsView/violinUtils'
 
 import { useChartColors } from '../shared/colors'

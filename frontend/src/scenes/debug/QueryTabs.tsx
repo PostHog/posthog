@@ -1,5 +1,16 @@
 import { useState } from 'react'
 
+import { Timings } from '@posthog/query-frontend/nodes/DataNode/ElapsedTime'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import {
+    HogQLMetadataResponse,
+    InsightVizNode,
+    Node,
+    NodeKind,
+    QueryTiming,
+} from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode, isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '@posthog/query-frontend/utils'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
@@ -7,10 +18,6 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { Timings } from '@posthog/query-frontend/nodes/DataNode/ElapsedTime'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '@posthog/query-frontend/schema/schema-general'
-import { isDataTableNode, isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '@posthog/query-frontend/utils'
 
 import { QueryLogTable } from './QueryLogTable'
 

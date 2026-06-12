@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { IconGraph, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { ChartDisplayType } from '~/types'
 

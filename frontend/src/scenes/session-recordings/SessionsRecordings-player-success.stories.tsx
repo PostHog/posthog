@@ -3,6 +3,8 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -12,7 +14,6 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { getAvailableProductFeatures } from '~/mocks/features'
 import { MockSignature } from '~/mocks/utils'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, SessionRecordingPlaylistType } from '~/types'
 
 import { recordingPlaylists } from './__mocks__/recording_playlists'

@@ -16,13 +16,13 @@ import {
     LemonTagType,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 

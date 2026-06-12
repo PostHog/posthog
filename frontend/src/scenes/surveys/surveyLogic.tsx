@@ -5,6 +5,16 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import {
+    CompareFilter,
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+} from '@posthog/query-frontend/schema/schema-general'
+import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '@posthog/query-frontend/schema/schema-surveys'
+import { HogQLQueryString } from '@posthog/query-frontend/utils'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -35,16 +45,6 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import {
-    CompareFilter,
-    DataTableNode,
-    InsightVizNode,
-    NodeKind,
-    ProductIntentContext,
-    ProductKey,
-} from '@posthog/query-frontend/schema/schema-general'
-import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '@posthog/query-frontend/schema/schema-surveys'
-import { HogQLQueryString } from '@posthog/query-frontend/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,

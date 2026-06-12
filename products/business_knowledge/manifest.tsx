@@ -1,3 +1,5 @@
+import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 /**
  * Product manifest for business_knowledge.
  *
@@ -5,8 +7,6 @@
  */
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
-
-import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 

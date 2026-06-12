@@ -1,11 +1,12 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { urls } from 'scenes/urls'
-
 import { DataNodeLogicProps } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { urls } from 'scenes/urls'
+
 import { Breadcrumb, InsightLogicProps, PropertyFilterType } from '~/types'
 
 import type { aiObservabilitySessionLogicType } from './aiObservabilitySessionLogicType'

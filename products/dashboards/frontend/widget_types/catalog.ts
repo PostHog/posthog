@@ -1,6 +1,6 @@
-import { urls } from 'scenes/urls'
-
 import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
+
+import { urls } from 'scenes/urls'
 
 import { errorTrackingWidgetConfigSchema, sessionReplayWidgetConfigSchema } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'

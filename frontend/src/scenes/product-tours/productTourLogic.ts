@@ -6,6 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -16,7 +17,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 import {
     Breadcrumb,
     FeatureFlagBasicType,

@@ -3,6 +3,7 @@ import { combineUrl, router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -19,7 +20,6 @@ import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'

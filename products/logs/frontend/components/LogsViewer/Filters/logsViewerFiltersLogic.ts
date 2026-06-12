@@ -2,10 +2,11 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, kea, key, listeners, path, propsChanged, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { DateRange, LogSeverityLevel, LogsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 
-import { DateRange, LogSeverityLevel, LogsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     FilterLogicalOperator,
     PropertyFilterType,

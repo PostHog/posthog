@@ -3,7 +3,6 @@ import { useState } from 'react'
 
 import { IconDatabase, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
-
 import { ExternalDataSourceType, SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'

@@ -19,6 +19,7 @@
         "@types/d3": "^7.4.3",
         "@types/jest": "catalog:",
         "@types/react": "catalog:",
+        "@types/react-dom": "catalog:",
         "@types/react-simple-maps": "^3.0.6"
     },
     "peerDependencies": {

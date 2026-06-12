@@ -1,5 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import {
     DatabaseSchemaDataWarehouseTable,
     MARKETING_INTEGRATION_CONFIGS,
@@ -9,6 +7,8 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 import {

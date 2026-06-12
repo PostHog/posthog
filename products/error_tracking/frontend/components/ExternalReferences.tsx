@@ -3,6 +3,10 @@ import posthog from 'posthog-js'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    ErrorTrackingExternalReference,
+    ErrorTrackingRelationalIssue,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -21,7 +25,6 @@ import {
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingExternalReference, ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 import { IntegrationKind, IntegrationType } from '~/types'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'

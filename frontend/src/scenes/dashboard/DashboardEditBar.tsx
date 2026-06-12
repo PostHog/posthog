@@ -2,6 +2,9 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
+import { VariablesForDashboard } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/Variables'
+import { TaxonomicBreakdownFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/TaxonomicBreakdownFilter'
+import { BreakdownFilter, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -11,13 +14,10 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { TaxonomicBreakdownFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { groupsModel } from '~/models/groupsModel'
-import { VariablesForDashboard } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/Variables'
-import { BreakdownFilter, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardMode, InsightLogicProps } from '~/types'
 
 interface DashboardEditBarProps {

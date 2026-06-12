@@ -5,13 +5,13 @@ import React from 'react'
 
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 
-import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'

@@ -9,8 +9,15 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useMemo, useRef } from 'react'
 
+import {
+    formatAggregationAxisValue,
+    formatPercentStackAxisValue,
+} from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { GoalLine, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { createXAxisTickCallback } from '@posthog/quill-charts'
-
 import {
     ActiveElement,
     Chart,
@@ -30,6 +37,12 @@ import {
     TooltipOptions,
 } from '@posthog/visualizations/Chart'
 import { resolveVariableColor } from '@posthog/visualizations/charts/utils/color'
+import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
+import { getDatumTitle, TooltipConfig } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
+import { unpinTooltip, useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
+import { PieChart } from '@posthog/visualizations/LineGraph/PieChart'
+import { createTooltipData } from '@posthog/visualizations/LineGraph/tooltip-data'
+
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnomalyPoint } from 'lib/components/Alerts/types'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
@@ -38,24 +51,14 @@ import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { formatAggregationAxisValue, formatPercentStackAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { hexToRGBA, lightenDarkenColor } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
-import { getDatumTitle, TooltipConfig } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { unpinTooltip, useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
-import { PieChart } from '@posthog/visualizations/LineGraph/PieChart'
-import { createTooltipData } from '@posthog/visualizations/LineGraph/tooltip-data'
 import { teamLogic } from 'scenes/teamLogic'
-import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 import { useChartZoom } from 'scenes/web-analytics/hooks/useChartZoom'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { hexToRGBA, lightenDarkenColor } from 'lib/utils'
 import { groupsModel } from '~/models/groupsModel'
-import { GoalLine, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 function truncateString(str: string, num: number): string {

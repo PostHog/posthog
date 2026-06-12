@@ -8,23 +8,23 @@ import React from 'react'
 
 import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
+import { dataVisualizationLogic } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
+import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
+import { useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
 
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { percentage } from 'lib/utils'
-import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
-import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
-import { dataVisualizationLogic } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { Textfit } from './Textfit'
 
 export interface ComparisonDisplay {

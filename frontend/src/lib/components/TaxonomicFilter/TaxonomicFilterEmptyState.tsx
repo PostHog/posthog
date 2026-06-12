@@ -4,6 +4,7 @@ import type React from 'react'
 
 import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -12,7 +13,6 @@ import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { BuilderHog3 } from '../hedgehogs'

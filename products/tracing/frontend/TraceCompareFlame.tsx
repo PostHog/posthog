@@ -4,10 +4,9 @@ import React from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonDropdown, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { SpanTreeNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { humanFriendlyNumber } from 'lib/utils'
-
-import { SpanTreeNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { formatDuration } from './TraceWaterfallView'
 

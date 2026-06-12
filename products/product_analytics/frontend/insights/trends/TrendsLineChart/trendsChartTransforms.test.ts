@@ -1,9 +1,11 @@
+import type {
+    GoalLine as SchemaGoalLine,
+    TrendsFilter as SchemaTrendsFilter,
+} from '@posthog/query-frontend/schema/schema-general'
 import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 import type { TooltipConfig } from '@posthog/quill-charts'
 
 import { ciRanges } from 'lib/statistics'
-
-import type { GoalLine as SchemaGoalLine, TrendsFilter as SchemaTrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 import {

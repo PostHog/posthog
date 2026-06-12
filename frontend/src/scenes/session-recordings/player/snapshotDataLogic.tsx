@@ -1,9 +1,8 @@
-import '@posthog/query-frontend/utils'
-
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import '@posthog/query-frontend/utils'
 import { keyForSource } from '@posthog/replay-shared'
 import { SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 

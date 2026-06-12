@@ -1,10 +1,9 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-
-import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { CustomerJourneysEmptyState } from './CustomerJourneysEmptyState'

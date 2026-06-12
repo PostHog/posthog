@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
-
 import { NativeMarketingSource } from '@posthog/query-frontend/schema/schema-general'
+
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {

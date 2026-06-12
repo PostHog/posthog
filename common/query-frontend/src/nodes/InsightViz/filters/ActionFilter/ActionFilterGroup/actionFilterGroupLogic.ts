@@ -1,8 +1,9 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { MathCategory, mathTypeToApiValues, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { uuid } from 'lib/utils'
-import { MathCategory, mathTypeToApiValues, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 
 import { AnyPropertyFilter, EntityType, EntityTypes, FilterLogicalOperator } from '~/types'
 

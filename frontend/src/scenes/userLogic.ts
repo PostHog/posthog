@@ -4,6 +4,8 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
@@ -11,7 +13,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, NotificationSettings, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
 
 import { urls } from './urls'

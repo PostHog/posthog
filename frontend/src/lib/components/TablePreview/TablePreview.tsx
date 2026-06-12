@@ -1,10 +1,9 @@
 import { useLayoutEffect, useRef } from 'react'
 
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 
 import { cn } from 'lib/utils/css-classes'
-
-import { DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 
 import { TablePreviewExtraColumn } from './types'
 

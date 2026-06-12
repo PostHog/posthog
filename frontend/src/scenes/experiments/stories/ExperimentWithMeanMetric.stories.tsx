@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { makeDelay } from 'lib/utils'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -8,7 +10,6 @@ import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_mean_metric.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 const meta: Meta = {
     component: App,

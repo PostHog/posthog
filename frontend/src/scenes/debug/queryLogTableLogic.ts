@@ -1,10 +1,10 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { HogQLQueryResponse } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
-
-import { HogQLQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 import type { queryLogTableLogicType } from './queryLogTableLogicType'
 

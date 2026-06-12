@@ -1,9 +1,9 @@
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
-
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { TaskDetailPage } from './components/TaskDetailPage'
 import { TaskDetailSceneLogicProps, taskDetailSceneLogic } from './logics/taskDetailSceneLogic'

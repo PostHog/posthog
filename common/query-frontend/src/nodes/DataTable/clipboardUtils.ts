@@ -1,10 +1,6 @@
 import Papa from 'papaparse'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { asDisplay } from 'scenes/persons/person-utils'
-
 import { extractExpressionComment } from '@posthog/query-frontend/nodes/DataTable/utils'
 import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 import {
@@ -14,6 +10,9 @@ import {
     isNonIntegratedConversionsTableQuery,
     isPersonsNode,
 } from '@posthog/query-frontend/utils'
+
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 import { DataTableRow } from './dataTableLogic'
 

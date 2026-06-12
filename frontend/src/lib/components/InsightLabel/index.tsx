@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { LemonTag } from '@posthog/lemon-ui'
+import { mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
@@ -12,7 +13,6 @@ import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
 import { formatEventName } from 'scenes/insights/utils'
-import { mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ActionFilter, BreakdownKeyType } from '~/types'

@@ -1,9 +1,10 @@
 import { combineUrl } from 'kea-router'
 
+import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {

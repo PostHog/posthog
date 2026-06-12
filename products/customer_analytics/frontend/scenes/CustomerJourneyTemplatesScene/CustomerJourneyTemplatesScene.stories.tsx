@@ -1,12 +1,13 @@
 // Stories for Customer Analytics Journey Templates scene
 import { Meta, StoryObj } from '@storybook/react'
 
-import { App } from 'scenes/App'
 import { JOURNEY_FEATURE_FLAGS } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelFlowGraph/__mocks__/journeyMocks'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 const SAMPLE_FUNNELS = {
     count: 2,

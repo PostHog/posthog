@@ -1,11 +1,12 @@
 import { ReactNode, memo } from 'react'
 
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
+
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { formatAggregationValue } from 'scenes/insights/utils'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
-import { ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
 import { IntervalType } from '~/types'
 
 type ValueColumnTitleProps = {

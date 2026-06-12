@@ -2,13 +2,14 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
+import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+import { escapeHogQLString } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
-import { escapeHogQLString } from '@posthog/query-frontend/utils'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'

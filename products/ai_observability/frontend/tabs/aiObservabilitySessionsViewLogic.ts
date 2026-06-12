@@ -1,10 +1,17 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 
+import {
+    DataTableNode,
+    LLMTrace,
+    NodeKind,
+    TraceQuery,
+    TracesQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TracesQuery } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import sessionsQueryTemplate from '../../backend/queries/sessions.sql?raw'

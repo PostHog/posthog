@@ -2,20 +2,24 @@ import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reduc
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import {
+    legacyEntityToNode,
+    sanitizeRetentionEntity,
+} from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { getQueryBasedDashboard } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightVizNode } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { legacyEntityToNode, sanitizeRetentionEntity } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
-import { getQueryBasedDashboard } from '@posthog/query-frontend/nodes/InsightViz/utils'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isInsightVizNode } from '@posthog/query-frontend/utils'
 import {
     DashboardTemplateStoredTile,
     DashboardTemplateType,

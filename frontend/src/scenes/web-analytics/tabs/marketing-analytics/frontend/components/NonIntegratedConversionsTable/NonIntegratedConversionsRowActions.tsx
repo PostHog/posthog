@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { NativeMarketingSource } from '@posthog/query-frontend/schema/schema-general'
+
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { NativeMarketingSource } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { getEnabledNativeMarketingSources } from '../../logic/utils'

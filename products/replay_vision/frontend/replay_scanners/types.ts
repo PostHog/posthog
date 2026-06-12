@@ -1,5 +1,4 @@
 import { LemonTagType } from '@posthog/lemon-ui'
-
 import { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'

@@ -1,9 +1,5 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 
-import { escapeRegex } from 'lib/actionUtils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-
-import { groupsModel } from '~/models/groupsModel'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -12,6 +8,11 @@ import {
     PathsQuery,
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { escapeRegex } from 'lib/actionUtils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, ChartDisplayType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import toolsQueryTemplate from '../../backend/queries/tools.sql?raw'

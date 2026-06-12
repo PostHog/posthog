@@ -1,6 +1,7 @@
 import { cleanup, render, waitFor } from '@testing-library/react'
 
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 

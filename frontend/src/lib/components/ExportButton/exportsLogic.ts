@@ -2,6 +2,8 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
@@ -13,7 +15,6 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
 import { APIErrorType, CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'

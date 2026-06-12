@@ -4,11 +4,10 @@ import { useState } from 'react'
 
 import { IconBookmark, IconFilter, IconPlusSmall, IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
+import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-
-import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { DataTableSavedFilter, dataTableSavedFiltersLogic } from './dataTableSavedFiltersLogic'
 

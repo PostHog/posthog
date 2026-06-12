@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -9,7 +10,6 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { dateMapping } from 'lib/utils'
-import { TestAccountFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/TestAccountFilter'
 
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
 import { BreakdownsEvents, TAXONOMIC_GROUP_TYPES } from './consts'

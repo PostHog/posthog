@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { isHogQLQuery } from '@posthog/query-frontend/utils'
+
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils'
 import { urls } from 'scenes/urls'
-
-import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import { mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
 

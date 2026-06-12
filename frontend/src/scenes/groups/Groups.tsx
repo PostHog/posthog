@@ -2,6 +2,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPeople } from '@posthog/icons'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -17,9 +20,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 

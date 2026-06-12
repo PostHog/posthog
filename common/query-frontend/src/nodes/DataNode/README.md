@@ -12,13 +12,13 @@ Any `DataNode` kind without a dedicated renderer falls through to this component
 ```tsx
 import { Query } from '@posthog/query-frontend/Query/Query'
 
-<Query
-    query={{
-        kind: 'EventsQuery',
-        select: ['*', 'event', 'person', 'timestamp'],
-        after: '-24h',
-        limit: 100,
-    }}
+;<Query
+  query={{
+    kind: 'EventsQuery',
+    select: ['*', 'event', 'person', 'timestamp'],
+    after: '-24h',
+    limit: 100,
+  }}
 />
 ```
 

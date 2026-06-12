@@ -1,6 +1,5 @@
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown } from '@posthog/lemon-ui'
-
 import { LogMessage } from '@posthog/query-frontend/schema/schema-general'
 
 const SEVERITY_OPTIONS: { key: LogMessage['severity_text']; label: string }[] = [

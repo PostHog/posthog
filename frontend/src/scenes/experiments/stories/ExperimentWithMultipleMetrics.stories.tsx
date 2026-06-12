@@ -1,5 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import {
+    NodeKind,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '@posthog/query-frontend/schema/schema-general'
+
 import { makeDelay } from 'lib/utils'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -10,12 +17,6 @@ import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_que
 import FUNNEL_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metric_result.json'
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
 import RATIO_METRIC_RESULT from '~/mocks/fixtures/api/experiments/ratio_metric_result.json'
-import {
-    NodeKind,
-    isExperimentFunnelMetric,
-    isExperimentMeanMetric,
-    isExperimentRatioMetric,
-} from '@posthog/query-frontend/schema/schema-general'
 
 const meta: Meta = {
     component: App,

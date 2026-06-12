@@ -3,13 +3,14 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { DatabaseSchemaDataWarehouseTable } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { DatabaseSchemaDataWarehouseTable } from '@posthog/query-frontend/schema/schema-general'
 import {
     BillingProductV2Type,
     DataWarehouseActivityRecord,

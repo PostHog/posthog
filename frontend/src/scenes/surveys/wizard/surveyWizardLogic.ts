@@ -2,6 +2,7 @@ import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path,
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -10,7 +11,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb, LinkSurveyQuestion, Survey, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
 
 import {

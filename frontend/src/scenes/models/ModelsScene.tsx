@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -15,7 +16,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
 
 import { ViewsTab } from '../data-warehouse/scene/ViewsTab'

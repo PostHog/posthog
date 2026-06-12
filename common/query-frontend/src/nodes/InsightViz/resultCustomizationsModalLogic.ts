@@ -1,19 +1,20 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import { DataColorToken } from 'lib/colors'
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { ResultCustomizationBy, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
+
+import { DataColorToken } from 'lib/colors'
 import {
     getFunnelDatasetKey,
     getFunnelResultCustomization,
     getTrendResultCustomization,
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
-import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
-import { ResultCustomizationBy, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { FlattenedFunnelStepByBreakdown, InsightLogicProps } from '~/types'
 
 import type { resultCustomizationsModalLogicType } from './resultCustomizationsModalLogicType'

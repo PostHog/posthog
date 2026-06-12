@@ -1,6 +1,8 @@
 import { BindLogic, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
@@ -8,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { SessionRecordingsPageTabs } from '../SessionRecordings'

@@ -1,14 +1,13 @@
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { formatBreakdownType } from 'scenes/insights/utils'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
-
-import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter

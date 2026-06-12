@@ -13,6 +13,8 @@ import {
     LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
+import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -24,8 +26,6 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 

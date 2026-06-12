@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconChevronLeft } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { SubscriptionFreeTierLimit } from '@posthog/query-frontend/schema/schema-general'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -33,7 +34,6 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { SubscriptionFreeTierLimit } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import { InsightSelector } from '../InsightSelector'

@@ -2,14 +2,6 @@ import { useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
-
-import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
-
 import { performQuery } from '@posthog/query-frontend/query'
 import {
     ExperimentMetric,
@@ -21,6 +13,13 @@ import {
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 
 import { experimentLogic, ExperimentSavedMetric } from '../experimentLogic'
 import { getExperimentRefreshMode } from '../metricQueryUtils'

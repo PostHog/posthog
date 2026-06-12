@@ -1,5 +1,9 @@
+import {
+    flattenedStepsByBreakdown,
+    stepsWithConversionMetrics,
+} from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
+
 import { FunnelLayout } from 'lib/constants'
-import { flattenedStepsByBreakdown, stepsWithConversionMetrics } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
 
 import {
     FlattenedFunnelStepByBreakdown,

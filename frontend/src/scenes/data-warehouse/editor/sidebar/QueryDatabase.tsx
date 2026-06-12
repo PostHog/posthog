@@ -17,6 +17,8 @@ import {
     IconPlusSmall,
 } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
+import { DatabaseSerializedFieldType, externalDataSources } from '@posthog/query-frontend/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier } from '@posthog/query-frontend/utils'
 
 import { IconTextSize } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -37,8 +39,6 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { DatabaseSerializedFieldType, externalDataSources } from '@posthog/query-frontend/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '@posthog/query-frontend/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'

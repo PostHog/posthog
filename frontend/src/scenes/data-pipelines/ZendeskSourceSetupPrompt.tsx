@@ -2,13 +2,12 @@ import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { urls } from 'scenes/urls'
-
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 

@@ -3,8 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
-import { useMocks } from '~/mocks/jest'
 import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Group } from '~/types'
 

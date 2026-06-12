@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import { capitalizeFirstLetter } from 'lib/utils'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-
 import { InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
 import { isRetentionQuery } from '@posthog/query-frontend/utils'
+
+import { capitalizeFirstLetter } from 'lib/utils'
+
 import { InsightLogicProps, InsightType } from '~/types'
 
 import { dateOptionPlurals } from './constants'

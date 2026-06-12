@@ -4,7 +4,6 @@
 import { useActions, useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
-
 import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { StructuredSummary, summaryViewLogic } from '../summaryViewLogic'

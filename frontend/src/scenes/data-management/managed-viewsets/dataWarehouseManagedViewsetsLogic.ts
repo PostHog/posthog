@@ -1,11 +1,11 @@
 import { actions, connect, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
 
 import type { dataWarehouseManagedViewsetsLogicType } from './dataWarehouseManagedViewsetsLogicType'
 import {

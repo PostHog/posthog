@@ -4,12 +4,11 @@ import { useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { cn } from 'lib/utils/css-classes'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
-
-import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { QUESTION_SUGGESTIONS_DATA, RESEARCH_SUGGESTIONS_DATA, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'

@@ -1,9 +1,9 @@
 import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-
 import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
 
 import type { availableSourcesLogicType } from './availableSourcesLogicType'
 

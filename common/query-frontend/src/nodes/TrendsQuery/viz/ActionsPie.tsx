@@ -4,17 +4,18 @@ import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
+import { PieChart } from '@posthog/visualizations/LineGraph/PieChart'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
-import { PieChart } from '@posthog/visualizations/LineGraph/PieChart'
 import { teamLogic } from 'scenes/teamLogic'
-import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartParams, GraphDataset, GraphPointPayload, GraphType } from '~/types'
 
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
 export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: ChartParams): JSX.Element | null {

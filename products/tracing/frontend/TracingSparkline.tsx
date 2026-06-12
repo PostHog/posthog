@@ -2,13 +2,12 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
-
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 import { AnyScaleOptions, Sparkline } from '@posthog/visualizations/Sparkline/Sparkline'
+
 import { dayjs } from 'lib/dayjs'
 import { shortTimeZone } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-
-import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import { type TracingDurationHistogramData, type VisibleDurationRange, snapDurationToBucket } from './durationBuckets'
 import { SparklineCompareOverlay } from './SparklineCompareOverlay'

@@ -12,7 +12,6 @@ import {
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
-
 import { ConditionalFormattingRule } from '@posthog/query-frontend/schema/schema-general'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'

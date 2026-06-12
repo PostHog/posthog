@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { IconFilter } from '@posthog/icons'
 import { LemonSelect, Popover } from '@posthog/lemon-ui'
+import { WebAnalyticsPropertyFilters } from '@posthog/query-frontend/schema/schema-general'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isWebAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -11,7 +12,6 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import { WebAnalyticsPropertyFilters } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { botAnalyticsLogic } from './botAnalyticsLogic'

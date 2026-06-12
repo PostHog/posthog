@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { HogQLQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import { processAllSnapshots, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -11,7 +12,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { HogQLQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import {
     RecordingSnapshot,
     SessionRecordingSnapshotSource,

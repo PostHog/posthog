@@ -3,13 +3,13 @@ import { useState } from 'react'
 
 import { IconCalendar, IconClock } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Popover } from '@posthog/lemon-ui'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRangeFilter'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
 import { logsViewerSettingsLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerSettingsLogic'

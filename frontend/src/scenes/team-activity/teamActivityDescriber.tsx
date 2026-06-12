@@ -1,3 +1,5 @@
+import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     ActivityChange,
     ActivityLogItem,
@@ -16,7 +18,6 @@ import { isObject, pluralize } from 'lib/utils'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
 import { urls } from 'scenes/urls'
 
-import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
 import {
     ActivityScope,
     CorrelationConfigType,

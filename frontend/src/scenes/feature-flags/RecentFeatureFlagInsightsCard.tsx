@@ -1,11 +1,17 @@
 import { useActions, useValues } from 'kea'
 
+import {
+    InsightVizNode,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+} from '@posthog/query-frontend/schema/schema-general'
+
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { BaseMathType, QueryBasedInsightModel } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'

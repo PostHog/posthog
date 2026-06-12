@@ -1,4 +1,4 @@
-import {
+import type {
     AlertCalculationInterval,
     AlertCondition,
     AlertScheduleRestriction,
@@ -8,7 +8,8 @@ import {
     InsightThreshold,
     TrendsAlertConfig,
 } from '@posthog/query-frontend/schema/schema-general'
-import { QueryBasedInsightModel, UserBasicType } from '~/types'
+
+import type { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 export type AlertConfig = TrendsAlertConfig
 

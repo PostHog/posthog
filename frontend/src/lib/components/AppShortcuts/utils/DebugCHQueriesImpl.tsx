@@ -5,9 +5,9 @@ import { loaders } from 'kea-loaders'
 import { useMemo, useState } from 'react'
 
 import { IconCodeInsert, IconCopy, IconRefresh } from '@posthog/icons'
+import { Chart, ChartConfiguration, ChartDataset } from '@posthog/visualizations/Chart'
 
 import api from 'lib/api'
-import { Chart, ChartConfiguration, ChartDataset } from '@posthog/visualizations/Chart'
 import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'

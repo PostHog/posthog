@@ -1,5 +1,6 @@
 import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
 import { DataTableNode, NodeKind, PersonsNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 const AllDefaults: DataTableNode = {

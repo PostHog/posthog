@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { CurrencyCode, RevenueAnalyticsGoal } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
@@ -17,7 +18,6 @@ import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { CurrencyCode, RevenueAnalyticsGoal } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'

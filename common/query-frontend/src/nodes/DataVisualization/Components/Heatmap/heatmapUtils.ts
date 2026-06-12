@@ -1,6 +1,6 @@
-import { hexToRGB } from 'lib/utils'
-
 import { HeatmapGradientStop, HeatmapSettings } from '@posthog/query-frontend/schema/schema-general'
+
+import { hexToRGB } from 'lib/utils'
 
 const DEFAULT_GRADIENT_COLORS = ['#E2E8F0', '#2563EB']
 const DEFAULT_GRADIENT_STOPS: HeatmapGradientStop[] = [

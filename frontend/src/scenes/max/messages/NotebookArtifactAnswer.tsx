@@ -4,6 +4,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import {
+    DocumentBlock,
+    ErrorBlock,
+    LoadingBlock,
+    MarkdownBlock,
+    SessionReplayBlock,
+    VisualizationBlock,
+} from '@posthog/query-frontend/schema/schema-assistant-artifacts'
+import { NotebookArtifactContent } from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { DataVisualizationNode, InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '@posthog/query-frontend/utils'
 
 import {
     InsightBreakdownSummary,
@@ -22,18 +34,6 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import {
-    DocumentBlock,
-    ErrorBlock,
-    LoadingBlock,
-    MarkdownBlock,
-    SessionReplayBlock,
-    VisualizationBlock,
-} from '@posthog/query-frontend/schema/schema-assistant-artifacts'
-import { NotebookArtifactContent } from '@posthog/query-frontend/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '@posthog/query-frontend/utils'
 
 import { MarkdownMessage } from '../MarkdownMessage'
 import { MessageStatus } from '../maxLogic'

@@ -1,8 +1,7 @@
+import type { GoalLine as SchemaGoalLine, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 import type { Series, TimeSeriesLineChartConfig, TooltipConfig } from '@posthog/quill-charts'
-
 import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 
-import type { GoalLine as SchemaGoalLine, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 import type { FunnelStepWithNestedBreakdown, IntervalType } from '~/types'
 
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from '../../trends/TrendsLineChart/trendsChartTransforms'

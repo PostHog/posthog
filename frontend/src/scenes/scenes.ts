@@ -1,5 +1,7 @@
 import { combineUrl } from 'kea-router'
 
+import { EventsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
@@ -11,7 +13,6 @@ import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorA
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
-import { EventsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'

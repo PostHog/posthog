@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { IconChevronDown, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -15,7 +16,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'

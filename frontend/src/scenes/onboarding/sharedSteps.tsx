@@ -1,4 +1,5 @@
 import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { type BillingProductV2Type } from '~/types'
 import { OnboardingStepKey } from '~/types'
 

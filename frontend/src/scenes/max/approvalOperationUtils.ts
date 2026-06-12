@@ -1,4 +1,7 @@
-import { DangerousOperationResponse, PENDING_APPROVAL_STATUS } from '@posthog/query-frontend/schema/schema-assistant-messages'
+import {
+    DangerousOperationResponse,
+    PENDING_APPROVAL_STATUS,
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 /**
  * Type guard to check if a tool result is a dangerous operation requiring approval.

@@ -2,10 +2,11 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import type { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { ApiConfig } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { recentItemsModel } from './recentItemsModel'

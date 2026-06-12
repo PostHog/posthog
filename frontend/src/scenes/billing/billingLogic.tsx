@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import api, { getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey, OrganizationMembershipLevel } from 'lib/constants'
@@ -19,7 +20,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import {
     BillingPeriod,
     BillingPlan,

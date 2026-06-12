@@ -1,6 +1,6 @@
-import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
-
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 
 describe('getInsightDefinitionUrl', () => {
     it('generates a template link for an unsaved insight (raw query)', () => {

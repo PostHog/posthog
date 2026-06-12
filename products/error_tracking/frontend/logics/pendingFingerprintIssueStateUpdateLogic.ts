@@ -1,13 +1,13 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 
-import api from 'lib/api'
-import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
-
 import {
     ErrorTrackingIssue,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingRelationalIssue,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
+import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { issuesDataNodeLogic } from './issuesDataNodeLogic'

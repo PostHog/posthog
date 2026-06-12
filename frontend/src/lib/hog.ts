@@ -10,7 +10,6 @@ import {
     exec as hogExec,
     execAsync as hogExecAsync,
 } from '@posthog/hogvm'
-
 import { performQuery } from '@posthog/query-frontend/query'
 import { HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'

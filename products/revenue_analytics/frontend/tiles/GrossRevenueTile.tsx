@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { InsightLogicProps } from '~/types'
 
 import {

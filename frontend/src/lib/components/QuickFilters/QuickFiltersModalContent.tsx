@@ -3,11 +3,11 @@ import { useMemo } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
-import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
 
 import { quickFiltersLogic } from './quickFiltersLogic'

@@ -1,6 +1,6 @@
+import type { CurrencyCode, TrendsFilter as SchemaTrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 import type { TimeInterval, ValueLabelContext } from '@posthog/quill-charts'
 
-import type { CurrencyCode, TrendsFilter as SchemaTrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 import type { IntervalType } from '~/types'
 
 import type { YFormatterFields } from '../shared/trendsChartDisplayOptions'

@@ -14,6 +14,9 @@ import {
     LemonSkeleton,
     LemonSwitch,
 } from '@posthog/lemon-ui'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { AnyResponseType, Node } from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '@posthog/query-frontend/utils'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TEMPLATE_LINK_HEADING, TEMPLATE_LINK_PII_WARNING } from 'lib/components/Sharing/templateLinkMessages'
@@ -30,14 +33,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { AnyResponseType, Node } from '@posthog/query-frontend/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '@posthog/query-frontend/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

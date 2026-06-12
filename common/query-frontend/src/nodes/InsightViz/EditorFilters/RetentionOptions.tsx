@@ -1,12 +1,12 @@
 import { useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
+import { retentionLogic } from '@posthog/query-frontend/nodes/RetentionQuery/retentionLogic'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { retentionLogic } from '@posthog/query-frontend/nodes/RetentionQuery/retentionLogic'
 
 import { MinimumOccurrencesInput } from '../filters/MinimumOccurrencesInput'
 import { RetentionAggregationSelector } from '../filters/RetentionAggregationSelector'

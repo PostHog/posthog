@@ -1,9 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { VALID_NATIVE_MARKETING_SOURCES } from '@posthog/query-frontend/schema/schema-general'
+
 import { LemonMenuItem, LemonMenuItems, LemonMenuOverlay, LemonMenuOverlayProps } from 'lib/lemon-ui/LemonMenu'
 
 import { mswDecorator } from '~/mocks/browser'
-import { VALID_NATIVE_MARKETING_SOURCES } from '@posthog/query-frontend/schema/schema-general'
 
 import { MappingTypes } from './mappingUtils'
 import { buildCampaignMappingMenuItems, buildRowMappingMenuItems, buildSourceMappingMenuItems } from './menuBuilders'

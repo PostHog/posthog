@@ -4,6 +4,8 @@ import { useCallback, useMemo } from 'react'
 
 import { IconCalendar, IconChevronLeft } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
+import { AlertCalculationInterval, AlertState } from '@posthog/query-frontend/schema/schema-general'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -14,11 +16,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AlertCalculationInterval, AlertState } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'

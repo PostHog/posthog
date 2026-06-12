@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -22,7 +23,6 @@ import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { LLMSkillListApi } from 'products/ai_observability/frontend/generated/api.schemas'

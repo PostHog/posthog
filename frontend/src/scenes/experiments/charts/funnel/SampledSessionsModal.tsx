@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { SessionData } from '@posthog/query-frontend/schema/schema-general'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { SessionData } from '@posthog/query-frontend/schema/schema-general'
 
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 

@@ -31,6 +31,20 @@ import {
     LemonSkeleton,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import {
+    AssistantForm,
+    AssistantMessage,
+    AssistantToolCallMessage,
+    TaskExecutionStatus as ExecutionStatus,
+    FailureMessage,
+    MultiQuestionForm,
+    MultiVisualizationMessage,
+    PlanningStep,
+    PlanningStepStatus,
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { DataVisualizationNode, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { isDataVisualizationNode, isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import {
     InsightBreakdownSummary,
@@ -50,20 +64,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { copyToClipboard } from '~/lib/utils/copyToClipboard'
 import { stripMarkdown } from '~/lib/utils/stripMarkdown'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import {
-    AssistantForm,
-    AssistantMessage,
-    AssistantToolCallMessage,
-    TaskExecutionStatus as ExecutionStatus,
-    FailureMessage,
-    MultiQuestionForm,
-    MultiVisualizationMessage,
-    PlanningStep,
-    PlanningStepStatus,
-} from '@posthog/query-frontend/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery } from '@posthog/query-frontend/utils'
 import { PendingApproval, Region } from '~/types'
 
 import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'

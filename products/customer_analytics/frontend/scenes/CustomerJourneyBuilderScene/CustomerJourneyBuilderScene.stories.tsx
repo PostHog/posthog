@@ -1,7 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { App } from 'scenes/App'
 import { JOURNEY_FEATURE_FLAGS } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelFlowGraph/__mocks__/journeyMocks'
+
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'

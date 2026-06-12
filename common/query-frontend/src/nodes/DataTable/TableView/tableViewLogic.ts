@@ -4,6 +4,10 @@ import { forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { ActorsQuery, EventsQuery, GroupsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isEventsQuery } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -12,9 +16,6 @@ import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
 import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { ActorsQuery, EventsQuery, GroupsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isEventsQuery } from '@posthog/query-frontend/utils'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'

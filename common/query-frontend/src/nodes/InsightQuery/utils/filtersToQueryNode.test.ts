@@ -1,6 +1,4 @@
-import { FunnelLayout, ShownAsValue } from 'lib/constants'
 import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-
 import {
     FunnelsQuery,
     InsightQueryNode,
@@ -11,6 +9,9 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { FunnelLayout, ShownAsValue } from 'lib/constants'
+
 import {
     ActionFilter,
     BaseMathType,

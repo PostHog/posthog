@@ -2,9 +2,6 @@ import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
-
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { LineGraph } from '@posthog/query-frontend/nodes/DataVisualization/Components/Charts/LineGraph'
 import { AxisSeries } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
@@ -14,6 +11,9 @@ import {
     EndpointsUsageTrendsQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+
 import { ChartDisplayType } from '~/types'
 
 type TrendsDataPoint = {

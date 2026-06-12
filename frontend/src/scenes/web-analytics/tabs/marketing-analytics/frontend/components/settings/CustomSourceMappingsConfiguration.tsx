@@ -3,12 +3,11 @@ import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { MARKETING_DEFAULT_SOURCE_MAPPINGS } from '@posthog/query-frontend/schema/schema-general'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { MARKETING_DEFAULT_SOURCE_MAPPINGS } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { getEnabledNativeMarketingSources } from '../../logic/utils'

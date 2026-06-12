@@ -2,11 +2,12 @@ import { useValues } from 'kea'
 
 import { AggregationSelect } from '@posthog/query-frontend/nodes/InsightViz/filters/AggregationSelect'
 import { getAggregationTargetPronoun } from '@posthog/query-frontend/nodes/InsightViz/filters/aggregationTargetUtils'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { LifecycleQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { LifecycleQuery } from '@posthog/query-frontend/schema/schema-general'
 
 export function LifecycleSeriesHeader(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

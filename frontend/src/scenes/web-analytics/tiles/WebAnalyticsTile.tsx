@@ -4,6 +4,25 @@ import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    InsightVizNode,
+    MarketingAnalyticsColumnsSchemaNames,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    QuerySchema,
+    WebAnalyticsOrderByFields,
+    WebStatsBreakdown,
+    WebVitalsPathBreakdownQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+import {
+    QueryContext,
+    QueryContextColumnComponent,
+    QueryContextColumnTitleComponent,
+} from '@posthog/query-frontend/types'
 
 import { getColorVar } from 'lib/colors'
 import { StarHog } from 'lib/components/hedgehogs'
@@ -59,21 +78,6 @@ import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilter
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import {
-    DataTableNode,
-    DataVisualizationNode,
-    InsightVizNode,
-    MarketingAnalyticsColumnsSchemaNames,
-    NodeKind,
-    ProductIntentContext,
-    ProductKey,
-    QuerySchema,
-    WebAnalyticsOrderByFields,
-    WebStatsBreakdown,
-    WebVitalsPathBreakdownQuery,
-} from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '@posthog/query-frontend/types'
 import { ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'

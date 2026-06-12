@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, encodeParams, router } from 'kea-router'
 
 import { IconX } from '@posthog/icons'
+import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
+import { FunnelsQuery, PathsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
 
-import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, PathsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { EditorFilterProps, FunnelPathType } from '~/types'
 
 export function PathsTargetStart(props: EditorFilterProps): JSX.Element {

@@ -1,8 +1,7 @@
 import { IconActivity, IconMemory, IconRocket, IconSupport, IconThumbsUp } from '@posthog/icons'
+import { SlashCommandName } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { FeatureFlagKey } from 'lib/constants'
-
-import { SlashCommandName } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 export { SlashCommandName }
 

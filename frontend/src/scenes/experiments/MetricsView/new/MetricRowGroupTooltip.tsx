@@ -1,10 +1,9 @@
 import { IconCursorClick } from '@posthog/icons'
+import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
-
-import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     type ExperimentVariantResult,

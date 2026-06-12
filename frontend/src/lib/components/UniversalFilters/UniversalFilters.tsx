@@ -3,11 +3,11 @@ import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonDropdown, Popover } from '@posthog/lemon-ui'
+import { taxonomicFilterGroupTypeToEntityType } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { taxonomicFilterGroupTypeToEntityType } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { AnyDataNode } from '@posthog/query-frontend/schema/schema-general'
 import { EntityTypes, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'

@@ -2,9 +2,9 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
-import { PRODUCTS_WITH_SETUP } from 'lib/components/ProductSetup/productSetupRegistry'
-
 import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
+import { PRODUCTS_WITH_SETUP } from 'lib/components/ProductSetup/productSetupRegistry'
 
 import { PostOnboardingModal } from './PostOnboardingModal'
 import { postOnboardingModalLogic } from './postOnboardingModalLogic'

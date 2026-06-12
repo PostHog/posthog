@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonSwitch, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
@@ -16,7 +17,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'

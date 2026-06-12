@@ -1,11 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { dayjs } from 'lib/dayjs'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { dateStringToDayJs } from 'lib/utils'
-import { urls } from 'scenes/urls'
-
 import {
     EndpointsUsageBreakdown,
     EndpointsUsageOverviewQuery,
@@ -13,6 +8,12 @@ import {
     EndpointsUsageTrendsQuery,
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { dayjs } from 'lib/dayjs'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { dateStringToDayJs } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
 import { EndpointType, IntervalType } from '~/types'
 
 import { endpointsLogic } from './endpointsLogic'

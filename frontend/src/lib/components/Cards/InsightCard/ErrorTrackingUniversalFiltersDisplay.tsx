@@ -1,9 +1,8 @@
 import { IconFilter, IconList, IconSort } from '@posthog/icons'
+import { MaxErrorTrackingSearchResponse } from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { pluralize } from 'lib/utils'
-
-import { MaxErrorTrackingSearchResponse } from '@posthog/query-frontend/schema/schema-assistant-error-tracking'
 
 import { DateRangeSummary, InsightDetailSectionDisplay } from './InsightDetails'
 

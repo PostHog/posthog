@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 
 import { IconCheck, IconPencil, IconPlusSmall, IconTrash, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { ConversionGoalFilter, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -11,7 +12,6 @@ import { uuid } from 'lib/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ConversionGoalFilter, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'

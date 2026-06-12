@@ -3,6 +3,8 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { HumanMessage } from '@posthog/query-frontend/schema/schema-assistant-messages'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,7 +12,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { recentItemsModel } from '~/models/recentItemsModel'
-import { HumanMessage } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { ConversationTopic } from '~/types'
 
 import { maxGlobalLogic } from '../maxGlobalLogic'

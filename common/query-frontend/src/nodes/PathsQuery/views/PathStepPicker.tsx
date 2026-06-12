@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { DEFAULT_STEP_LIMIT } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
 import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'

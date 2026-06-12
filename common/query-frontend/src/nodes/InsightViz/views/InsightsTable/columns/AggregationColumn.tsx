@@ -5,16 +5,16 @@ import { ReactNode } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
+import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { average, median } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { TrendsFilterType } from '~/types'
 
 import { CalcColumnState } from '../InsightsTable'

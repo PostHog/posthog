@@ -1,3 +1,5 @@
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     ContextMenuGroup,
     ContextMenuItem,
@@ -14,8 +16,6 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-
-import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 export interface ProjectTreeAction {
     type: 'prepare-move' | 'move' | 'link' | 'prepare-link' | 'create' | 'prepare-delete' | 'delete'

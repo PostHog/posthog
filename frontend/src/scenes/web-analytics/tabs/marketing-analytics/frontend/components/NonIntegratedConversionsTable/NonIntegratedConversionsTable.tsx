@@ -5,11 +5,6 @@ import { useMemo, useState } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
-import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
-import { LearnMorePopover } from 'scenes/web-analytics/WebAnalyticsDashboard'
-
 import { ColumnFeature } from '@posthog/query-frontend/nodes/DataTable/DataTable'
 import { Query } from '@posthog/query-frontend/Query/Query'
 import {
@@ -19,6 +14,11 @@ import {
     NonIntegratedConversionsTableQuery,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '@posthog/query-frontend/types'
+
+import { urls } from 'scenes/urls'
+import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
+import { LearnMorePopover } from 'scenes/web-analytics/WebAnalyticsDashboard'
+
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 

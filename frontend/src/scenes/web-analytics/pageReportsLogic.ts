@@ -1,10 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import {
     CompareFilter,
     InsightVizNode,
@@ -17,6 +13,11 @@ import {
     WebStatsTableQuery,
 } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import {
     BaseMathType,
     ChartDisplayType,

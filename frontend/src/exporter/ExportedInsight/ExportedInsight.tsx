@@ -3,6 +3,13 @@ import './ExportedInsight.scss'
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
 
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { InsightsTable } from '@posthog/query-frontend/nodes/InsightViz/views/InsightsTable/InsightsTable'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { SharingConfigurationSettings } from '@posthog/query-frontend/schema/schema-general'
+import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '@posthog/query-frontend/utils'
+import { BoxPlotLegend } from '@posthog/visualizations/BoxPlot/BoxPlotLegend'
+
 import { Logo } from 'lib/brand/Logo'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
@@ -13,13 +20,7 @@ import {
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { BoxPlotLegend } from '@posthog/visualizations/BoxPlot/BoxPlotLegend'
-import { InsightsTable } from '@posthog/query-frontend/nodes/InsightViz/views/InsightsTable/InsightsTable'
 
-import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { SharingConfigurationSettings } from '@posthog/query-frontend/schema/schema-general'
-import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '@posthog/query-frontend/utils'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({

@@ -3,16 +3,16 @@ import { useEffect } from 'react'
 
 import { IconFlask } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
-
-import { NotFound } from 'lib/components/NotFound'
-import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDiff, humanFriendlyNumber } from 'lib/utils'
-
 import {
     CachedNewExperimentQueryResponse,
     ExperimentExposureQueryResponse,
     ExperimentMetric,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { NotFound } from 'lib/components/NotFound'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDiff, humanFriendlyNumber } from 'lib/utils'
+
 import { ResultsTag } from '~/scenes/experiments/components/ResultsTag'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { getExperimentStatus } from '~/scenes/experiments/experimentsLogic'

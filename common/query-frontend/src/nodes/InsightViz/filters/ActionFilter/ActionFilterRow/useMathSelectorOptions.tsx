@@ -3,9 +3,7 @@ import { useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
-
-import { capitalizeFirstLetter } from 'lib/utils'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+import { MathType } from '@posthog/query-frontend/schema/schema-general'
 import {
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathDefinition,
@@ -13,8 +11,6 @@ import {
     mathTypeToApiValues,
     mathsLogic,
 } from '@posthog/query-frontend/shared/mathsLogic'
-
-import { MathType } from '@posthog/query-frontend/schema/schema-general'
 import {
     TRAILING_MATH_TYPES,
     getMathTypeWarning,
@@ -22,6 +18,10 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '@posthog/query-frontend/utils'
+
+import { capitalizeFirstLetter } from 'lib/utils'
+import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+
 import { BaseMathType, ChartDisplayType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
 
 import {

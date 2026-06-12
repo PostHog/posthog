@@ -1,14 +1,14 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { OpenEditorButton } from '@posthog/query-frontend/nodes/Node/OpenEditorButton'
+import { AnyResponseType, DataNode as DataNodeType, DataTableNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { OpenEditorButton } from '@posthog/query-frontend/nodes/Node/OpenEditorButton'
-import { AnyResponseType, DataNode as DataNodeType, DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 
 interface DataNodeProps {
     query: DataNodeType

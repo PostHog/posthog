@@ -2,8 +2,8 @@ import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
 } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
-
 import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
+
 import { FilterType } from '~/types'
 
 describe('formatAggregationAxisValue', () => {

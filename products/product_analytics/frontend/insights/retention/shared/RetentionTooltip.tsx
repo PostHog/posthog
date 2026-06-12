@@ -1,10 +1,10 @@
 import { useCallback, useMemo } from 'react'
 
 import type { TooltipContext } from '@posthog/quill-charts'
-
-import { roundToDecimal } from 'lib/utils'
 import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
 import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
+
+import { roundToDecimal } from 'lib/utils'
 
 import type { RetentionSeriesMeta } from './retentionChartTransforms'
 

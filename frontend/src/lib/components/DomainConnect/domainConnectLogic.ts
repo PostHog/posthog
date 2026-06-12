@@ -2,10 +2,10 @@ import { actions, afterMount, kea, key, listeners, path, props, selectors } from
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { DomainConnectProviderName } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-
-import { DomainConnectProviderName } from '@posthog/query-frontend/schema/schema-general'
 
 import type { domainConnectLogicType } from './domainConnectLogicType'
 

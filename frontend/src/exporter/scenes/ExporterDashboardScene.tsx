@@ -1,12 +1,13 @@
 import { useActions } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
+import { getQueryBasedDashboard } from '@posthog/query-frontend/nodes/InsightViz/utils'
+
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-import { getQueryBasedDashboard } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { ExportType, ExportedData } from '../types'

@@ -2,12 +2,12 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, propsCh
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
+import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
 
 import type { appMetricsLogicType } from './appMetricsLogicType'
 

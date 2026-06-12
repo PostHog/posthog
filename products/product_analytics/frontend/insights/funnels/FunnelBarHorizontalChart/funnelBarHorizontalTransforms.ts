@@ -1,8 +1,7 @@
+import { getReferenceStep, getStepBreakdownSeries } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
+import type { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import type { Series } from '@posthog/quill-charts'
 
-import { getReferenceStep, getStepBreakdownSeries } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
-
-import type { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
 import {

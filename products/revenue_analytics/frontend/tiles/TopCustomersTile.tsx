@@ -3,15 +3,15 @@ import { useMemo } from 'react'
 
 import { IconInfo, IconLineGraph } from '@posthog/icons'
 import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { CurrencyCode, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { CurrencyCode, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 import { InsightLogicProps } from '~/types'
 
 import {

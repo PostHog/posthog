@@ -9,6 +9,7 @@ import {
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
 import { getAllByDataAttr, getByDataAttr, queryByDataAttr } from '~/test/byDataAttr'
 import { InsightLogicProps } from '~/types'
 

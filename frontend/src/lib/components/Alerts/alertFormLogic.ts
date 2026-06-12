@@ -3,12 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
-import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
-import { userLogic } from 'scenes/userLogic'
-
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -16,6 +11,12 @@ import {
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api, { ApiError } from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userLogic } from 'scenes/userLogic'
+
 import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import {

@@ -1,6 +1,7 @@
 import type React from 'react'
 
 import type { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
+
 import type { BatchExportService } from '~/types'
 
 export type BatchExportServiceType = BatchExportService['type']

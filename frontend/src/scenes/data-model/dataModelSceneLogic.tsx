@@ -1,10 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSchemaTable } from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseSavedQuery } from '~/types'
 
 import type { dataModelSceneLogicType } from './dataModelSceneLogicType'

@@ -2,22 +2,20 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, propsCh
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 
-import api from 'lib/api'
-import { objectsEqual } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
-
-import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { examples } from '@posthog/query-frontend/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { nodeKindToInsightType } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { getDefaultQuery, queryFromKind } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { queryExportContext } from '@posthog/query-frontend/query'
-import { DataVisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import {
+    DataVisualizationNode,
+    HogQLVariable,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     isDataTableNode,
     isDataVisualizationNode,
@@ -28,18 +26,27 @@ import {
     isWebAnalyticsInsightQuery,
     shouldQueryBeAsync,
 } from '@posthog/query-frontend/utils'
-import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
-import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'products/data_warehouse/frontend/utils'
-
-import { teamLogic } from 'scenes/teamLogic'
-import type { insightDataLogicType } from './insightDataLogicType'
+import api from 'lib/api'
+import { objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightDataTimingLogic } from 'scenes/insights/insightDataTimingLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightUsageLogic } from 'scenes/insights/insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from 'scenes/insights/utils'
 import { compareQuery } from 'scenes/insights/utils/queryUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { ExportContext, InsightLogicProps, InsightType } from '~/types'
+
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'products/data_warehouse/frontend/utils'
+
+import type { insightDataLogicType } from './insightDataLogicType'
 
 export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
     sceneLogic.values.activeSceneId === Scene.Insight &&

@@ -3,11 +3,10 @@ import { MouseEvent, useCallback } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Dayjs } from 'lib/dayjs'
-
-import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
 

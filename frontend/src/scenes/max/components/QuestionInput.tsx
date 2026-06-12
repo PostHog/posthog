@@ -7,6 +7,7 @@ import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
+import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
@@ -14,7 +15,6 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { AgentMode } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { ConversationQueueMessage } from '~/types'
 
 import { ContextDisplay } from '../Context'

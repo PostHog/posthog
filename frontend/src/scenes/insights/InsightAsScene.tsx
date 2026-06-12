@@ -1,6 +1,11 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { Node } from '@posthog/query-frontend/schema/schema-general'
+import { containsHogQLQuery, isDataVisualizationNode, isInsightVizNode } from '@posthog/query-frontend/utils'
+
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -9,13 +14,9 @@ import { InsightModals } from 'scenes/insights/InsightModals'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { Node } from '@posthog/query-frontend/schema/schema-general'
-import { containsHogQLQuery, isDataVisualizationNode, isInsightVizNode } from '@posthog/query-frontend/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightSceneHeader } from './InsightSceneHeader'
 

@@ -2,12 +2,13 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
-import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, CorrelationConfigType, InsightLogicProps, InsightShortId } from '~/types'
 

@@ -15,13 +15,6 @@ import {
 import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
-import { dayjs } from 'lib/dayjs'
-import { RGBToHex, compactNumber, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import {
     AnyResponseType,
     ChartAxis,
@@ -34,6 +27,14 @@ import {
     HogQLVariable,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { dayjs } from 'lib/dayjs'
+import { RGBToHex, compactNumber, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChartDisplayType, DashboardType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'

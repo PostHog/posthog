@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,7 +10,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { DataWarehouseManagedViewsetKind } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
 
 import { DataWarehouseManagedViewsetCard } from './DataWarehouseManagedViewsetCard'

@@ -1,11 +1,12 @@
-import { uuid } from 'lib/utils'
-
 import {
     CachedNewExperimentQueryResponse,
     ExperimentMetric,
     ExperimentMetricType,
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { uuid } from 'lib/utils'
+
 import { Experiment, ExperimentMetricMathType, FeatureFlagBasicType } from '~/types'
 
 import { calculateBaselineValue, calculateRecommendedSampleSize, calculateVarianceFromResults } from './calculations'

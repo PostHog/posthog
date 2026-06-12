@@ -1,5 +1,6 @@
 import { performQuery } from '@posthog/query-frontend/query'
 import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { FilterLogicalOperator, PropertyFilterType } from '~/types'
 
 import { performWideEventsQueryInTwoPhases } from './sampleEventsQuery'

@@ -4,10 +4,10 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 
-import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 import { ExternalDataSource, WebhookInfo } from '~/types'
 
 import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'

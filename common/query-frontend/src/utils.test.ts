@@ -1,11 +1,12 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { DataTableNode, DataVisualizationNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import type { InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataTableNode, DataVisualizationNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import type { InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, ChartDisplayType, TeamType } from '~/types'
 

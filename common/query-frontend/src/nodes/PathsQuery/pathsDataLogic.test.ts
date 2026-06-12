@@ -1,11 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { examples } from '@posthog/query-frontend/examples'
 import { buildFunnelEventsFromPathNode, pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
+import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { examples } from '@posthog/query-frontend/examples'
-import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 

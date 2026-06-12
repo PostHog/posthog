@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconBug, IconCheckbox, IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
+import { DashboardFilter, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
@@ -12,7 +13,6 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookListItemType } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { DashboardFilter, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'

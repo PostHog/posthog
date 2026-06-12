@@ -5,6 +5,15 @@ import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
 import React from 'react'
 
+import {
+    AgentMode,
+    AssistantEventType,
+    AssistantMessage,
+    AssistantMessageType,
+    HumanMessage,
+    SlashCommandName,
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
+
 import api, { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -16,14 +25,6 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import * as notebooksModel from '~/models/notebooksModel'
-import {
-    AgentMode,
-    AssistantEventType,
-    AssistantMessage,
-    AssistantMessageType,
-    HumanMessage,
-    SlashCommandName,
-} from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 

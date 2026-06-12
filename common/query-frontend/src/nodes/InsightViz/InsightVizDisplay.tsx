@@ -2,14 +2,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from '@posthog/query-frontend/nodes/FunnelsQuery/Funnel'
 import { FunnelCanvasLabel } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelCanvasLabel'
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { FunnelCorrelation } from '@posthog/query-frontend/nodes/FunnelsQuery/views/FunnelCorrelation'
+import { FunnelStepsTable } from '@posthog/query-frontend/nodes/FunnelsQuery/views/FunnelStepsTable'
 import {
     BoxPlotMissingPropertyState,
     FunnelDataWarehouseStepIncompleteState,
@@ -21,29 +18,32 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
-import { BoxPlotLegend } from '@posthog/visualizations/BoxPlot/BoxPlotLegend'
-import { BoxPlotResultsTable } from '@posthog/visualizations/BoxPlot/BoxPlotResultsTable'
-import { FunnelCorrelation } from '@posthog/query-frontend/nodes/FunnelsQuery/views/FunnelCorrelation'
-import { FunnelStepsTable } from '@posthog/query-frontend/nodes/FunnelsQuery/views/FunnelStepsTable'
 import { InsightsTable } from '@posthog/query-frontend/nodes/InsightViz/views/InsightsTable/InsightsTable'
-import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { Paths } from '@posthog/query-frontend/nodes/PathsQuery/Paths'
 import { PathCanvasLabel } from '@posthog/query-frontend/nodes/PathsQuery/PathsLabel'
 import { RetentionContainer } from '@posthog/query-frontend/nodes/RetentionQuery/RetentionContainer'
 import { TrendInsight } from '@posthog/query-frontend/nodes/TrendsQuery/Trends'
-import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
-
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
 import { shouldQueryBeAsync } from '@posthog/query-frontend/utils'
+import { BoxPlotLegend } from '@posthog/visualizations/BoxPlot/BoxPlotLegend'
+import { BoxPlotResultsTable } from '@posthog/visualizations/BoxPlot/BoxPlotResultsTable'
+
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
+import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
+import { PathsV2 } from 'scenes/paths-v2/PathsV2'
+import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
+
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'

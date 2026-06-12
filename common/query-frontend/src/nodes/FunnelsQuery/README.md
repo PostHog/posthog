@@ -5,25 +5,25 @@ Each entry in `series` is a step (event, action, or data warehouse entity); `fun
 
 ## Rendering
 
-`FunnelsQuery` is an insight *source* — wrap it in an `InsightVizNode` and pass that to `<Query />`:
+`FunnelsQuery` is an insight _source_ — wrap it in an `InsightVizNode` and pass that to `<Query />`:
 
 ```tsx
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
-<Query
-    query={{
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.FunnelsQuery,
-            dateRange: { date_from: '-7d' },
-            series: [
-                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                { kind: NodeKind.EventsNode, event: 'signed_up', name: 'signed_up' },
-            ],
-            funnelsFilter: { funnelVizType: 'steps' },
-        },
-    }}
+;<Query
+  query={{
+    kind: NodeKind.InsightVizNode,
+    source: {
+      kind: NodeKind.FunnelsQuery,
+      dateRange: { date_from: '-7d' },
+      series: [
+        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+        { kind: NodeKind.EventsNode, event: 'signed_up', name: 'signed_up' },
+      ],
+      funnelsFilter: { funnelVizType: 'steps' },
+    },
+  }}
 />
 ```
 

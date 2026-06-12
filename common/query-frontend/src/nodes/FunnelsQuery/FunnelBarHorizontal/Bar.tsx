@@ -1,12 +1,12 @@
 import { useValues } from 'kea'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'

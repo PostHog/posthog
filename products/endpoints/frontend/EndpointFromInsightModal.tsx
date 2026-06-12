@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { EndpointQueryNode, HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -10,8 +12,6 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { slugify } from 'lib/utils'
 import { urls } from 'scenes/urls'
-
-import { EndpointQueryNode, HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { validateEndpointName } from './common'
 import { endpointLogic } from './endpointLogic'

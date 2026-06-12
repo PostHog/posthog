@@ -1,12 +1,13 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
+
 import api from 'lib/api'
 import { MaxContextInput } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { Breadcrumb, DashboardBasicType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 export type RecentItem =

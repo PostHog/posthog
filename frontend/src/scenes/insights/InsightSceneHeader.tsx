@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 
 import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -10,7 +11,6 @@ import { urls } from 'scenes/urls'
 
 import { InsightShortId, InsightLogicProps, ItemMode } from '~/types'
 
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
 import { InsightPageHeader } from './InsightPageHeader'
 

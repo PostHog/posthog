@@ -2,14 +2,14 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { queryEditorLogic } from '@posthog/query-frontend/QueryEditor/queryEditorLogic'
+import { QueryContext } from '@posthog/query-frontend/types'
+
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { urls } from 'scenes/urls'
-
-import { queryEditorLogic } from '@posthog/query-frontend/QueryEditor/queryEditorLogic'
-import { QueryContext } from '@posthog/query-frontend/types'
 
 export interface QueryEditorProps {
     query: string

@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 import { useCallback } from 'react'
 
+import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { FunnelPathType, PathType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'

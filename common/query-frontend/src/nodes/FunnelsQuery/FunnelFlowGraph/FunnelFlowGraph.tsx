@@ -14,10 +14,11 @@ import {
 import { useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { isInsightVizNode } from '@posthog/query-frontend/utils'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { isInsightVizNode } from '@posthog/query-frontend/utils'
 
 import { JOURNEY_BUILDER_INSIGHT_PROPS } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
 

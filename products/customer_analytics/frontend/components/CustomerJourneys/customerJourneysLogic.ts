@@ -2,14 +2,15 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { FunnelsQuery, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightVizNode } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUUIDLike } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { FunnelsQuery, InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
-import { isInsightVizNode } from '@posthog/query-frontend/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { FunnelVizType, PropertyFilterType, PropertyOperator, QueryBasedInsightModel } from '~/types'
 

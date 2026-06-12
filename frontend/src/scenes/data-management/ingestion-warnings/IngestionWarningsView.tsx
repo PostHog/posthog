@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { Sparkline } from '@posthog/visualizations/Sparkline/Sparkline'
 
 import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { Sparkline } from '@posthog/visualizations/Sparkline/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -17,7 +18,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
 

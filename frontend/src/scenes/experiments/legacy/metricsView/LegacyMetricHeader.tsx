@@ -1,7 +1,7 @@
 import { LemonTag } from '@posthog/lemon-ui'
-
 import type { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { InsightType } from '~/types'
 
 import { LegacyMetricTitle } from './LegacyMetricTitle'

@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { IconGear, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
+import { RevenueAnalyticsEventItem } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,7 +14,6 @@ import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/m
 import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { RevenueAnalyticsEventItem } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { deleteRevenueEventModalLogic } from './deleteRevenueEventModalLogic'

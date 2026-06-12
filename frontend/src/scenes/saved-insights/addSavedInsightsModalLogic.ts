@@ -2,6 +2,8 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
@@ -14,7 +16,6 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import type { QueryBasedInsightModel } from '~/types'
 
 import type { addSavedInsightsModalLogicType } from './addSavedInsightsModalLogicType'

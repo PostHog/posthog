@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import type { ComponentType } from 'react'
 
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { WarningHog } from 'lib/components/hedgehogs'
 import {
@@ -19,8 +20,6 @@ import nodejsImage from 'scenes/onboarding/sdks/logos/nodejs.svg'
 import pythonImage from 'scenes/onboarding/sdks/logos/python.svg'
 import reactImage from 'scenes/onboarding/sdks/logos/react.svg'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
 

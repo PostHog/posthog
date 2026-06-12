@@ -3,10 +3,6 @@ import { useMemo } from 'react'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
-
-import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { CURRENCY_SYMBOL_TO_NAME_MAP, IMPORTANT_CURRENCIES, OTHER_CURRENCIES } from 'lib/utils/geography/currency'
-
 import {
     MARKETING_ANALYTICS_SCHEMA,
     MARKETING_INTEGRATION_CONFIGS,
@@ -17,6 +13,9 @@ import {
     VALID_NATIVE_MARKETING_SOURCES,
 } from '@posthog/query-frontend/schema/schema-general'
 import type { MarketingAnalyticsSchemaFieldTypes } from '@posthog/query-frontend/schema/schema-general'
+
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { CURRENCY_SYMBOL_TO_NAME_MAP, IMPORTANT_CURRENCIES, OTHER_CURRENCIES } from 'lib/utils/geography/currency'
 
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'

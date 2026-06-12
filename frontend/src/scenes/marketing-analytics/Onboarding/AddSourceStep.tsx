@@ -3,14 +3,13 @@ import { router } from 'kea-router'
 
 import { IconArrowRight, IconCheckCircle, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCard, Link, Tooltip } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 

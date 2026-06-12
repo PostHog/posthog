@@ -1,7 +1,7 @@
-import { dayjs } from 'lib/dayjs'
-
 import { performQuery } from '@posthog/query-frontend/query'
 import { EventsQuery, EventsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
+
+import { dayjs } from 'lib/dayjs'
 
 // Two-phase EventsQuery to keep memory bounded on high-volume teams.
 //

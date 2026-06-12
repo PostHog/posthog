@@ -5,10 +5,10 @@
  */
 import { combineUrl } from 'kea-router'
 
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
-
-import { FileSystemIconType, ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { FileSystemIconColor } from '../../frontend/src/types'
 import { ProductManifest } from '../../frontend/src/types'

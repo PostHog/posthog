@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { PaginationManual, lemonToast } from '@posthog/lemon-ui'
+import { ActorsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { delay } from 'lib/utils'
@@ -10,7 +11,6 @@ import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { ActorsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { CohortType } from '~/types'
 
 import type { saveToCohortModalContentLogicType } from './saveToCohortModalContentLogicType'

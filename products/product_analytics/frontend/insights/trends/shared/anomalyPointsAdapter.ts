@@ -1,7 +1,7 @@
+import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 import type { AnomalyMarker as BaseAnomalyMarker } from '@posthog/quill-charts'
 
 import type { AnomalyPoint } from 'lib/components/Alerts/types'
-import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 export interface AnomalyMarker extends BaseAnomalyMarker {
     /** Originating alert anomaly score (0..1) if available. */

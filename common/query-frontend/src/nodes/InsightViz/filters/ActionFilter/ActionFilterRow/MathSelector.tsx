@@ -1,5 +1,4 @@
 import { LemonSelect } from '@posthog/lemon-ui'
-
 import { apiValueToMathType } from '@posthog/query-frontend/shared/mathsLogic'
 
 import type { MathSelectorProps } from './types'

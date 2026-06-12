@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { NotFound } from 'lib/components/NotFound'
@@ -14,7 +15,6 @@ import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
 import { campaignConfigs } from './campaigns'

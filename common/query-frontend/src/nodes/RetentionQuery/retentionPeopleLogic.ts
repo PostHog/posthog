@@ -1,14 +1,15 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { queryForActors } from '@posthog/query-frontend/nodes/RetentionQuery/queries'
 import { RetentionTablePeoplePayload } from '@posthog/query-frontend/nodes/RetentionQuery/types'
-
-import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
 import { NodeKind, RetentionQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
+
 import { InsightLogicProps } from '~/types'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'

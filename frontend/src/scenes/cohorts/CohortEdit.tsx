@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 
 import { IconClock, IconCopy, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { AndOrFilterSelect } from '@posthog/query-frontend/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -37,8 +39,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { AndOrFilterSelect } from '@posthog/query-frontend/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { Query } from '@posthog/query-frontend/Query/Query'
 import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'

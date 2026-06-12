@@ -30,6 +30,7 @@
         "@types/lodash.merge": "^4.6.9",
         "@types/papaparse": "^5.3.8",
         "@types/react": "catalog:",
+        "@types/react-dom": "catalog:",
         "kea-test-utils": "catalog:",
         "timekeeper": "^2.2.0"
     },

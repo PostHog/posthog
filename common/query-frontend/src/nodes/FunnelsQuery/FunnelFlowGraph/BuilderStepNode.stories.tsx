@@ -2,9 +2,9 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 

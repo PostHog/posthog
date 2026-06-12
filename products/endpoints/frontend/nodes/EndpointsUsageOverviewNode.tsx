@@ -2,11 +2,6 @@ import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
-
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { humanFriendlyDuration, humanFriendlyNumber, humanizeBytes } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
-
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
@@ -15,6 +10,10 @@ import {
     EndpointsUsageOverviewQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { humanFriendlyDuration, humanFriendlyNumber, humanizeBytes } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 const HEIGHT_CLASS = 'h-24'
 

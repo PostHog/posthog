@@ -1,7 +1,8 @@
 import { RestRequest } from 'msw'
 
-import { useMocks } from '~/mocks/jest'
 import { ActorsQueryResponse, NodeKind, TrendsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
+
+import { useMocks } from '~/mocks/jest'
 import { EventDefinition, PropertyDefinition, RawAnnotationType } from '~/types'
 
 import {

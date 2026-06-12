@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
 
 import { AvailableFeature, EditorFilterProps, PathEdgeParameters } from '~/types'
 

@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { MetricsSetupPrompt } from './components/MetricsSetupPrompt'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'

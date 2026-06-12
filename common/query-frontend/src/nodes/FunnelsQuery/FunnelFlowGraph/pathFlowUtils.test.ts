@@ -1,4 +1,5 @@
 import { FunnelsQuery, NodeKind, PathsLink } from '@posthog/query-frontend/schema/schema-general'
+
 import { FunnelPathType } from '~/types'
 
 import {

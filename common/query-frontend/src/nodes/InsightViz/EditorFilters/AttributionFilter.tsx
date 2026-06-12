@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
-
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
-
 import { FunnelsFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/types'
 
 import { FUNNEL_STEP_COUNT_LIMIT } from './FunnelsQuerySteps'

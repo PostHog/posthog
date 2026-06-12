@@ -1,18 +1,25 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { newInternalTab } from 'lib/utils/newInternalTab'
+import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
 import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { pathsTitle } from '@posthog/query-frontend/persons-modal/persons-modal-utils'
 import { OpenPersonsModalProps, openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
+import {
+    InsightActorsQuery,
+    InsightVizNode,
+    NodeKind,
+    PathsLink,
+    PathsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+import { isPathsQuery } from '@posthog/query-frontend/utils'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
-import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
-import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '@posthog/query-frontend/schema/schema-general'
-import { isPathsQuery } from '@posthog/query-frontend/utils'
 import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { pathsDataLogicType } from './pathsDataLogicType'

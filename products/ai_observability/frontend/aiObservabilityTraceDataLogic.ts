@@ -2,11 +2,6 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
-
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import {
@@ -18,6 +13,12 @@ import {
     TraceQuery,
     TraceQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
+
 import { InsightLogicProps } from '~/types'
 
 import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDataLogicType'

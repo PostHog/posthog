@@ -1,12 +1,12 @@
-import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
-import { colonDelimitedDuration } from 'lib/utils'
-import { SessionDisplay } from 'scenes/sessions/SessionDisplay'
-
 import { DataTableRow } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
 import { DataTableNode, SessionsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '@posthog/query-frontend/types'
 import { isSessionsQuery } from '@posthog/query-frontend/utils'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
+import { colonDelimitedDuration } from 'lib/utils'
+import { SessionDisplay } from 'scenes/sessions/SessionDisplay'
 
 function isSessionLive(endTimestamp: unknown): boolean {
     if (!endTimestamp) {

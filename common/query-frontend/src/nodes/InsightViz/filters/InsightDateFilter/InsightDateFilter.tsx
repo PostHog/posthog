@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dateMapping } from 'lib/utils'
 import { alignResolvedDateRangeToInterval } from 'lib/utils/dateTimeUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 type InsightDateFilterProps = {
     disabled: boolean

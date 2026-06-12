@@ -1,6 +1,7 @@
+import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { urls } from 'scenes/urls'
 
-import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {

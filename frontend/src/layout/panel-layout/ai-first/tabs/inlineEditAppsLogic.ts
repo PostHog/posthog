@@ -1,12 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { UserProductListItem, UserProductListReason } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getItemId } from '~/layout/panel-layout/ProjectTree/utils'
-import { UserProductListItem, UserProductListReason } from '@posthog/query-frontend/schema/schema-general'
 
 import type { inlineEditAppsLogicType } from './inlineEditAppsLogicType'
 

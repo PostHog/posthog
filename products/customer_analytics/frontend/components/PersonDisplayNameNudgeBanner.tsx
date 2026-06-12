@@ -2,14 +2,13 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { ActorsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 import { isUUIDLike } from 'lib/utils'
 import { personsSceneLogic } from 'scenes/persons/personsSceneLogic'
 import { urls } from 'scenes/urls'
-
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
-import { ActorsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 interface PersonDisplayNameNudgeBannerProps {
     uniqueKey: string

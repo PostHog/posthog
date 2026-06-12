@@ -1,8 +1,8 @@
 # InsightViz
 
 `InsightVizNode` is the container node for insight queries.
-It wraps a single insight query *source* (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `PathsQuery`, `StickinessQuery`, `LifecycleQuery`, ...) and adds view configuration: editor filters, header, results table, last-computation footer, and embedding flags.
-The source query defines *what* to compute; the `InsightVizNode` defines *how* it is presented and edited.
+It wraps a single insight query _source_ (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `PathsQuery`, `StickinessQuery`, `LifecycleQuery`, ...) and adds view configuration: editor filters, header, results table, last-computation footer, and embedding flags.
+The source query defines _what_ to compute; the `InsightVizNode` defines _how_ it is presented and edited.
 
 ## Rendering
 
@@ -12,16 +12,18 @@ This is the node you actually pass to `<Query />` when rendering any insight:
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
-<Query
-    query={{
-        kind: NodeKind.InsightVizNode,
-        full: true, // show with most visual options enabled, as in the insight scene
-        source: {
-            kind: NodeKind.TrendsQuery,
-            series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
-        },
-    }}
-    setQuery={(query) => { /* receive edited query back */ }}
+;<Query
+  query={{
+    kind: NodeKind.InsightVizNode,
+    full: true, // show with most visual options enabled, as in the insight scene
+    source: {
+      kind: NodeKind.TrendsQuery,
+      series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+    },
+  }}
+  setQuery={(query) => {
+    /* receive edited query back */
+  }}
 />
 ```
 
@@ -32,7 +34,7 @@ View props on the node itself (`full`, `showHeader`, `showTable`, `showCorrelati
 - `InsightViz.tsx` — entry point. Builds `InsightLogicProps` and `DataNodeLogicProps` from the query and context, binds `insightLogic`, `insightDataLogic`, and `dataNodeLogic` via `BindLogic`, and renders `EditorFilters` next to `InsightVizDisplay`.
 - `InsightVizDisplay.tsx` — the display column: header, the chart for the active insight kind (`TrendInsight`, `Funnel`, `RetentionContainer`, `Paths`), legend, detailed results table, and the funnel correlation section.
 - `insightDataLogic.tsx` — owns the full query (`InsightVizNode`) for an insight: `setQuery`, loading via `dataNodeLogic`, export context, and draft/save handling.
-- `insightVizDataLogic.ts` — the editing surface over the *source* query. Exposes decomposed state (`querySource`, `series`, `interval`, `dateRange`, `breakdownFilter`, `compareFilter`, `display`, formulas, goal lines, ...) and update actions (`updateQuerySource`, `updateInsightFilter`, `updateBreakdownFilter`, `updateDateRange`, ...). The per-kind data logics (`trendsDataLogic`, `funnelDataLogic`, `retentionLogic`, `pathsDataLogic`) all connect to it.
+- `insightVizDataLogic.ts` — the editing surface over the _source_ query. Exposes decomposed state (`querySource`, `series`, `interval`, `dateRange`, `breakdownFilter`, `compareFilter`, `display`, formulas, goal lines, ...) and update actions (`updateQuerySource`, `updateInsightFilter`, `updateBreakdownFilter`, `updateDateRange`, ...). The per-kind data logics (`trendsDataLogic`, `funnelDataLogic`, `retentionLogic`, `pathsDataLogic`) all connect to it.
 - `sharedUtils.ts` — `keyForInsightLogicProps`, filter type guards.
 - `utils.ts` — `getDefaultQuery`, `queryFromKind`, cached-result extraction, validation error parsing.
 

@@ -1,10 +1,11 @@
 import { afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-
 import { NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
+
 import { ChartDisplayType } from '~/types'
 
 import type { linkMetricSparklineLogicType } from './linkMetricSparklineLogicType'

@@ -2,8 +2,8 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 import { subscriptions } from 'kea-subscriptions'
 
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-
 import { HogQLQueryModifiers } from '@posthog/query-frontend/schema/schema-general'
+
 import { InsightLogicProps } from '~/types'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'

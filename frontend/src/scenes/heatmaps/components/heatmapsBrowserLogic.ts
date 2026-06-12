@@ -4,6 +4,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import {
     AuthorizedUrlListType,
@@ -16,8 +18,6 @@ import { PostHogAppToolbarEvent, calculateViewportRange } from 'lib/components/I
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-
-import { hogql } from '@posthog/query-frontend/utils'
 
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
 

@@ -2,10 +2,11 @@ import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams, router, urlToAction } from 'kea-router'
 
+import { WebVitalsMetric } from '@posthog/query-frontend/schema/schema-general'
+
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { WebVitalsMetric } from '@posthog/query-frontend/schema/schema-general'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 
 import type { webVitalsToolbarLogicType } from './webVitalsToolbarLogicType'

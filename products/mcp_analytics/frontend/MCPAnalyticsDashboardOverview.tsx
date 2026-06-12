@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { type ChartTheme } from '@posthog/quill-charts'
-
 import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'

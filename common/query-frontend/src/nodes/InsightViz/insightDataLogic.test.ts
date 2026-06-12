@@ -6,10 +6,6 @@ jest.mock('@posthog/query-frontend/query', () => ({
 
 import { expectLogic } from 'kea-test-utils'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-
-import { useMocks } from '~/mocks/jest'
 import { examples } from '@posthog/query-frontend/examples'
 import { getDefaultQuery } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { performQuery } from '@posthog/query-frontend/query'
@@ -20,6 +16,11 @@ import {
     ResultCustomizationBy,
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FunnelVizType, InsightShortId, InsightType } from '~/types'
 

@@ -1,6 +1,10 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
 
-import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { ResultDetails } from './ResultDetails'

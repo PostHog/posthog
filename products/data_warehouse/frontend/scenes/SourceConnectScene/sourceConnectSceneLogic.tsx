@@ -2,12 +2,13 @@ import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 
+import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ApiConfig } from '~/lib/api'
-import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { externalDataSourcesStoreCredentialsCreate } from '../../generated/api'

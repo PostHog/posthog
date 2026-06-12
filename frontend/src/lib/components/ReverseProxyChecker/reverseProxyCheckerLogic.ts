@@ -2,11 +2,11 @@ import { afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
-
-import { hogql } from '@posthog/query-frontend/utils'
 
 import type { reverseProxyCheckerLogicType } from './reverseProxyCheckerLogicType'
 

@@ -6,6 +6,7 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     CountPerActorMathType,
     Experiment,

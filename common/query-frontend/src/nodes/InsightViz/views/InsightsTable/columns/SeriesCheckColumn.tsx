@@ -1,5 +1,6 @@
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 type SeriesCheckColumnTitleProps = {
     indexedResults: IndexedTrendResult[]

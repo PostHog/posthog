@@ -6,6 +6,13 @@ import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
+import {
+    AnyDataNode,
+    HogLanguage,
+    HogQLMetadataResponse,
+    NodeKind,
+} from '@posthog/query-frontend/schema/schema-general'
+
 import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -23,7 +30,6 @@ import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { inStorybookTestRunner } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string

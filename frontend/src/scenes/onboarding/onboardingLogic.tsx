@@ -1,6 +1,8 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -18,7 +20,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
 import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'

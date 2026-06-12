@@ -1,13 +1,14 @@
 import equal from 'fast-deep-equal'
 
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-
 import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '@posthog/query-frontend/schema/schema-general'
 import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+
 import { getDefaultMetricTitle } from '~/scenes/experiments/MetricsView/shared/utils'
 
 const getOutlierHandlingChanges = (metricBefore: ExperimentMetric, metricAfter: ExperimentMetric): string | null => {

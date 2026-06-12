@@ -1,6 +1,6 @@
-import { urls } from 'scenes/urls'
-
 import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
+import { urls } from 'scenes/urls'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 

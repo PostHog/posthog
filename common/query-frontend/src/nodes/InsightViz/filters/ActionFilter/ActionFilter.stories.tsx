@@ -4,12 +4,13 @@ import userEvent from '@testing-library/user-event'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
+import { isFilterWithDisplay, isLifecycleFilter } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet, uuid } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isFilterWithDisplay, isLifecycleFilter } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'

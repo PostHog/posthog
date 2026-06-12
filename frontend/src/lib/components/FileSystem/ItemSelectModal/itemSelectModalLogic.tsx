@@ -2,13 +2,13 @@ import { actions, connect, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import type { itemSelectModalLogicType } from './itemSelectModalLogicType'
 

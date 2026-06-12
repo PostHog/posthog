@@ -2,13 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
+import { EndpointsUsageBreakdown } from '@posthog/query-frontend/schema/schema-general'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
 
-import { EndpointsUsageBreakdown } from '@posthog/query-frontend/schema/schema-general'
 import { IntervalType } from '~/types'
 import { DateMappingOption } from '~/types'
 

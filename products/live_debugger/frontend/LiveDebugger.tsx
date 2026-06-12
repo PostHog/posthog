@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -8,7 +10,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { StateInspector } from 'products/live_debugger/frontend/StateInspector'
 

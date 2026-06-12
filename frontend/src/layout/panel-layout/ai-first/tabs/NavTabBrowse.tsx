@@ -15,6 +15,7 @@ import {
     IconStar,
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
+import { FileSystemEntry, FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -38,7 +39,6 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry, FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'

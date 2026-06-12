@@ -1,13 +1,14 @@
 import { useValues } from 'kea'
 
-import { isNewExperimentResponse } from 'scenes/experiments/experimentLogic'
-
 import {
     CachedExperimentQueryResponse,
     CachedNewExperimentQueryResponse,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { isNewExperimentResponse } from 'scenes/experiments/experimentLogic'
+
 import { FunnelStep } from '~/types'
 
 import { resultsBreakdownLogic } from './resultsBreakdownLogic'

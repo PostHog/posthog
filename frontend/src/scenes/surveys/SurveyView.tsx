@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 
 import { IconArchive, IconCopy, IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -49,7 +50,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { Query } from '@posthog/query-frontend/Query/Query'
 import {
     AccessControlLevel,
     AccessControlResourceType,

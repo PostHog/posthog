@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     DropdownMenu,
@@ -10,8 +11,6 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-
-import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { ISSUE_STATUS_OPTIONS } from '../utils'
 import { StatusIndicator } from './Indicators'

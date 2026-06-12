@@ -1,11 +1,11 @@
 import { useValues } from 'kea'
 
 import { LemonDivider } from '@posthog/lemon-ui'
+import { InsightVizNode, VizSpecificOptions } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { InsightVizNode, VizSpecificOptions } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 import { InsightType, RetentionDashboardDisplayType } from '~/types'
 
 import { RetentionGraph } from './RetentionGraph'

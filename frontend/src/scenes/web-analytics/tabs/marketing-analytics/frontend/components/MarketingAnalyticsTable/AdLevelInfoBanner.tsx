@@ -1,9 +1,8 @@
 import { LemonBanner } from '@posthog/lemon-ui'
+import { MarketingAnalyticsDrillDownLevel } from '@posthog/query-frontend/schema/schema-general'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-
-import { MarketingAnalyticsDrillDownLevel } from '@posthog/query-frontend/schema/schema-general'
 
 import { NativeSourceHierarchyStatus } from '../../logic/marketingAnalyticsLogic'
 import { nativeSourceDisplayLabel } from '../../logic/utils'

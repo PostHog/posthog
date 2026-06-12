@@ -1,3 +1,18 @@
+import {
+    LocalFilter,
+    toLocalFilters,
+} from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
+import { isURLNormalizeable } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
+import {
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { DEFAULT_STEP_LIMIT } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
+
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import {
     BIN_COUNT_AUTO,
@@ -10,16 +25,6 @@ import {
 } from 'lib/constants'
 import { clamp } from 'lib/utils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import { isURLNormalizeable } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
-import {
-    isFunnelsFilter,
-    isLifecycleFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isStickinessFilter,
-    isTrendsFilter,
-} from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-import { DEFAULT_STEP_LIMIT } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
 
 import {
     AnyFilterType,
@@ -40,8 +45,6 @@ import {
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
-
-import { LocalFilter, toLocalFilters } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()

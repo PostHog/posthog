@@ -15,13 +15,6 @@ import {
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
-import { Scene } from 'scenes/sceneTypes'
-
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { isObject } from '~/lib/utils'
 import {
     AgentMode,
     AssistantTool,
@@ -29,6 +22,13 @@ import {
     AssistantToolCallMessage,
     TaskExecutionStatus,
 } from '@posthog/query-frontend/schema/schema-assistant-messages'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
+import { Scene } from 'scenes/sceneTypes'
+
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { isObject } from '~/lib/utils'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'

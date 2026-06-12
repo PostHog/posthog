@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
+import { FileSystemEntry, GroupsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -20,7 +21,6 @@ import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils
 import { groupsModel } from '~/models/groupsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
-import { FileSystemEntry, GroupsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
 import { Setting, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'

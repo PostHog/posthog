@@ -1,10 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { teamLogic } from 'scenes/teamLogic'
-
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import {
@@ -15,6 +11,11 @@ import {
     TraceQuery,
     TracesQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { InsightLogicProps } from '~/types'
 
 import type { aiObservabilitySessionDataLogicType } from './aiObservabilitySessionDataLogicType'

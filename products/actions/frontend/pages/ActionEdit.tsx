@@ -5,6 +5,9 @@ import { useEffect, useMemo } from 'react'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { NodeKind, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
@@ -47,9 +50,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { tagsModel } from '~/models/tagsModel'
-import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { NodeKind, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLogicalOperator } from '~/types'
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'

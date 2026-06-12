@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -13,7 +14,6 @@ import { isThumbQuestion } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { Survey, SurveyAppearance, SurveyQuestionBranchingType, SurveyQuestionType, SurveyType } from '~/types'
 
 import type { feedbackSurveyWizardLogicType } from './feedbackSurveyWizardLogicType'

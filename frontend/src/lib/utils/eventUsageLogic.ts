@@ -1,18 +1,6 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import type { Dayjs } from 'lib/dayjs'
-import { now } from 'lib/dayjs'
-import { TimeToSeeDataPayload } from 'lib/internalMetrics'
-import { objectClean } from 'lib/utils'
-import { BillingUsageInteractionProps } from 'scenes/billing/types'
-import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { ProductTourEvent } from 'scenes/product-tours/constants'
-import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
-import { userLogic } from 'scenes/userLogic'
-
 import {
     Breakdown,
     ExperimentFunnelsQuery,
@@ -44,6 +32,19 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '@posthog/query-frontend/utils'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import type { Dayjs } from 'lib/dayjs'
+import { now } from 'lib/dayjs'
+import { TimeToSeeDataPayload } from 'lib/internalMetrics'
+import { objectClean } from 'lib/utils'
+import { BillingUsageInteractionProps } from 'scenes/billing/types'
+import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { ProductTourEvent } from 'scenes/product-tours/constants'
+import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
+import { userLogic } from 'scenes/userLogic'
+
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     ChartDisplayType,

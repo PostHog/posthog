@@ -17,6 +17,7 @@ import {
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
+import { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
@@ -25,8 +26,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink, IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
-
-import { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 export type Mode = 'revenue_analytics'
 export interface ViewLinkModalProps {

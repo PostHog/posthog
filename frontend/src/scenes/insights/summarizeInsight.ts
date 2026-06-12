@@ -1,22 +1,7 @@
 import { useValues } from 'kea'
 
-import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
-import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
-import { alphabet, capitalizeFirstLetter } from 'lib/utils'
-import {
-    getDisplayNameFromEntityFilter,
-    getDisplayNameFromEntityNode,
-    humanizePathsEventTypes,
-} from 'scenes/insights/utils'
-import { retentionOptions } from '@posthog/query-frontend/nodes/RetentionQuery/constants'
-import { MathCategory, apiValueToMathType, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
-import { mathsLogicType } from '@posthog/query-frontend/shared/mathsLogicType'
-
-import { cohortsModel } from '~/models/cohortsModel'
-import { cohortsModelType } from '~/models/cohortsModelType'
-import { groupsModel } from '~/models/groupsModel'
-import { groupsModelType } from '~/models/groupsModelType'
 import { extractDisplayLabel } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { retentionOptions } from '@posthog/query-frontend/nodes/RetentionQuery/constants'
 import {
     Breakdown,
     BreakdownFilter,
@@ -24,6 +9,8 @@ import {
     MultipleBreakdownType,
     Node,
 } from '@posthog/query-frontend/schema/schema-general'
+import { MathCategory, apiValueToMathType, mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
+import { mathsLogicType } from '@posthog/query-frontend/shared/mathsLogicType'
 import {
     isDataTableNode,
     isEventsQuery,
@@ -39,6 +26,20 @@ import {
     isWebOverviewQuery,
     isWebStatsTableQuery,
 } from '@posthog/query-frontend/utils'
+
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { alphabet, capitalizeFirstLetter } from 'lib/utils'
+import {
+    getDisplayNameFromEntityFilter,
+    getDisplayNameFromEntityNode,
+    humanizePathsEventTypes,
+} from 'scenes/insights/utils'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { cohortsModelType } from '~/models/cohortsModelType'
+import { groupsModel } from '~/models/groupsModel'
+import { groupsModelType } from '~/models/groupsModelType'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'

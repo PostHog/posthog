@@ -3,6 +3,9 @@ import { actions, connect, kea, key, listeners, path, reducers, selectors } from
 import { urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
+import { getDefaultEventsQueryForTeam } from '@posthog/query-frontend/nodes/DataTable/defaultEventsQuery'
+import { DataTableNode, Node } from '@posthog/query-frontend/schema/schema-general'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
@@ -15,8 +18,6 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { getDefaultEventsQueryForTeam } from '@posthog/query-frontend/nodes/DataTable/defaultEventsQuery'
-import { DataTableNode, Node } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'

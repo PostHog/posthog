@@ -1,15 +1,15 @@
 import { createContext } from 'react'
 
-import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
-import { ThreadMessage } from 'scenes/max/maxThreadLogic'
-import { MaxContextType } from 'scenes/max/maxTypes'
-import type { MaxUIContext } from 'scenes/max/maxTypes'
-
 import {
     type ArtifactMessage,
     type NotebookArtifactContent,
     type VisualizationArtifactContent,
 } from '@posthog/query-frontend/schema/schema-assistant-messages'
+
+import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
+import { ThreadMessage } from 'scenes/max/maxThreadLogic'
+import { MaxContextType } from 'scenes/max/maxTypes'
+import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 export type InlineNotebookAIRequest = MarkdownNotebookAskAIRequest & {
     panelId: string

@@ -1,6 +1,5 @@
-import type { Series } from '@posthog/quill-charts'
-
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import type { Series } from '@posthog/quill-charts'
 
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 

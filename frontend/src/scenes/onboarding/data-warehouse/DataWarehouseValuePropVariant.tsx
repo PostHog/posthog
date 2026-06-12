@@ -4,10 +4,10 @@ import { useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight, IconGraph, IconPeople, IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import IconPostHog from 'public/posthog-icon.svg'

@@ -1,13 +1,17 @@
 import { expectLogic } from 'kea-test-utils'
 
+import {
+    funnelInvalidExclusionError,
+    funnelResult,
+} from '@posthog/query-frontend/nodes/FunnelsQuery/__mocks__/funnelDataLogicMocks'
+import { funnelsQueryDefault, trendsQueryDefault } from '@posthog/query-frontend/nodes/InsightQuery/defaults'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { FunnelsQuery, LifecycleQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { funnelInvalidExclusionError, funnelResult } from '@posthog/query-frontend/nodes/FunnelsQuery/__mocks__/funnelDataLogicMocks'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { funnelsQueryDefault, trendsQueryDefault } from '@posthog/query-frontend/nodes/InsightQuery/defaults'
-import { FunnelsQuery, LifecycleQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,

@@ -1,8 +1,9 @@
-import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
+
+import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { CohortType } from '~/types'
 
 export interface AggregatedDisplayLabelDeps {

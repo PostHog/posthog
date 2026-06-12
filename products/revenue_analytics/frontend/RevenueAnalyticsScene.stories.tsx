@@ -2,6 +2,8 @@ import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { RevenueAnalyticsBreakdown } from '@posthog/query-frontend/schema/schema-general'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -9,7 +11,6 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_id/external_data_sources/externalDataSource.json'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
-import { RevenueAnalyticsBreakdown } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } from '~/types'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'

@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { IconDocument, IconFolder, IconPlus } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
@@ -38,7 +39,6 @@ import {
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '@posthog/query-frontend/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'

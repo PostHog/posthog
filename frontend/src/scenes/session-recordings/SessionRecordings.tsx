@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -24,7 +25,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'

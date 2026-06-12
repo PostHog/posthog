@@ -1,12 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { METRIC_CONTEXTS, type MetricContext } from './experimentMetricModalLogic'

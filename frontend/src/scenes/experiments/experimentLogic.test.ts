@@ -2,13 +2,6 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { userLogic } from 'scenes/userLogic'
-
-import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
-import experimentMetricResultsErrorJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_error.json'
-import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
-import { useMocks } from '~/mocks/jest'
 import {
     Breakdown,
     CachedNewExperimentQueryResponse,
@@ -16,6 +9,14 @@ import {
     ExperimentMetricType,
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userLogic } from 'scenes/userLogic'
+
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import experimentMetricResultsErrorJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_error.json'
+import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 

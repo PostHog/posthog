@@ -1,12 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { getProductSetupConfig } from 'lib/components/ProductSetup/productSetupRegistry'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import type { postOnboardingModalLogicType } from './postOnboardingModalLogicType'
 

@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isMobile } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from '~/types'
 
 import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'

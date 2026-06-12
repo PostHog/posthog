@@ -2,18 +2,19 @@ import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { formatAggregationAxisValueWithShareOfTotal } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
+import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartParams, GraphType } from '~/types'
 
-import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
 type DataSet = any

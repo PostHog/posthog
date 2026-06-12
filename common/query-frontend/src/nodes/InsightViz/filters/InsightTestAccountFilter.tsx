@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
 
 type TestAccountFilterProps = {
     query: InsightQueryNode

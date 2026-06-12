@@ -1,6 +1,11 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { QueryFeature } from '@posthog/query-frontend/nodes/DataTable/queryFeatures'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { ErrorTrackingIssue, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext, QueryContextColumnComponent } from '@posthog/query-frontend/types'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -12,11 +17,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { ErrorTrackingTile } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
-
-import { QueryFeature } from '@posthog/query-frontend/nodes/DataTable/queryFeatures'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { ErrorTrackingIssue, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext, QueryContextColumnComponent } from '@posthog/query-frontend/types'
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue

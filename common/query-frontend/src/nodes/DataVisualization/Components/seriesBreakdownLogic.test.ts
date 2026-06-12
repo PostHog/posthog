@@ -1,8 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { DataVisualizationNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DataVisualizationNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 

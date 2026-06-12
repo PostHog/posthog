@@ -3,37 +3,9 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
-import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { hasFormErrors, toParams } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
-import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
-import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
-import {
-    hasMultipleVariantsActive,
-    hasZeroRollout,
-    featureFlagLogic as sceneFeatureFlagLogic,
-    validateFeatureFlagKey,
-} from 'scenes/feature-flags/featureFlagLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { projectLogic } from 'scenes/projectLogic'
-import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
-import { urls } from 'scenes/urls'
-
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { cohortsModel } from '~/models/cohortsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '@posthog/query-frontend/query'
 import {
     AnyEntityNode,
@@ -54,6 +26,35 @@ import {
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { hasFormErrors, toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
+import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
+import {
+    hasMultipleVariantsActive,
+    hasZeroRollout,
+    featureFlagLogic as sceneFeatureFlagLogic,
+    validateFeatureFlagKey,
+} from 'scenes/feature-flags/featureFlagLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { projectLogic } from 'scenes/projectLogic'
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
 import {
     AccessControlLevel,
     BreakdownAttributionType,

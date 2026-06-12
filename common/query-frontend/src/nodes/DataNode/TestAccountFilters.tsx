@@ -1,11 +1,17 @@
 import { useActions, useValues } from 'kea'
 
+import {
+    DataNode,
+    EventsQuery,
+    HogQLQuery,
+    SessionsQuery,
+    TracesQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+import { isEventsQuery, isHogQLQuery, isSessionsQuery, isTracesQuery } from '@posthog/query-frontend/utils'
+
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { DataNode, EventsQuery, HogQLQuery, SessionsQuery, TracesQuery } from '@posthog/query-frontend/schema/schema-general'
-import { isEventsQuery, isHogQLQuery, isSessionsQuery, isTracesQuery } from '@posthog/query-frontend/utils'
 
 interface TestAccountFiltersProps {
     query: DataNode

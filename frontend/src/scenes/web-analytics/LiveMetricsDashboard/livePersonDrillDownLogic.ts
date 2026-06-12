@@ -2,13 +2,14 @@ import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { performQuery } from '@posthog/query-frontend/query'
+import { HogQLQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
+
 import { parsePersonFromHogQLRow } from 'scenes/persons/person-utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 
-import { performQuery } from '@posthog/query-frontend/query'
-import { HogQLQueryResponse, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { hogql } from '@posthog/query-frontend/utils'
 import { PersonType } from '~/types'
 
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'

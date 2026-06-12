@@ -1,7 +1,7 @@
 import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import type { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import type { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
     AnyFilterLike,

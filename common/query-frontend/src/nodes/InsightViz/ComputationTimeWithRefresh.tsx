@@ -1,15 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { Link, Tooltip } from '@posthog/lemon-ui'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { shouldQueryBeAsync } from '@posthog/query-frontend/utils'
 
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
-
-import { shouldQueryBeAsync } from '@posthog/query-frontend/utils'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 

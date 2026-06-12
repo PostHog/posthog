@@ -4,11 +4,10 @@ import { createPortal } from 'react-dom'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
+import { ExternalDataSourceType, SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
-
-import { ExternalDataSourceType, SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'

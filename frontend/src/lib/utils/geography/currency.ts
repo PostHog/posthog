@@ -1,6 +1,6 @@
-import { humanFriendlyNumber } from 'lib/utils'
-
 import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
+
+import { humanFriendlyNumber } from 'lib/utils'
 
 // Long name for each currency
 export const CURRENCY_SYMBOL_TO_NAME_MAP: Record<CurrencyCode, string> = {

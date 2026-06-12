@@ -6,10 +6,7 @@ import { BindLogic, Provider } from 'kea'
 
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-
-import { useMocks } from '~/mocks/jest'
 import {
     FunnelsQuery,
     LifecycleQuery,
@@ -19,6 +16,10 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, InsightShortId } from '~/types'
 

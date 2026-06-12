@@ -3,9 +3,10 @@ import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import type { AccountsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { urls } from 'scenes/urls'
 
-import type { AccountsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserBasicType } from '~/types'
 

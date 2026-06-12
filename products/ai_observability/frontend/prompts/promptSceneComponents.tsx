@@ -4,6 +4,8 @@ import { lazy, Suspense, useRef } from 'react'
 
 import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
@@ -15,8 +17,6 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
-import { Query } from '@posthog/query-frontend/Query/Query'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt, LLMPromptVersionSummary } from '~/types'
 
 import type { ExperimentApi } from '../../../experiments/frontend/generated/api.schemas'

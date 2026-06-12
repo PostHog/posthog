@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
 import { LemonButton, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -12,8 +13,6 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 

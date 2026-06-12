@@ -3,13 +3,14 @@ import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { hogqlQuery } from '@posthog/query-frontend/query'
+import { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { hogqlQuery } from '@posthog/query-frontend/query'
-import { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
-import { hogql } from '@posthog/query-frontend/utils'
 import { DataWarehouseViewLink } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'

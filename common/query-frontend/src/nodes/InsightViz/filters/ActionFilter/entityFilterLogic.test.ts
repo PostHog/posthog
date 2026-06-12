@@ -1,8 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
+import {
+    entityFilterLogic,
+    toLocalFilters,
+} from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import * as libUtils from 'lib/utils'
-import { entityFilterLogic, toLocalFilters } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'

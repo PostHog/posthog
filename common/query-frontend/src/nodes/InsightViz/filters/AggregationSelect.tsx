@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
-
-import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-
-import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery, LifecycleQuery, RetentionQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     isFunnelsQuery,
@@ -18,6 +10,14 @@ import {
     isRetentionQuery,
     isStickinessQuery,
 } from '@posthog/query-frontend/utils'
+
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+
+import { groupsModel } from '~/models/groupsModel'
 import { InsightLogicProps } from '~/types'
 
 export function getHogQLValue(groupIndex?: number | null, aggregationQuery?: string | null): string {

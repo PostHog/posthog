@@ -3,6 +3,15 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
+import {
+    CachedNewExperimentQueryResponse,
+    ExperimentMetric,
+    ExperimentQuery,
+    NodeKind,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
@@ -13,15 +22,6 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 
-import {
-    CachedNewExperimentQueryResponse,
-    ExperimentMetric,
-    ExperimentQuery,
-    NodeKind,
-    isExperimentFunnelMetric,
-    isExperimentMeanMetric,
-    isExperimentRatioMetric,
-} from '@posthog/query-frontend/schema/schema-general'
 import {
     EntityType,
     Experiment,

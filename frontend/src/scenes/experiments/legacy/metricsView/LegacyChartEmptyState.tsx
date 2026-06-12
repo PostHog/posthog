@@ -1,6 +1,5 @@
 import { IconClock } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
-
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { LegacyErrorChecklist } from './LegacyErrorChecklist'

@@ -1,7 +1,7 @@
+import { ErrorTrackingIssueAssignee } from '@posthog/query-frontend/schema/schema-general'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
-
-import { ErrorTrackingIssueAssignee } from '@posthog/query-frontend/schema/schema-general'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../../components/Assignee/AssigneeSelect'

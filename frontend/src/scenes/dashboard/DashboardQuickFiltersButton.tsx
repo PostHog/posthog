@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { QuickFilterForm } from 'lib/components/QuickFilters/QuickFilterForm'
@@ -9,7 +10,6 @@ import { QuickFiltersModalContent } from 'lib/components/QuickFilters/QuickFilte
 import { ModalView, quickFiltersModalLogic } from 'lib/components/QuickFilters/quickFiltersModalLogic'
 import { Scene } from 'scenes/sceneTypes'
 
-import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardType } from '~/types'
 
 import { dashboardQuickFiltersSelectionLogic } from './dashboardQuickFiltersSelectionLogic'

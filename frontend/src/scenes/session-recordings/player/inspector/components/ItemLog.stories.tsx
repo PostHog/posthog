@@ -1,13 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
+import { LogMessage, LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { uuid } from 'lib/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { LogMessage, LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 
 import { InspectorListItemLog } from '../playerInspectorLogic'
 import { ItemLog, ItemLogDetail, ItemLogProps } from './ItemLog'

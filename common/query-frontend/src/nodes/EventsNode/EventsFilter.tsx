@@ -2,13 +2,12 @@ import { useState } from 'react'
 
 import { IconPlusSmall, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { EventsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover'
-
-import { EventsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 interface EventsFilterProps {
     query: EventsQuery

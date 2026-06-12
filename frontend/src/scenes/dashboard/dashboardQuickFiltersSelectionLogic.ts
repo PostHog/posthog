@@ -1,10 +1,10 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 
 import { quickFiltersModalLogic } from 'lib/components/QuickFilters/quickFiltersModalLogic'
 
-import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardType } from '~/types'
 
 import { dashboardLogic } from './dashboardLogic'

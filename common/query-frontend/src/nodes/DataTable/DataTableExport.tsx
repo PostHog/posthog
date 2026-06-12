@@ -2,16 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
-
-import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { SaveToCohortModalContent } from 'lib/components/SaveToCohortModalContent/SaveToCohortModalContent'
-import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { pluralize } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '@posthog/query-frontend/nodes/DataTable/clipboardUtils'
+import {
+    copyTableToCsv,
+    copyTableToExcel,
+    copyTableToJson,
+} from '@posthog/query-frontend/nodes/DataTable/clipboardUtils'
 import {
     shouldOptimizeForExport,
     transformColumnsForExport,
@@ -30,6 +25,15 @@ import {
     isPersonsNode,
     isSessionsQuery,
 } from '@posthog/query-frontend/utils'
+
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { SaveToCohortModalContent } from 'lib/components/SaveToCohortModalContent/SaveToCohortModalContent'
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { pluralize } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { ExportContext, ExporterFormat } from '~/types'
 
 import { dataTableLogic } from './dataTableLogic'

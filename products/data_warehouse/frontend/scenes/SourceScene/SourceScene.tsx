@@ -15,6 +15,7 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,7 +29,6 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, Breadcrumb, ExternalDataSource } from '~/types'
 
 import { cleanSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'

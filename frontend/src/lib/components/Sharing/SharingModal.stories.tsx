@@ -2,12 +2,13 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import { examples } from '@posthog/query-frontend/examples'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import { examples } from '@posthog/query-frontend/examples'
 import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { SharingModal, SharingModalProps } from './SharingModal'

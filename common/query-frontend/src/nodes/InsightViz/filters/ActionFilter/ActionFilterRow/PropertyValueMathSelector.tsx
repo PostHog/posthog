@@ -1,9 +1,9 @@
+import { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-
-import { DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 
 interface PropertyValueMathSelectorProps {
     /** The currently selected taxonomic group for the math property, e.g. session or person properties. */

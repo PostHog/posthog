@@ -17,18 +17,10 @@ import { lazyLoaders, loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api, { ApiMethodOptions } from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { shouldCancelQuery, uuid } from 'lib/utils'
-import { ConcurrencyController } from 'lib/utils/concurrencyController'
-import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
-
-import { DataNodeCollectionProps, dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
+import {
+    DataNodeCollectionProps,
+    dataNodeCollectionLogic,
+} from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '@posthog/query-frontend/nodes/DataTable/utils'
 import { performQuery } from '@posthog/query-frontend/query'
 import {
@@ -75,6 +67,18 @@ import {
     isSessionsQuery,
     isTracesQuery,
 } from '@posthog/query-frontend/utils'
+
+import api, { ApiMethodOptions } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { shouldCancelQuery, uuid } from 'lib/utils'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
+import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
+import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
 import { TeamType } from '~/types'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'

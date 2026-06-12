@@ -1,6 +1,6 @@
-import { range, uuid } from 'lib/utils'
-
 import { ErrorTrackingQueryResponse, ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
+
+import { range, uuid } from 'lib/utils'
 
 const eventProperties = JSON.stringify({
     $os: 'Mac OS X',

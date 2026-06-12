@@ -1,13 +1,14 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 
-import { QUnitType, dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { dateOptionPlurals } from '@posthog/query-frontend/nodes/RetentionQuery/constants'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from '@posthog/query-frontend/nodes/RetentionQuery/types'
+import { DateRange, RetentionFilter, RetentionQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { QUnitType, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DateRange, RetentionFilter, RetentionQuery } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 
 import { dateOptionToTimeIntervalMap } from './constants'

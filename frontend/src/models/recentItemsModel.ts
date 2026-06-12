@@ -1,11 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { ApiConfig } from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import type { recentItemsModelType } from './recentItemsModelType'
 

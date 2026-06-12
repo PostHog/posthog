@@ -1,10 +1,11 @@
 import { useState } from 'react'
 
+import { ActorsQuery, NodeKind, PersonsNode } from '@posthog/query-frontend/schema/schema-general'
+import { isActorsQuery } from '@posthog/query-frontend/utils'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { ActorsQuery, NodeKind, PersonsNode } from '@posthog/query-frontend/schema/schema-general'
-import { isActorsQuery } from '@posthog/query-frontend/utils'
 import { PersonPropertyFilter } from '~/types'
 
 interface PersonPropertyFiltersProps {

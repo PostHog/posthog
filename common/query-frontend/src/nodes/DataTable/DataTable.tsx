@@ -4,22 +4,6 @@ import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
-import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { EventDetails } from 'scenes/activity/explore/EventDetails'
-import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
-import { InsightEmptyState, InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
-import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
-
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '@posthog/query-frontend/nodes/DataNode/DateRange'
 import { ElapsedTime } from '@posthog/query-frontend/nodes/DataNode/ElapsedTime'
@@ -31,7 +15,11 @@ import { BackToSource } from '@posthog/query-frontend/nodes/DataTable/BackToSour
 import { ColumnConfigurator } from '@posthog/query-frontend/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableCount } from '@posthog/query-frontend/nodes/DataTable/DataTableCount'
 import { DataTableExport } from '@posthog/query-frontend/nodes/DataTable/DataTableExport'
-import { DataTableLogicProps, DataTableRow, dataTableLogic } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
+import {
+    DataTableLogicProps,
+    DataTableRow,
+    dataTableLogic,
+} from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
 import { DataTableSavedFilters } from '@posthog/query-frontend/nodes/DataTable/DataTableSavedFilters'
 import { DataTableSavedFiltersButton } from '@posthog/query-frontend/nodes/DataTable/DataTableSavedFiltersButton'
 import { EventRowActions } from '@posthog/query-frontend/nodes/DataTable/EventRowActions'
@@ -52,6 +40,7 @@ import { EventName } from '@posthog/query-frontend/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '@posthog/query-frontend/nodes/EventsNode/EventPropertyFilters'
 import { EventsFilter } from '@posthog/query-frontend/nodes/EventsNode/EventsFilter'
 import { HogQLQueryEditor } from '@posthog/query-frontend/nodes/HogQLQuery/HogQLQueryEditor'
+import { InsightEmptyState, InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import { EditHogQLButton } from '@posthog/query-frontend/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '@posthog/query-frontend/nodes/Node/OpenEditorButton'
@@ -89,8 +78,24 @@ import {
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '@posthog/query-frontend/utils'
+
+import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { NonIntegratedConversionsCellActions } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
 import { NonIntegratedConversionsRowActions } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsRowActions'
+import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
+
 import { EventType, InsightLogicProps } from '~/types'
 
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'

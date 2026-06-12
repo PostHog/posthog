@@ -2,6 +2,15 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import {
+    DataTableNode,
+    EndpointRunRequest,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '@posthog/query-frontend/schema/schema-general'
+import { isHogQLQuery, isInsightQueryNode } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -9,8 +18,6 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode } from '@posthog/query-frontend/utils'
 import { Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'

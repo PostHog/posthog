@@ -1,9 +1,10 @@
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { FeatureFlagsSDKInstructions } from 'scenes/onboarding/sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 export const featureFlagsOnboarding: ProductOnboardingProvider = {

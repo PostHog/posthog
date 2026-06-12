@@ -4,6 +4,7 @@ import { cleanup, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { buildTrendsQuery, renderInsightPage } from '~/test/insight-testing'
 
 jest.mock('lib/components/AutoSizer', () => ({

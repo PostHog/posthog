@@ -13,14 +13,20 @@ A ref to the latest `query` ensures the debounced write doesn't clobber other qu
 import { useDebouncedQuery } from '@posthog/query-frontend/hooks/useDebouncedQuery'
 import { GroupsQuery } from '@posthog/query-frontend/schema/schema-general'
 
-function GroupsSearch({ query, setQuery }: { query: GroupsQuery; setQuery?: (query: GroupsQuery) => void }): JSX.Element {
-    const { value, onChange } = useDebouncedQuery<GroupsQuery, string>(
-        query,
-        setQuery,
-        (query) => query.search || '', // read the value from the query
-        (query, value) => ({ ...query, search: value }) // write the value into the query
-    )
-    return <input value={value} onChange={(e) => onChange(e.target.value)} />
+function GroupsSearch({
+  query,
+  setQuery,
+}: {
+  query: GroupsQuery
+  setQuery?: (query: GroupsQuery) => void
+}): JSX.Element {
+  const { value, onChange } = useDebouncedQuery<GroupsQuery, string>(
+    query,
+    setQuery,
+    (query) => query.search || '', // read the value from the query
+    (query, value) => ({ ...query, search: value }) // write the value into the query
+  )
+  return <input value={value} onChange={(e) => onChange(e.target.value)} />
 }
 ```
 

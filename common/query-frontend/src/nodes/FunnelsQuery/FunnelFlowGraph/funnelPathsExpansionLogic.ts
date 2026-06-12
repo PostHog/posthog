@@ -1,12 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-
 import { performQuery } from '@posthog/query-frontend/query'
 import { PathsLink, PathsQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { InsightLogicProps } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'

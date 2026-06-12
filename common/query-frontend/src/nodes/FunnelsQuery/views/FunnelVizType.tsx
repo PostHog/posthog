@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconClock, IconFilter, IconTrending } from '@posthog/icons'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { FunnelsFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 
-import { FunnelsFilter } from '@posthog/query-frontend/schema/schema-general'
 import { EditorFilterProps, FunnelVizType as VizType } from '~/types'
 
 type LabelProps = {

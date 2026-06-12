@@ -1,16 +1,23 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
+import { OverviewGrid } from '@posthog/query-frontend/nodes/OverviewGrid/OverviewGrid'
+import {
+    OverviewMetricCardGrid,
+    OverviewMetricCardItem,
+} from '@posthog/query-frontend/nodes/OverviewGrid/OverviewMetricCardGrid'
+import {
+    AnyResponseType,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
+
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-
-import { OverviewGrid } from '@posthog/query-frontend/nodes/OverviewGrid/OverviewGrid'
-import { OverviewMetricCardGrid, OverviewMetricCardItem } from '@posthog/query-frontend/nodes/OverviewGrid/OverviewMetricCardGrid'
-import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 

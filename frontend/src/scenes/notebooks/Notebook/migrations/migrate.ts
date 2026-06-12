@@ -1,11 +1,5 @@
 import { JSONContent } from '@tiptap/core'
 
-import api from 'lib/api'
-import { isEmptyObject } from 'lib/utils'
-import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
-import { NotebookNodeType, NotebookType } from 'scenes/notebooks/types'
-import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-
 import {
     breakdownFilterToQuery,
     compareFilterToQuery,
@@ -37,6 +31,13 @@ import {
     TrendsFilterLegacy,
 } from '@posthog/query-frontend/schema/schema-general'
 import { checkLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
+import { isEmptyObject } from 'lib/utils'
+import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { NotebookNodeType, NotebookType } from 'scenes/notebooks/types'
+import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+
 import { FunnelExclusionLegacy, LegacyRecordingFilters } from '~/types'
 
 import { convertMarkdownTablesInContent } from './convertMarkdownTablesInContent'

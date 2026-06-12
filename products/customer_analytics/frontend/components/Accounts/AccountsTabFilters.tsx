@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 
 import { tagsModel } from '~/models/tagsModel'
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 

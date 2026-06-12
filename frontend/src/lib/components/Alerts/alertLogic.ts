@@ -1,11 +1,11 @@
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { AlertState } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils'
-
-import { AlertState } from '@posthog/query-frontend/schema/schema-general'
 
 import type { alertLogicType } from './alertLogicType'
 import type { AlertCheck, AlertType } from './types'

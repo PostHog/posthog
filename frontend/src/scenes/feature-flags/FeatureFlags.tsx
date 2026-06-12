@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { InsightVizNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -43,7 +44,6 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { InsightVizNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,

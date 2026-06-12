@@ -1,9 +1,10 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { aiObservabilityUsersLogicType } from './aiObservabilityUsersLogicType'

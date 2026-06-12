@@ -2,7 +2,6 @@ import clsx from 'clsx'
 import React from 'react'
 
 import { LemonBadge, Tooltip, TooltipProps } from '@posthog/lemon-ui'
-
 import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 export type IssueStatus = ErrorTrackingIssue['status']

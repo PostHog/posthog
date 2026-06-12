@@ -2,11 +2,10 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { loaders } from 'kea-loaders'
 
 import { PaginationManual } from '@posthog/lemon-ui'
+import { AlertState } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { objectClean } from 'lib/utils'
-
-import { AlertState } from '@posthog/query-frontend/schema/schema-general'
 
 import { AlertLogicProps } from './alertLogic'
 import type { alertsLogicType } from './alertsLogicType'

@@ -1,7 +1,8 @@
+import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductItemCategory, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, ProductManifest } from '~/types'
 
 import type { ModelsSceneTab } from '../../frontend/src/scenes/models/modelsSceneLogic'

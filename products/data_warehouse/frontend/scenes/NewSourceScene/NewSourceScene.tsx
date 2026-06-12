@@ -12,6 +12,7 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { ExternalDataSourceType, SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
@@ -26,7 +27,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ExternalDataSourceType, SourceConfig } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'

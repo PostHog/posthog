@@ -30,6 +30,9 @@
 import { useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import type { DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     Badge,
     Button,
@@ -61,11 +64,8 @@ import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import type { TablePreviewExpressionColumn } from 'lib/components/TablePreview/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { urls } from 'scenes/urls'
 
-import type { DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { defaultDataWarehousePopoverFields } from '../taxonomicFilterLogic'

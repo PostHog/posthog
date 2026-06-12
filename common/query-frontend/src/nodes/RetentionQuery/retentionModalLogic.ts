@@ -2,16 +2,9 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import api from 'lib/api'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { retentionToActorsQuery } from '@posthog/query-frontend/nodes/RetentionQuery/queries'
-import { urls } from 'scenes/urls'
-
-import { cohortsModel } from '~/models/cohortsModel'
-import { Noun, groupsModel } from '~/models/groupsModel'
 import {
     ActorsQuery,
     DataTableNode,
@@ -19,7 +12,19 @@ import {
     NodeKind,
     RetentionQuery,
 } from '@posthog/query-frontend/schema/schema-general'
-import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '@posthog/query-frontend/utils'
+import {
+    isInsightActorsQuery,
+    isLifecycleQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+} from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'

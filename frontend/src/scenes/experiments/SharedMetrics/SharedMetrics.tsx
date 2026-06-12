@@ -13,6 +13,7 @@ import {
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -23,7 +24,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { isLegacySharedMetric } from '../utils'
 import { InlineTagEditor } from './InlineTagEditor'

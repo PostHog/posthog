@@ -1,11 +1,12 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-
 import { hogqlQuery } from '@posthog/query-frontend/query'
 import { DataTableNode, InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { hogql } from '@posthog/query-frontend/utils'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import {
     type AnyPropertyFilter,
     BaseMathType,

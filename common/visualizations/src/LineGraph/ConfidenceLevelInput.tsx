@@ -3,12 +3,11 @@ import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
-
 import { isTrendsQuery } from '@posthog/query-frontend/utils'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function ConfidenceLevelInput(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

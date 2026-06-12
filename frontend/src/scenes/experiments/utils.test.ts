@@ -1,9 +1,3 @@
-import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
-import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
-import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
-import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
-import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
-import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_mean_metric.json'
 import {
     Breakdown,
     CachedNewExperimentQueryResponse,
@@ -15,6 +9,13 @@ import {
     NodeKind,
     ProductKey,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
+import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
+import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
+import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
+import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_mean_metric.json'
 import {
     AccessControlLevel,
     Experiment,

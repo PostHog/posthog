@@ -2,6 +2,7 @@ import { match } from 'ts-pattern'
 
 import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import { isExperimentFunnelMetric } from '@posthog/query-frontend/schema/schema-general'
+
 import { StepOrderValue } from '~/types'
 
 /**

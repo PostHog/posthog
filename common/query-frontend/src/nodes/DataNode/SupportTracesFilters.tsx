@@ -1,11 +1,10 @@
 import { useValues } from 'kea'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
-
-import { userLogic } from 'scenes/userLogic'
-
 import { DataNode, TracesQuery } from '@posthog/query-frontend/schema/schema-general'
 import { isTracesQuery } from '@posthog/query-frontend/utils'
+
+import { userLogic } from 'scenes/userLogic'
 
 interface SupportTracesFiltersProps {
     query: DataNode

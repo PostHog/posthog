@@ -3,10 +3,10 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import api, { ApiError, PaginatedResponse } from 'lib/api'
 
-import { HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseSavedQueryDraft } from '~/types'
 
 import type { draftsLogicType } from './draftsLogicType'

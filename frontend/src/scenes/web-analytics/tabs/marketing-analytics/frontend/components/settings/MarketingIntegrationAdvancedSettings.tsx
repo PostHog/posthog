@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { externalDataSources } from '@posthog/query-frontend/schema/schema-general'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { getEnabledNativeMarketingSources } from '../../logic/utils'
 import { IntegrationSettingsCard } from './IntegrationSettingsCard'

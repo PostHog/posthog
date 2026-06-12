@@ -1,19 +1,19 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { ResultCustomizationBy } from '@posthog/query-frontend/schema/schema-general'
 
 import { DataColorToken } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonColorList } from 'lib/lemon-ui/LemonColor/LemonColorList'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ResultCustomizationBy } from '@posthog/query-frontend/schema/schema-general'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { resultCustomizationsModalLogic } from './resultCustomizationsModalLogic'

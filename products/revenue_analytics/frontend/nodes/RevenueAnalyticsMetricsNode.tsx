@@ -1,18 +1,19 @@
 import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import {
     AnyResponseType,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMetricsQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'

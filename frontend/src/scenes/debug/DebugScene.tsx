@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconDatabaseBolt } from '@posthog/icons'
+import { stringifiedExamples } from '@posthog/query-frontend/examples'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,7 +13,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { stringifiedExamples } from '@posthog/query-frontend/examples'
 
 import { debugSceneLogic } from './debugSceneLogic'
 

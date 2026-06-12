@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
+import type { HogQLQueryString } from '@posthog/query-frontend/utils'
 
 import api from 'lib/api'
 import { FlagSelector } from 'lib/components/FlagSelector'
@@ -15,7 +16,6 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import type { HogQLQueryString } from '@posthog/query-frontend/utils'
 import {
     PropertyDefinitionType,
     PropertyFilterType,

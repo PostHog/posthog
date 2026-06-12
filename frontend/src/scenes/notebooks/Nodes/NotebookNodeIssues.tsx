@@ -2,11 +2,11 @@ import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { PropsWithChildren } from 'react'
 
 import { IconX } from '@posthog/icons'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
-import { Query } from '@posthog/query-frontend/Query/Query'
 import { InsightLogicProps } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'

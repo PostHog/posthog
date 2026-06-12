@@ -1,8 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { getActionFilterFromFunnelStep } from '@posthog/query-frontend/nodes/FunnelsQuery/views/funnelStepTableUtils'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 

@@ -3,6 +3,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'r
 
 import { IconMessage, IconSend, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { ArtifactContentType, AssistantMessageType } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import {
     NotebookComponentBlockNode,
@@ -15,8 +16,6 @@ import { maxLogic } from 'scenes/max/maxLogic'
 import type { maxLogicType } from 'scenes/max/maxLogicType'
 import { MaxThreadLogicProps, ThreadMessage, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
-
-import { ArtifactContentType, AssistantMessageType } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { getNotebookStringProp, getUnknownStringProp, summarizeTitle } from './markdownNotebookRegistry'
 import {

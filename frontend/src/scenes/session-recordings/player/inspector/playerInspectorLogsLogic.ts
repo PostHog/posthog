@@ -1,12 +1,13 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { LogMessage, LogsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { LogMessage, LogsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'

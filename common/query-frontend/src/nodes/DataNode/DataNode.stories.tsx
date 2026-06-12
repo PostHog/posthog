@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { mswDecorator } from '~/mocks/browser'
 import { examples } from '@posthog/query-frontend/examples'
 import { Query, QueryProps } from '@posthog/query-frontend/Query/Query'
 import { Node } from '@posthog/query-frontend/schema/schema-general'
+
+import { mswDecorator } from '~/mocks/browser'
 
 import events from './__mocks__/EventsNode.json'
 import persons from './__mocks__/PersonsNode.json'

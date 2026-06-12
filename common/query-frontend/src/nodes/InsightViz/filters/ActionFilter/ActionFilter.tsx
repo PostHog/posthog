@@ -8,6 +8,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useEffect } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
+import { RenameModal } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/RenameModal'
+import { isTrendsFilter } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 
 import {
     DataWarehousePopoverField,
@@ -19,8 +21,7 @@ import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/co
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { RenameModal } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/RenameModal'
-import { isTrendsFilter } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActionFilter as ActionFilterType,
@@ -32,7 +33,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { teamLogic } from 'scenes/teamLogic'
 import { ActionFilterGroup } from './ActionFilterGroup/ActionFilterGroup'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
 import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'

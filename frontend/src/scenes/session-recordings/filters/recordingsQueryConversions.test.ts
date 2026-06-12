@@ -1,4 +1,5 @@
 import { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,

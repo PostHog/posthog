@@ -2,10 +2,10 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 export function useOpenLogsSettingsPanel(): () => void {
     const { addProductIntent } = useActions(teamLogic)

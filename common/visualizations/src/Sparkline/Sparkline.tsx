@@ -3,16 +3,15 @@ import clsx from 'clsx'
 import { useMemo, useRef, useState } from 'react'
 
 import { Popover } from '@posthog/lemon-ui'
-
 import { Chart, ScaleOptions, TooltipModel } from '@posthog/visualizations/Chart'
+import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
+
 import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { hexToRGBA, humanFriendlyNumber } from 'lib/utils'
-import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
-
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { hexToRGBA, humanFriendlyNumber } from 'lib/utils'
 
 // Register once at module load. Chart.register is idempotent so re-registers (eg. by
 // AlertHistoryChart, which also uses the annotation plugin) are safe.

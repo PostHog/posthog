@@ -3,13 +3,12 @@ import { Form } from 'kea-forms'
 
 import { IconCopy, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
-import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { sourceFieldToElement } from './SourceForm'
 

@@ -4,6 +4,8 @@ import { useEffect, useMemo } from 'react'
 
 import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -11,8 +13,6 @@ import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
 
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'

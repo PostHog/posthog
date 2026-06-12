@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProductConfiguration'
@@ -12,7 +14,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, OnboardingStepKey, type SessionRecordingMaskingLevel } from '~/types'
 
 const SessionReplayConfigStep = (): JSX.Element => {

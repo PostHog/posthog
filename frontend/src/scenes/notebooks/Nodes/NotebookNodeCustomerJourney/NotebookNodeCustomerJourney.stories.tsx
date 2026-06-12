@@ -2,7 +2,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useMemo } from 'react'
 
-import { App } from 'scenes/App'
 import {
     JOURNEY_FEATURE_FLAGS,
     journeysList,
@@ -12,6 +11,8 @@ import {
     optionalStepResults,
     noCompletedSteps,
 } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelFlowGraph/__mocks__/journeyMocks'
+
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'

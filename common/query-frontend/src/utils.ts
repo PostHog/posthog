@@ -1,8 +1,3 @@
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { getAppContext } from 'lib/utils/getAppContext'
-
 import { ProductAnalyticsInsightNodeKind } from '@posthog/query-frontend/nodes/InsightQuery/defaults'
 import {
     AccountsQuery,
@@ -78,6 +73,12 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
+
 import { BaseMathType, ChartDisplayType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'

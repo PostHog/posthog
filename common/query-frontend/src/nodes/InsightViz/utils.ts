@@ -1,8 +1,5 @@
 import equal from 'fast-deep-equal'
 
-import { ApiError } from 'lib/api'
-import { getEventNamesForAction } from 'lib/utils'
-
 import { examples } from '@posthog/query-frontend/examples'
 import {
     DataTableNode,
@@ -14,6 +11,10 @@ import {
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
 import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import { ApiError } from 'lib/api'
+import { getEventNamesForAction } from 'lib/utils'
+
 import {
     ActionType,
     DashboardTile,

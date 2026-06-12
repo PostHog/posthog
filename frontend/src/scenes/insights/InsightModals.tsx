@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { EndpointQueryNode, HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
@@ -9,12 +12,10 @@ import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 
-import { EndpointQueryNode, HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
 import { InsightLogicProps, InsightShortId, ItemMode } from '~/types'
 
 import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'

@@ -3,14 +3,13 @@ import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
-
+import { DateRange, LogsSparklineBreakdownBy } from '@posthog/query-frontend/schema/schema-general'
 import { AnyScaleOptions, Sparkline } from '@posthog/visualizations/Sparkline/Sparkline'
+
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { shortTimeZone } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-
-import { DateRange, LogsSparklineBreakdownBy } from '@posthog/query-frontend/schema/schema-general'
 
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 

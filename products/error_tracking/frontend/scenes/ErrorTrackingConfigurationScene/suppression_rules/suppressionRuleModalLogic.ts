@@ -1,9 +1,10 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 
-import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { rulesLogic } from '../rules/rulesLogic'

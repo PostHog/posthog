@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { ClimberHog1, ClimberHog2, YCHog } from 'lib/components/hedgehogs'
@@ -16,7 +17,6 @@ import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { BillingProductV2Type, StartupProgramLabel } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'

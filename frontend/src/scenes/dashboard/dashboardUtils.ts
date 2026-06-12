@@ -2,6 +2,9 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { pollForResults } from '@posthog/query-frontend/query'
+import { DashboardFilter, HogQLVariable, TileFilters } from '@posthog/query-frontend/schema/schema-general'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import type { Dayjs } from 'lib/dayjs'
@@ -10,9 +13,6 @@ import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
-import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
-import { pollForResults } from '@posthog/query-frontend/query'
-import { DashboardFilter, HogQLVariable, TileFilters } from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,

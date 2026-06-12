@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'

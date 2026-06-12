@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin, IconStar } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 
 import { Search } from 'lib/components/Search/Search'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -22,7 +23,6 @@ import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 
 import { HomepageGridItem, HomepageGridItemKind, aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'

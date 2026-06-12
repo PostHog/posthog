@@ -1,13 +1,14 @@
-import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
-import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { BREAKDOWN_NULL_DISPLAY } from 'scenes/web-analytics/common'
-
 import {
     ProductIntentContext,
     ProductKey,
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { BREAKDOWN_NULL_DISPLAY } from 'scenes/web-analytics/common'
+
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,

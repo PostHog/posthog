@@ -3,8 +3,9 @@ import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { getElk } from 'lib/elk'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+
+import { getElk } from 'lib/elk'
 
 import { InsightLogicProps } from '~/types'
 import { FunnelStepWithConversionMetrics } from '~/types'

@@ -1,8 +1,9 @@
 import posthog from 'posthog-js'
 
+import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
+
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 
-import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
 export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {

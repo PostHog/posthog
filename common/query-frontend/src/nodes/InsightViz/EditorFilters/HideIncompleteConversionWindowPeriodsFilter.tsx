@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+import { isFunnelsQuery } from '@posthog/query-frontend/utils'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-
-import { isFunnelsQuery } from '@posthog/query-frontend/utils'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
 

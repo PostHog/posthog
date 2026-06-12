@@ -4,12 +4,12 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
 import { sourceSceneLogic } from '../SourceScene/SourceScene'

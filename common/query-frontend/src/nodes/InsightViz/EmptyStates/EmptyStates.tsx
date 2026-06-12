@@ -7,6 +7,12 @@ import { TextMorph } from 'torph/react'
 
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
+import { seriesToActionsAndEvents } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import { entityFilterLogic } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
+import { FunnelsQuery, Node, NodeKind, QueryStatus } from '@posthog/query-frontend/schema/schema-general'
+import { isFunnelsDataWarehouseNode } from '@posthog/query-frontend/utils'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
@@ -20,18 +26,12 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
-import { entityFilterLogic } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
-import { seriesToActionsAndEvents } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, Node, NodeKind, QueryStatus } from '@posthog/query-frontend/schema/schema-general'
-import { isFunnelsDataWarehouseNode } from '@posthog/query-frontend/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

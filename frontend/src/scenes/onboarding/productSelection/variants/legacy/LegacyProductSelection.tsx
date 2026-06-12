@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconChevronDown, IconCursor } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { Logomark } from 'lib/brand/Logomark'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { OnboardingExitAction } from '../../../exit'
 import { UseCaseDefinition } from '../../../productRecommendations'

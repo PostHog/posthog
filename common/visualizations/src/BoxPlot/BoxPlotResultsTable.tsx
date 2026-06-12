@@ -1,11 +1,11 @@
 import { useValues } from 'kea'
 
+import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { BoxPlotDatum } from '@posthog/query-frontend/schema/schema-general'
+
 import { getSeriesColor } from 'lib/colors'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-
-import { BoxPlotDatum } from '@posthog/query-frontend/schema/schema-general'
 
 import { boxPlotChartLogic } from './boxPlotChartLogic'
 

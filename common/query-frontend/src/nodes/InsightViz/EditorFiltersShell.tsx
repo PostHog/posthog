@@ -2,14 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import MaxTool from 'scenes/max/MaxTool'
-import { castAssistantQuery } from 'scenes/max/utils'
-import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-
 import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -24,6 +17,13 @@ import {
     QuerySchema,
 } from '@posthog/query-frontend/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '@posthog/query-frontend/utils'
+
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import MaxTool from 'scenes/max/MaxTool'
+import { castAssistantQuery } from 'scenes/max/utils'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { SessionAnalysisWarning } from './SessionAnalysisWarning'
 import { SuggestionBanner } from './SuggestionBanner'

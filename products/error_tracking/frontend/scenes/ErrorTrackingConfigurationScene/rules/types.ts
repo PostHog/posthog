@@ -1,4 +1,5 @@
 import { ErrorTrackingIssueAssignee } from '@posthog/query-frontend/schema/schema-general'
+
 import { JsonType, UniversalFiltersGroup } from '~/types'
 
 export type ErrorTrackingBaseRule = {

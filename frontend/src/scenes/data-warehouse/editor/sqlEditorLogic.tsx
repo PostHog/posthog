@@ -22,6 +22,20 @@ import posthog from 'posthog-js'
 import { Suspense, lazy } from 'react'
 
 import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Spinner, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { dataVisualizationLogic } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
+import { performQuery, queryExportContext } from '@posthog/query-frontend/query'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    DatabaseSchemaViewTable,
+    HogLanguage,
+    HogQLFilters,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLQuery,
+    NodeKind,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -43,20 +57,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { dataVisualizationLogic } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
-import { performQuery, queryExportContext } from '@posthog/query-frontend/query'
-import {
-    DataTableNode,
-    DataVisualizationNode,
-    DatabaseSchemaViewTable,
-    HogLanguage,
-    HogQLFilters,
-    HogQLMetadata,
-    HogQLMetadataResponse,
-    HogQLQuery,
-    NodeKind,
-} from '@posthog/query-frontend/schema/schema-general'
 import {
     ChartDisplayType,
     DataWarehouseSavedQuery,
@@ -392,7 +392,9 @@ function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | un
     model.pushStackElement()
 }
 
-const LazyQuery = lazy(() => import('@posthog/query-frontend/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> })))
+const LazyQuery = lazy(() =>
+    import('@posthog/query-frontend/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> }))
+)
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),

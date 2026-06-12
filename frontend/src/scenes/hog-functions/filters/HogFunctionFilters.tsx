@@ -4,14 +4,14 @@ import { useMemo } from 'react'
 
 import { IconCheck, IconFilter, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import MaxTool from 'scenes/max/MaxTool'
 
 import { groupsModel } from '~/models/groupsModel'

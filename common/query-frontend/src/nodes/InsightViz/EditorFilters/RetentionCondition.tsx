@@ -4,13 +4,8 @@ import { toast } from 'react-toastify'
 
 import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-
-import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { getOrdinalSuffix } from 'lib/utils'
 import { AggregationSelect } from '@posthog/query-frontend/nodes/InsightViz/filters/AggregationSelect'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-import { getRetentionPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 import {
     dateOptionPlurals,
     dateOptions,
@@ -18,6 +13,11 @@ import {
     retentionOptions,
 } from '@posthog/query-frontend/nodes/RetentionQuery/constants'
 import { MAX_BRACKETS, retentionLogic } from '@posthog/query-frontend/nodes/RetentionQuery/retentionLogic'
+
+import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getOrdinalSuffix } from 'lib/utils'
+import { getRetentionPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'

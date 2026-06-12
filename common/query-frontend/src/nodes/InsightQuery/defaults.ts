@@ -1,5 +1,3 @@
-import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
-
 import {
     FunnelsQuery,
     InsightQueryNode,
@@ -11,6 +9,9 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
+
 import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
 function getTrendsQueryDefault(): TrendsQuery {

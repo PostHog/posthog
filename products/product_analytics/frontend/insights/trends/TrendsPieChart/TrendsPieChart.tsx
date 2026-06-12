@@ -2,30 +2,30 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
-import { PieChart } from '@posthog/quill-charts'
-import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
-
-import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
 } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
 import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
-import { teamLogic } from 'scenes/teamLogic'
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 import { datasetToActorsQuery } from '@posthog/query-frontend/nodes/TrendsQuery/viz/datasetToActorsQuery'
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
+import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
+import { PieChart } from '@posthog/quill-charts'
+import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
+import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
+import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'

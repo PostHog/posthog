@@ -3,12 +3,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
+import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { HeatmapSettings } from '@posthog/query-frontend/schema/schema-general'
 
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { SortingIndicator, getNextSorting } from 'lib/lemon-ui/LemonTable/sorting'
-import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-
-import { HeatmapSettings } from '@posthog/query-frontend/schema/schema-general'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import {

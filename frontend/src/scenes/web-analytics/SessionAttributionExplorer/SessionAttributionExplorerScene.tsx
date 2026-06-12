@@ -3,6 +3,10 @@ import React from 'react'
 
 import { IconCollapse, IconExpand, IconPlus } from '@posthog/icons'
 import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { isSessionPropertyFilters } from '@posthog/query-frontend/schema-guards'
+import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext, QueryContextColumnComponent } from '@posthog/query-frontend/types'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconFeedback } from 'lib/lemon-ui/icons'
@@ -14,10 +18,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { isSessionPropertyFilters } from '@posthog/query-frontend/schema-guards'
-import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext, QueryContextColumnComponent } from '@posthog/query-frontend/types'
 
 import { sessionAttributionExplorerLogic } from './sessionAttributionExplorerLogic'
 

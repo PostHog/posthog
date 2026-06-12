@@ -2,16 +2,16 @@ import { useActions, useValues } from 'kea'
 import { Suspense, lazy } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { InsightsTable } from '@posthog/query-frontend/nodes/InsightViz/views/InsightsTable/InsightsTable'
+import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
+import { BoldNumber } from '@posthog/visualizations/BoldNumber'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { BoldNumber } from '@posthog/visualizations/BoldNumber'
-import { InsightsTable } from '@posthog/query-frontend/nodes/InsightViz/views/InsightsTable/InsightsTable'
 
-import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 import { ChartDisplayType, InsightType } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'

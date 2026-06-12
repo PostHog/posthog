@@ -1,9 +1,10 @@
 import { BuiltLogic } from 'kea'
 
-import { toPaginatedResponse } from '~/mocks/handlers'
-import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { ActorsQuery, DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import { toPaginatedResponse } from '~/mocks/handlers'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'

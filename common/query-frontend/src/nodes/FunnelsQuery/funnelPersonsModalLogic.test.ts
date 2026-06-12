@@ -1,13 +1,14 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
+import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 

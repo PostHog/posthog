@@ -3,13 +3,13 @@ import { actions, connect, kea, key, path, props, reducers, selectors } from 'ke
 import { forms } from 'kea-forms'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'

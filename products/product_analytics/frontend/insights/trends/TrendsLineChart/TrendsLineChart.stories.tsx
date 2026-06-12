@@ -2,16 +2,17 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import type { DataNodeLogicProps } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/InsightViz'
+import { getCachedResults } from '@posthog/query-frontend/nodes/InsightViz/utils'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import trendsLineFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import trendsLineBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import trendsLineMultiFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import type { DataNodeLogicProps } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/InsightViz'
-import { getCachedResults } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { TrendsLineChart } from './TrendsLineChart'

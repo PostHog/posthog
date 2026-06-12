@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
 import { IconAI } from '@posthog/icons'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -10,7 +11,6 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 5
 

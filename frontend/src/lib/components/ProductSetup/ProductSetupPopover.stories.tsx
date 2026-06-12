@@ -4,9 +4,9 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { mswDecorator } from '~/mocks/browser'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductSetupPopover, ProductSetupPopoverProps } from './ProductSetupPopover'
 

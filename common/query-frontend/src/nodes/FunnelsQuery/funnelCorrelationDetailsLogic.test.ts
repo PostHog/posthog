@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import { DataNode, InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { initKeaTests } from '~/test/init'
 import { FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps, InsightType } from '~/types'
 

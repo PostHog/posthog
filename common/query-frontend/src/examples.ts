@@ -1,6 +1,3 @@
-// This file contains example queries, used in storybook and in the /query interface.
-import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
-
 import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
 import {
     ActionsNode,
@@ -26,6 +23,10 @@ import {
     WebVitalsPercentile,
     WebVitalsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
+// This file contains example queries, used in storybook and in the /query interface.
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+
 import {
     BaseMathType,
     ChartDisplayType,

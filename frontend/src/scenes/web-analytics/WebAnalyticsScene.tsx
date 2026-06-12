@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -12,7 +14,6 @@ import { WebAnalyticsSceneMenuBar } from 'scenes/web-analytics/WebAnalyticsScene
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 export function WebAnalyticsScene(): JSX.Element {
     useMaxTool({

@@ -1,3 +1,6 @@
+import { extractExpressionComment } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
     allOperatorsMapping,
@@ -10,8 +13,6 @@ import {
 } from 'lib/utils'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
-import { extractExpressionComment } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AnyFilterLike,

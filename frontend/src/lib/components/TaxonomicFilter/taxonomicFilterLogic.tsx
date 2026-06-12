@@ -18,6 +18,12 @@ import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconCursor, IconFlag, IconServer } from '@posthog/icons'
+import {
+    AnyDataNode,
+    DatabaseSchemaField,
+    DatabaseSchemaTable,
+    NodeKind,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import {
     buildAutocaptureSeriesShortcuts,
@@ -80,7 +86,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { getCoreFilterDefinition, getFilterLabel } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {

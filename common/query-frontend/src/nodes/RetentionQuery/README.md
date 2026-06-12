@@ -6,23 +6,23 @@ The required `retentionFilter` configures the entities, `period` (`Day`/`Week`/.
 
 ## Rendering
 
-`RetentionQuery` is an insight *source* — wrap it in an `InsightVizNode` and pass that to `<Query />`:
+`RetentionQuery` is an insight _source_ — wrap it in an `InsightVizNode` and pass that to `<Query />`:
 
 ```tsx
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
-<Query
-    query={{
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.RetentionQuery,
-            retentionFilter: {
-                targetEntity: { type: 'events', id: '$pageview', name: '$pageview' },
-                returningEntity: { type: 'events', id: '$pageview', name: '$pageview' },
-            },
-        },
-    }}
+;<Query
+  query={{
+    kind: NodeKind.InsightVizNode,
+    source: {
+      kind: NodeKind.RetentionQuery,
+      retentionFilter: {
+        targetEntity: { type: 'events', id: '$pageview', name: '$pageview' },
+        returningEntity: { type: 'events', id: '$pageview', name: '$pageview' },
+      },
+    },
+  }}
 />
 ```
 

@@ -3,6 +3,13 @@ import { useState } from 'react'
 
 import { IconChevronRight, IconExternal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import type {
+    ErrorTrackingSignalExtra,
+    GithubIssueSignalExtra,
+    LlmEvalSignalExtra,
+    SessionSegmentClusterSignalExtra,
+    ZendeskTicketSignalExtra,
+} from '@posthog/query-frontend/schema/schema-signals'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -12,14 +19,6 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { sourceProductColor } from 'scenes/debug/signals/helpers'
 import type { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
-
-import type {
-    ErrorTrackingSignalExtra,
-    GithubIssueSignalExtra,
-    LlmEvalSignalExtra,
-    SessionSegmentClusterSignalExtra,
-    ZendeskTicketSignalExtra,
-} from '@posthog/query-frontend/schema/schema-signals'
 
 export function SignalCard({ signal }: { signal: SignalNode }): JSX.Element {
     if (signal.source_product === 'error_tracking' && isErrorTrackingExtra(signal.extra)) {

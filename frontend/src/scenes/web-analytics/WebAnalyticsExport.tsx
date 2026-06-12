@@ -1,7 +1,7 @@
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
-
 import { QuerySchema } from '@posthog/query-frontend/schema/schema-general'
+
 import { ExporterFormat, InsightLogicProps } from '~/types'
 
 import { exportTableData } from './webAnalyticsExportUtils'

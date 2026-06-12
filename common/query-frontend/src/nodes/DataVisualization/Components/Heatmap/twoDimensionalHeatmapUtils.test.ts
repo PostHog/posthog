@@ -1,6 +1,6 @@
-import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
-
 import { HeatmapSortOrder, type HeatmapSettings } from '@posthog/query-frontend/schema/schema-general'
+
+import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
 import {
     getHeatmapSettingsWithSorting,

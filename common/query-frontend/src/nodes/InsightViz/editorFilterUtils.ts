@@ -1,7 +1,8 @@
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import { pluralize } from 'lib/utils'
 import { formatEventName } from 'scenes/insights/utils'
 
-import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { AnyPropertyFilter, InsightEditorFilter, PropertyGroupFilter } from '~/types'
 

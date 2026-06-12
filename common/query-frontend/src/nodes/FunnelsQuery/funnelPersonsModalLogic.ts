@@ -1,11 +1,8 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
-import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { funnelTitle } from '@posthog/query-frontend/persons-modal/persons-modal-utils'
 import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
-
 import {
     EventsNode,
     FunnelCorrelationActorsQuery,
@@ -13,6 +10,10 @@ import {
     FunnelsActorsQuery,
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
 import {
     AnyPropertyFilter,
     FunnelCorrelation,

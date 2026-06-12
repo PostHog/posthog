@@ -16,8 +16,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
-import api, { ApiError } from '~/lib/api'
-import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
 import {
     DataTableNode,
@@ -28,6 +26,9 @@ import {
     TracesQuery,
 } from '@posthog/query-frontend/schema/schema-general'
 import { isTracesQuery } from '@posthog/query-frontend/utils'
+
+import api, { ApiError } from '~/lib/api'
+import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import {

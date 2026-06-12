@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { ReplayInactivityPeriod } from '@posthog/query-frontend/schema/schema-general'
+
 import { SessionPlayerState } from '~/types'
 
 import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'

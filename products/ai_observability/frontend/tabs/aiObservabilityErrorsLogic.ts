@@ -1,9 +1,10 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 
+import { DataTableNode, InsightVizNode, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, InsightVizNode, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import errorsQueryTemplate from '../../backend/queries/errors.sql?raw'

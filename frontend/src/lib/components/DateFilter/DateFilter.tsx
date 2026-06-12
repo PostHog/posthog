@@ -5,6 +5,7 @@ import { forwardRef, useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
+import { ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     CUSTOM_OPTION_DESCRIPTION,
@@ -21,7 +22,6 @@ import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
 import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ResolvedDateRangeResponse } from '@posthog/query-frontend/schema/schema-general'
 import { DateMappingOption, PropertyOperator } from '~/types'
 
 import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'

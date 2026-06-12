@@ -1,9 +1,9 @@
 import { Monaco } from '@monaco-editor/react'
 
+import { HogLanguage } from '@posthog/query-frontend/schema/schema-general'
+
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
-
-import { HogLanguage } from '@posthog/query-frontend/schema/schema-general'
 
 export function initLiquidLanguage(monaco: Monaco): void {
     /**

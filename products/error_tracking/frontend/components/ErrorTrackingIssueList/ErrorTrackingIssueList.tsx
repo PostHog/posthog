@@ -3,14 +3,13 @@ import { useMemo } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
-
-import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { useSparklineData } from '../../hooks/use-sparkline-data'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'

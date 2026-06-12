@@ -1,7 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { useMocks } from '~/mocks/jest'
 import { NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 

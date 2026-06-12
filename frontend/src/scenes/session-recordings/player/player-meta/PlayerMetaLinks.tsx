@@ -11,6 +11,7 @@ import {
     IconTrash,
 } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { personsModalLogic } from '@posthog/query-frontend/persons-modal/personsModalLogic'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { IconBlank } from 'lib/lemon-ui/icons'
@@ -26,7 +27,6 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
-import { personsModalLogic } from '@posthog/query-frontend/persons-modal/personsModalLogic'
 
 import { AccessControlResourceType } from '~/types'
 import { AccessControlLevel } from '~/types'

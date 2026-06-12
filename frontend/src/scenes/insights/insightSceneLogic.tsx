@@ -2,6 +2,22 @@ import { BuiltLogic, actions, connect, kea, listeners, path, reducers, selectors
 import { urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { insightDataLogicType } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogicType'
+import { getDefaultQuery } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import {
+    DashboardFilter,
+    FileSystemIconType,
+    HogQLVariable,
+    Node,
+    TileFilters,
+} from '@posthog/query-frontend/schema/schema-general'
+import {
+    checkLatestVersionsOnQuery,
+    convertDataTableNodeToDataVisualizationNode,
+    isInsightVizNode,
+} from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -22,13 +38,6 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { getDefaultQuery } from '@posthog/query-frontend/nodes/InsightViz/utils'
-import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '@posthog/query-frontend/schema/schema-general'
-import {
-    checkLatestVersionsOnQuery,
-    convertDataTableNodeToDataVisualizationNode,
-    isInsightVizNode,
-} from '@posthog/query-frontend/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -45,8 +54,6 @@ import {
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { insightDataLogicType } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
 

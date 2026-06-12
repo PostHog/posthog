@@ -2,6 +2,8 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -35,8 +37,6 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'

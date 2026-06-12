@@ -1,6 +1,3 @@
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { objectClean } from 'lib/utils'
-
 import { ProductAnalyticsInsightNodeKind } from '@posthog/query-frontend/nodes/InsightQuery/defaults'
 import {
     AnyDataWarehouseNode,
@@ -33,6 +30,10 @@ import {
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '@posthog/query-frontend/utils'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { objectClean } from 'lib/utils'
+
 import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 
 type FilterTypeActionsAndEvents = {

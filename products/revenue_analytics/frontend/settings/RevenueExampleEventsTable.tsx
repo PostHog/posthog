@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { Currency, Revenue } from './RevenueExampleTableColumns'

@@ -2,12 +2,11 @@ import { useEffect, useState } from 'react'
 
 import { IconClock } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
+import { CompareFilter as CompareFilterType } from '@posthog/query-frontend/schema/schema-general'
 
 import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRangeFilter'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { dateFromToText } from 'lib/utils'
-
-import { CompareFilter as CompareFilterType } from '@posthog/query-frontend/schema/schema-general'
 
 type CompareFilterProps = {
     compareFilter?: CompareFilterType | null

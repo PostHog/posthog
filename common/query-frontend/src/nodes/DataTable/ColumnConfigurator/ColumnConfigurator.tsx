@@ -8,6 +8,18 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPencil, IconX } from '@posthog/icons'
+import { dataTableLogic } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
+import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
+import {
+    isActorsQuery,
+    isEventsQuery,
+    isGroupsQuery,
+    isSessionsQuery,
+    taxonomicEventFilterToHogQL,
+    taxonomicGroupFilterToHogQL,
+    taxonomicPersonFilterToHogQL,
+    trimQuotes,
+} from '@posthog/query-frontend/utils'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -22,18 +34,6 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { dataTableLogic } from '@posthog/query-frontend/nodes/DataTable/dataTableLogic'
-import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
-import {
-    isActorsQuery,
-    isEventsQuery,
-    isGroupsQuery,
-    isSessionsQuery,
-    taxonomicEventFilterToHogQL,
-    taxonomicGroupFilterToHogQL,
-    taxonomicPersonFilterToHogQL,
-    trimQuotes,
-} from '@posthog/query-frontend/utils'
 import { GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'

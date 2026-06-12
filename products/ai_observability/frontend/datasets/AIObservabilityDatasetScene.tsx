@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTab, LemonTabs, Link, ProfilePicture } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
@@ -38,7 +39,6 @@ import {
 import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Dataset, DatasetItem } from '~/types'
 
 import { truncateValue } from '../utils'

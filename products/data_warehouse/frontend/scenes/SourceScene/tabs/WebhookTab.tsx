@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
@@ -12,7 +13,6 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { SourceConfig, SourceFieldConfig } from '@posthog/query-frontend/schema/schema-general'
 import { WebhookInfo } from '~/types'
 
 import { sourceFieldToElement } from '../../../shared/components/forms/SourceForm'

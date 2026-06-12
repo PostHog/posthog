@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'

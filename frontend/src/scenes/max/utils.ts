@@ -1,9 +1,5 @@
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
-
 import { VisualizationBlock } from '@posthog/query-frontend/schema/schema-assistant-artifacts'
 import {
     AgentMode,
@@ -34,6 +30,11 @@ import {
     QuerySchemaRoot,
 } from '@posthog/query-frontend/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '@posthog/query-frontend/utils'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDuration } from 'lib/utils'
+
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'

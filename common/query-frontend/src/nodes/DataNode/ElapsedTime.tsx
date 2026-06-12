@@ -3,11 +3,10 @@ import { useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
-
-import { Popover } from 'lib/lemon-ui/Popover'
-
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { QueryTiming } from '@posthog/query-frontend/schema/schema-general'
+
+import { Popover } from 'lib/lemon-ui/Popover'
 
 export interface TimingsProps {
     timings: QueryTiming[]

@@ -2,6 +2,11 @@ import { useValues } from 'kea'
 
 import { IconGraph, IconLineGraph, IconTrending } from '@posthog/icons'
 import { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
+import {
+    InfinityValue,
+    MarketingAnalyticsItem,
+    WebAnalyticsItemKind,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { getColorVar } from 'lib/colors'
 import { IconAreaChart, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
@@ -11,7 +16,6 @@ import { isNotNil } from 'lib/utils'
 import { DEFAULT_CURRENCY, getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { InfinityValue, MarketingAnalyticsItem, WebAnalyticsItemKind } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 // Simple mapping for the display mode options and their icons

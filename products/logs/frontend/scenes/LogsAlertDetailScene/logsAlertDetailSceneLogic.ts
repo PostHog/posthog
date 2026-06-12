@@ -3,15 +3,15 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
+import { SparklineTimeSeries } from '@posthog/visualizations/Sparkline/Sparkline'
 
 import api from 'lib/api'
-import { SparklineTimeSeries } from '@posthog/visualizations/Sparkline/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { logsAlertEventHistoryLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertEventHistoryLogic'

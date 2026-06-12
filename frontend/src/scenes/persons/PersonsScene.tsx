@@ -2,6 +2,8 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 
 import { IconRewind } from '@posthog/icons'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -19,8 +21,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { CustomerProfileScope, OnboardingStepKey } from '~/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 
+import { SessionsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { SessionsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter } from '~/types'
 
 interface SessionPropertyFiltersProps {

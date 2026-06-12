@@ -18,6 +18,7 @@ import {
 
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 
 import { filterSearchItems } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -35,7 +36,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { fileSystemTypes } from '~/products'
-import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'

@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { entityFilterLogic } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 import { renameModalLogic } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/renameModalLogic'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 import { initKeaTests } from '~/test/init'

@@ -3,11 +3,14 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { IconInfo, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonSelect, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import {
+    MatchField,
+    VALID_NATIVE_MARKETING_SOURCES,
+    externalDataSources,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-
-import { MatchField, VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {

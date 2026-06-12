@@ -1,8 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, Survey, SurveySchedule, SurveyType } from '~/types'
 

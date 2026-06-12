@@ -14,14 +14,14 @@ Write the tags directly in SQL and render the query as usual:
 ```tsx
 import { Query } from '@posthog/query-frontend/Query/Query'
 
-<Query
-    query={{
-        kind: 'DataTableNode',
-        source: {
-            kind: 'HogQLQuery',
-            query: `select event, <Sparkline data={[1, 2, 3]} /> as chart from events limit 10`,
-        },
-    }}
+;<Query
+  query={{
+    kind: 'DataTableNode',
+    source: {
+      kind: 'HogQLQuery',
+      query: `select event, <Sparkline data={[1, 2, 3]} /> as chart from events limit 10`,
+    },
+  }}
 />
 ```
 

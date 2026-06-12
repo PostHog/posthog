@@ -1,8 +1,9 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { RevenueAnalyticsMRRQueryResultItem } from '@posthog/query-frontend/schema/schema-general'
+
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { RevenueAnalyticsMRRQueryResultItem } from '@posthog/query-frontend/schema/schema-general'
 import { GraphDataset } from '~/types'
 
 import type { mrrBreakdownModalLogicType } from './mrrBreakdownModalLogicType'

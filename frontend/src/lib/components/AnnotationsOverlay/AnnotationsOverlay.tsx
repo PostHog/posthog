@@ -5,8 +5,8 @@ import posthog from 'posthog-js'
 import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
-
 import { Chart } from '@posthog/visualizations/Chart'
+
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { dayjs } from 'lib/dayjs'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'

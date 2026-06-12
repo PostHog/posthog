@@ -1,8 +1,8 @@
 import { cleanup } from '@testing-library/react'
 
+import { NodeKind, TrendsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import { ChartEvent, InteractionItem } from '@posthog/visualizations/Chart'
 
-import { NodeKind, TrendsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import {
     buildTrendsQuery,
     type MockResponse,

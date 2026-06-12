@@ -2,16 +2,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { ReactElement } from 'react'
 
 import { IconGear, IconPencil } from '@posthog/icons'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Link } from 'lib/lemon-ui/Link'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { urls } from 'scenes/urls'
-
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
+import { urls } from 'scenes/urls'
+
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { EditableBreakdownTag } from './BreakdownTag'

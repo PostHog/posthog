@@ -4,6 +4,8 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
@@ -12,8 +14,6 @@ import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotic
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
-import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import type { CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator, Region } from '~/types'
 

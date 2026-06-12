@@ -3,6 +3,11 @@ import { useState } from 'react'
 
 import { IconGear, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    MarketingAnalyticsColumnsSchemaNames,
+    NativeMarketingSource,
+    VALID_NATIVE_MARKETING_SOURCES,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -10,11 +15,6 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import {
-    MarketingAnalyticsColumnsSchemaNames,
-    NativeMarketingSource,
-    VALID_NATIVE_MARKETING_SOURCES,
-} from '@posthog/query-frontend/schema/schema-general'
 import { ExternalDataSchemaStatus, ExternalDataSource, ManualLinkSourceType } from '~/types'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'

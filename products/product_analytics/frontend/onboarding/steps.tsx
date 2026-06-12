@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProductConfiguration'
@@ -13,7 +15,6 @@ import {
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
 
 const sessionReplayOnboardingToggle = (

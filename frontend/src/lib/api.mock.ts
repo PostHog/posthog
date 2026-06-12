@@ -1,7 +1,8 @@
+import { CurrencyCode, CustomerAnalyticsConfig, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import apiReal from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { CurrencyCode, CustomerAnalyticsConfig, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     ActivationTaskStatus,

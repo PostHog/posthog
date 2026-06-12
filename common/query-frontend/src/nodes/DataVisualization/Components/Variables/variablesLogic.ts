@@ -1,6 +1,8 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { DataVisualizationNode, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
+
 import { objectsEqual } from 'lib/utils'
 import {
     getVariablesFromQuery,
@@ -8,7 +10,6 @@ import {
     syncSelectedVariablesToQuery,
 } from 'scenes/insights/utils/queryUtils'
 
-import { DataVisualizationNode, HogQLVariable } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'

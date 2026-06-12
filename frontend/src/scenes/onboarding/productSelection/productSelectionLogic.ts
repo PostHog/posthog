@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { getRelativeNextPath } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
@@ -9,7 +11,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { localStorageProductKey } from '~/layout/panel-layout/ai-first/promotedProductLogic'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import { availableOnboardingProducts } from '../utils'

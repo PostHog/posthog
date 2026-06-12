@@ -1,12 +1,12 @@
-import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
-import { JSONContent } from 'lib/components/RichContentEditor/types'
-
 import {
     ArtifactContentType,
     NotebookArtifactContent,
     VisualizationArtifactContent,
 } from '@posthog/query-frontend/schema/schema-assistant-messages'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { NotebookNodeType } from '../types'
 import {

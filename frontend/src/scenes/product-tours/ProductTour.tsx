@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { LemonModal } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -12,7 +13,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Error404 } from '~/layout/Error404'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductTourEdit } from './ProductTourEdit'
 import { ProductTourLogicProps, productTourLogic } from './productTourLogic'

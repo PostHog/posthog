@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
 import { ViewportResolution } from '@posthog/replay-shared'
 
 import api from 'lib/api'
@@ -13,7 +14,6 @@ import { getEventsWithPrimaryProperty } from 'lib/utils/primaryEventProperty'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
-import { HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
 import { RecordingEventType } from '~/types'
 
 import type { sessionEventsDataLogicType } from './sessionEventsDataLogicType'

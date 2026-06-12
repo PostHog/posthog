@@ -2,14 +2,13 @@ import { ReactNode } from 'react'
 
 import { IconDirectedGraph, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
+import { SimilarIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
-
-import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
-import { SimilarIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { StatusIndicator } from './Indicators'
 import { RuntimeIcon } from './RuntimeIcon'

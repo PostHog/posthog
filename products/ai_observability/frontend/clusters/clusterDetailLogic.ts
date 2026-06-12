@@ -3,14 +3,15 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { EventsQuery, NodeKind, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { EventsQuery, NodeKind, ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
-import { hogql } from '@posthog/query-frontend/utils'
 import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'

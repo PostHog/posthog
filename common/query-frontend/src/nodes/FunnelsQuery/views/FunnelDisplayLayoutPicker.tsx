@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 
 import { FunnelLayout } from 'lib/constants'
 import { IconFunnelHorizontal, IconFunnelVertical } from 'lib/lemon-ui/icons'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelDisplayLayoutPicker(): JSX.Element {

@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconChevronDown, IconTestTube } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -11,7 +12,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { LogsAlertEventHistoryContent } from 'products/logs/frontend/components/LogsAlerting/LogsAlertEventHistory'

@@ -2,9 +2,10 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
+
 import { quickFiltersLogic } from 'lib/components/QuickFilters'
 
-import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyOperator, QuickFilterOption } from '~/types'
 
 import { QuickFiltersEvents } from './consts'

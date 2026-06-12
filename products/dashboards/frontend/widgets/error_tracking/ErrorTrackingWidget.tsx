@@ -2,11 +2,10 @@ import { BindLogic, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { SupermanHog } from 'lib/components/hedgehogs'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { ErrorTrackingIssueList } from 'products/error_tracking/frontend/components/ErrorTrackingIssueList/ErrorTrackingIssueList'
 import { ErrorTrackingIssueListSkeleton } from 'products/error_tracking/frontend/components/ErrorTrackingIssueList/ErrorTrackingIssueListSkeleton'

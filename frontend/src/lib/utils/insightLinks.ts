@@ -1,8 +1,9 @@
-import { urls } from 'scenes/urls'
-
 import { nodeKindToInsightType } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
 import type { Node } from '@posthog/query-frontend/schema/schema-general'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import { urls } from 'scenes/urls'
+
 import type { QueryBasedInsightModel } from '~/types'
 import { InsightType } from '~/types'
 

@@ -1,6 +1,15 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
+import { seriesNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from '@posthog/query-frontend/nodes/InsightViz/filters/aggregationTargetUtils'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { FunnelExclusionSteps, InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
+import { FunnelsFilter, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '@posthog/query-frontend/utils'
+
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -8,17 +17,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
-import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from '@posthog/query-frontend/nodes/InsightViz/filters/aggregationTargetUtils'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { seriesNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelExclusionSteps, InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
-import { FunnelsFilter, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '@posthog/query-frontend/utils'
 import {
     FlattenedFunnelStepByBreakdown,
     EntityType,

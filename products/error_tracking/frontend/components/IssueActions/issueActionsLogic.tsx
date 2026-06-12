@@ -1,6 +1,8 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -8,7 +10,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
 
-import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 import { BehavioralEventType, CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'

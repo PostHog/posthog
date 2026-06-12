@@ -3,11 +3,12 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
-import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 

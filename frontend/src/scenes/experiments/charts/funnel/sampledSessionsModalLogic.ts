@@ -1,9 +1,10 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { NodeKind, SessionData } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 
-import { NodeKind, SessionData } from '@posthog/query-frontend/schema/schema-general'
 import { PersonType } from '~/types'
 
 import type { sampledSessionsModalLogicType } from './sampledSessionsModalLogicType'

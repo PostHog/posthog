@@ -1,9 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
+import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
+
 import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
 import { OpenQuestionSummaryV2 } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummaryV2'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'

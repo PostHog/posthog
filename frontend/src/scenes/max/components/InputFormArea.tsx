@@ -4,7 +4,6 @@ import useResizeObserver from 'use-resize-observer'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
-
 import {
     DangerousOperationResponse,
     MultiQuestionForm,

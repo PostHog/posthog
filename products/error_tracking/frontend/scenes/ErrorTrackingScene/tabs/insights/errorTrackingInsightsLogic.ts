@@ -3,10 +3,17 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import {
+    HogQLQueryResponse,
+    InsightVizNode,
+    NodeKind,
+    ProductKey,
+    TrendsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
-import { HogQLQueryResponse, InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,

@@ -3,6 +3,12 @@ import { compare as compareFn } from 'natural-orderby'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonColorButton } from '@posthog/lemon-ui'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { funnelPersonsModalLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelPersonsModalLogic'
+import { getVisibilityKey } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
+import { ValueInspectorButton } from '@posthog/query-frontend/nodes/FunnelsQuery/ValueInspectorButton'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { resultCustomizationsModalLogic } from '@posthog/query-frontend/nodes/InsightViz/resultCustomizationsModalLogic'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -10,19 +16,13 @@ import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
-import { funnelPersonsModalLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelPersonsModalLogic'
-import { getVisibilityKey } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
-import { ValueInspectorButton } from '@posthog/query-frontend/nodes/FunnelsQuery/ValueInspectorButton'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
-import { resultCustomizationsModalLogic } from '@posthog/query-frontend/nodes/InsightViz/resultCustomizationsModalLogic'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {

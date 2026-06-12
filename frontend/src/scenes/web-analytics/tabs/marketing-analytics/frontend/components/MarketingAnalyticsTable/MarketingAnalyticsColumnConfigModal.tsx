@@ -3,11 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconEye, IconHide, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonModal, LemonSelect } from '@posthog/lemon-ui'
-
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-
 import { MarketingAnalyticsTableQuery } from '@posthog/query-frontend/schema/schema-general'
 import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
+
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'

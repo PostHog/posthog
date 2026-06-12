@@ -3,12 +3,12 @@ import { combineUrl } from 'kea-router'
 
 import { IconExternal, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 import { openDeleteConversationDialog } from './conversationDialogs'

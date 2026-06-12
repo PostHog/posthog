@@ -1,7 +1,8 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
+
+import { recentItemsModel } from '~/models/recentItemsModel'
 
 import type { navRecentsLogicType } from './navRecentsLogicType'
 

@@ -27,6 +27,7 @@ import {
     IconUnlock,
     IconWarning,
 } from '@posthog/icons'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     BuilderHog1,
@@ -44,7 +45,6 @@ import {
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { type AvailableOnboardingProducts, type OnboardingProduct } from '~/types'
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {

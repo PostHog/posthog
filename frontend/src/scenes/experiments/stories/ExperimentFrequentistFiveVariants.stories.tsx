@@ -1,5 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import {
+    ExperimentMetric,
+    NodeKind,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+} from '@posthog/query-frontend/schema/schema-general'
+
 import { makeDelay } from 'lib/utils'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -7,12 +14,6 @@ import EXPERIMENT_FREQUENTIST_FIVE_VARIANTS from '~/mocks/fixtures/api/experimen
 import FUNNEL_METRIC_RESULT from '~/mocks/fixtures/api/experiments/experiment_frequentist_five_variants_funnel_metric_result.json'
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/experiment_frequentist_five_variants_mean_metric_result.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
-import {
-    ExperimentMetric,
-    NodeKind,
-    isExperimentFunnelMetric,
-    isExperimentMeanMetric,
-} from '@posthog/query-frontend/schema/schema-general'
 import { App } from '~/scenes/App'
 import { urls } from '~/scenes/urls'
 

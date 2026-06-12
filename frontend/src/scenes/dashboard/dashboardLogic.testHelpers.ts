@@ -1,5 +1,6 @@
 import { getQueryBasedDashboard } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { DashboardFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import { DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import _dashboardJson from './__mocks__/dashboard.json'

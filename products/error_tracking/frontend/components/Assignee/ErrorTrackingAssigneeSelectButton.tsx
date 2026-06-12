@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
-
 import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'

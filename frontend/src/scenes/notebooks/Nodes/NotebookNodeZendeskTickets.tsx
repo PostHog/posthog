@@ -1,12 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ZendeskSourceSetupPrompt } from 'scenes/data-pipelines/ZendeskSourceSetupPrompt'
-
-import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { ZendeskTicketsFilters } from 'products/customer_analytics/frontend/components/ZendeskTicketsFilters/ZendeskTicketsFilters'
 import { zendeskTicketsFiltersLogic } from 'products/customer_analytics/frontend/components/ZendeskTicketsFilters/zendeskTicketsFiltersLogic'

@@ -1,5 +1,4 @@
 import { Link } from '@posthog/lemon-ui'
-
 import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '@posthog/query-frontend/types'
 import { hogql } from '@posthog/query-frontend/utils'

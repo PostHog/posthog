@@ -1,6 +1,6 @@
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-
 import { EventsNode, EventsQuery, SessionsQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { EventName as EventNameComponent } from 'products/actions/frontend/components/EventName'
 

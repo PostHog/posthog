@@ -3,10 +3,10 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { LogMessage } from '@posthog/query-frontend/schema/schema-general'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LogMessage } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import {

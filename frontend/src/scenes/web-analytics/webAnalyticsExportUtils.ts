@@ -1,9 +1,6 @@
 import Papa from 'papaparse'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
 import {
     DataTableNode,
     EventsHeatMapColumnAggregationResult,
@@ -19,7 +16,15 @@ import {
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
-import { isTrendsQuery, isWebExternalClicksQuery, isWebGoalsQuery, isWebStatsTableQuery } from '@posthog/query-frontend/utils'
+import {
+    isTrendsQuery,
+    isWebExternalClicksQuery,
+    isWebGoalsQuery,
+    isWebStatsTableQuery,
+} from '@posthog/query-frontend/utils'
+
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
 import { getDisplayColumnName } from '~/scenes/web-analytics/common'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 

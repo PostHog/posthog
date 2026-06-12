@@ -11,8 +11,6 @@ import { subscriptions } from 'kea-subscriptions'
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
 import { MarkerSeverity, editor } from 'monaco-editor'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { performQuery } from '@posthog/query-frontend/query'
 import {
     AnyDataNode,
@@ -24,6 +22,8 @@ import {
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
 import { getContextSourceQuery } from './sourceQueryUtils'

@@ -1,4 +1,5 @@
 import { EventsNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { SurveyMatchType, SurveyQuestionType } from '~/types'
 
 import { SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from '../constants'

@@ -1,11 +1,7 @@
 import { match } from 'ts-pattern'
 
-import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-
 import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type {
     ActionsNode,
     BreakdownFilter,
@@ -29,6 +25,11 @@ import type {
 } from '@posthog/query-frontend/schema/schema-general'
 import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
 import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
 

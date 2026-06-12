@@ -1,5 +1,8 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import { isPersonPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -7,11 +10,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupBy } from 'lib/utils'
 import { parseDateInTimezone } from 'lib/utils/dateTimeUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
-import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnnotationScope,
     AnnotationType,

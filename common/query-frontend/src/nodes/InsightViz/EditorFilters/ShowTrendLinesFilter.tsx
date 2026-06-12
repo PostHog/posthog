@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox } from '@posthog/lemon-ui'
-
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '@posthog/query-frontend/utils'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '@posthog/query-frontend/utils'
 import { ChartDisplayType } from '~/types'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'

@@ -2,6 +2,8 @@ import { connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -9,7 +11,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelContextLogic } from '~/layout/navigation-3000/sidepanel/sidePanelContextLogic'
 import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { hogql } from '@posthog/query-frontend/utils'
 
 import type { metalyticsLogicType } from './metalyticsLogicType'
 

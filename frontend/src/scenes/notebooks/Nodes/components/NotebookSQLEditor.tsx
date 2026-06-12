@@ -2,13 +2,24 @@ import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 
+import {
+    DataVisualizationNode,
+    HogQLQuery,
+    NodeKind,
+    ProductKey,
+    QuerySchema,
+} from '@posthog/query-frontend/schema/schema-general'
+import {
+    convertDataTableNodeToDataVisualizationNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+} from '@posthog/query-frontend/utils'
+
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
-import { DataVisualizationNode, HogQLQuery, NodeKind, ProductKey, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
-import { convertDataTableNodeToDataVisualizationNode, isDataVisualizationNode, isHogQLQuery } from '@posthog/query-frontend/utils'
 import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeAttributes, NotebookNodeProps } from '../../types'

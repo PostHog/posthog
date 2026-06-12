@@ -2,6 +2,9 @@ import { actions, afterMount, connect, events, kea, listeners, path, reducers, s
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,8 +13,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
-import { hogql } from '@posthog/query-frontend/utils'
 import { SDK, SDKInstructionsMap, SDKTag, SDKTagOverrides } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'

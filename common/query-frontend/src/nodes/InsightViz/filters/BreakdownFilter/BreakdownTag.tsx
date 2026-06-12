@@ -6,6 +6,7 @@ import { useState } from 'react'
 
 import { IconEllipsis, IconX } from '@posthog/icons'
 import { LemonButton, LemonButtonDropdown, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { extractDisplayLabel } from '@posthog/query-frontend/nodes/DataTable/utils'
 
 import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
@@ -16,7 +17,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { extractDisplayLabel } from '@posthog/query-frontend/nodes/DataTable/utils'
 import { BreakdownType, GroupTypeIndex } from '~/types'
 
 import { breakdownTagLogic } from './breakdownTagLogic'

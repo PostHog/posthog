@@ -3,12 +3,11 @@ import { router } from 'kea-router'
 
 import { IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 

@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { performQuery } from '@posthog/query-frontend/query'
+import { DatabaseSchemaQueryResponse } from '@posthog/query-frontend/schema/schema-general'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { performQuery } from '@posthog/query-frontend/query'
-import { DatabaseSchemaQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 

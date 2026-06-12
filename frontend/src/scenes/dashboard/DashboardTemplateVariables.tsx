@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { LemonLabel } from '@posthog/lemon-ui'
-
 import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
 
 import { FilterType } from '~/types'

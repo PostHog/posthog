@@ -5,15 +5,12 @@ import { useCallback, useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { HogQLBoldNumber } from '@posthog/visualizations/BoldNumber/BoldNumber'
-import { urls } from 'scenes/urls'
-
-import { insightVizDataCollectionId, insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
+import {
+    insightVizDataCollectionId,
+    insightVizDataNodeKey,
+} from '@posthog/query-frontend/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataVisualizationNode,
@@ -24,6 +21,12 @@ import {
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
 import { shouldQueryBeAsync } from '@posthog/query-frontend/utils'
+import { HogQLBoldNumber } from '@posthog/visualizations/BoldNumber/BoldNumber'
+
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { urls } from 'scenes/urls'
+
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'

@@ -2,10 +2,10 @@ import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     legacyCredibleIntervalForVariant,
     LegacyDeltaChart,

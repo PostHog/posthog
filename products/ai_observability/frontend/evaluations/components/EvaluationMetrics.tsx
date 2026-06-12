@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
-
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 

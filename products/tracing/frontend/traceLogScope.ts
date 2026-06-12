@@ -2,9 +2,10 @@
 // (products/logs/backend/schema.sql), so scoping the embedded LogsViewer to a span or the whole
 // trace is just a `trace_id`/`span_id` equality filter — no tracing-side backend needed.
 
+import type { DateRange } from '@posthog/query-frontend/schema/schema-general'
+
 import { urls } from 'scenes/urls'
 
-import type { DateRange } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, type LogPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 import type { UniversalFiltersGroup } from '~/types'
 

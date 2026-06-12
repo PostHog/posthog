@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 
-import { InitialBillingLimitNotice } from 'scenes/billing/InitialBillingLimitNotice'
-
 import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
+import { InitialBillingLimitNotice } from 'scenes/billing/InitialBillingLimitNotice'
 
 import { sourceManagementLogic } from '../../../shared/logics/sourceManagementLogic'
 

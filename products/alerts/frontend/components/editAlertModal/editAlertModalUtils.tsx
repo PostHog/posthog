@@ -1,5 +1,4 @@
 import { IconLock } from '@posthog/icons'
-
 import { AlertCalculationInterval } from '@posthog/query-frontend/schema/schema-general'
 
 export function getSimulationRangeOptions(interval: AlertCalculationInterval): { label: string; value: string }[] {

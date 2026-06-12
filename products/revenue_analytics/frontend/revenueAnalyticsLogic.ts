@@ -2,16 +2,6 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import api from 'lib/api'
-import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { getDefaultInterval, objectsEqual } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-
 // eslint-disable-next-line import/no-cycle
 import { isRevenueAnalyticsPropertyFilters } from '@posthog/query-frontend/schema-guards'
 import {
@@ -22,6 +12,16 @@ import {
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { getDefaultInterval, objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
 import { Breadcrumb, DataWarehouseSavedQuery, InsightLogicProps, InsightShortId, SimpleIntervalType } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'

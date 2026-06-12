@@ -2,11 +2,12 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic as globalTeamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
 import type { globalSetupLogicType } from './globalSetupLogicType'

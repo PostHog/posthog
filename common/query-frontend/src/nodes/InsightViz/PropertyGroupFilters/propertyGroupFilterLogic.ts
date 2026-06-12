@@ -1,10 +1,11 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
+import { ProductAnalyticsInsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
+
 import { convertPropertiesToPropertyGroup, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { ProductAnalyticsInsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnyFilterLike,
     AnyPropertyFilter,

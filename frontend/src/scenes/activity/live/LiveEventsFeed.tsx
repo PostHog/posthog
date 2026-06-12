@@ -5,6 +5,7 @@ import { type ReactNode, useMemo } from 'react'
 
 import { IconPauseFilled } from '@posthog/icons'
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { EventCopyLinkButton } from '@posthog/query-frontend/nodes/DataTable/EventRowActions'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -14,7 +15,6 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
-import { EventCopyLinkButton } from '@posthog/query-frontend/nodes/DataTable/EventRowActions'
 import { LiveEvent } from '~/types'
 
 export type LiveEventsFeedColumn = 'event' | 'person' | 'url' | 'recording' | 'timestamp' | 'more'

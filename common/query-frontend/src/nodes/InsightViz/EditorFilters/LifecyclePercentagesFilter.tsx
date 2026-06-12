@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function LifecyclePercentagesFilter(): JSX.Element {

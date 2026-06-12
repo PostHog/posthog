@@ -1,10 +1,11 @@
 import { combineUrl } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FunnelsActorsQuery, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { FunnelsActorsQuery, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab, FilterLogicalOperator, PersonActorType, PropertyFilterType, PropertyOperator } from '~/types'
 

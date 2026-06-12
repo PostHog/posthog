@@ -1,12 +1,12 @@
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { createExperimentLogic } from './ExperimentForm/createExperimentLogic'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'

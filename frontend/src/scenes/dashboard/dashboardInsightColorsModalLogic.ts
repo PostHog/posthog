@@ -1,9 +1,10 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
+import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '@posthog/query-frontend/utils'
+
 import { getFunnelDatasetKey, getTrendDatasetKey, sortCohorts } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '@posthog/query-frontend/utils'
 import { CohortType, DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'

@@ -3,12 +3,12 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { LemonSegmentedButton, LemonSelect, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
+import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'

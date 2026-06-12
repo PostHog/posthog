@@ -2,11 +2,12 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 import { forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { FilterType } from '~/types'
 
 import {

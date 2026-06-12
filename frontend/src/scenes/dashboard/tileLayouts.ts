@@ -5,11 +5,11 @@ import {
     getDashboardWidgetCatalogEntry,
     type DashboardWidgetCatalogEntry,
 } from '@posthog/products-dashboards/frontend/widget_types/catalog'
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
+import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '@posthog/query-frontend/utils'
 
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
-import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '@posthog/query-frontend/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
 
 export interface TileLayout {

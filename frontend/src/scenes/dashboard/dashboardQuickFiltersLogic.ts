@@ -1,8 +1,9 @@
 import { connect, kea, path, selectors } from 'kea'
 
+import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
+
 import { SelectedQuickFilter, quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 
-import { QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
 import type { dashboardQuickFiltersLogicType } from './dashboardQuickFiltersLogicType'

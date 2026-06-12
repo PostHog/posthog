@@ -1,3 +1,5 @@
+import { AnyDataNode, DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
+
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import {
     AllowedProperties,
@@ -10,7 +12,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 
-import { AnyDataNode, DatabaseSchemaField } from '@posthog/query-frontend/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 export interface PropertyFilterBaseProps {

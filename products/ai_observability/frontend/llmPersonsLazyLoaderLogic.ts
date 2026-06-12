@@ -1,9 +1,9 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { LLMTracePerson } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { LLMTracePerson } from '@posthog/query-frontend/schema/schema-general'
 
 import type { llmPersonsLazyLoaderLogicType } from './llmPersonsLazyLoaderLogicType'
 

@@ -5,18 +5,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconBook, IconChevronDown, IconDownload, IconX } from '@posthog/icons'
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
-
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-
-import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { variableModalLogic } from '@posthog/query-frontend/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import {
@@ -29,6 +17,18 @@ import {
 } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '@posthog/query-frontend/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '@posthog/query-frontend/nodes/DataVisualization/queryUpdateUtils'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'

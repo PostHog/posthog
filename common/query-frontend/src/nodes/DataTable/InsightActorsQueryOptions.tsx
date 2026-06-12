@@ -1,12 +1,12 @@
 import { useMountedLogic, useValues } from 'kea'
 
-import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { isKeyOf } from 'lib/utils'
-import { cleanedInsightActorsQueryOptions } from '@posthog/query-frontend/persons-modal/persons-modal-utils'
-
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightActorsQueryOptionsLogic } from '@posthog/query-frontend/nodes/DataTable/insightActorsQueryOptionsLogic'
+import { cleanedInsightActorsQueryOptions } from '@posthog/query-frontend/persons-modal/persons-modal-utils'
 import { InsightActorsQuery } from '@posthog/query-frontend/schema/schema-general'
+
+import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
+import { isKeyOf } from 'lib/utils'
 
 interface InsightActorsQueryOptionsProps {
     query: InsightActorsQuery

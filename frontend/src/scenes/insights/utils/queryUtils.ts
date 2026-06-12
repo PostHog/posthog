@@ -1,9 +1,15 @@
-import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
-import { isValidRE2 } from 'lib/utils/regexp'
-import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
-
 import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
-import { DataNode, HogQLVariable, InsightQueryNode, Node, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+import {
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
+} from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
+import {
+    DataNode,
+    HogQLVariable,
+    InsightQueryNode,
+    Node,
+    TrendsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
 import {
     filterForQuery,
     getMathTypeWarning,
@@ -21,6 +27,10 @@ import {
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '@posthog/query-frontend/utils'
+
+import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
+import { isValidRE2 } from 'lib/utils/regexp'
+
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }

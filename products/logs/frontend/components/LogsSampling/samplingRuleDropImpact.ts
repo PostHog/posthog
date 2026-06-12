@@ -1,6 +1,6 @@
-import api from 'lib/api'
-
 import { type HogQLQueryString, hogql } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
 
 export interface SamplingRuleDropTotals {
     records: number

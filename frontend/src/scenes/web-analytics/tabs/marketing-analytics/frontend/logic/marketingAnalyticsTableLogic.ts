@@ -1,8 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 
-import { isNotNil } from 'lib/utils'
-
 import {
     ConversionGoalFilter,
     DataTableNode,
@@ -16,6 +14,9 @@ import {
     SourceMap,
     getEffectiveExcludedColumns,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { isNotNil } from 'lib/utils'
+
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'

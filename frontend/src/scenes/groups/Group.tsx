@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
 import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -30,7 +31,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
-import { Query } from '@posthog/query-frontend/Query/Query'
 import type { ActionFilter } from '~/types'
 import {
     ActivityScope,

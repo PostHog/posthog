@@ -14,6 +14,7 @@ import {
     IconPlusSmall,
 } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -31,7 +32,6 @@ import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/p
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { RecordingsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
 import { sessionSummaryProgressLogic } from '../player/player-meta/sessionSummaryProgressLogic'

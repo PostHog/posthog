@@ -35,7 +35,7 @@ The editor can also be used standalone:
 ```tsx
 import { HogQLQueryEditor } from '@posthog/query-frontend/nodes/HogQLQuery/HogQLQueryEditor'
 
-<HogQLQueryEditor query={hogQLQuery} setQuery={setHogQLQuery} />
+;<HogQLQueryEditor query={hogQLQuery} setQuery={setHogQLQuery} />
 ```
 
 ## Key files

@@ -2,8 +2,7 @@ import { useMountedLogic, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-
-import { dayjs } from 'lib/dayjs'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import {
     InsightEmptyState,
     InsightErrorState,
@@ -12,12 +11,13 @@ import {
     InsightValidationError,
 } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { InsightsWrapper } from '@posthog/query-frontend/nodes/InsightViz/InsightsWrapper'
-import { LineGraph, LineGraphProps } from '@posthog/visualizations/LineGraph/LineGraph'
-
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { extractValidationError, isTimeoutError } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { AnyResponseType, GoalLine, RevenueAnalyticsGoal } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+import { LineGraph, LineGraphProps } from '@posthog/visualizations/LineGraph/LineGraph'
+
+import { dayjs } from 'lib/dayjs'
+
 import { GraphDataset, GraphType } from '~/types'
 
 import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'

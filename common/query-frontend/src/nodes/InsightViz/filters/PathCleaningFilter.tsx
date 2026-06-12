@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
 
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { pathsDataLogic } from '@posthog/query-frontend/nodes/PathsQuery/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

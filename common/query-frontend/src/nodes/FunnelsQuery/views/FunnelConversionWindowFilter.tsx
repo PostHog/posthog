@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { TIME_INTERVAL_BOUNDS } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
-import { TIME_INTERVAL_BOUNDS } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
 
 import { EditorFilterProps, FunnelConversionWindowTimeUnit } from '~/types'
 

@@ -1,9 +1,9 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
-import api from 'lib/api'
-
 import { HogQLQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { escapeHogQLString } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
 
 import type { traceMessagesLazyLoaderLogicType } from './traceMessagesLazyLoaderLogicType'
 import { parsePartialJSON } from './utils'

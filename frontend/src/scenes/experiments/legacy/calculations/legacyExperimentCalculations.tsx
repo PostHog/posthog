@@ -1,5 +1,3 @@
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
-
 import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
@@ -8,6 +6,9 @@ import {
     NodeKind,
     isExperimentFunnelMetric,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
+
 import {
     CountPerActorMathType,
     FunnelExperimentVariant,

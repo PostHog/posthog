@@ -1,10 +1,11 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 
+import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
+
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
-import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 import type { OrganizationMemberType, RoleType } from '~/types'
 
 import type { assigneeSelectLogicType } from './assigneeSelectLogicType'

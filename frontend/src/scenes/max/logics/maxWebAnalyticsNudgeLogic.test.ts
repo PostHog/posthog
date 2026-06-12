@@ -2,6 +2,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { AssistantMessageType } from '@posthog/query-frontend/schema/schema-assistant-messages'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -10,8 +13,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { recentItemsModel } from '~/models/recentItemsModel'
-import { AssistantMessageType } from '@posthog/query-frontend/schema/schema-assistant-messages'
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import type { ThreadMessage } from '../maxThreadLogic'

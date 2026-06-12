@@ -2,19 +2,24 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import {
+    AnyEntityNode,
+    ExperimentTrendsQuery,
+    InsightQueryNode,
+    NodeKind,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { AnyEntityNode, ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 

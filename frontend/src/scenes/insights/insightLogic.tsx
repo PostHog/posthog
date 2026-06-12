@@ -4,6 +4,22 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+import { insightDataLogic, isInsightSceneInstance } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { DashboardFilter, HogQLVariable, Node, TileFilters } from '@posthog/query-frontend/schema/schema-general'
+import { mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
+import {
+    convertDataTableNodeToDataVisualizationNode,
+    isFunnelsQuery,
+    isLifecycleQuery,
+    isNodeWithSource,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+    isValidQueryForExperiment,
+} from '@posthog/query-frontend/utils'
 
 import { ApiError } from 'lib/api'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
@@ -30,13 +46,10 @@ import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -46,18 +59,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardFilter, HogQLVariable, Node, TileFilters } from '@posthog/query-frontend/schema/schema-general'
-import {
-    convertDataTableNodeToDataVisualizationNode,
-    isFunnelsQuery,
-    isLifecycleQuery,
-    isNodeWithSource,
-    isPathsQuery,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
-    isValidQueryForExperiment,
-} from '@posthog/query-frontend/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -69,7 +70,6 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { insightDataLogic, isInsightSceneInstance } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'

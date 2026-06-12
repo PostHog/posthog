@@ -14,6 +14,7 @@ import {
     IconTrash,
 } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
@@ -30,7 +31,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'

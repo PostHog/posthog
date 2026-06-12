@@ -1,8 +1,5 @@
 import { actions, connect, kea, listeners, path, selectors } from 'kea'
 
-import { isEmptyObject } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
-
 import {
     ActionsNode,
     AnyEntityNode,
@@ -11,6 +8,9 @@ import {
     EventsNode,
     GroupNode,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { isEmptyObject } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { customerAnalyticsConfigLogicType } from './customerAnalyticsConfigLogicType'
 

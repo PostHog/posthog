@@ -3,6 +3,8 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { DataTableNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
@@ -11,8 +13,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { DataTableNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'

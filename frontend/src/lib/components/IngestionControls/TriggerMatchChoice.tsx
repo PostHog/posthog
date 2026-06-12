@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { SelectOption } from '@posthog/query-frontend/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 import { TeamMembershipLevel } from 'lib/constants'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
-
-import { SelectOption } from '@posthog/query-frontend/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { ingestionControlsLogic } from './ingestionControlsLogic'

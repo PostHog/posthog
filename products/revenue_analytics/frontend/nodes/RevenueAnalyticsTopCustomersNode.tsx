@@ -1,22 +1,23 @@
 import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { InsightLoadingState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsWrapper } from '@posthog/query-frontend/nodes/InsightViz/InsightsWrapper'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
     RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsTopCustomersQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
+
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { GraphDataset, GraphType } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'

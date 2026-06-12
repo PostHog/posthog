@@ -1,5 +1,4 @@
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
-
 import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
 
 import { OPTIONS_FOR_IMPORTANT_CURRENCIES, OPTIONS_FOR_OTHER_CURRENCIES } from './utils'

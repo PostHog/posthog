@@ -1,14 +1,14 @@
 import { useCallback, useMemo } from 'react'
 
-import type { TooltipContext } from '@posthog/quill-charts'
-
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { percentage } from 'lib/utils'
 import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
+import type { TooltipContext } from '@posthog/quill-charts'
 import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
 import { getDatumTitle, SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 
-import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { percentage } from 'lib/utils'
+
 import { IntervalType } from '~/types'
 
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'

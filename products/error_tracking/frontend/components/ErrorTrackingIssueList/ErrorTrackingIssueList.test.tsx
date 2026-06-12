@@ -4,6 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
+
 import { initKeaTests } from '~/test/init'
 
 import { ErrorTrackingIssueList, ErrorTrackingIssueListRow } from './ErrorTrackingIssueList'

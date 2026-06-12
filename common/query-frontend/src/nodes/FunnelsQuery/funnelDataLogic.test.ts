@@ -1,11 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 import timekeeper from 'timekeeper'
 
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from '@posthog/query-frontend/nodes/InsightViz/filters/aggregationTargetUtils'
+import { DataNode, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { teamLogic } from 'scenes/teamLogic'
 
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { DataNode, FunnelsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
 

@@ -2,12 +2,13 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { lazyLoaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
+
 import api from 'lib/api'
 import { isEmptyObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { getQueryBasedInsightModel } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { InsightType, QueryBasedInsightModel } from '~/types'
 
 import { customerAnalyticsConfigLogic } from '../../customerAnalyticsConfigLogic'

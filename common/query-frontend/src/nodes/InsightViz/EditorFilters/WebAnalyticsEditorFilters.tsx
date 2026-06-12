@@ -3,16 +3,15 @@ import { useActions, useValues } from 'kea'
 
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery } from '@posthog/query-frontend/schema/schema-general'
+import { isWebStatsTableQuery } from '@posthog/query-frontend/utils'
 
 import { FilterBar } from 'lib/components/FilterBar'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { PathCleaningToggle } from 'scenes/web-analytics/PathCleaningToggle'
 import { WebConversionGoal } from 'scenes/web-analytics/WebConversionGoal'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
-
-import { WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery } from '@posthog/query-frontend/schema/schema-general'
-import { isWebStatsTableQuery } from '@posthog/query-frontend/utils'
 
 export interface WebAnalyticsEditorFiltersProps {
     query: WebStatsTableQuery | WebOverviewQuery

@@ -1,15 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { QueryFeature } from '@posthog/query-frontend/nodes/DataTable/queryFeatures'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { DataTableNode, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { QueryFeature } from '@posthog/query-frontend/nodes/DataTable/queryFeatures'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { DataTableNode, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { createSessionsRowTransformer, getSessionsColumns } from './sessionsColumns'

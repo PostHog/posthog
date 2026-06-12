@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { DataWarehouseSavedQueryOrigin } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,7 +11,6 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { STATUS_TAG_SETTINGS } from 'scenes/models/nodeDetailConstants'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSavedQueryOrigin } from '@posthog/query-frontend/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,

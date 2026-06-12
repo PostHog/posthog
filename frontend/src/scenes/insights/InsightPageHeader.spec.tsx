@@ -3,10 +3,11 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
+import { Node } from '@posthog/query-frontend/schema/schema-general'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { Node } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, InsightShortId, QueryBasedInsightModel, ItemMode } from '~/types'
 

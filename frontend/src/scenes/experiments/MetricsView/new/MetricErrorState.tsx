@@ -1,14 +1,13 @@
 import { useActions } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { parseErrorMessage } from '@posthog/query-frontend/query'
+import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { urls } from 'scenes/urls'
-
-import { parseErrorMessage } from '@posthog/query-frontend/query'
-import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 
 type MetricErrorStateProps = {
     error: {

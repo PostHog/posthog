@@ -1,6 +1,7 @@
 import { Edge, Node } from '@xyflow/react'
 
 import { FunnelsQuery, NodeKind, PathsLink, PathsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { FunnelPathType, PathType } from '~/types'
 
 export const PATH_NODE_WIDTH = 180

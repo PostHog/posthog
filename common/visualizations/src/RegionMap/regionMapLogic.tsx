@@ -1,10 +1,10 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 
 import { InsightLogicProps, TrendResult } from '~/types'
 
-import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
 import type { regionMapLogicType } from './regionMapLogicType'
 
 const getTrendResults = (insightData: Record<string, any> | null | undefined): TrendResult[] =>

@@ -2,6 +2,7 @@ import clsx from 'clsx'
 
 import { IconAI } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { EventsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/components/Errors/utils'
@@ -14,8 +15,6 @@ import { cn } from 'lib/utils/css-classes'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
-
-import { EventsQuery } from '@posthog/query-frontend/schema/schema-general'
 
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { cancelEvent } from '../../utils'

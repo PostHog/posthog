@@ -1,11 +1,11 @@
 import { useActions } from 'kea'
 
 import { IconTrash } from '@posthog/icons'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { PersonType } from '~/types'
 
 interface DeletePersonButtonProps {

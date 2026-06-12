@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import type {
+    MultiQuestionFormField,
+    MultiQuestionFormQuestion,
+} from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider/LemonSlider'
-
-import type { MultiQuestionFormField, MultiQuestionFormQuestion } from '@posthog/query-frontend/schema/schema-assistant-messages'
 
 import { OptionSelector, type Option } from './OptionSelector'
 

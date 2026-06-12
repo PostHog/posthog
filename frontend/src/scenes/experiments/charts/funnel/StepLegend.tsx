@@ -1,4 +1,5 @@
 import { IconClock } from '@posthog/icons'
+import { isExperimentFunnelMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
@@ -6,7 +7,6 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 
-import { isExperimentFunnelMetric } from '@posthog/query-frontend/schema/schema-general'
 import { FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
 
 import { useFunnelChartData } from './FunnelChart'

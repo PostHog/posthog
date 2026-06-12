@@ -3,6 +3,9 @@ import { useMemo } from 'react'
 
 import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { InsightVizNode, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -11,7 +14,6 @@ import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 import {
@@ -31,8 +33,6 @@ import {
 } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { InsightVizNode, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import {
     ChartDisplayType,
     ChoiceQuestionProcessedResponses,

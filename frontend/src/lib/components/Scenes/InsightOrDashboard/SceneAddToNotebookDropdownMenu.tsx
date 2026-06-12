@@ -1,11 +1,10 @@
 import { IconPlusSmall } from '@posthog/icons'
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { NotebookNodeType } from 'scenes/notebooks/types'
-
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { SceneDataAttrKeyProps } from '../utils'
 import { SceneNotebookMenuItems } from './SceneNotebookMenuItems'

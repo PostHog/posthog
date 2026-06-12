@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-
 import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { shouldQueryBeAsync } from '@posthog/query-frontend/utils'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export function Reload(): JSX.Element {
     const { responseLoading, query } = useValues(dataNodeLogic)

@@ -2,9 +2,9 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { router } from 'kea-router'
 import { v4 as uuidv4 } from 'uuid'
 
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
-
 import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
+
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import type { dataTableSavedFiltersLogicType } from './dataTableSavedFiltersLogicType'
 

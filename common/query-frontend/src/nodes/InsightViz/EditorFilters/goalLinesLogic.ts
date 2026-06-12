@@ -2,7 +2,6 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 import { subscriptions } from 'kea-subscriptions'
 
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
-
 import {
     FunnelsQuery,
     GoalLine,
@@ -11,6 +10,7 @@ import {
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
 import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '@posthog/query-frontend/utils'
+
 import { InsightLogicProps } from '~/types'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'

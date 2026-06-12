@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
-import { BarChart, DEFAULT_MARGINS } from '@posthog/quill-charts'
-import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
-
-import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { StepLegend } from '@posthog/query-frontend/nodes/FunnelsQuery/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { funnelPersonsModalLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelPersonsModalLogic'
+import { BarChart, DEFAULT_MARGINS } from '@posthog/quill-charts'
+import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
+import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
+
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'

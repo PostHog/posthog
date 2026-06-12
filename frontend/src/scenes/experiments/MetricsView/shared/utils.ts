@@ -1,5 +1,3 @@
-import { humanFriendlyLargeNumber } from 'lib/utils'
-
 import type {
     ActionsNode,
     EventsNode,
@@ -19,6 +17,9 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { humanFriendlyLargeNumber } from 'lib/utils'
+
 import { ExperimentMetricGoal } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian

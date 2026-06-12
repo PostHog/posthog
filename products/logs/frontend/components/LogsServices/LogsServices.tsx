@@ -14,8 +14,8 @@ import {
     lemonToast,
 } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
-
 import { Sparkline } from '@posthog/visualizations/Sparkline/Sparkline'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'

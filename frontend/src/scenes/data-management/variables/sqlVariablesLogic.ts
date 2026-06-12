@@ -2,10 +2,9 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
 
 import api from 'lib/api'
-
-import { Variable } from '@posthog/query-frontend/nodes/DataVisualization/types'
 
 import type { sqlVariablesLogicType } from './sqlVariablesLogicType'
 

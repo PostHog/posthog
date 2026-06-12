@@ -1,9 +1,9 @@
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 
-import { urls } from 'scenes/urls'
-
 import { stringifiedExamples } from '@posthog/query-frontend/examples'
+
+import { urls } from 'scenes/urls'
 
 import type { debugSceneLogicType } from './debugSceneLogicType'
 

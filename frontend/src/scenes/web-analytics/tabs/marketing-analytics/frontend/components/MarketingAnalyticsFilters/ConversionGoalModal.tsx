@@ -3,12 +3,11 @@ import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { ConversionGoalFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
-
-import { ConversionGoalFilter } from '@posthog/query-frontend/schema/schema-general'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'

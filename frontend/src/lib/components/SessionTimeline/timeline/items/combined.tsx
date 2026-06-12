@@ -1,3 +1,5 @@
+import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 /**
  * Combined event loader — fetches exceptions, pageviews, and custom events in a
  * single EventsQuery instead of 3 separate ones. Register the same instance for
@@ -7,8 +9,6 @@ import api from 'lib/api'
 import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
-
-import { EventsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { ItemCategory, ItemLoader, TimelineItem } from '..'
 import { escapeHogQLString, parseIfJSONString } from './parsing'

@@ -1,14 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-import { ChartDataset as ChartJsDataset } from '@posthog/visualizations/Chart'
-import { getSeriesColor } from 'lib/colors'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { hexToRGBA, pluralize } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from 'scenes/teamLogic'
-
 import {
     ExperimentMetric,
     ExperimentMetricTimeseries,
@@ -16,6 +8,15 @@ import {
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
 } from '@posthog/query-frontend/schema/schema-general'
+import { ChartDataset as ChartJsDataset } from '@posthog/visualizations/Chart'
+
+import api from 'lib/api'
+import { getSeriesColor } from 'lib/colors'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { hexToRGBA, pluralize } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'

@@ -3,14 +3,13 @@ import { useState } from 'react'
 
 import { IconFilter, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
-
-import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
-
 import { DateRange } from '@posthog/query-frontend/nodes/DataNode/DateRange'
 import { TestAccountFilters } from '@posthog/query-frontend/nodes/DataNode/TestAccountFilters'
 import { EventPropertyFilters } from '@posthog/query-frontend/nodes/EventsNode/EventPropertyFilters'
 import type { HogQLFilters, HogQLQuery } from '@posthog/query-frontend/schema/schema-general'
 import { isHogQLQuery } from '@posthog/query-frontend/utils'
+
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 
 import { queryUsesFiltersPlaceholder } from './sql-utils'
 import { sqlEditorLogic } from './sqlEditorLogic'

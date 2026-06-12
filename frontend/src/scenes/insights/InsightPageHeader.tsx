@@ -2,11 +2,19 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useMemo } from 'react'
 
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import {
+    isActorsQuery,
+    isDataVisualizationNode,
+    isEventsQuery,
+    isGroupsQuery,
+    isInsightQueryNode,
+} from '@posthog/query-frontend/utils'
+
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -17,13 +25,6 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import {
-    isActorsQuery,
-    isDataVisualizationNode,
-    isEventsQuery,
-    isGroupsQuery,
-    isInsightQueryNode,
-} from '@posthog/query-frontend/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { InsightSceneMenuBar } from './SidePanel/InsightSceneMenuBar'

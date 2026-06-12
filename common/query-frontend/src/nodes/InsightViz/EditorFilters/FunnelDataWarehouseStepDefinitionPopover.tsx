@@ -6,11 +6,11 @@ import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DefinitionPopoverRendererProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelFieldKey,
     funnelDataWarehouseStepDefinitionPopoverLogic,

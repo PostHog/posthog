@@ -1,5 +1,5 @@
-import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 
 import type { Noun } from '~/models/groupsModel'
 import type { ActionFilter } from '~/types'

@@ -10,6 +10,7 @@ import {
     IconStar,
     IconTrash,
 } from '@posthog/icons'
+import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
@@ -34,8 +35,6 @@ import {
 import { pluralize } from 'lib/utils'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
-
-import { FileSystemEntry } from '@posthog/query-frontend/schema/schema-general'
 
 import { NewMenu } from '../../menus/NewMenu'
 import { panelLayoutLogic } from '../../panelLayoutLogic'

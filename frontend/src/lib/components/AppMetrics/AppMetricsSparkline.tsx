@@ -3,8 +3,8 @@ import { useEffect, useMemo } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
-
 import { Sparkline, SparklineTimeSeries } from '@posthog/visualizations/Sparkline/Sparkline'
+
 import { inStorybookTestRunner } from 'lib/utils'
 
 import { AppMetricsLogicProps, appMetricsLogic } from './appMetricsLogic'

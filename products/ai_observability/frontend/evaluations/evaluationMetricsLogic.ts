@@ -1,10 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { HogQLQuery, NodeKind, TrendsQuery } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType, HogQLMathType } from '~/types'
 
 // eslint-disable-next-line import/no-cycle

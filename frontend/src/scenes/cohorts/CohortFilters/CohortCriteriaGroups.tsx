@@ -6,6 +6,7 @@ import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
 
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { AndOrFilterSelect } from '@posthog/query-frontend/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -15,8 +16,6 @@ import { alphabet } from 'lib/utils'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
-
-import { AndOrFilterSelect } from '@posthog/query-frontend/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element {
     const { cohort } = useValues(cohortEditLogic)

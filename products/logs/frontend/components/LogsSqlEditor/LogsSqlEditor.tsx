@@ -1,11 +1,12 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
-import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { getLogsSqlEditorTabId, logsSceneLogic } from 'products/logs/frontend/logsSceneLogic'

@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     AggregationAxisFormat,
     INSIGHT_UNIT_OPTIONS,
     INSIGHT_UNIT_OPTIONS_SHORT,
 } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { unitPickerModalLogic } from './unitPickerModalLogic'
 

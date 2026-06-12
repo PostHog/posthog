@@ -3,17 +3,6 @@ import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
-
-import api from 'lib/api'
-import { assignField, isGroupType, isSessionType } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-
-import { cohortsModel } from '~/models/cohortsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { extractValidationError } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { performQuery } from '@posthog/query-frontend/query'
 import {
@@ -30,6 +19,17 @@ import {
     insightActorsQueryOptionsResponseKeys,
 } from '@posthog/query-frontend/schema/schema-general'
 import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
+
+import api from 'lib/api'
+import { assignField, isGroupType, isSessionType } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
 import {
     ActivityTab,
     ActorType,

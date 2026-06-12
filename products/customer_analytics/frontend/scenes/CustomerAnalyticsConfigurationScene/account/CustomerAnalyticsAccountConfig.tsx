@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
+import { CustomerAnalyticsConfig } from '@posthog/query-frontend/schema/schema-general'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -10,7 +11,6 @@ import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { CustomerAnalyticsConfig } from '@posthog/query-frontend/schema/schema-general'
 
 const NO_ACCOUNT_GROUP = -1
 

@@ -4,6 +4,10 @@ import { useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { DataTableNode, LLMTrace } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext, QueryContextColumnComponent } from '@posthog/query-frontend/types'
+import { isTracesQuery } from '@posthog/query-frontend/utils'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,11 +16,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
-
-import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
-import { DataTableNode, LLMTrace } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext, QueryContextColumnComponent } from '@posthog/query-frontend/types'
-import { isTracesQuery } from '@posthog/query-frontend/utils'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'

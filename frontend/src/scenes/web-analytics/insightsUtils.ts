@@ -1,7 +1,7 @@
-import { urls } from 'scenes/urls'
-
 import { InsightVizNode, NodeKind, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
 import { isWebAnalyticsInsightQuery } from '@posthog/query-frontend/utils'
+
+import { urls } from 'scenes/urls'
 
 import { TileId, WebAnalyticsTile } from './common'
 

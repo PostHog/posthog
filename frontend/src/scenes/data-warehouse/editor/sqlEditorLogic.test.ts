@@ -1,12 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-
-import { useMocks } from '~/mocks/jest'
 import { dataVisualizationLogic } from '@posthog/query-frontend/nodes/DataVisualization/dataVisualizationLogic'
 import * as queryRunner from '@posthog/query-frontend/query'
 import {
@@ -16,6 +10,13 @@ import {
     HogQLQuery,
     NodeKind,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 

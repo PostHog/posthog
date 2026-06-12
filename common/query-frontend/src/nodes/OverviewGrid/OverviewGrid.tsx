@@ -4,6 +4,8 @@ import type React from 'react'
 
 import { IconTrending, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { EvenlyDistributedRows } from '@posthog/query-frontend/nodes/WebOverview/EvenlyDistributedRows'
+import { WebAnalyticsItemKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { getColorVar } from 'lib/colors'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
@@ -12,9 +14,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage, humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { DEFAULT_CURRENCY, getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { EvenlyDistributedRows } from '@posthog/query-frontend/nodes/WebOverview/EvenlyDistributedRows'
-import { WebAnalyticsItemKind } from '@posthog/query-frontend/schema/schema-general'
 
 export const NO_BASELINE_CHANGE_SENTINEL = 999999
 

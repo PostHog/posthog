@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -12,7 +13,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'

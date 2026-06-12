@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { isHogQLQuery } from '@posthog/query-frontend/utils'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -18,7 +19,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { isHogQLQuery } from '@posthog/query-frontend/utils'
 import { AccessControlLevel, AccessControlResourceType, EndpointType } from '~/types'
 
 import { humanizeQueryKind } from './common'

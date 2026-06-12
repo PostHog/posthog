@@ -1,10 +1,6 @@
 import { BreakPointFunction } from 'kea'
 
 import { LemonMenuItem } from '@posthog/lemon-ui'
-
-import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
-
 import { hogqlQuery } from '@posthog/query-frontend/query'
 import {
     BreakdownFilter,
@@ -16,6 +12,10 @@ import {
     WebStatsBreakdown,
 } from '@posthog/query-frontend/schema/schema-general'
 import { hogql } from '@posthog/query-frontend/utils'
+
+import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
+
 import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types'
 
 /** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */

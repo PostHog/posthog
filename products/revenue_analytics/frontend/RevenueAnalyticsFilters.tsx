@@ -3,6 +3,9 @@ import { useState } from 'react'
 
 import { IconFilter, IconGear, IconGraph, IconLineGraph, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions, Popover, Tooltip } from '@posthog/lemon-ui'
+import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
+import { BreakdownTag } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/BreakdownTag'
+import { RevenueAnalyticsBreakdown } from '@posthog/query-frontend/schema/schema-general'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -16,13 +19,10 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { IconAreaChart, IconWithCount } from 'lib/lemon-ui/icons'
 import { DATE_FORMAT, formatDateRange } from 'lib/utils'
-import { BreakdownTag } from '@posthog/query-frontend/nodes/InsightViz/filters/BreakdownFilter/BreakdownTag'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ReloadAll } from '@posthog/query-frontend/nodes/DataNode/Reload'
-import { RevenueAnalyticsBreakdown } from '@posthog/query-frontend/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
 import { DisplayMode, revenueAnalyticsLogic } from './revenueAnalyticsLogic'

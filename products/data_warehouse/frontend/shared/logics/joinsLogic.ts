@@ -1,10 +1,11 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSerializedFieldType } from '@posthog/query-frontend/schema/schema-general'
 import { DataWarehouseViewLink, PropertyDefinition, PropertyType } from '~/types'
 
 import type { joinsLogicType } from './joinsLogicType'

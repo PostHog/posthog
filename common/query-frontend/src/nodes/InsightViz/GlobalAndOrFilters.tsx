@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 import { keyForInsightLogicProps } from '@posthog/query-frontend/nodes/InsightViz/sharedUtils'
+import { ProductAnalyticsInsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
+
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { ProductAnalyticsInsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
 import { EditorFilterProps } from '~/types'
 
 import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'

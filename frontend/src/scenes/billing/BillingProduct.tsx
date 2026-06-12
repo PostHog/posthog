@@ -5,6 +5,7 @@ import { useRef } from 'react'
 import { IconChevronDown, IconDocument, IconInfo } from '@posthog/icons'
 import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FeatureFlagKey, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
@@ -16,7 +17,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { getProductIcon } from 'scenes/onboarding/utils'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
 import {

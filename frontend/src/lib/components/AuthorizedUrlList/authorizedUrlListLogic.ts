@@ -16,6 +16,9 @@ import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+import { hogql } from '@posthog/query-frontend/utils'
+
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { isDomain, isURL } from 'lib/utils'
@@ -26,8 +29,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
-import { hogql } from '@posthog/query-frontend/utils'
 import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
 import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'

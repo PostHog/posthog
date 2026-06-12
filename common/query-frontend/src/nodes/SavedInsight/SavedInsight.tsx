@@ -1,13 +1,14 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { SavedInsightNode } from '@posthog/query-frontend/schema/schema-general'
 import { QueryContext } from '@posthog/query-frontend/types'
+
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
 import { InsightLogicProps } from '~/types'
 
 interface InsightProps {

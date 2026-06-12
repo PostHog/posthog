@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 
 import { performQuery } from '@posthog/query-frontend/query'
 import type { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+
 import { getEventCountQuery } from '~/scenes/experiments/utils'
 
 import type { metricRecentActivityLogicType } from './metricRecentActivityLogicType'

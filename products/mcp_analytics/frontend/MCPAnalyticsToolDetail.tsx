@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
@@ -12,7 +13,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Query } from '@posthog/query-frontend/Query/Query'
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { HarnessPill } from './dashboard/harness'

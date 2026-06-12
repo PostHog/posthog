@@ -1,10 +1,9 @@
 import Papa from 'papaparse'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
-import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     copyTableToCsv,

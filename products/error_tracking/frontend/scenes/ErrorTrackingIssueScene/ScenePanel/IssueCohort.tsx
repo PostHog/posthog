@@ -2,13 +2,13 @@ import { useAsyncActions } from 'kea'
 import { useCallback } from 'react'
 
 import { LemonDialog, LemonInput, Link, lemonToast } from '@posthog/lemon-ui'
+import { ErrorTrackingIssueCohort, ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { urls } from 'scenes/urls'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
-import { ErrorTrackingIssueCohort, ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { issueActionsLogic } from 'products/error_tracking/frontend/components/IssueActions/issueActionsLogic'
 

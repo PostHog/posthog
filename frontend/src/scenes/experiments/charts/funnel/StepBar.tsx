@@ -2,9 +2,8 @@ import clsx from 'clsx'
 import { useActions } from 'kea'
 import { useRef } from 'react'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { percentage } from 'lib/utils'
-
+import { funnelTitle } from '@posthog/query-frontend/persons-modal/persons-modal-utils'
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import {
     ExperimentActorsQuery,
     ExperimentQuery,
@@ -12,9 +11,11 @@ import {
     NodeKind,
     SessionData,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { percentage } from 'lib/utils'
+
 import { getVariantColor } from '~/scenes/experiments/utils'
-import { funnelTitle } from '@posthog/query-frontend/persons-modal/persons-modal-utils'
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 import type { Experiment } from '~/types'
 import { FunnelStepWithConversionMetrics } from '~/types'
 

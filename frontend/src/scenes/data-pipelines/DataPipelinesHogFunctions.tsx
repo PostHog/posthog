@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
@@ -10,7 +12,6 @@ import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTe
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { HogFunctionTypeType } from '~/types'
 
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'

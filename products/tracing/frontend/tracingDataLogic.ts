@@ -3,13 +3,13 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { AggregatedSpanRow, SpanTreeNode } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
-import { AggregatedSpanRow, SpanTreeNode } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
 import {

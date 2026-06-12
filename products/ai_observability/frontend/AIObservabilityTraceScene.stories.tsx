@@ -1,11 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
+import { LLMTrace } from '@posthog/query-frontend/schema/schema-general'
+
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { urls } from 'scenes/urls'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { LLMTrace } from '@posthog/query-frontend/schema/schema-general'
 
 import fullTrace from './__mocks__/fullTrace.json'
 import traceWithoutContent from './__mocks__/traceWithoutContent.json'

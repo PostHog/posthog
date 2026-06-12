@@ -1,6 +1,6 @@
-import { urls } from 'scenes/urls'
-
 import { FileSystemIconType } from '@posthog/query-frontend/schema/schema-general'
+
+import { urls } from 'scenes/urls'
 
 import { ActionType, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 

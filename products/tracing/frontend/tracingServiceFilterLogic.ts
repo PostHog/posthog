@@ -1,10 +1,10 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { DateRange } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { DateRange } from '@posthog/query-frontend/schema/schema-general'
 
 import type { tracingServiceFilterLogicType } from './tracingServiceFilterLogicType'
 

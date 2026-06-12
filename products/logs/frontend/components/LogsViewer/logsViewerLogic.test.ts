@@ -1,9 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { LogMessage } from '@posthog/query-frontend/schema/schema-general'
+
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { useMocks } from '~/mocks/jest'
-import { LogMessage } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'

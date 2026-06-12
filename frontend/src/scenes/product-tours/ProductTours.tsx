@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -12,7 +13,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Error404 } from '~/layout/Error404'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { NewProductTourModal } from './components/NewProductTourModal'
 import { ProductToursTable } from './components/ProductToursTable'

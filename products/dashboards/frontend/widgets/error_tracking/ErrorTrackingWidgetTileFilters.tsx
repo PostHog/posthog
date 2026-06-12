@@ -2,10 +2,10 @@ import equal from 'fast-deep-equal'
 import { useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
+import type { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
+
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-
-import type { ErrorTrackingIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { ErrorTrackingAssigneeSelectButton } from 'products/error_tracking/frontend/components/Assignee/ErrorTrackingAssigneeSelectButton'
 import {

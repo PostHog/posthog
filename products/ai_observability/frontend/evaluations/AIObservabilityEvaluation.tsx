@@ -17,6 +17,7 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
@@ -27,7 +28,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
 

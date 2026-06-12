@@ -1,7 +1,3 @@
-import api, { ApiMethodOptions } from 'lib/api'
-import posthog from 'lib/posthog-typed'
-import { delay } from 'lib/utils'
-
 import {
     DashboardFilter,
     DataNode,
@@ -13,6 +9,11 @@ import {
     QueryStatus,
     RefreshType,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api, { ApiMethodOptions } from 'lib/api'
+import posthog from 'lib/posthog-typed'
+import { delay } from 'lib/utils'
+
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {

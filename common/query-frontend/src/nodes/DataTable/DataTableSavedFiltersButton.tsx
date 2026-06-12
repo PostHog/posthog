@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { IconBookmark } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-
 import { DataTableNode } from '@posthog/query-frontend/schema/schema-general'
 
 import { dataTableSavedFiltersLogic } from './dataTableSavedFiltersLogic'

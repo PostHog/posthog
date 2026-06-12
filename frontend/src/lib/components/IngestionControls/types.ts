@@ -1,4 +1,4 @@
-import { FeatureFlagBasicType } from '~/types'
+import type { FeatureFlagBasicType } from '~/types'
 
 export type Trigger =
     | URLMatchTrigger

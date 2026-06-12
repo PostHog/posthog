@@ -5,6 +5,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import {
+    NodeKind,
+    RecordingOrder,
+    RecordingsQuery,
+    RecordingsQueryResponse,
+} from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -26,7 +32,6 @@ import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessi
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,

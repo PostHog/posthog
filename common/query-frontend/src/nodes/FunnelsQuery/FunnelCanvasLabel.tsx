@@ -3,17 +3,17 @@ import React from 'react'
 
 import { IconInfo, IconTestTube } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
+import { FunnelStepsPicker } from '@posthog/query-frontend/nodes/FunnelsQuery/views/FunnelStepsPicker'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import { getExperimentMetricFromInsight } from 'scenes/experiments/utils'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { FunnelStepsPicker } from '@posthog/query-frontend/nodes/FunnelsQuery/views/FunnelStepsPicker'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { FunnelVizType, type QueryBasedInsightModel } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {

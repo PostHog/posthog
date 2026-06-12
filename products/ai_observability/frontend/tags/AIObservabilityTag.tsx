@@ -16,6 +16,8 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import { InsightVizNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -28,8 +30,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { InsightVizNode, NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'

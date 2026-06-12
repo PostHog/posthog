@@ -2,15 +2,15 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconArrowLeft } from '@posthog/icons'
+import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { summarizeInsightQuery } from 'scenes/insights/summarizeInsight'
-import { mathsLogic } from '@posthog/query-frontend/shared/mathsLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 
 export function BackToSource(): JSX.Element | null {
     const { aggregationLabel } = useValues(groupsModel)

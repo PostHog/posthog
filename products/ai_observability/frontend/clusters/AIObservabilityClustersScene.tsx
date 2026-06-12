@@ -1,8 +1,9 @@
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { clustersLogic } from './clustersLogic'
 import { ClustersView } from './ClustersView'

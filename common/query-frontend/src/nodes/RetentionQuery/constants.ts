@@ -1,3 +1,5 @@
+import { RetentionFilter } from '@posthog/query-frontend/schema/schema-general'
+
 import {
     RETENTION_FIRST_EVER_OCCURRENCE,
     RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
@@ -6,7 +8,6 @@ import {
 import { OpUnitType } from 'lib/dayjs'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
-import { RetentionFilter } from '@posthog/query-frontend/schema/schema-general'
 import { RetentionPeriod } from '~/types'
 
 export const dateOptions: RetentionPeriod[] = [RetentionPeriod.Day, RetentionPeriod.Week, RetentionPeriod.Month]

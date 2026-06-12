@@ -1,7 +1,6 @@
+import type { GoalLine as SchemaGoalLine } from '@posthog/query-frontend/schema/schema-general'
 import { computeSeriesNonZeroMax } from '@posthog/quill-charts'
 import type { Series } from '@posthog/quill-charts'
-
-import type { GoalLine as SchemaGoalLine } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     alertThresholdsToReferenceLines,

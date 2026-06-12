@@ -1,11 +1,11 @@
 import { combineUrl } from 'kea-router'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { urls } from 'scenes/urls'
 
-import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { NodeKind, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { ActivityTab, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 const DATE_RANGE_LABELS: Record<string, string> = {

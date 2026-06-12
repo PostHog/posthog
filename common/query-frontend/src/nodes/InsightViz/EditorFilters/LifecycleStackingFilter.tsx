@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
 
 export function LifecycleStackingFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

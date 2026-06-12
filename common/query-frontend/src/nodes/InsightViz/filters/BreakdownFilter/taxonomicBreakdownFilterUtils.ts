@@ -1,4 +1,5 @@
 import { MultipleBreakdownType } from '@posthog/query-frontend/schema/schema-general'
+
 import { BreakdownType } from '~/types'
 
 export const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'

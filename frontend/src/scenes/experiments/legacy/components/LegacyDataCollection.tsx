@@ -2,11 +2,6 @@ import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
-
-import { dayjs } from 'lib/dayjs'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { humanFriendlyNumber } from 'lib/utils'
-
 import {
     ExperimentTrendsQuery,
     ExperimentFunnelsQuery,
@@ -14,6 +9,11 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedLegacyExperimentQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { dayjs } from 'lib/dayjs'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { humanFriendlyNumber } from 'lib/utils'
+
 import { DEFAULT_MDE } from '~/scenes/experiments/constants'
 import { legacyExperimentLogic, getInsightType } from '~/scenes/experiments/legacy'
 import { formatUnitByQuantity } from '~/scenes/experiments/utils'

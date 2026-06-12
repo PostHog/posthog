@@ -2,12 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { IconChevronLeft, IconChevronRight, IconExternal, IconPlus, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
+import { ActorsQuery, DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-
-import { DataTable } from '@posthog/query-frontend/nodes/DataTable/DataTable'
-import { ActorsQuery, DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
 import type { MessageCategory } from './optOutCategoriesLogic'
 import { optOutListLogic } from './optOutListLogic'

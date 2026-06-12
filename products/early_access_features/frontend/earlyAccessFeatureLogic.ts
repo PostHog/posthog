@@ -5,6 +5,9 @@ import { router, urlToAction } from 'kea-router'
 import React from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { performQuery } from '@posthog/query-frontend/query'
+import { ActorsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -15,9 +18,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { performQuery } from '@posthog/query-frontend/query'
-import { ActorsQuery, NodeKind } from '@posthog/query-frontend/schema/schema-general'
-import { setLatestVersionsOnQuery } from '@posthog/query-frontend/utils'
 import {
     Breadcrumb,
     EarlyAccessFeatureStage,

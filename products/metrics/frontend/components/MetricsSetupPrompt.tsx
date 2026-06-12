@@ -3,13 +3,12 @@ import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ListHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useInterval } from 'lib/hooks/useInterval'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { metricsIngestionLogic } from '../metricsIngestionLogic'
 

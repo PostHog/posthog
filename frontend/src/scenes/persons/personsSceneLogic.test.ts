@@ -1,11 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
-import { DataTableNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { PEOPLE_LIST_DEFAULT_QUERY, personsSceneLogic } from './personsSceneLogic'

@@ -2,6 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
+import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
+import { DatabaseSchemaField, RetentionFilter } from '@posthog/query-frontend/schema/schema-general'
+import { PROPERTY_MATH_DEFINITIONS } from '@posthog/query-frontend/shared/mathsLogic'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -9,10 +12,7 @@ import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/Taxonomi
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightVizDataLogic'
-import { PROPERTY_MATH_DEFINITIONS } from '@posthog/query-frontend/shared/mathsLogic'
 
-import { DatabaseSchemaField, RetentionFilter } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyMathType } from '~/types'
 
 const aggregationTypeToTaxonomicType = {

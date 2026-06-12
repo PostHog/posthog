@@ -3,11 +3,10 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { addProductIntent } from 'lib/utils/product-intents'
-
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { Task, TaskListParams, TaskUpsertProps } from '../types'
 import type { tasksLogicType } from './tasksLogicType'

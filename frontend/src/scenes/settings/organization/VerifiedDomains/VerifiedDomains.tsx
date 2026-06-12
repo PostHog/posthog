@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo, IconLock, IconPeople, IconShieldLock, IconShuffle, IconTrash, IconWarning } from '@posthog/icons'
+import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
@@ -20,7 +21,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'

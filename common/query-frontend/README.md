@@ -39,18 +39,18 @@ The package is consumed through the `@posthog/query-frontend/*` path alias, whic
 
 ## Layout
 
-| Folder | Contents |
-| --- | --- |
-| `src/Query/` | The `<Query />` tag itself — routes a query JSON object to the right node component |
-| `src/QueryEditor/` | Generic JSON editor for any query, backed by the JSON schema |
-| `src/schema/` | TypeScript source of truth for all query types (`TrendsQuery`, `EventsQuery`, …) |
-| `src/schema.json` | Generated JSON schema (`pnpm --filter=@posthog/frontend schema:build:json`) |
-| `src/nodes/<Kind>/` | One folder per query node kind — components, kea logics, and docs for that kind |
-| `src/persons-modal/` | The persons drill-down modal opened from chart data points |
-| `src/shared/` | Cross-kind helpers, e.g. `mathsLogic` (the aggregation math taxonomy) |
-| `src/hooks/` | Shared React hooks for query components |
-| `src/query.ts` | API layer — executes any query node against `/api/environments/:id/query` |
-| `src/utils.ts` | Type-narrowing utilities (`isTrendsQuery`, `isDataTableNode`, …) |
+| Folder               | Contents                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------- |
+| `src/Query/`         | The `<Query />` tag itself — routes a query JSON object to the right node component |
+| `src/QueryEditor/`   | Generic JSON editor for any query, backed by the JSON schema                        |
+| `src/schema/`        | TypeScript source of truth for all query types (`TrendsQuery`, `EventsQuery`, …)    |
+| `src/schema.json`    | Generated JSON schema (`pnpm --filter=@posthog/frontend schema:build:json`)         |
+| `src/nodes/<Kind>/`  | One folder per query node kind — components, kea logics, and docs for that kind     |
+| `src/persons-modal/` | The persons drill-down modal opened from chart data points                          |
+| `src/shared/`        | Cross-kind helpers, e.g. `mathsLogic` (the aggregation math taxonomy)               |
+| `src/hooks/`         | Shared React hooks for query components                                             |
+| `src/query.ts`       | API layer — executes any query node against `/api/environments/:id/query`           |
+| `src/utils.ts`       | Type-narrowing utilities (`isTrendsQuery`, `isDataTableNode`, …)                    |
 
 Each node folder has its own `README.md` describing the query kind, an example query, and the components and logics that implement it.
 

@@ -12,12 +12,12 @@ Unlike insight query sources, `SavedInsightNode` is a top-level renderable node 
 import { Query } from '@posthog/query-frontend/Query/Query'
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
 
-<Query
-    query={{
-        kind: NodeKind.SavedInsightNode,
-        shortId: 'abcd1234', // InsightShortId of the saved insight
-        full: true,
-    }}
+;<Query
+  query={{
+    kind: NodeKind.SavedInsightNode,
+    shortId: 'abcd1234', // InsightShortId of the saved insight
+    full: true,
+  }}
 />
 ```
 

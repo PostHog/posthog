@@ -1,11 +1,12 @@
+import { TIME_INTERVAL_BOUNDS } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
+import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
+
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { TIME_INTERVAL_BOUNDS } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelUtils'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ExperimentMetric } from '@posthog/query-frontend/schema/schema-general'
 import { FunnelConversionWindowTimeUnit } from '~/types'
 
 export function ExperimentMetricConversionWindowFilter({

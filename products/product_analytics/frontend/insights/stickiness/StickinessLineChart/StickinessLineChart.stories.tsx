@@ -2,14 +2,15 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
-
-import { mswDecorator } from '~/mocks/browser'
-import stickinessFixture from '~/mocks/fixtures/api/projects/team_id/insights/stickiness.json'
 import { dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '@posthog/query-frontend/nodes/InsightViz/utils'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { mswDecorator } from '~/mocks/browser'
+import stickinessFixture from '~/mocks/fixtures/api/projects/team_id/insights/stickiness.json'
 import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
 
 import { StickinessLineChart } from './StickinessLineChart'

@@ -1,16 +1,16 @@
 import React from 'react'
 
+import { BreakdownFilter, DateRange } from '@posthog/query-frontend/schema/schema-general'
+
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { getConstrainedWeekRange, parseDateInTimezone } from 'lib/utils/dateTimeUtils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter, DateRange } from '@posthog/query-frontend/schema/schema-general'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
-
-import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in

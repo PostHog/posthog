@@ -1,12 +1,13 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 
-import { isEmptyObject } from 'lib/utils'
-import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-
 import { actionsAndEventsToSeries } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import { MathAvailability } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { ActionsNode, DataWarehouseNode, EventsNode, GroupNode } from '@posthog/query-frontend/schema/schema-general'
+
+import { isEmptyObject } from 'lib/utils'
+
 import { FilterType, InsightType } from '~/types'
 
 import { customerAnalyticsConfigLogic } from 'products/customer_analytics/frontend/customerAnalyticsConfigLogic'

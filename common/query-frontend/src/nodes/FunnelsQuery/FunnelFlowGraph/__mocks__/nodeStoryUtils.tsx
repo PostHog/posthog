@@ -4,15 +4,15 @@ import { Node, NodeTypes, ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
-
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '@posthog/query-frontend/nodes/InsightViz/utils'
 import { InsightQueryNode } from '@posthog/query-frontend/schema/schema-general'
-import { FunnelStepWithConversionMetrics, InsightLogicProps } from '~/types'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import funnelInsight from '~/mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import { FunnelStepWithConversionMetrics, InsightLogicProps } from '~/types'
 
 let uniqueNode = 0
 

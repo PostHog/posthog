@@ -2,12 +2,13 @@ import { actions, afterMount, connect, kea, path, reducers, selectors } from 'ke
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 import { EndpointType } from '~/types'
 
 import type { endpointsLogicType } from './endpointsLogicType'

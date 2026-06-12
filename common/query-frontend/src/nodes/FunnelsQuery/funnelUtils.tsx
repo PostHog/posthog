@@ -1,3 +1,14 @@
+import {
+    AnyEntityNode,
+    BreakdownFilter,
+    FunnelExclusionSteps,
+    FunnelsDataWarehouseNode,
+    FunnelsFilter,
+    FunnelsQuery,
+} from '@posthog/query-frontend/schema/schema-general'
+import { integer } from '@posthog/query-frontend/schema/type-utils'
+import { isFunnelsDataWarehouseNode } from '@posthog/query-frontend/utils'
+
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import {
@@ -12,16 +23,6 @@ import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import {
-    AnyEntityNode,
-    BreakdownFilter,
-    FunnelExclusionSteps,
-    FunnelsDataWarehouseNode,
-    FunnelsFilter,
-    FunnelsQuery,
-} from '@posthog/query-frontend/schema/schema-general'
-import { integer } from '@posthog/query-frontend/schema/type-utils'
-import { isFunnelsDataWarehouseNode } from '@posthog/query-frontend/utils'
 import {
     AnyPropertyFilter,
     Breakdown,

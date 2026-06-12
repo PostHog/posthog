@@ -1,19 +1,20 @@
 import { useValues } from 'kea'
 
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
+import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
+import { isInsightQueryNode } from '@posthog/query-frontend/utils'
+import { getDatumTitle } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
+import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
+
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getDatumTitle } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
-import { LineGraph } from '@posthog/visualizations/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '@posthog/query-frontend/schema/schema-general'
-import { isInsightQueryNode } from '@posthog/query-frontend/utils'
 import { BreakdownKeyType, ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'

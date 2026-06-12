@@ -2,6 +2,8 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { LogMessage, LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
+
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
 import { deterministicRandom } from 'lib/utils/random'
@@ -10,7 +12,6 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
-import { LogMessage, LogSeverityLevel } from '@posthog/query-frontend/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
 const delayIfNotTestRunner = async (): Promise<void> => {

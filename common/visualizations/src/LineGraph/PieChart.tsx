@@ -4,6 +4,12 @@ import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 import { useActions, useValues } from 'kea'
 
 import {
+    formatAggregationAxisValue,
+    formatAggregationAxisValueWithShareOfTotal,
+} from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
+import {
     ActiveElement,
     Chart,
     ChartDataset,
@@ -13,24 +19,19 @@ import {
     Plugin,
     TooltipModel,
 } from '@posthog/visualizations/Chart'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { useChart } from 'lib/hooks/useChart'
-import { isString } from 'lib/utils'
-import {
-    formatAggregationAxisValue,
-    formatAggregationAxisValueWithShareOfTotal,
-} from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from '@posthog/visualizations/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
 import { useInsightTooltip } from '@posthog/visualizations/InsightTooltip/useInsightTooltip'
 import { LineGraphProps, onChartClick } from '@posthog/visualizations/LineGraph/LineGraph'
 import { createTooltipData } from '@posthog/visualizations/LineGraph/tooltip-data'
+
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useChart } from 'lib/hooks/useChart'
+import { isString } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 import { groupsModel } from '~/models/groupsModel'
-import { BreakdownFilter } from '@posthog/query-frontend/schema/schema-general'
 import { GraphType } from '~/types'
 
 function getPercentageForDataPoint(context: Context): number {

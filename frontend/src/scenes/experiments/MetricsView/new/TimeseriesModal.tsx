@@ -3,13 +3,13 @@ import { useMemo } from 'react'
 
 import { IconClock, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
+import { ExperimentMetric, isExperimentRatioMetric } from '@posthog/query-frontend/schema/schema-general'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from 'scenes/urls'
 
-import { ExperimentMetric, isExperimentRatioMetric } from '@posthog/query-frontend/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { EXPERIMENT_RECALCULATION_MAX_AGE_DAYS } from '../../constants'

@@ -1,4 +1,5 @@
 import { DashboardFilter, TileFilters } from '@posthog/query-frontend/schema/schema-general'
+
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { isDashboardFilterEmpty } from './dashboardFilterEmpty'

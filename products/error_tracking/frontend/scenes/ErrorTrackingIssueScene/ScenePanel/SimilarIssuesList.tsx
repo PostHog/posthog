@@ -4,12 +4,11 @@ import { useEffect, useState } from 'react'
 
 import { IconSearch, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { SimilarIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
-
-import { SimilarIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import { ExceptionCard } from '../../../components/ExceptionCard'
 import { issueActionsLogic } from '../../../components/IssueActions/issueActionsLogic'

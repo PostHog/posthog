@@ -1,11 +1,11 @@
-import { ActivityChange, ChangeMapping } from 'lib/components/ActivityLog/humanizeActivity'
-import { objectsEqual } from 'lib/utils'
-
 import {
     RevenueAnalyticsConfig,
     RevenueAnalyticsEventItem,
     RevenueAnalyticsGoal,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { ActivityChange, ChangeMapping } from 'lib/components/ActivityLog/humanizeActivity'
+import { objectsEqual } from 'lib/utils'
 
 export const revenueAnalyticsConfigurationDescriber = (change?: ActivityChange): ChangeMapping | null => {
     if (!change) {

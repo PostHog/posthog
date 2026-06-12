@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useLayoutEffect, useState } from 'react'
 
+import { Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -9,7 +11,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { urls } from 'scenes/urls'
 
-import { Node, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { DashboardPlacement, Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 function GroupDetailDashboard({

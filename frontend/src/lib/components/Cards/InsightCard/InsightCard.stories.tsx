@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { TileFilters } from '@posthog/query-frontend/schema/schema-general'
+
 import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'

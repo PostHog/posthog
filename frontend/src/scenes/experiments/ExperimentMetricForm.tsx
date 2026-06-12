@@ -2,24 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
-
-import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ActionFilter } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/ActionFilter'
-import { urls } from 'scenes/urls'
-
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { performQuery } from '@posthog/query-frontend/query'
 import {
     ExperimentExposureCriteria,
@@ -33,6 +16,23 @@ import {
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType, FunnelConversionWindowTimeUnit } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'

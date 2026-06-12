@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { EventsQuery, NodeKind, TracesQuery } from '@posthog/query-frontend/schema/schema-general'
+
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 

@@ -7,11 +7,10 @@ import { useEffect, useMemo } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { LLMTrace, LLMTraceEvent } from '@posthog/query-frontend/schema/schema-general'
 
 import { SegmentRenderer, TextWithLinks } from './components'
 import { calculateLineNumberPadding, getExpandedTreeText, getPlainText, parseTextSegments } from './parsing'

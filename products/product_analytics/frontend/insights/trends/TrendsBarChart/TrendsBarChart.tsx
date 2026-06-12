@@ -1,6 +1,14 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
+import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
+import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
+import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
+import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
+import { getStackBreakdownValues } from '@posthog/query-frontend/utils'
 import {
     BarChart,
     buildYTickFormatter,
@@ -11,24 +19,16 @@ import {
     ValueLabels,
 } from '@posthog/quill-charts'
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
-
 import { buildTheme } from '@posthog/visualizations/charts/utils/theme'
-import { percentage } from 'lib/utils'
-import { formatAggregationAxisValue } from '@posthog/query-frontend/nodes/InsightViz/aggregationAxisFormat'
-import { InsightEmptyState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from '@posthog/visualizations/InsightTooltip/insightTooltipUtils'
+
+import { percentage } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { openPersonsModal } from '@posthog/query-frontend/persons-modal/PersonsModal'
-import { trendsDataLogic } from '@posthog/query-frontend/nodes/TrendsQuery/trendsDataLogic'
-import type { IndexedTrendResult } from '@posthog/query-frontend/nodes/TrendsQuery/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { InsightVizNode } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
-import { getStackBreakdownValues } from '@posthog/query-frontend/utils'
 import { ChartDisplayType } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'

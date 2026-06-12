@@ -3,13 +3,13 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
-import { BREAKDOWN_OTHER_DISPLAY } from 'scenes/insights/utils'
-
 import {
     CachedErrorTrackingBreakdownsQueryResponse,
     ErrorTrackingBreakdownsQueryResponse,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
+import { BREAKDOWN_OTHER_DISPLAY } from 'scenes/insights/utils'
 
 import { errorTrackingBreakdownsQuery } from '../../queries'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'

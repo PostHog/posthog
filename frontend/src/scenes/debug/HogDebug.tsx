@@ -3,17 +3,17 @@ import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
+import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
+import { ElapsedTime } from '@posthog/query-frontend/nodes/DataNode/ElapsedTime'
+import { Reload } from '@posthog/query-frontend/nodes/DataNode/Reload'
+import { HogQLQueryModifiers, HogQuery, HogQueryResponse } from '@posthog/query-frontend/schema/schema-general'
+
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-
-import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
-import { ElapsedTime } from '@posthog/query-frontend/nodes/DataNode/ElapsedTime'
-import { Reload } from '@posthog/query-frontend/nodes/DataNode/Reload'
-import { HogQLQueryModifiers, HogQuery, HogQueryResponse } from '@posthog/query-frontend/schema/schema-general'
 
 export interface HogQueryEditorProps {
     query: HogQuery

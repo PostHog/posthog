@@ -1,15 +1,15 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
-
 import { dataNodeCollectionLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeCollectionLogic'
 import {
     MARKETING_INTEGRATION_CONFIGS,
     type MarketingAnalyticsConfig,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { similarityScore } from '../components/settings/stringSimilarity'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'

@@ -1,7 +1,3 @@
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
-
 import { QueryFeature, getQueryFeatures } from '@posthog/query-frontend/nodes/DataTable/queryFeatures'
 import { extractExpressionComment, removeExpressionComment } from '@posthog/query-frontend/nodes/DataTable/utils'
 import {
@@ -18,6 +14,10 @@ import {
     isMarketingAnalyticsTableQuery,
     trimQuotes,
 } from '@posthog/query-frontend/utils'
+
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 export interface ColumnMeta {
     title?: JSX.Element | string

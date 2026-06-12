@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -7,8 +9,6 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
-
-import { ProductIntentContext, ProductKey } from '@posthog/query-frontend/schema/schema-general'
 
 import { ProductTab } from './common'
 import { WebAnalyticsExport } from './WebAnalyticsExport'

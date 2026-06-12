@@ -2,11 +2,12 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
-
 import { DataNodeLogicProps, dataNodeLogic } from '@posthog/query-frontend/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '@posthog/query-frontend/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '@posthog/query-frontend/nodes/InsightViz/utils'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+
 import { BaseMathType, InsightLogicProps } from '~/types'
 
 import { InsightsTable, InsightsTableProps } from './InsightsTable'

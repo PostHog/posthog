@@ -4,6 +4,8 @@ import { Suspense, lazy } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { InsightEmptyState, InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
+import { LLMTrace } from '@posthog/query-frontend/schema/schema-general'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -12,14 +14,12 @@ import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { InsightEmptyState, InsightErrorState } from '@posthog/query-frontend/nodes/InsightViz/EmptyStates'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { LLMTrace } from '@posthog/query-frontend/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { TraceSummary, aiObservabilitySessionDataLogic } from './aiObservabilitySessionDataLogic'

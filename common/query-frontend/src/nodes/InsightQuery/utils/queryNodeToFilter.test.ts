@@ -1,7 +1,8 @@
-import { FunnelLayout } from 'lib/constants'
-
 import { filtersToQueryNode } from '@posthog/query-frontend/nodes/InsightQuery/utils/filtersToQueryNode'
-import { hiddenLegendItemsToKeys, queryNodeToFilter } from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
+import {
+    hiddenLegendItemsToKeys,
+    queryNodeToFilter,
+} from '@posthog/query-frontend/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     FunnelsQuery,
     LifecycleQuery,
@@ -10,6 +11,9 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { FunnelLayout } from 'lib/constants'
+
 import {
     BreakdownAttributionType,
     ChartDisplayType,

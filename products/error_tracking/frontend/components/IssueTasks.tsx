@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 
 import api from 'lib/api'
 import { ErrorEventType, ErrorTrackingException } from 'lib/components/Errors/types'
@@ -11,7 +12,6 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { ErrorTrackingRelationalIssue } from '@posthog/query-frontend/schema/schema-general'
 import { IntegrationType } from '~/types'
 
 import { OriginProduct, TaskUpsertProps } from 'products/tasks/frontend/types'

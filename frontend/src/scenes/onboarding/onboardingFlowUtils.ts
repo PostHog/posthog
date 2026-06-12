@@ -1,4 +1,5 @@
 import { ProductKey } from '@posthog/query-frontend/schema/schema-general'
+
 import { OnboardingStepKey } from '~/types'
 
 import { availableOnboardingProducts } from './utils'

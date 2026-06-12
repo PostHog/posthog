@@ -1,5 +1,7 @@
 import { router } from 'kea-router'
 
+import { toLocalFilters } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
+
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -8,7 +10,6 @@ import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/u
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { genericOperatorMap } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { toLocalFilters } from '@posthog/query-frontend/nodes/InsightViz/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'

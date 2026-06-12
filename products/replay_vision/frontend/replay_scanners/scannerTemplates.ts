@@ -1,6 +1,6 @@
-import { dayjs } from 'lib/dayjs'
-
 import { NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
+import { dayjs } from 'lib/dayjs'
 
 import type {
     ClassifierScannerConfig,

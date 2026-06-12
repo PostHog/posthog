@@ -2,10 +2,11 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { Provider } from 'kea'
 import { ReactNode } from 'react'
 
+import { performQuery } from '@posthog/query-frontend/query'
+
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '@posthog/query-frontend/query'
 import { initKeaTests } from '~/test/init'
 
 import { TaxonomicFilterGroupType } from '../types'

@@ -14,6 +14,16 @@ import {
     LemonTag,
     Link,
 } from '@posthog/lemon-ui'
+import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
+import { Query } from '@posthog/query-frontend/Query/Query'
+import {
+    Node,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    QuerySchema,
+} from '@posthog/query-frontend/schema/schema-general'
+import { QueryContext } from '@posthog/query-frontend/types'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FlagSelector } from 'lib/components/FlagSelector'
@@ -53,10 +63,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { defaultDataTableColumns } from '@posthog/query-frontend/nodes/DataTable/utils'
-import { Query } from '@posthog/query-frontend/Query/Query'
-import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '@posthog/query-frontend/schema/schema-general'
-import { QueryContext } from '@posthog/query-frontend/types'
 import {
     CyclotronJobFiltersType,
     EarlyAccessFeatureStage,

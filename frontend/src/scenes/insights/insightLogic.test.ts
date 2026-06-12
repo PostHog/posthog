@@ -3,6 +3,10 @@ import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
+import { examples } from '@posthog/query-frontend/examples'
+import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
+import { DataTableNode, type InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
+
 import api from 'lib/api'
 import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -14,8 +18,6 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { examples } from '@posthog/query-frontend/examples'
-import { DataTableNode, type InsightVizNode, NodeKind } from '@posthog/query-frontend/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -33,7 +35,6 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { insightDataLogic } from '@posthog/query-frontend/nodes/InsightViz/insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {

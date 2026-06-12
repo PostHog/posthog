@@ -3,9 +3,9 @@ import { useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
+import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 
 import { BIN_COUNT_AUTO } from 'lib/constants'
-import { funnelDataLogic } from '@posthog/query-frontend/nodes/FunnelsQuery/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { BinCountValue } from '~/types'

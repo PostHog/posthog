@@ -1,7 +1,5 @@
 import { ComponentType, HTMLProps } from 'react'
 
-import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
-
 import { QueryFeature } from '@posthog/query-frontend/nodes/DataTable/queryFeatures'
 import {
     CurrencyCode,
@@ -11,6 +9,9 @@ import {
     QuerySchema,
     RefreshType,
 } from '@posthog/query-frontend/schema/schema-general'
+
+import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
+
 import { InsightLogicProps, TrendResult } from '~/types'
 
 import { ColumnFeature } from './nodes/DataTable/DataTable'

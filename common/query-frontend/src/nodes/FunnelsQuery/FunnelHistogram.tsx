@@ -5,9 +5,10 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useRef } from 'react'
 
+import { Histogram } from '@posthog/visualizations/Histogram'
+
 import { hashCodeForString, humanFriendlyDuration } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { Histogram } from '@posthog/visualizations/Histogram'
 
 import { funnelDataLogic } from './funnelDataLogic'
 

@@ -1,12 +1,13 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { DateRange, QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
+
 import { SelectedQuickFilter, quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, QuickFilterContext } from '@posthog/query-frontend/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { updateSearchParams } from '../../utils'

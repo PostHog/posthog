@@ -1,4 +1,5 @@
 import { LemonSelectOption } from '@posthog/lemon-ui'
+import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
 
 import {
     CURRENCY_SYMBOL_TO_EMOJI_MAP,
@@ -7,8 +8,6 @@ import {
     IMPORTANT_CURRENCIES,
     OTHER_CURRENCIES,
 } from 'lib/utils/geography/currency'
-
-import { CurrencyCode } from '@posthog/query-frontend/schema/schema-general'
 
 const optionFromCurrency = (currency: CurrencyCode): LemonSelectOption<CurrencyCode> => {
     return {
