@@ -33,14 +33,24 @@ if [ -z "$changed_story_files" ]; then
     exit 0
 fi
 
-# Filter to files that still exist (skip deleted).
+# Filter to files that still exist (skip deleted) and that the main storybook app
+# actually serves — must mirror the `stories` globs in common/storybook/.storybook/main.ts.
+# Stories from other storybook apps (e.g. packages/quill/apps/storybook) aren't in the
+# test runner's testMatch, so including them makes Jest exit 1 with "No tests found".
 declare -a stories_to_verify=()
 while IFS= read -r story_file; do
     if [ ! -f "$story_file" ]; then
         echo "Skipping $story_file (deleted)"
         continue
     fi
-    stories_to_verify+=("$story_file")
+    case "$story_file" in
+        frontend/src/* | products/*/frontend/* | products/*/mcp/* | packages/quill/packages/charts/src/*)
+            stories_to_verify+=("$story_file")
+            ;;
+        *)
+            echo "Skipping $story_file (not served by the main storybook app)"
+            ;;
+    esac
 done <<< "$changed_story_files"
 
 if [ ${#stories_to_verify[@]} -eq 0 ]; then
