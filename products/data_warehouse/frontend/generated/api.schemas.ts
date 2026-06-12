@@ -185,10 +185,29 @@ export const CdcTableModeEnumApi = {
     Both: 'both',
 } as const
 
+export type ExternalDataSchemaApiRowFiltersItemOperator =
+    (typeof ExternalDataSchemaApiRowFiltersItemOperator)[keyof typeof ExternalDataSchemaApiRowFiltersItemOperator]
+
+export const ExternalDataSchemaApiRowFiltersItemOperator = {
+    '': '>',
+    '': '>=',
+    '': '<',
+    '': '<=',
+    '': '=',
+    '': '!=',
+} as const
+
 /**
  * @nullable
  */
 export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
+
+export type ExternalDataSchemaApiRowFiltersItem = {
+    column: string
+    operator: ExternalDataSchemaApiRowFiltersItemOperator
+    /** Comparison value; must match the column's type. */
+    value: unknown
+}
 
 export type ExternalDataSchemaApiAvailableColumnsItem = {
     name: string
@@ -285,6 +304,11 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows.
+     * @nullable
+     */
+    row_filters?: ExternalDataSchemaApiRowFiltersItem[] | null
     /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
     readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
     /**
@@ -307,6 +331,25 @@ export interface PaginatedExternalDataSchemaListApi {
  * @nullable
  */
 export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null
+
+export type PatchedExternalDataSchemaApiRowFiltersItemOperator =
+    (typeof PatchedExternalDataSchemaApiRowFiltersItemOperator)[keyof typeof PatchedExternalDataSchemaApiRowFiltersItemOperator]
+
+export const PatchedExternalDataSchemaApiRowFiltersItemOperator = {
+    '': '>',
+    '': '>=',
+    '': '<',
+    '': '<=',
+    '': '=',
+    '': '!=',
+} as const
+
+export type PatchedExternalDataSchemaApiRowFiltersItem = {
+    column: string
+    operator: PatchedExternalDataSchemaApiRowFiltersItemOperator
+    /** Comparison value; must match the column's type. */
+    value: unknown
+}
 
 export type PatchedExternalDataSchemaApiAvailableColumnsItem = {
     name: string
@@ -403,6 +446,11 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows.
+     * @nullable
+     */
+    row_filters?: PatchedExternalDataSchemaApiRowFiltersItem[] | null
     /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
     /**
@@ -1307,6 +1355,25 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly supports_column_selection?: boolean
 }
 
+export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator =
+    (typeof ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator)[keyof typeof ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator]
+
+export const ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator = {
+    '': '>',
+    '': '>=',
+    '': '<',
+    '': '<=',
+    '': '=',
+    '': '!=',
+} as const
+
+export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
+    column: string
+    operator: ExternalDataSourceBulkUpdateSchemaApiRowFiltersItemOperator
+    /** Comparison value; must match the column's type. */
+    value: unknown
+}
+
 export interface ExternalDataSourceBulkUpdateSchemaApi {
     /** Schema identifier to update. */
     id: string
@@ -1351,6 +1418,11 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
+     * @nullable
+     */
+    row_filters?: ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem[] | null
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {

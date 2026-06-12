@@ -89,6 +89,18 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
+    row_filters: zod
+        .array(
+            zod.object({
+                column: zod.string(),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
+                value: zod.unknown().describe("Comparison value; must match the column's type."),
+            })
+        )
+        .nullish()
+        .describe(
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+        ),
 })
 
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
@@ -163,6 +175,18 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
+    row_filters: zod
+        .array(
+            zod.object({
+                column: zod.string(),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
+                value: zod.unknown().describe("Comparison value; must match the column's type."),
+            })
+        )
+        .nullish()
+        .describe(
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
 
@@ -239,6 +263,18 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
+    row_filters: zod
+        .array(
+            zod.object({
+                column: zod.string(),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
+                value: zod.unknown().describe("Comparison value; must match the column's type."),
+            })
+        )
+        .nullish()
+        .describe(
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+        ),
 })
 
 export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
@@ -313,6 +349,18 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
+    row_filters: zod
+        .array(
+            zod.object({
+                column: zod.string(),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
+                value: zod.unknown().describe("Comparison value; must match the column's type."),
+            })
+        )
+        .nullish()
+        .describe(
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
 
@@ -389,6 +437,18 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
+    row_filters: zod
+        .array(
+            zod.object({
+                column: zod.string(),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
+                value: zod.unknown().describe("Comparison value; must match the column's type."),
+            })
+        )
+        .nullish()
+        .describe(
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+        ),
 })
 
 export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
@@ -464,6 +524,18 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
+    row_filters: zod
+        .array(
+            zod.object({
+                column: zod.string(),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
+                value: zod.unknown().describe("Comparison value; must match the column's type."),
+            })
+        )
+        .nullish()
+        .describe(
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
+        ),
 })
 
 export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
@@ -538,6 +610,18 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
+    row_filters: zod
+        .array(
+            zod.object({
+                column: zod.string(),
+                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
+                value: zod.unknown().describe("Comparison value; must match the column's type."),
+            })
+        )
+        .nullish()
+        .describe(
+            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = !=` and the value must match the column's type. Applied on the next sync — not retroactive to already-synced rows."
         ),
 })
 
@@ -912,6 +996,16 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     .array(zod.string())
                     .nullish()
                     .describe('Columns to sync. Null means sync all columns.'),
+                row_filters: zod
+                    .array(
+                        zod.object({
+                            column: zod.string(),
+                            operator: zod.enum(['>', '>=', '<', '<=', '=', '!=']),
+                            value: zod.unknown().describe("Comparison value; must match the column's type."),
+                        })
+                    )
+                    .nullish()
+                    .describe('Row-filter predicates ANDed onto the source query. Null\/empty means sync all rows.'),
             })
         )
         .optional()
