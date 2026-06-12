@@ -27,6 +27,7 @@ else:
         def __repr__(self) -> str:
             return "<ValidatedRowFilter: type-checking-only stub>"
 
+
 SortMode = Literal["asc", "desc"]
 PartitionMode = Literal["md5", "numerical", "datetime"]
 PartitionFormat = Literal["month", "week", "day", "hour"]
