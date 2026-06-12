@@ -1240,6 +1240,20 @@ class TestPrinter(BaseTest):
             "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
         )
 
+    def test_to_bool_is_null_safe(self):
+        # toBool must not hard-fail on non-boolean input (e.g. a UUID-shaped string).
+        # It routes through accurateCastOrNull so unparseable values become NULL instead
+        # of raising "Cannot parse boolean value here" and failing the whole query.
+        self.assertEqual(
+            self._expr("toBool(uuid)"),
+            "accurateCastOrNull(events.uuid, %(hogql_val_0)s)",
+        )
+        # every() aggregates via the same null-safe cast rather than bare toBool(min(...)).
+        self.assertEqual(
+            self._expr("every(uuid)"),
+            "accurateCastOrNull(min(events.uuid), 'Bool')",
+        )
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
@@ -2509,18 +2523,21 @@ class TestPrinter(BaseTest):
         )
         assert generated_sql_statements1 == (
             f"SELECT "
-            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL)), 1), 0), "
-            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_2)s, %(hogql_val_3)s, NULL)), 0), 0), "
-            "isNull(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_4)s, %(hogql_val_5)s, NULL))) "
+            "ifNull(equals(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL), %(hogql_val_2)s), 1), 0), "
+            "ifNull(equals(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_3)s, %(hogql_val_4)s, NULL), %(hogql_val_5)s), 0), 0), "
+            "isNull(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_6)s, %(hogql_val_7)s, NULL), %(hogql_val_8)s)) "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         assert context.values == {
             "hogql_val_0": ["true", "false"],
             "hogql_val_1": [1, 0],
-            "hogql_val_2": ["true", "false"],
-            "hogql_val_3": [1, 0],
-            "hogql_val_4": ["true", "false"],
-            "hogql_val_5": [1, 0],
+            "hogql_val_2": "Bool",
+            "hogql_val_3": ["true", "false"],
+            "hogql_val_4": [1, 0],
+            "hogql_val_5": "Bool",
+            "hogql_val_6": ["true", "false"],
+            "hogql_val_7": [1, 0],
+            "hogql_val_8": "Bool",
         }
 
     @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")

@@ -105,7 +105,9 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toNullableString": HogQLFunctionMeta(
         "accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Nullable(String)")]
     ),
-    "toBool": HogQLFunctionMeta("toBool", 1, 1),
+    # accurateCastOrNull (not bare toBool) so non-boolean input (e.g. a UUID-shaped string)
+    # yields NULL instead of a hard ClickHouse parse error that fails the whole query.
+    "toBool": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Bool")]),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
     "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
