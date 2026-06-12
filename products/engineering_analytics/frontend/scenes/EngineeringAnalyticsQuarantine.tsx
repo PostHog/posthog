@@ -28,7 +28,6 @@ import {
     QuarantineLifecycle,
     QuarantineLifecycleFilter,
     QuarantineModeFilter,
-    QuarantineSelectorKind,
     engineeringAnalyticsLogic,
 } from './engineeringAnalyticsLogic'
 
@@ -100,13 +99,6 @@ function ModeTag({ mode }: { mode: QuarantineEntryRow['mode'] }): JSX.Element {
             <LemonTag type="muted">Runs, can't fail</LemonTag>
         </Tooltip>
     )
-}
-
-const SELECTOR_KIND_LABEL: Record<QuarantineSelectorKind, string> = {
-    product: 'product',
-    directory: 'directory',
-    file: 'file',
-    test: 'test',
 }
 
 export function EngineeringAnalyticsQuarantine(): JSX.Element {
@@ -199,7 +191,7 @@ export function EngineeringAnalyticsQuarantine(): JSX.Element {
                     </Tooltip>
                     <div className="flex items-center gap-1.5">
                         <LemonTag type="option" size="small">
-                            {SELECTOR_KIND_LABEL[row.selectorKind]}
+                            {row.selectorKind}
                         </LemonTag>
                         {row.runner !== 'pytest' && (
                             <Tooltip title="No enforcement adapter yet — entry is informational.">

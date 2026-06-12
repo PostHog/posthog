@@ -267,12 +267,11 @@ export function filterQuarantineEntries(rows: QuarantineEntryRow[], filters: Qua
 }
 
 export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts {
-    const counts: QuarantineCounts = {
+    const counts = {
         active: 0,
         expiringSoon: 0,
         inGrace: 0,
         overdue: 0,
-        pastExpiry: 0,
         skipped: 0,
         total: rows.length,
     }
@@ -283,16 +282,15 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
             counts.expiringSoon++
         } else if (row.lifecycle === 'in_grace') {
             counts.inGrace++
-            counts.pastExpiry++
         } else {
             counts.overdue++
-            counts.pastExpiry++
         }
         if (row.mode === 'skip') {
             counts.skipped++
         }
     }
-    return counts
+    // past_expiry is exactly the expired buckets — derive it so the two can't drift.
+    return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
 }
 
 export interface EngineeringAnalyticsLogicProps {
