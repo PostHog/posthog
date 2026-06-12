@@ -1598,6 +1598,46 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 expect(formatLLMEventTitle(event)).toBe('Custom Action')
             })
         })
+
+        describe('non-string properties (untyped property bag)', () => {
+            // `$ai_*` title properties are strings by convention, but the event property bag is
+            // untyped. A structured value (object/array) or number must never be returned verbatim,
+            // or it would be rendered as a raw React child and crash the page (React error #31).
+            const cases: Array<[string, string, Record<string, unknown>, string]> = [
+                [
+                    'generation, object span name, with model',
+                    '$ai_generation',
+                    { $ai_span_name: {}, $ai_model: 'gpt-4' },
+                    'gpt-4',
+                ],
+                ['generation, object span name, no model', '$ai_generation', { $ai_span_name: {} }, 'Generation'],
+                ['generation, object model', '$ai_generation', { $ai_model: {} }, 'Generation'],
+                [
+                    'generation, object model, with provider',
+                    '$ai_generation',
+                    { $ai_model: {}, $ai_provider: 'openai' },
+                    'Generation (openai)',
+                ],
+                ['generation, object provider', '$ai_generation', { $ai_model: 'gpt-4', $ai_provider: {} }, 'gpt-4'],
+                ['embedding, object span name', '$ai_embedding', { $ai_span_name: {} }, 'Embedding'],
+                ['embedding, object model', '$ai_embedding', { $ai_model: {} }, 'Embedding'],
+                ['span, object span name', '$ai_span', { $ai_span_name: {} }, 'Span'],
+                ['span, array span name', '$ai_span', { $ai_span_name: [] }, 'Span'],
+                ['span, numeric span name', '$ai_span', { $ai_span_name: 123 }, 'Span'],
+            ]
+
+            it.each(cases)('%s falls back to a string label', (_label, event, properties, expected) => {
+                const traceEvent: LLMTraceEvent = {
+                    id: 'event-1',
+                    event,
+                    properties,
+                    createdAt: '2024-01-01T00:00:00Z',
+                }
+                const title = formatLLMEventTitle(traceEvent)
+                expect(typeof title).toBe('string')
+                expect(title).toBe(expected)
+            })
+        })
     })
 
     describe('LiteLLM support', () => {

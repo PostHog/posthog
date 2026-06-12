@@ -39,7 +39,7 @@ export function TagDisplay({ eventProperties }: { eventProperties: EventType['pr
                         {taggerName}
                     </MetadataTag>
                 )}
-                {model && (
+                {typeof model === 'string' && model && (
                     <MetadataTag label="Model" textToCopy={lowercaseFirstLetter(model)}>
                         {lowercaseFirstLetter(model)}
                     </MetadataTag>

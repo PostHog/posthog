@@ -10,7 +10,7 @@ import { EventDetails } from '~/scenes/activity/explore/EventDetails'
 import { EventType } from '~/types'
 
 import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
-import { costContextFromProperties, formatLLMCost, hasCostBreakdown } from '../utils'
+import { asString, costContextFromProperties, formatLLMCost, hasCostBreakdown } from '../utils'
 import { CostBreakdownTooltip } from './CostBreakdownTooltip'
 import { SentimentBar } from './SentimentTag'
 
@@ -48,12 +48,13 @@ export function AIObservabilityEventCard({
     const latency = event.properties.$ai_latency
     const hasError = event.properties.$ai_error || event.properties.$ai_is_error
 
-    // Generation-specific properties
-    const model = event.properties.$ai_model || 'Unknown model'
+    // Generation-specific properties. `$ai_model` is a string by convention but the
+    // event property bag is untyped, so narrow it before rendering (an object would crash React).
+    const model = asString(event.properties.$ai_model) || 'Unknown model'
     const costContext = isGeneration || isEmbedding ? costContextFromProperties(event.properties) : undefined
 
     // Span-specific properties
-    const spanName = event.properties.$ai_span_name || 'Unnamed span'
+    const spanName = asString(event.properties.$ai_span_name) || 'Unnamed span'
 
     return (
         <div className="border rounded bg-bg-3000">

@@ -924,33 +924,30 @@ export function getSessionStartTimestamp(timestamp: string): string {
 
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMEvent(event)) {
-        if (event.event === '$ai_generation') {
-            const spanName = event.properties.$ai_span_name
-            if (spanName) {
-                return `${spanName}`
-            }
-            const title = event.properties.$ai_model || 'Generation'
-            if (event.properties.$ai_provider) {
-                return `${title} (${event.properties.$ai_provider})`
-            }
+        // `$ai_span_name`/`$ai_model`/`$ai_provider` are strings by convention, but the
+        // event property bag is untyped. Narrow each one so a non-string value (e.g. an
+        // object) can never be returned as the title and rendered as a raw React child.
+        const spanName = asString(event.properties.$ai_span_name)
 
-            return title
+        if (event.event === '$ai_generation') {
+            if (spanName) {
+                return spanName
+            }
+            const title = asString(event.properties.$ai_model) || 'Generation'
+            const provider = asString(event.properties.$ai_provider)
+            return provider ? `${title} (${provider})` : title
         }
 
         if (event.event === '$ai_embedding') {
-            const spanName = event.properties.$ai_span_name
             if (spanName) {
-                return `${spanName}`
+                return spanName
             }
-            const title = event.properties.$ai_model || 'Embedding'
-            if (event.properties.$ai_provider) {
-                return `${title} (${event.properties.$ai_provider})`
-            }
-
-            return title
+            const title = asString(event.properties.$ai_model) || 'Embedding'
+            const provider = asString(event.properties.$ai_provider)
+            return provider ? `${title} (${provider})` : title
         }
 
-        return event.properties.$ai_span_name ?? 'Span'
+        return spanName ?? 'Span'
     }
 
     return event.traceName ?? 'Trace'

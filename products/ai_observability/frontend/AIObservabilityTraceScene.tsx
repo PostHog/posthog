@@ -101,6 +101,7 @@ import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoad
 import { getTraceReviewTagItems } from './traceReviews/TraceReviewValue'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
+    asString,
     CostContext,
     costContextFromProperties,
     costContextFromTrace,
@@ -1307,13 +1308,15 @@ const TreeNode = React.memo(function TraceNode({
 export function renderModelRow(event: LLMTrace | LLMTraceEvent, searchQuery?: string): React.ReactNode | null {
     if (isLLMEvent(event)) {
         if (event.event === '$ai_generation') {
-            // if we don't have a span name, we don't want to render the model row as its covered by the event title
-            if (!event.properties.$ai_span_name) {
+            // if we don't have a span name, we don't want to render the model row as its covered by the event title.
+            // Narrow it first: the property bag is untyped, so a non-string value must not count as a span name.
+            if (!asString(event.properties.$ai_span_name)) {
                 return null
             }
-            let model = event.properties.$ai_model
-            if (event.properties.$ai_provider) {
-                model = `${model} (${event.properties.$ai_provider})`
+            let model = asString(event.properties.$ai_model) || ''
+            const provider = asString(event.properties.$ai_provider)
+            if (provider) {
+                model = `${model} (${provider})`
             }
             return searchQuery?.trim() ? (
                 <SearchHighlight string={model} substring={searchQuery} className="flex-1" />
