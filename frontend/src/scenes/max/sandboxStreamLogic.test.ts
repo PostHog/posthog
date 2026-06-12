@@ -827,6 +827,154 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
+    describe('telemetry parity', () => {
+        it('emits TASK_RUN_STARTED once on the first run_started frame, always cold (wire carries no warmth)', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            logic.actions.openSseForRun({
+                taskId: 'task-1',
+                runId: 'run-1',
+                traceId: 'trace-1',
+            })
+
+            await expectLogic(logic, () => {
+                // A stray cold_start hint on the wire is ignored — pre-warming isn't wired yet.
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', { cold_start: false }))
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            }).toFinishAllListeners()
+
+            const startedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'task_run_started')
+            expect(startedCalls.length).toEqual(1)
+            expect(startedCalls[0][1]).toEqual(
+                expect.objectContaining({
+                    conversation_id: 'test-conversation',
+                    trace_id: 'trace-1',
+                    run_id: 'run-1',
+                    task_id: 'task-1',
+                    execution_type: 'sandbox',
+                    cold_start: true,
+                })
+            )
+        })
+
+        it('emits TASK_RUN_TERMINATED with duration_ms measured from run start', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            logic.actions.openSseForRun({
+                taskId: 'task-1',
+                runId: 'run-1',
+                traceId: 'trace-1',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+                logic.actions.handleTerminalStatus({ status: 'failed', errorMessage: 'boom' })
+            }).toFinishAllListeners()
+
+            const call = captureSpy.mock.calls.find((c) => c[0] === 'task_run_terminated')
+            expect(call?.[1]).toEqual(
+                expect.objectContaining({
+                    conversation_id: 'test-conversation',
+                    trace_id: 'trace-1',
+                    run_id: 'run-1',
+                    status: 'failed',
+                    error_message: 'boom',
+                    execution_type: 'sandbox',
+                })
+            )
+            expect((call![1] as any).duration_ms).toBeGreaterThanOrEqual(0)
+        })
+
+        it('emits TOOL_CALL_COMPLETED once when a tool call reaches a terminal status', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            logic.actions.openSseForRun({
+                taskId: 'task-1',
+                runId: 'run-1',
+                traceId: 'trace-1',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'tool_call',
+                        toolCallId: 't1',
+                        serverName: 'posthog',
+                        toolName: 'exec',
+                        rawInput: { command: 'call execute-sql {"query":"select 1"}' },
+                        status: 'in_progress',
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' })
+                )
+                // A second terminal update must not re-emit.
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' })
+                )
+            }).toFinishAllListeners()
+
+            const toolCalls = captureSpy.mock.calls.filter((c) => c[0] === 'tool_call_completed')
+            expect(toolCalls.length).toEqual(1)
+            expect(toolCalls[0][1]).toEqual(
+                expect.objectContaining({
+                    conversation_id: 'test-conversation',
+                    trace_id: 'trace-1',
+                    tool_call_id: 't1',
+                    tool_qualified_name: 'execute-sql',
+                    status: 'completed',
+                    execution_type: 'sandbox',
+                })
+            )
+        })
+
+        it('forwards the trace_id to the permission endpoint for PERMISSION_RESPONDED correlation', async () => {
+            const permissionSpy = jest.spyOn(api.conversations, 'permission').mockResolvedValue({ status: 'ok' } as any)
+            logic.actions.openSseForRun({
+                taskId: 'task-1',
+                runId: 'run-1',
+                traceId: 'trace-1',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.respondToPermission({
+                    conversationId: 'conv-1',
+                    requestId: 'req-1',
+                    optionId: 'allow_once',
+                })
+            }).toFinishAllListeners()
+
+            expect(permissionSpy).toHaveBeenCalledWith(
+                'conv-1',
+                expect.objectContaining({ requestId: 'req-1', optionId: 'allow_once', traceId: 'trace-1' })
+            )
+        })
+
+        it('suppresses run lifecycle telemetry while replaying history on bootstrap', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', {}) as any,
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't1',
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    rawInput: { command: 'call execute-sql {"query":"select 1"}' },
+                    status: 'in_progress',
+                }) as any,
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' }) as any,
+            ])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            // History is folded in (run marked started, status terminal) but none of the lifecycle
+            // events re-fire — the run lived and died in a prior session.
+            expect(logic.values.runStarted).toEqual(true)
+            expect(logic.values.currentRunStatus).toEqual('completed')
+            const lifecycleEvents = ['task_run_started', 'task_run_terminated', 'tool_call_completed']
+            expect(captureSpy.mock.calls.filter((c) => lifecycleEvents.includes(c[0] as string))).toEqual([])
+        })
+    })
+
     describe('permission_request ingest', () => {
         const permissionFrame: PermissionRequestFrame = {
             type: 'permission_request',

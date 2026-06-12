@@ -283,8 +283,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
          * `logs/` endpoint, then open SSE if the run is non-terminal. `justCreatedRun` skips the
          * `logs/` round-trip (fresh-run fast path — nothing historical to assemble).
          */
-        bootstrapRun: (payload: { taskId: string; runId: string; justCreatedRun?: boolean }) => payload,
-        openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean }) => payload,
+        bootstrapRun: (payload: { taskId: string; runId: string; justCreatedRun?: boolean; traceId?: string }) =>
+            payload,
+        openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
         closeSse: true,
         sseConnecting: true,
         sseOpened: true,
@@ -328,7 +329,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
          * buttons re-enable for retry) without coupling that reset to unrelated stream errors.
          */
         permissionResponseFailed: true,
-        handleTerminalStatus: (status: { status: SandboxRunStatus; errorMessage?: string | null }) => status,
+        handleTerminalStatus: (status: {
+            status: SandboxRunStatus
+            errorMessage?: string | null
+            replayedFromHistory?: boolean
+        }) => status,
         handleStreamError: (envelope: { errorTitle: string; errorMessage?: string; retryable: boolean }) => envelope,
         // Internal state-folding actions emitted by ingestAcpFrame.
         appendAssistantChunk: (id: string, delta: string) => ({ id, delta }),
@@ -386,6 +391,18 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 // flickering back to queued; only a fresh open (no/terminal status) resets.
                 openSseForRun: (state) => (state && !isTerminalRunStatus(state) ? state : 'queued'),
                 handleTerminalStatus: (_, { status }) => status,
+                reset: () => null,
+            },
+        ],
+        // Trace correlation for the telemetry inventory. The SSE bypasses Django, so the frontend
+        // supplies the trace_id it minted for POST /sandbox/ when it opened the run; conversation_id
+        // is this keyed logic's own props.conversationId. Undefined for history-loaded runs — a
+        // reload can't recover the trace_id the original run was sent under.
+        traceId: [
+            null as string | null,
+            {
+                bootstrapRun: (state, { traceId }) => traceId ?? state,
+                openSseForRun: (state, { traceId }) => traceId ?? state,
                 reset: () => null,
             },
         ],
@@ -562,7 +579,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 runStarted && !turnComplete && !isTerminalRunStatus(currentRunStatus) && sseStatus !== 'error',
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, props }) => ({
         bootstrapRun: async ({ taskId, runId, justCreatedRun }, breakpoint) => {
             const projectId = values.currentProjectId
             if (projectId === null) {
@@ -602,8 +619,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
             if (isTerminalRunStatus(result.status)) {
-                // Read-only history — surface the terminal status, do not open SSE.
-                actions.handleTerminalStatus({ status: result.status as SandboxRunStatus })
+                // Read-only history — surface the terminal status, do not open SSE. Flag the replay
+                // so the listener records the status without re-emitting termination telemetry.
+                actions.handleTerminalStatus({ status: result.status as SandboxRunStatus, replayedFromHistory: true })
                 return
             }
             // Non-terminal: open SSE from the latest point, deduping against the replayed history.
@@ -746,6 +764,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // emit what this logic knows.
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
             posthog.capture('permission_requested', {
+                conversation_id: props.conversationId,
+                trace_id: values.traceId,
                 request_id: record.requestId,
                 tool_call_name: record.rawToolCall.resolvedKey,
                 tool_call_id: record.toolCallId,
@@ -756,10 +776,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         },
         respondToPermission: async ({ conversationId, requestId, optionId, customInput }) => {
             try {
+                // PERMISSION_RESPONDED telemetry is emitted server-side by the /permission/ handler;
+                // forward the trace_id so it can correlate with the rest of this run's events.
                 await api.conversations.permission(conversationId, {
                     requestId,
                     optionId,
                     customInput,
+                    traceId: values.traceId ?? undefined,
                 })
                 actions.markPermissionRequestResolved(requestId)
             } catch (error) {
@@ -772,7 +795,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 lemonToast.error('Failed to send approval. Please try again.')
             }
         },
-        handleTerminalStatus: ({ status }) => {
+        handleTerminalStatus: ({ status, errorMessage, replayedFromHistory }) => {
             // The wire emits task_run_state for non-terminal transitions too (e.g. queued →
             // in_progress) — only an actually-terminal run has no more frames to stream.
             if (!isTerminalRunStatus(status)) {
@@ -780,6 +803,28 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
+
+            // A run that already terminated in a prior session is surfaced read-only on reopen —
+            // the reducers still record the terminal status, but re-emitting telemetry on every
+            // page load would inflate termination counts.
+            if (replayedFromHistory) {
+                return
+            }
+
+            // TASK_RUN_TERMINATED telemetry. `duration_ms` is measured from the `_posthog/run_started`
+            // frame; absent if the run terminated before one was seen.
+            const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            const startedAt = cache.runStartedAtMs as number | undefined
+            posthog.capture('task_run_terminated', {
+                conversation_id: props.conversationId,
+                trace_id: values.traceId,
+                run_id: activeRun?.runId,
+                task_id: activeRun?.taskId,
+                status,
+                error_message: errorMessage ?? undefined,
+                execution_type: 'sandbox',
+                duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
+            })
         },
         closeSse: () => {
             cache.activeRun = undefined
@@ -788,6 +833,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         },
         reset: () => {
             cache.activeRun = undefined
+            cache.runStartedAtMs = undefined
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
         },
@@ -808,6 +854,24 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
 
             // Custom `_posthog/*` notification namespace emitted by the agent-server.
             if (method === '_posthog/run_started') {
+                // TASK_RUN_STARTED telemetry — emit once per run on the first `_posthog/run_started`
+                // frame. `cold_start` is true unless the run was pre-warmed. Suppressed while
+                // replaying history (the run started in a prior session) — `markRunStarted` below
+                // still runs so the thread's started/thinking state stays correct.
+                if (!values.runStarted && cache.bootstrapReplay !== true) {
+                    const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+                    cache.runStartedAtMs = Date.now()
+                    posthog.capture('task_run_started', {
+                        conversation_id: props.conversationId,
+                        trace_id: values.traceId,
+                        run_id: activeRun?.runId,
+                        task_id: activeRun?.taskId,
+                        execution_type: 'sandbox',
+                        // The run-started frame carries no warmth signal and pre-warming isn't wired
+                        // yet, so every run is a cold start. A later pre-warm hook flips this.
+                        cold_start: true,
+                    })
+                }
                 actions.markRunStarted()
                 return
             }
@@ -942,6 +1006,27 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                               }
                             : {}),
                     })
+                    // TOOL_CALL_COMPLETED telemetry (optional) — emit once when a tool call first
+                    // transitions to a terminal status. `duration_ms` is measured from the run start
+                    // since per-tool start timing isn't carried on the wire. Suppressed while
+                    // replaying history so a reopen doesn't re-count tool calls from a prior session.
+                    if (
+                        cache.bootstrapReplay !== true &&
+                        (status === 'completed' || status === 'failed') &&
+                        existing?.status !== 'completed' &&
+                        existing?.status !== 'failed'
+                    ) {
+                        const startedAt = cache.runStartedAtMs as number | undefined
+                        posthog.capture('tool_call_completed', {
+                            conversation_id: props.conversationId,
+                            trace_id: values.traceId,
+                            tool_call_id: toolCallId,
+                            tool_qualified_name: existing?.resolvedKey,
+                            status,
+                            duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
+                            execution_type: 'sandbox',
+                        })
+                    }
                     break
                 }
                 case 'current_mode_update': {

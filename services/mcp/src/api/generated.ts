@@ -35392,6 +35392,8 @@ export namespace Schemas {
          * @maxLength 10000
          */
       customInput?: string;
+      /** Trace id the client associated with the run, for PERMISSION_RESPONDED telemetry correlation. */
+      traceId?: string;
     }
 
     /**
@@ -39907,6 +39909,18 @@ export namespace Schemas {
       name?: string;
       /** Free-text content. Only for `text` attachments. */
       value?: string;
+    }
+
+    /**
+     * Response for `PATCH /conversations/{id}/cancel/` on a sandbox-runtime conversation.
+     */
+    export interface SandboxCancelResponse {
+      /** The products/tasks Task backing the conversation. */
+      task_id: string;
+      /** The Run that was targeted for cancellation. */
+      run_id: string;
+      /** Status of the Run after the cancel command was issued. */
+      run_status: string;
     }
 
     export interface SandboxEnvironment {

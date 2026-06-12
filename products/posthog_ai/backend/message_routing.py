@@ -49,6 +49,8 @@ class SandboxRouteResult(BaseModel):
     trace_id: str | None
     run_status: str
     just_created_run: bool
+    # Count of attached context items the message carried, for the routing endpoint's telemetry.
+    attached_context_count: int = 0
 
 
 class SandboxCancelResult(BaseModel):
@@ -57,6 +59,9 @@ class SandboxCancelResult(BaseModel):
     task_id: str
     run_id: str
     run_status: str
+    # True only when a live run was actually signalled to cancel (not an already-terminal no-op),
+    # so the cancel handler emits cancellation telemetry exactly once per real cancel.
+    cancel_requested: bool = False
 
 
 class SandboxCommandError(exceptions.APIException):
@@ -169,7 +174,7 @@ class MessageRoutingService(BaseSandboxService):
             raise exceptions.ValidationError("This conversation has no active run to cancel.")
 
         if run.is_terminal:
-            # Nothing to cancel — report the already-terminal status idempotently.
+            # Nothing to cancel — report the already-terminal status idempotently, no telemetry.
             return SandboxCancelResult(
                 task_id=str(self.conversation.task_id), run_id=str(run.id), run_status=run.status
             )
@@ -181,7 +186,12 @@ class MessageRoutingService(BaseSandboxService):
             raise SandboxCommandError(f"Failed to cancel the run: {result.error}")
         run.refresh_from_db(fields=["status"])
 
-        return SandboxCancelResult(task_id=str(self.conversation.task_id), run_id=str(run.id), run_status=run.status)
+        return SandboxCancelResult(
+            task_id=str(self.conversation.task_id),
+            run_id=str(run.id),
+            run_status=run.status,
+            cancel_requested=True,
+        )
 
     def _handle_first_message(
         self,
@@ -260,6 +270,7 @@ class MessageRoutingService(BaseSandboxService):
             trace_id=trace_id,
             run_status=task_run.status,
             just_created_run=True,
+            attached_context_count=len(attached_context),
         )
 
     def _handle_in_progress_followup(
@@ -286,6 +297,7 @@ class MessageRoutingService(BaseSandboxService):
             trace_id=trace_id,
             run_status=run.status,
             just_created_run=False,
+            attached_context_count=len(attached_context),
         )
 
     def _handle_terminal_resume(
@@ -356,6 +368,7 @@ class MessageRoutingService(BaseSandboxService):
             trace_id=trace_id,
             run_status=new_run.status,
             just_created_run=True,
+            attached_context_count=len(attached_context),
         )
 
     def _collect_seen_entity_refs(self, run: TaskRun) -> list[tuple[str, str | int]]:
