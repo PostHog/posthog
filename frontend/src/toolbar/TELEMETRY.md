@@ -35,6 +35,11 @@ Fired after the CORS reachability check to the PostHog app.
 | `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
 | `duration_ms`      | `number`          | Time taken for the check                                             |
 
+The `network_or_cors` and `timeout` error types are routine, already-handled outcomes for
+hosts that CORS-reject the preflight or sit behind strict proxies. They are recorded here for
+monitoring but are intentionally NOT routed into error tracking via `captureToolbarException` —
+only genuinely unexpected failures are captured as exceptions.
+
 **File:** `toolbarConfigLogic.ts`
 
 ## Authentication

@@ -659,13 +659,21 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // network_or_cors and timeout are routine, already-handled outcomes for
+            // hosts that CORS-reject the preflight or sit behind strict proxies — the
+            // 'toolbar ui host check' telemetry below already records them for
+            // monitoring, so don't also route them into error tracking as noise.
+            // Only capture genuinely unexpected failures.
+            if (errorType !== 'network_or_cors' && errorType !== 'timeout') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 

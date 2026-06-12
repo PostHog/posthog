@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -342,6 +343,69 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('reachability check exception capture', () => {
+        let captureExceptionSpy: jest.SpyInstance
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation(() => {})
+            captureSpy = jest.spyOn(toolbarPosthogJS, 'capture').mockImplementation(() => undefined as any)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        async function mountWithFailingHeadCheck(error: unknown): Promise<void> {
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    return Promise.reject(error)
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            // Flush the rejected fetch promise's .catch handler.
+            await Promise.resolve()
+            await Promise.resolve()
+            expect(logic.values.authStatus).toBe('error')
+        }
+
+        it('does NOT capture an exception for a benign network_or_cors failure', async () => {
+            // A rejected CORS preflight surfaces as TypeError: Failed to fetch.
+            await mountWithFailingHeadCheck(new TypeError('Failed to fetch'))
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            // The telemetry event is still recorded for monitoring.
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: 'network_or_cors' })
+            )
+        })
+
+        it('does NOT capture an exception for a timeout', async () => {
+            const abortError = new DOMException('The operation timed out', 'AbortError')
+            await mountWithFailingHeadCheck(abortError)
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: 'timeout' })
+            )
+        })
+
+        it('DOES capture an exception for an unexpected error', async () => {
+            await mountWithFailingHeadCheck(new Error('something weird'))
+
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: 'unknown' })
+            )
         })
     })
 
