@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_internals import (
@@ -24,9 +25,11 @@ from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMP
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_error_line,
+    _agent_message_chunk_line,
     _agent_message_line,
     _cost_less_usage_update_line,
     _end_turn_line,
+    _tool_call_line,
     _usage_update_line,
     _user_message_line,
 )
@@ -137,22 +140,22 @@ class TestPollForTurnEmptyEndTurn:
 
 
 class TestPollForTurnStaleSalvage:
-    """When the sandbox SDK never emits the closing end_turn after the agent's final
-    message (an intermittent race — the turn's cost is left null and the log goes quiet),
-    poll_for_turn must salvage the last message once the log is conclusively stale rather
-    than polling until MAX_POLL_SECONDS and failing a run that actually completed."""
+    """When the SDK drops the closing end_turn after the agent's final message (cost left null,
+    log goes quiet), poll_for_turn salvages the message on the timeout path — gated on the
+    null-cost fingerprint, a non-terminal status, and STALE_TURN_SALVAGE_SECONDS of silence so a
+    turn still emitting near the deadline isn't cut off. Tests patch the budget and floor small."""
 
     @pytest.mark.asyncio
     async def test_salvages_last_message_when_end_turn_never_arrives(self):
-        # Agent's close-out message + a final usage_update, but no end_turn line — the
-        # exact shape of the prod failures (no result of any stopReason ever written).
+        # Final message + null-cost usage_update, no end_turn — the prod failure shape.
         log = "\n".join([_agent_message_line("close-out summary"), _usage_update_line(165000)])
         fake = FakeTaskRun()
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
@@ -161,11 +164,371 @@ class TestPollForTurnStaleSalvage:
         assert total_lines == 2
 
     @pytest.mark.asyncio
-    async def test_does_not_salvage_while_log_approaches_threshold(self):
-        # New lines arrive after 2 silent polls (stale climbs to 20, one poll short of the
-        # 30s threshold) and each tail carries the null-cost usage_update fingerprint. So the
-        # ONLY thing keeping this still-active turn from being salvaged is the staleness
-        # reset on each new line — it completes via its real end_turn, not the salvage path.
+    async def test_salvages_dropped_finalization_after_active_work(self):
+        # Real work across several polls, then end_turn dropped — must still be salvaged. Uses the
+        # REAL STALE_TURN_SALVAGE_SECONDS (deliberately not patched) against a 600s budget so a floor
+        # set too close to the budget — which would reject a turn that works for minutes and only then
+        # drops end_turn (the exact prod failure) — fails this test instead of silently regressing.
+        work = [_agent_message_line("partial-1"), _usage_update_line()]
+        more = [*work, _agent_message_line("partial-2"), _usage_update_line()]
+        done = [*more, _agent_message_line("close-out summary"), _usage_update_line(165000)]
+        # Grow for the first three polls (last new lines ~elapsed 30), then quiet to the 600s deadline.
+        poll_logs = ["\n".join(work), "\n".join(more), "\n".join(done)]
+        poll_iter = iter(poll_logs)
+
+        def next_log(*_args, **_kwargs):
+            return next(poll_iter, "\n".join(done))
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 600),
+            # STALE_TURN_SALVAGE_SECONDS intentionally NOT patched — exercise the production floor.
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "close-out summary"
+        assert total_lines == len(done)
+
+    @pytest.mark.asyncio
+    async def test_salvage_reassembles_chunked_message(self):
+        # Response split across agent_message_chunk slices, then null-cost usage_update — salvage
+        # reparses from start-of-turn and returns all chunks, not just the last.
+        log = "\n".join(
+            [
+                _agent_message_chunk_line("Part-one."),
+                _agent_message_chunk_line("Part-two."),
+                _agent_message_chunk_line("Part-three."),
+                _usage_update_line(165000),
+            ]
+        )
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "Part-one.Part-two.Part-three."
+
+    @pytest.mark.asyncio
+    async def test_does_not_salvage_turn_active_near_deadline(self):
+        # New lines (with the fingerprint tail) arrive on every poll right up to the deadline, so
+        # silence never clears the floor — the still-active turn must fail, not be salvaged.
+        lines: list[str] = []
+        logs = []
+        for i in range(1, 6):
+            lines += [_agent_message_line(f"chunk-{i}"), _usage_update_line()]
+            logs.append("\n".join(lines))
+        poll_iter = iter(logs)
+
+        def next_log(*_args, **_kwargs):
+            return next(poll_iter, logs[-1])
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 50),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await poll_for_turn(fake, skip_lines=0)
+
+    @pytest.mark.asyncio
+    async def test_declines_salvage_when_reread_shows_nonterminal_activity(self):
+        # The silence floor was crossed, but the salvage reread's tail is a bare agent_message (no
+        # end_turn, no null-cost usage_update) — the turn was still producing output, not finalized.
+        # The tail, not a line count, is the discriminator: a non-terminal tail must decline and time
+        # out rather than truncate a possibly-live turn.
+        quiet = [_agent_message_line("close-out summary"), _usage_update_line(165000)]  # fingerprint tail
+        grown = [*quiet, _agent_message_line("actually still going")]  # non-terminal tail on the reread
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            # Polls 1-3 are steady (quiet); the 4th read is the salvage reread, which ends mid-stream.
+            return "\n".join(grown) if calls["n"] > 3 else "\n".join(quiet)
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await poll_for_turn(fake, skip_lines=0)
+
+    @pytest.mark.asyncio
+    async def test_completes_when_end_turn_recovered_on_reread(self):
+        # The final polls missed the closing line; the salvage reread sees the real end_turn. The turn
+        # completed (late), so it's returned as a normal completion, not declined as "grown" activity.
+        quiet = "\n".join([_agent_message_line("final answer")])  # no end_turn yet
+        completed = "\n".join([_agent_message_line("final answer"), _end_turn_line()])  # end_turn on reread
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            # polls 1-3 miss the closing line; the salvage reread (4th) sees the real end_turn.
+            return completed if calls["n"] > 3 else quiet
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "final answer"
+
+    @pytest.mark.asyncio
+    async def test_salvages_despite_eventually_consistent_short_final_poll(self):
+        # An earlier poll saw the full log; the final polls got a stale, shorter S3 read. The salvage
+        # reread recovers the full log and salvages off its fingerprint tail — no line-count comparison
+        # is involved, so an eventually-consistent short final read can't cause a false decline.
+        full = "\n".join(
+            [
+                _user_message_line("prompt"),
+                _agent_message_line("close-out summary"),
+                _usage_update_line(165000),
+            ]
+        )
+        short = "\n".join([_user_message_line("prompt"), _agent_message_line("close-out summary")])
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            # poll 1 sees the full 3-line log; polls 2-3 get a stale 2-line read; the salvage reread is full.
+            return short if calls["n"] in (2, 3) else full
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "close-out summary"
+
+    @pytest.mark.asyncio
+    async def test_salvages_when_finalization_fingerprint_lands_on_reread(self):
+        # The agent's final message was seen during polling, but the closing null-cost usage_update
+        # only becomes visible on the timeout reread. The completed fingerprint must be salvaged — not
+        # declined as "new activity" just because the reread has one more line than the polls saw.
+        seen = "\n".join([_agent_message_line("close-out summary")])  # message only, no fingerprint yet
+        finalized = "\n".join([_agent_message_line("close-out summary"), _usage_update_line(165000)])
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            # polls 1-3 see only the message; the salvage reread (4th) sees the null-cost usage_update.
+            return finalized if calls["n"] > 3 else seen
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "close-out summary"
+
+    @pytest.mark.asyncio
+    async def test_declines_salvage_when_reread_shows_new_chunk_after_final_poll(self):
+        # A null-cost usage_update is also emitted between chunks of an active turn. If the agent emits
+        # another chunk (message + null-cost usage) after the final poll, the reread's tail is still
+        # fingerprint-shaped but it grew 2 lines past the high-water mark — fresh activity with no
+        # silence window, so it could still be live. Salvaging would truncate it; this declines.
+        polled = "\n".join([_agent_message_line("working"), _usage_update_line()])  # fingerprint tail
+        active = "\n".join(
+            [
+                _agent_message_line("working"),
+                _usage_update_line(),
+                _agent_message_line("still working"),
+                _usage_update_line(),
+            ]
+        )  # a fresh chunk landed; tail is still fingerprint-shaped (+2 lines)
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            # polls 1-3 see only "working"; the salvage reread (4th) sees the newly-emitted chunk.
+            return active if calls["n"] > 3 else polled
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await poll_for_turn(fake, skip_lines=0)
+
+    @pytest.mark.asyncio
+    async def test_declines_salvage_when_reread_shows_new_tool_activity(self):
+        # A tool call is activity that does NOT change the trailing agent_message. If one lands after
+        # the final poll followed by a null-cost usage_update, last_message is unchanged and the tail is
+        # fingerprint-shaped — but the reread grew 2 lines past the high-water mark, so it's fresh
+        # activity with no silence window and must decline (the line count, not the message, catches it).
+        polled = "\n".join([_agent_message_line("working"), _usage_update_line()])  # fingerprint tail
+        active = "\n".join(
+            [_agent_message_line("working"), _usage_update_line(), _tool_call_line("grep"), _usage_update_line()]
+        )  # last_message still "working", tail still fingerprint-shaped (+2 lines)
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            return active if calls["n"] > 3 else polled
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await poll_for_turn(fake, skip_lines=0)
+
+    @pytest.mark.asyncio
+    async def test_salvages_chunked_message_streamed_across_polls(self):
+        # The final response streams as agent_message_chunks over several polls (each poll's slice holds
+        # only the latest chunk), then end_turn is dropped. All chunks landed during polling, so the
+        # reread adds nothing past the high-water mark (+0) and the full reassembled message is salvaged.
+        c1 = _agent_message_chunk_line("Part-one.")
+        full = "\n".join(
+            [
+                c1,
+                _agent_message_chunk_line("Part-two."),
+                _agent_message_chunk_line("Part-three."),
+                _usage_update_line(165000),
+            ]
+        )
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            # poll 1 sees the first chunk; from poll 2 on the whole chunked message + usage is present.
+            return c1 if calls["n"] == 1 else full
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 60),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "Part-one.Part-two.Part-three."
+
+    @pytest.mark.asyncio
+    async def test_salvage_propagates_exhausted_storage_error(self):
+        # If every salvage reread attempt fails, the storage error propagates (like the poll loop and
+        # terminal drain) instead of masquerading as a generic poll timeout.
+        quiet = "\n".join([_agent_message_line("close-out summary"), _usage_update_line(165000)])
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            if calls["n"] >= 4:  # polls 1-3 succeed; every salvage reread blips
+                raise ObjectStorageError("s3 down")
+            return quiet
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(ObjectStorageError):
+                await poll_for_turn(fake, skip_lines=0)
+
+    @pytest.mark.asyncio
+    async def test_salvage_retries_transient_storage_error(self):
+        # A transient S3 error on the salvage read is retried (like the poll loop and terminal drain),
+        # so a single blip doesn't fail a turn that is otherwise recoverable.
+        quiet = "\n".join([_agent_message_line("close-out summary"), _usage_update_line(165000)])
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            if calls["n"] == 4:  # the first salvage read blips; the retry (5th) succeeds
+                raise ObjectStorageError("transient")
+            return quiet
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "close-out summary"
+
+    @pytest.mark.asyncio
+    async def test_terminal_status_at_timeout_drains_instead_of_salvaging(self):
+        # Fingerprint present but no agent_message, and the run is terminal by the deadline — the
+        # timeout path drains (raises the real failure) instead of reporting a bare timeout.
+        log = "\n".join([_user_message_line("prompt"), _usage_update_line()])  # fingerprint, no agent_message
+        running = FakeTaskRun(status="running")
+        failed = FakeTaskRun(status="failed", error_message="sandbox killed")
+        statuses = iter([running] * 3 + [failed])
+
+        def next_status(*_args, **_kwargs):
+            return next(statuses, failed)
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.models.TaskRun.objects.get", side_effect=next_status),
+        ):
+            with pytest.raises(RuntimeError, match="terminal status"):
+                await poll_for_turn(running, skip_lines=0)
+
+    @pytest.mark.asyncio
+    async def test_active_turn_completes_via_end_turn_not_salvage(self):
+        # A still-active turn completes via its real end_turn before the budget runs out.
         c1 = [_agent_message_line("working"), _usage_update_line()]
         c2 = [*c1, _agent_message_line("still working"), _usage_update_line()]
         final = [*c2, _agent_message_line("final answer"), _end_turn_line()]
@@ -180,7 +543,6 @@ class TestPollForTurnStaleSalvage:
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 30),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
@@ -197,17 +559,16 @@ class TestPollForTurnStaleSalvage:
         ]
     )
     async def test_does_not_salvage_without_finalization_fingerprint(self, _name, tail_lines):
-        # Agent message present and the log is long-stale, but the tail is not an explicit
-        # null-cost usage_update — a mid-turn gap, an old cost-less usage line, or a terminal
-        # error after accounting. None are the dropped-finalization case, so keep polling
-        # (here to the cap) rather than salvage an unfinished or failed turn.
+        # Silence floor cleared, but the tail isn't a null-cost usage_update — so the fingerprint
+        # gate (not the floor) blocks salvage and the run times out.
         log = "\n".join([_agent_message_line("intermediate"), *tail_lines])
         fake = FakeTaskRun()
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 600),
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             with pytest.raises(RuntimeError, match="timed out"):

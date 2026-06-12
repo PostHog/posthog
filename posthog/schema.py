@@ -788,6 +788,7 @@ class AssistantTool(StrEnum):
     MANAGE_MEMORIES = "manage_memories"
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
+    LIST_FEATURE_FLAGS = "list_feature_flags"
     UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
     CALL_MCP_SERVER = "call_mcp_server"
@@ -4866,6 +4867,12 @@ class SlackIntegrationScope(StrEnum):
     USERS_READ_EMAIL = "users:read.email"
 
 
+class SlackIntegrationScopeInReview(StrEnum):
+    ASSISTANT_WRITE = "assistant:write"
+    IM_HISTORY = "im:history"
+    MPIM_READ = "mpim:read"
+
+
 class SlashCommandName(StrEnum):
     FIELD_INIT = "/init"
     FIELD_REMEMBER = "/remember"
@@ -6687,7 +6694,10 @@ class AssistantTrendsFilter(BaseModel):
         default=None,
         description=(
             "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5"
-            " as `5 clicks`. You may need to add a space before postfix."
+            " as `5 clicks`. You may need to add a space before postfix. Never set a"
+            " postfix that `aggregationAxisFormat` already renders: `percentage` and"
+            " `percentage_scaled` already append the `%` sign, so a `%` postfix would"
+            " render values as `50%%`."
         ),
     )
     aggregationAxisPrefix: str | None = Field(
@@ -9039,6 +9049,12 @@ class SessionRecordingType(BaseModel):
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None
+    matches_filters: bool | None = Field(
+        default=None,
+        description=(
+            "False when the recording was included in list results via a direct link despite not matching the filters."
+        ),
+    )
     matching_events: list[MatchedRecording] | None = Field(default=None, description="List of matching events. *")
     mouse_activity_count: float | None = Field(
         default=None,
