@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, also_test_with_materialized_columns
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, also_test_with_materialized_columns, materialized
 from unittest.mock import patch
 
 from posthog.schema import (
@@ -10,6 +10,11 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.utils import prepare_ast_for_printing, print_prepared_ast
+
+from products.web_analytics.backend.hogql_queries.events_prefilter import EventsPrefilterTransformer
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 
 
@@ -168,6 +173,47 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         # properties blob must be in the subquery for JSONExtractRaw
         assert "events.properties" in sql
         assert "JSONExtractRaw(events.properties," in sql
+
+    def test_bounce_with_materialized_event_property_filter(self):
+        # Property resolution rewrites a materialized property read to a synthetic mat_* column the HogQL schema
+        # doesn't know about; the prefilter subquery must still SELECT that column or the outer query fails with
+        # UNKNOWN_IDENTIFIER. Executes against ClickHouse, so a missing column fails the query itself.
+        with materialized("events", "customProperty"):
+            sql = self._run_prefiltered_query(
+                includeBounceRate=True,
+                properties=[
+                    EventPropertyFilter(
+                        key="customProperty",
+                        operator=PropertyOperator.EXACT,
+                        value=["1"],
+                    )
+                ],
+            )
+
+        assert "mat_customProperty" in sql
+        assert sql.count("mat_customProperty") >= 2, (
+            "subquery must SELECT the materialized column the outer query reads"
+        )
+
+    def test_deep_key_read_off_materialized_column_kept_in_subquery(self):
+        # A deep read (properties.customProperty.bar) through a materialized column becomes a JSON extract over the
+        # synthetic mat_* column; the transformer must keep that column in the prefilter subquery.
+        with materialized("events", "customProperty"):
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+            node = parse_select("SELECT count() FROM events WHERE properties.customProperty.bar = 'x'")
+            prepared = prepare_ast_for_printing(node, context=context, dialect="clickhouse", stack=[])
+            assert prepared is not None
+            transformer = EventsPrefilterTransformer(team_id=self.team.pk, date_from="2024-01-01", date_to="2024-01-02")
+            try:
+                transformer.visit(prepared)
+                assert transformer.wraps_applied == 1
+                sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+            finally:
+                transformer.cleanup_temp_schema_fields()
+
+        assert sql.count("mat_customProperty") >= 2, (
+            "subquery must SELECT the materialized column the outer query reads"
+        )
 
     @also_test_with_materialized_columns(
         person_properties=["email"],

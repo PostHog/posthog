@@ -11,16 +11,22 @@ from django.utils import timezone
 
 import psycopg.errors
 from asgiref.sync import sync_to_async
+from google.genai.errors import APIError
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.models import Organization, Team
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
+    REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
+    REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
+)
 
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -70,6 +76,7 @@ from products.replay_vision.backend.temporal.state import (
 )
 from products.replay_vision.backend.temporal.types import (
     ApplyScannerInputs,
+    CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
     EmbedSummarizerObservationInputs,
@@ -279,6 +286,7 @@ class TestCreateObservationActivity:
                 usage_this_month=1,
                 period_start=dt.datetime.now(dt.UTC),
                 period_end=dt.datetime.now(dt.UTC),
+                projected_monthly_observations=0,
             )
             result = create_observation_activity(
                 CreateObservationInputs(
@@ -385,7 +393,7 @@ class TestObservationStateActivities:
     def test_mark_succeeded_stamps_lifecycle_metadata_and_persists_result(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.9))
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
 
         mark_observation_succeeded_activity(
             MarkObservationSucceededInputs(
@@ -404,7 +412,7 @@ class TestObservationStateActivities:
         observation = _make_observation(
             scanner, status=ObservationStatus.FAILED, error_reason="prior", completed_at=timezone.now()
         )
-        result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="late", confidence=0.9))
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="late", confidence=0.9))
 
         mark_observation_succeeded_activity(
             MarkObservationSucceededInputs(
@@ -427,7 +435,7 @@ class TestObservationStateMetricsAndLogs:
     def test_mark_succeeded_increments_observations_counter_and_logs(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.8))
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.8))
         before = _counter_value("replay_vision_observations_total", status="succeeded", scanner_type="monitor")
 
         with capture_logs() as logs:
@@ -515,7 +523,7 @@ class TestObservationStateMetricsAndLogs:
     def test_activity_duration_histogram_records_success_observation(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.8))
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.8))
         labels = {"activity": "mark_observation_succeeded_activity", "status": "succeeded"}
         before = _counter_value("replay_vision_activity_duration_seconds_count", **labels)
 
@@ -589,7 +597,7 @@ class TestObservationStateMetricsAndLogs:
                     MarkObservationSucceededInputs(
                         observation_id=obs_id,
                         scanner_result=ScannerResult(
-                            model_output=MonitorOutput(verdict=True, reasoning="late", confidence=0.8)
+                            model_output=MonitorOutput(verdict="yes", reasoning="late", confidence=0.8)
                         ),
                         scanner_type=ScannerType.MONITOR,
                     )
@@ -637,7 +645,7 @@ class TestObservationStateMetricsAndLogs:
                     MarkObservationSucceededInputs(
                         observation_id=observation.id,
                         scanner_result=ScannerResult(
-                            model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.8)
+                            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.8)
                         ),
                         scanner_type=ScannerType.MONITOR,
                     )
@@ -774,7 +782,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 5,
                 },
                 "too_short",
-                "is only 5",
+                "Only 5",
             ),
             (
                 {
@@ -784,7 +792,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 3,  # under 10s floor
                 },
                 "too_inactive",
-                "has only 3",
+                "Only 3s of active",
             ),
             (
                 {
@@ -794,7 +802,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 5000,  # over 3600 cap
                 },
                 "too_long",
-                "has 5000",
+                "5000s of active",
             ),
         ],
     )
@@ -1196,6 +1204,53 @@ class TestEnsureSessionAssetActivity:
         assert ctx["content_location"] == "s3://prior/video.mp4"
 
 
+class TestCleanupGeminiFileActivity:
+    @pytest.mark.asyncio
+    async def test_deletes_file_and_clears_tracking(self, gemini_redis) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-ok", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-ok": 0.0})
+        fake_client = MagicMock()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-ok"))
+        fake_client.files.delete.assert_called_once_with(name="files/rv-ok")
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-ok") == 0
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-ok") is None
+
+    @pytest.mark.asyncio
+    async def test_keeps_tracking_on_transient_failure(self, gemini_redis) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-transient", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-transient": 0.0})
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = RuntimeError("gemini down")
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-transient"))
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-transient") == 1
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-transient") is not None
+
+    @pytest.mark.parametrize("code", [403, 404])
+    @pytest.mark.asyncio
+    async def test_clears_tracking_when_file_already_gone(self, gemini_redis, code: int) -> None:
+        # Gemini reports missing files as 403 PERMISSION_DENIED ("...or it may not exist") or 404;
+        # either way the file can't be deleted, so the tracking key must be dropped.
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-gone": 0.0})
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = APIError(code=code, response_json={})
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-gone"))
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone") == 0
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-gone") is None
+
+
 def _build_inputs(**overrides: Any) -> ApplyScannerInputs:
     defaults: dict[str, Any] = {
         "scanner_id": uuid.uuid4(),
@@ -1247,7 +1302,7 @@ async def _run_workflow(inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workf
 @pytest.mark.asyncio
 async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     new_observation_id = uuid.uuid4()
-    model_output = MonitorOutput(verdict=True, reasoning="user exported", confidence=0.9)
+    model_output = MonitorOutput(verdict="yes", reasoning="user exported", confidence=0.9)
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(
@@ -1355,7 +1410,7 @@ async def test_apply_scanner_workflow_succeeds_even_when_cleanup_fails() -> None
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
             call_scanner_provider_activity: ScannerCallOutput(
-                model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.9),
+                model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
             ),
         },
         activity_errors={cleanup_gemini_file_activity: RuntimeError("cleanup failed")},
@@ -1384,6 +1439,36 @@ async def test_apply_scanner_workflow_exits_when_create_returns_was_created_fals
 
     assert [fn for fn, _ in mocks.activity_calls] == [create_observation_activity]
     assert mocks.child_calls == []
+
+
+def test_workflow_get_progress_advances_through_phases() -> None:
+    workflow = ApplyScannerWorkflow()
+    assert workflow.get_progress() == {
+        "phase": "queued",
+        "step": 0,
+        "total_steps": 6,
+        "rasterizer_workflow_id": None,
+    }
+
+    workflow._advance_phase("rendering", rasterizer_workflow_id="rast-1")
+    progress = workflow.get_progress()
+    assert progress["phase"] == "rendering"
+    assert progress["step"] == 2
+    assert progress["rasterizer_workflow_id"] == "rast-1"
+
+    # A later phase without an id keeps the previously recorded rasterizer id.
+    workflow._advance_phase("analyzing")
+    assert workflow.get_progress()["phase"] == "analyzing"
+    assert workflow.get_progress()["rasterizer_workflow_id"] == "rast-1"
+
+
+async def test_progress_stream_completes_immediately_for_terminal_observation() -> None:
+    # Fast path: opening the stream for a settled observation emits a single complete event and closes.
+    observation = ReplayObservation(id=uuid.uuid4(), status=ObservationStatus.SUCCEEDED)
+    events = [event async for event in stream_observation_progress(observation)]
+    assert len(events) == 1
+    assert "event: observation-complete" in events[0]
+    assert '"status": "succeeded"' in events[0]
 
 
 @pytest.mark.asyncio
@@ -1581,7 +1666,7 @@ async def test_emit_classifier_tags_raises_when_kafka_delivery_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_flag_and_facets_present() -> None:
+async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_facets_present() -> None:
     new_observation_id = uuid.uuid4()
     model_output = _summarizer_output_with_facets()
     mocks = _WorkflowMocks(
@@ -1590,7 +1675,6 @@ async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_flag_
                 observation_id=new_observation_id,
                 was_created=True,
                 scanner_type=ScannerType.SUMMARIZER,
-                emits_embeddings=True,
             ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
@@ -1616,31 +1700,6 @@ async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_flag_
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_skips_summarizer_embedding_when_flag_off() -> None:
-    new_observation_id = uuid.uuid4()
-    mocks = _WorkflowMocks(
-        activity_results={
-            create_observation_activity: CreateObservationOutput(
-                observation_id=new_observation_id,
-                was_created=True,
-                scanner_type=ScannerType.SUMMARIZER,
-                emits_embeddings=False,
-            ),
-            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
-            upload_video_to_gemini_activity: UploadedVideo(
-                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
-            ),
-            call_scanner_provider_activity: ScannerCallOutput(model_output=_summarizer_output_with_facets()),
-        },
-    )
-
-    await _run_workflow(_build_inputs(session_id="sess-noemb"), mocks)
-
-    called = {fn for fn, _ in mocks.activity_calls}
-    assert embed_summarizer_observation_activity not in called
-
-
-@pytest.mark.asyncio
 async def test_apply_scanner_workflow_skips_summarizer_embedding_when_no_facets() -> None:
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
@@ -1649,7 +1708,6 @@ async def test_apply_scanner_workflow_skips_summarizer_embedding_when_no_facets(
                 observation_id=new_observation_id,
                 was_created=True,
                 scanner_type=ScannerType.SUMMARIZER,
-                emits_embeddings=True,
             ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
@@ -1698,7 +1756,7 @@ async def test_apply_scanner_workflow_dispatches_classifier_side_effect() -> Non
 @pytest.mark.asyncio
 async def test_apply_scanner_workflow_skips_side_effects_for_monitor() -> None:
     new_observation_id = uuid.uuid4()
-    model_output = MonitorOutput(verdict=True, reasoning="user exported", confidence=0.9)
+    model_output = MonitorOutput(verdict="yes", reasoning="user exported", confidence=0.9)
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(
@@ -1729,7 +1787,6 @@ async def test_apply_scanner_workflow_marks_failed_when_side_effect_raises() -> 
                 observation_id=new_observation_id,
                 was_created=True,
                 scanner_type=ScannerType.SUMMARIZER,
-                emits_embeddings=True,
             ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
@@ -1902,7 +1959,9 @@ class TestExtractSegments:
 
 class TestResolveCitations:
     def test_populates_field_and_segments(self) -> None:
-        finalized = MonitorOutput(verdict=True, reasoning=f"User retried (event_uuid {_UUID_A}) twice.", confidence=0.9)
+        finalized = MonitorOutput(
+            verdict="yes", reasoning=f"User retried (event_uuid {_UUID_A}) twice.", confidence=0.9
+        )
         resolved = _resolve_citations(finalized, _monitor_scanner(), {_UUID_A: 1234})
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "User retried twice."
@@ -1920,7 +1979,7 @@ class TestResolveCitations:
         assert any(isinstance(s, ChipSegment) and s.uuid == _UUID_A for s in resolved.summary_segments)
 
     def test_no_citations_in_text_yields_single_text_segment(self) -> None:
-        finalized = MonitorOutput(verdict=True, reasoning="No citations here.", confidence=0.9)
+        finalized = MonitorOutput(verdict="yes", reasoning="No citations here.", confidence=0.9)
         resolved = _resolve_citations(finalized, _monitor_scanner(), {_UUID_A: 0})
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "No citations here."

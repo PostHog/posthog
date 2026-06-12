@@ -4,6 +4,7 @@ import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 import requests
 import structlog
@@ -484,13 +485,28 @@ def _launch_local_browser(p: Playwright) -> Browser:
     launch_args = [
         "--force-device-scale-factor=1",
         "--disable-dev-shm-usage",
-        "--no-sandbox",
         "--disable-gpu",
     ]
+    if settings.HEATMAP_CHROMIUM_NO_SANDBOX:
+        launch_args.append("--no-sandbox")
     proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
     proxy_config = ProxySettings(server=proxy_url) if proxy_url else None
+    # In the production image CHROME_BIN points at the only installed browser (/usr/bin/chromium);
+    # Playwright's bundled browser is intentionally NOT installed. So when CHROME_BIN is set but the
+    # path is missing, fail loudly with a config error rather than silently falling through to a
+    # non-existent bundled browser. When CHROME_BIN is unset (local dev), executable_path stays None
+    # and Playwright uses its own bundled Chromium. NOTE: Playwright skips browser-version enforcement
+    # when executable_path is set, so re-check system-chromium compatibility when bumping `playwright`.
+    executable_path = os.environ.get("CHROME_BIN") or None
+    if executable_path and not os.path.exists(executable_path):
+        logger.error("heatmap_screenshot.chrome_bin_invalid", chrome_bin=executable_path)
+        raise ImproperlyConfigured(
+            f"CHROME_BIN is set to '{executable_path}' but no executable exists there. The production "
+            "image installs Chromium at /usr/bin/chromium and does not bundle a Playwright browser."
+        )
     return p.chromium.launch(
         headless=True,  # TIP: for debugging, set to False
+        executable_path=executable_path,
         args=launch_args,
         proxy=proxy_config,
     )

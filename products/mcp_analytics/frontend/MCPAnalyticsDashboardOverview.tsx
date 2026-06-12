@@ -1,558 +1,76 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { IconBolt } from '@posthog/icons'
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { type ChartTheme } from '@posthog/quill-charts'
 
-import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
-import { urls } from 'scenes/urls'
+import { buildTheme } from 'lib/charts/utils/theme'
+import { teamLogic } from 'scenes/teamLogic'
 
-import claudeLogo from './harness-logos/claude.svg'
-import cursorLogo from './harness-logos/cursor.svg'
-import openaiLogo from './harness-logos/openai.svg'
-import vscodeLogo from './harness-logos/vscode.svg'
-import { HarnessRow, KPIMetric, NotableSession, ToolRow, mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-const HARNESS_LOGOS: Record<string, string> = {
-    'Claude Code': claudeLogo,
-    'Claude.ai': claudeLogo,
-    'OpenAI Codex': openaiLogo,
-    Cursor: cursorLogo,
-    'VS Code': vscodeLogo,
-}
-
-export function HarnessPill({ category, title }: { category: string; title?: string }): JSX.Element {
-    const logo = HARNESS_LOGOS[category]
-    return (
-        <span
-            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary bg-surface-primary px-2 py-0.5 text-xs"
-            title={title}
-        >
-            {logo ? (
-                <img src={logo} alt="" className="h-3.5 w-3.5 shrink-0 object-contain" />
-            ) : (
-                <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-secondary" aria-hidden />
-            )}
-            <span className="truncate">{category}</span>
-        </span>
-    )
-}
-
-type TileColor = 'blue' | 'red' | 'green'
-
-interface TileSpec {
-    label: string
-    metric: KPIMetric
-    href: string
-    format: (n: number) => string
-    color: TileColor
-    loading: boolean
-}
-
-const COLOR_STROKE: Record<TileColor, string> = {
-    blue: '#185FA5',
-    red: '#A32D2D',
-    green: '#0F6E56',
-}
-
-function formatNumber(n: number): string {
-    if (!isFinite(n)) {
-        return '—'
-    }
-    return humanFriendlyNumber(Math.round(n))
-}
-
-function formatPercent(n: number): string {
-    if (!isFinite(n)) {
-        return '—'
-    }
-    return `${n.toFixed(n >= 10 ? 0 : 1)}%`
-}
-
-function formatMs(n: number): string {
-    if (!isFinite(n) || n === 0) {
-        return '—'
-    }
-    if (n < 1000) {
-        return `${Math.round(n)}ms`
-    }
-    return humanFriendlyDuration(n / 1000, { secondsPrecision: 1 })
-}
-
-function Sparkline({ values, stroke }: { values: number[]; stroke: string }): JSX.Element {
-    const width = 60
-    const height = 18
-    if (values.length === 0) {
-        return <svg width={width} height={height} aria-hidden />
-    }
-    const max = Math.max(...values, 1)
-    const min = Math.min(...values, 0)
-    const range = max - min || 1
-    const stepX = values.length > 1 ? width / (values.length - 1) : width
-    const points = values
-        .map((v, i) => {
-            const x = i * stepX
-            const y = height - ((v - min) / range) * height
-            return `${x.toFixed(1)},${y.toFixed(1)}`
-        })
-        .join(' ')
-    return (
-        <svg width={width} height={height} aria-hidden>
-            <polyline fill="none" stroke={stroke} strokeWidth="1.2" points={points} />
-        </svg>
-    )
-}
-
-function DeltaPill({ metric }: { metric: KPIMetric }): JSX.Element {
-    if (metric.deltaPct === null) {
-        return <span className="text-[11px] font-medium text-secondary">—</span>
-    }
-    const rounded = Math.round(metric.deltaPct)
-    if (rounded === 0) {
-        return <span className="text-[11px] font-medium text-secondary">0%</span>
-    }
-    const isUp = rounded > 0
-    const isGood = isUp ? metric.goodDirection === 'up' : metric.goodDirection === 'down'
-    const colorClass = isGood ? 'text-success' : 'text-danger'
-    const arrow = isUp ? '↑' : '↓'
-    return (
-        <span className={`text-[11px] font-medium ${colorClass}`}>
-            {arrow} {Math.abs(rounded)}%
-        </span>
-    )
-}
-
-function KPITile({ tile }: { tile: TileSpec }): JSX.Element {
-    return (
-        <Link
-            to={tile.href}
-            className="flex flex-col gap-1 rounded-md bg-surface-secondary px-3.5 py-3 transition-colors hover:bg-surface-tertiary"
-        >
-            <div className="text-[11px] text-secondary">{tile.label}</div>
-            {tile.loading ? (
-                <LemonSkeleton className="h-5 w-16" />
-            ) : (
-                <div className="text-xl font-medium leading-tight">{tile.format(tile.metric.value)}</div>
-            )}
-            <div className="mt-1 flex items-center justify-between">
-                <Sparkline values={tile.metric.sparkline} stroke={COLOR_STROKE[tile.color]} />
-                <DeltaPill metric={tile.metric} />
-            </div>
-        </Link>
-    )
-}
+import { ActivityChart } from './dashboard/ActivityChart'
+import { HarnessDonut } from './dashboard/HarnessDonut'
+import { KpiTiles } from './dashboard/KpiTiles'
+import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
+import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
+import { ToolUsageChart } from './dashboard/ToolUsageChart'
+import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const {
         kpis,
         kpisLoading,
         intentClusterCount,
-        topToolRows,
-        toolRowsLoading,
-        toolRowsTotal,
         notableSessions,
         sessionRowsLoading,
         harnessRows,
         harnessRawRowsLoading,
+        dailyActivity,
+        activityRowsLoading,
+        toolDailySeries,
+        toolDailyRowsLoading,
+        toolRows,
+        toolRowsLoading,
     } = useValues(mcpDashboardOverviewLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
+    const { timezone } = useValues(teamLogic)
 
-    const tiles: TileSpec[] = [
-        {
-            label: 'Sessions',
-            metric: kpis.sessions,
-            href: urls.mcpAnalyticsSessions(),
-            format: formatNumber,
-            color: 'blue',
-            loading: kpisLoading,
-        },
-        {
-            label: 'Tool calls',
-            metric: kpis.toolCalls,
-            href: urls.mcpAnalyticsToolQuality(),
-            format: formatNumber,
-            color: 'blue',
-            loading: kpisLoading,
-        },
-        {
-            label: 'Error rate',
-            metric: kpis.errorRatePct,
-            href: urls.mcpAnalyticsSessions(),
-            format: formatPercent,
-            color: 'red',
-            loading: kpisLoading,
-        },
-        {
-            label: 'p95 latency',
-            metric: kpis.p95LatencyMs,
-            href: urls.mcpAnalyticsToolQuality(),
-            format: formatMs,
-            color: 'blue',
-            loading: kpisLoading,
-        },
-        {
-            label: 'Intent clusters',
-            metric: intentClusterCount,
-            href: urls.mcpAnalyticsIntentClustering(),
-            format: formatNumber,
-            color: 'green',
-            loading: false,
-        },
-    ]
+    // buildTheme() reads CSS vars from the DOM; isDarkModeOn is the dep that forces a recompute when
+    // the theme flips (it isn't passed as an argument).
+    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
 
     return (
-        <div className="flex flex-col gap-[22px]">
-            <BrandingStrip />
-            <Block kicker="Health" question="Is the MCP healthy right now?">
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-                    {tiles.map((tile) => (
-                        <KPITile key={tile.label} tile={tile} />
-                    ))}
-                </div>
-            </Block>
-            <Block kicker="Tool quality" question="Which tools are the weak links?">
-                <ToolReliabilityMatrix rows={topToolRows} loading={toolRowsLoading} totalTools={toolRowsTotal} />
-            </Block>
-            <Block kicker="Surface" question="Which harnesses are calling the MCP?">
-                <HarnessBreakdown rows={harnessRows} loading={harnessRawRowsLoading} />
-            </Block>
-            <Block kicker="Triage" question="Which sessions should I look at?">
-                <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
-            </Block>
-        </div>
-    )
-}
-
-function BrandingStrip(): JSX.Element {
-    return (
-        <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-                <span className="flex h-[22px] w-[22px] items-center justify-center rounded bg-warning text-white">
-                    <IconBolt className="h-3 w-3" />
-                </span>
-                <span className="text-[13px] font-medium">PostHog for Agents</span>
-                <span
-                    className="rounded px-1.5 py-0.5 text-[10px] font-medium"
-                    style={{ background: '#E6F1FB', color: '#0C447C' }}
-                >
-                    Preview
-                </span>
-            </div>
-            <span className="text-[11px] text-tertiary">Last 7 days</span>
-        </div>
-    )
-}
-
-function Block({
-    kicker,
-    question,
-    children,
-}: {
-    kicker: string
-    question: string
-    children: React.ReactNode
-}): JSX.Element {
-    return (
-        <section className="flex flex-col">
-            <div className="text-[11px] text-secondary mb-1">{kicker}</div>
-            <h1 className="text-sm font-medium mb-3">{question}</h1>
-            {children}
-        </section>
-    )
-}
-
-function Card({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="rounded-lg border border-primary bg-surface-primary px-3.5 py-3">{children}</div>
-}
-
-type ErrorBucket = 'green' | 'amber' | 'red'
-
-function errorBucket(pct: number): ErrorBucket {
-    if (pct < 1) {
-        return 'green'
-    }
-    if (pct <= 5) {
-        return 'amber'
-    }
-    return 'red'
-}
-
-const ERROR_PILL_CLASS: Record<ErrorBucket, string> = {
-    green: 'text-[#27500A] bg-[#EAF3DE]',
-    amber: 'text-[#633806] bg-[#FAEEDA]',
-    red: 'text-[#791F1F] bg-[#FCEBEB]',
-}
-
-function ErrorRatePill({ pct }: { pct: number }): JSX.Element {
-    const bucket = errorBucket(pct)
-    return (
-        <span
-            className={`inline-flex h-[14px] items-center justify-center rounded-[3px] px-1.5 text-[10px] font-medium ${ERROR_PILL_CLASS[bucket]}`}
-        >
-            {pct.toFixed(pct >= 10 ? 0 : 1)}%
-        </span>
-    )
-}
-
-function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: number; isLast: boolean }): JSX.Element {
-    const callsPct = maxVolume ? (row.total_calls / maxVolume) * 100 : 0
-    const errorsPct = maxVolume ? (row.errors / maxVolume) * 100 : 0
-    const successPct = Math.max(callsPct - errorsPct, 0)
-    const nameClass = row.error_rate_pct > 5 ? 'text-[#791F1F]' : 'text-primary'
-    return (
-        <div
-            className="grid items-center gap-2.5 py-1.5"
-            style={{
-                gridTemplateColumns: '140px 1fr 60px 56px',
-                borderBottom: isLast ? 'none' : '0.5px solid var(--color-border-tertiary)',
-            }}
-        >
-            <Link
-                to={urls.mcpAnalyticsTool(row.tool)}
-                className={`truncate font-mono text-xs ${nameClass}`}
-                title={row.tool}
-            >
-                {row.tool}
-            </Link>
-            <div
-                className="relative flex h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary"
-                title={`${row.total_calls} calls · ${row.errors} errors`}
-            >
-                <div className="h-full bg-[#B5D4F4]" style={{ width: `${successPct}%` }} />
-                <div className="h-full bg-[#F09595]" style={{ width: `${errorsPct}%` }} />
-            </div>
-            <ErrorRatePill pct={row.error_rate_pct} />
-            <span className="text-right font-mono text-xs text-primary">
-                {row.p95_duration_ms ? `${Math.round(row.p95_duration_ms)}ms` : '—'}
-            </span>
-        </div>
-    )
-}
-
-function ToolReliabilityMatrix({
-    rows,
-    loading,
-    totalTools,
-}: {
-    rows: ToolRow[]
-    loading: boolean
-    totalTools: number
-}): JSX.Element {
-    const maxVolume = rows.length ? Math.max(...rows.map((r) => r.total_calls)) : 0
-
-    return (
-        <Card>
-            <div
-                className="grid items-center gap-2.5 pb-1.5 text-[11px] text-secondary"
-                style={{
-                    gridTemplateColumns: '140px 1fr 60px 56px',
-                    borderBottom: '0.5px solid var(--color-border-secondary)',
-                }}
-            >
-                <span>Tool</span>
-                <span>
-                    <span className="text-[#185FA5]">Calls</span>
-                    <span className="mx-1">·</span>
-                    <span className="text-[#A32D2D]">errors</span>
-                </span>
-                <span>Err</span>
-                <span className="text-right">p95</span>
-            </div>
-            {loading && rows.length === 0 ? (
-                <div className="space-y-2 py-3">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                        <LemonSkeleton key={i} className="h-3.5 w-full" />
-                    ))}
-                </div>
-            ) : rows.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>
-            ) : (
-                rows.map((row, i) => (
-                    <ToolRowItem key={row.tool} row={row} maxVolume={maxVolume} isLast={i === rows.length - 1} />
-                ))
-            )}
-            {rows.length > 0 && (
-                <div className="mt-1.5 flex justify-end">
-                    <Link to={urls.mcpAnalyticsToolQuality()} className="text-[10px]">
-                        View all {totalTools} tools ↗
-                    </Link>
-                </div>
-            )}
-        </Card>
-    )
-}
-
-const HARNESS_GRID_TEMPLATE = '160px 1fr 56px 56px'
-
-function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: boolean }): JSX.Element {
-    const maxCalls = rows.length ? Math.max(...rows.map((r) => r.total_calls)) : 0
-    const totalCalls = rows.reduce((acc, r) => acc + r.total_calls, 0)
-
-    return (
-        <Card>
-            <div
-                className="grid items-center gap-2.5 pb-1.5 text-[11px] text-secondary"
-                style={{
-                    gridTemplateColumns: HARNESS_GRID_TEMPLATE,
-                    borderBottom: '0.5px solid var(--color-border-secondary)',
-                }}
-            >
-                <span>Harness</span>
-                <span>
-                    <span className="text-[#185FA5]">Calls</span>
-                    <span className="mx-1">·</span>
-                    <span className="text-[#A32D2D]">errors</span>
-                </span>
-                <span>Err</span>
-                <span className="text-right">Share</span>
-            </div>
-            {loading && rows.length === 0 ? (
-                <div className="space-y-2 py-3">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                        <LemonSkeleton key={i} className="h-3.5 w-full" />
-                    ))}
-                </div>
-            ) : rows.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-secondary">No harness data yet.</div>
-            ) : (
-                rows.map((row, i) => {
-                    const callsPct = maxCalls ? (row.total_calls / maxCalls) * 100 : 0
-                    const errorsPct = maxCalls ? (row.errors / maxCalls) * 100 : 0
-                    const successPct = Math.max(callsPct - errorsPct, 0)
-                    const share = totalCalls ? (row.total_calls / totalCalls) * 100 : 0
-                    const tooltip = row.raw_clients.slice(0, 8).join(', ')
-                    return (
-                        <div
-                            key={row.category}
-                            className="grid items-center gap-2.5 py-1.5"
-                            style={{
-                                gridTemplateColumns: HARNESS_GRID_TEMPLATE,
-                                borderBottom:
-                                    i === rows.length - 1 ? 'none' : '0.5px solid var(--color-border-tertiary)',
-                            }}
-                        >
-                            <HarnessPill category={row.category} title={tooltip} />
-                            <div
-                                className="relative flex h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary"
-                                title={`${row.total_calls} calls · ${row.errors} errors · ${row.sessions} sessions`}
-                            >
-                                <div className="h-full bg-[#B5D4F4]" style={{ width: `${successPct}%` }} />
-                                <div className="h-full bg-[#F09595]" style={{ width: `${errorsPct}%` }} />
-                            </div>
-                            <ErrorRatePill pct={row.error_rate_pct} />
-                            <span className="text-right font-mono text-xs text-primary">
-                                {share.toFixed(share >= 10 ? 0 : 1)}%
-                            </span>
+        <div className="flex flex-col gap-10" data-quill>
+            <section>
+                <h2 className="mb-4 text-xl font-semibold text-primary">This week's key metrics</h2>
+                <KpiTiles kpis={kpis} intentClusterCount={intentClusterCount} kpisLoading={kpisLoading} theme={theme} />
+            </section>
+            <section>
+                <h2 className="mb-4 text-xl font-semibold text-primary">Last month's usage</h2>
+                <div className="flex flex-col gap-[22px]">
+                    <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-3">
+                        <div className="flex lg:col-span-2">
+                            <ActivityChart
+                                daily={dailyActivity}
+                                loading={activityRowsLoading}
+                                theme={theme}
+                                timezone={timezone}
+                            />
                         </div>
-                    )
-                })
-            )}
-        </Card>
-    )
-}
-
-function truncateSessionId(id: string): string {
-    if (id.length <= 12) {
-        return id
-    }
-    return `${id.slice(0, 4)}…${id.slice(-4)}`
-}
-
-function formatDuration(seconds: number): string {
-    if (!seconds || !isFinite(seconds)) {
-        return '—'
-    }
-    if (seconds < 60) {
-        return `${seconds}s`
-    }
-    return humanFriendlyDuration(seconds, { secondsPrecision: 0 })
-}
-
-function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
-    if (errorRatePct >= 100) {
-        return (
-            <span className="inline-flex h-[14px] items-center rounded-[3px] bg-[#FCEBEB] px-1.5 text-[10px] font-medium text-[#791F1F]">
-                100% err
-            </span>
-        )
-    }
-    if (errorRatePct > 0) {
-        const bucket = errorBucket(errorRatePct)
-        return (
-            <span
-                className={`inline-flex h-[14px] items-center rounded-[3px] px-1.5 text-[10px] font-medium ${ERROR_PILL_CLASS[bucket]}`}
-            >
-                {errorRatePct.toFixed(errorRatePct >= 10 ? 0 : 1)}% err
-            </span>
-        )
-    }
-    return (
-        <span className="inline-flex h-[14px] items-center rounded-[3px] bg-[#EAF3DE] px-1.5 text-[10px] font-medium text-[#27500A]">
-            Success
-        </span>
-    )
-}
-
-const NOTABLE_GRID_TEMPLATE = '22% 12% 14% 18% 1fr'
-
-function NotableSessionsTable({ sessions, loading }: { sessions: NotableSession[]; loading: boolean }): JSX.Element {
-    return (
-        <Card>
-            <div
-                className="grid items-center gap-2.5 pb-1.5 text-[11px] text-secondary"
-                style={{
-                    gridTemplateColumns: NOTABLE_GRID_TEMPLATE,
-                    borderBottom: '0.5px solid var(--color-border-secondary)',
-                }}
-            >
-                <span>Session</span>
-                <span>Calls</span>
-                <span>Duration</span>
-                <span>Status</span>
-                <span>Why notable</span>
-            </div>
-            {loading && sessions.length === 0 ? (
-                <div className="space-y-2 py-3">
-                    {Array.from({ length: 4 }).map((_, i) => (
-                        <LemonSkeleton key={i} className="h-3.5 w-full" />
-                    ))}
-                </div>
-            ) : sessions.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-secondary">
-                    No notable sessions in the last 7 days.
-                </div>
-            ) : (
-                sessions.map((entry, i) => (
-                    <div
-                        key={entry.session.session_id}
-                        className="grid items-center gap-2.5 py-1.5"
-                        style={{
-                            gridTemplateColumns: NOTABLE_GRID_TEMPLATE,
-                            borderBottom:
-                                i === sessions.length - 1 ? 'none' : '0.5px solid var(--color-border-tertiary)',
-                        }}
-                    >
-                        <Link
-                            to={urls.mcpAnalyticsSessions()}
-                            className="truncate font-mono text-[11px]"
-                            title={entry.session.session_id}
-                        >
-                            {truncateSessionId(entry.session.session_id)}
-                        </Link>
-                        <span className="text-[11px]">{entry.session.tool_calls}</span>
-                        <span className="text-[11px]">{formatDuration(entry.session.duration_seconds)}</span>
-                        <StatusPill errorRatePct={entry.session.error_rate_pct} />
-                        <span className="truncate text-[11px] text-primary" title={entry.label}>
-                            {entry.label}
-                        </span>
+                        <HarnessDonut rows={harnessRows} loading={harnessRawRowsLoading} theme={theme} />
                     </div>
-                ))
-            )}
-            {sessions.length > 0 && (
-                <div className="mt-1.5 flex justify-end">
-                    <Link to={urls.mcpAnalyticsSessions()} className="text-[10px]">
-                        Open all flagged sessions in Sessions tab ↗
-                    </Link>
+                    <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
+                        <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />
+                        <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
+                    </div>
+                    <ToolUsageChart
+                        data={toolDailySeries}
+                        loading={toolDailyRowsLoading}
+                        theme={theme}
+                        timezone={timezone}
+                    />
                 </div>
-            )}
-        </Card>
+            </section>
+        </div>
     )
 }

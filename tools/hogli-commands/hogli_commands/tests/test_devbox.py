@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import csv
 import json
 import errno
+import hashlib
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -18,6 +20,8 @@ from hogli_commands.devbox import (
     cli as devbox_cli,
     coder,
     config as devbox_config,
+    mutagen as devbox_mutagen,
+    sync as devbox_sync,
 )
 
 runner = CliRunner()
@@ -712,6 +716,19 @@ class TestWorkspaceNaming:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         assert coder.get_workspace_name(label, region=region) == expected
 
+    @pytest.mark.parametrize(
+        "workspace_name, expected_region",
+        [
+            ("devbox-test-user", "us-east-1"),
+            ("devbox-test-user-api", "us-east-1"),
+            ("devbox-test-user-eu", "eu-central-1"),
+            ("devbox-test-user-api-eu", "eu-central-1"),
+        ],
+        ids=["default-us", "labeled-us", "default-eu", "labeled-eu"],
+    )
+    def test_region_from_workspace_name(self, workspace_name: str, expected_region: str) -> None:
+        assert coder.region_from_workspace_name(workspace_name) == expected_region
+
     @pytest.mark.parametrize("reserved", ["eu", "api-eu", "foo-eu"])
     def test_label_colliding_with_region_suffix_rejected(self, monkeypatch: pytest.MonkeyPatch, reserved: str) -> None:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
@@ -851,6 +868,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
         region: str = coder.DEFAULT_REGION,
         template: str = coder.DEFAULT_TEMPLATE,
         preset: str = coder.DEFAULT_PRESET,
+        start_app: bool | None = None,
         verbose: bool = False,
     ) -> None:
         captured.update(
@@ -863,6 +881,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
                 "region": region,
                 "template": template,
                 "preset": preset,
+                "start_app": str(start_app),
             }
         )
 
@@ -986,6 +1005,26 @@ class TestWorkspaceCreation:
         params = _parse_parameter_flags(args)
         assert "claude_oauth_token" not in params
         assert params == expected_params
+
+    @pytest.mark.parametrize(
+        "start_app, expected",
+        [(True, "true"), (False, "false"), (None, None)],
+        ids=["enable", "disable", "omit"],
+    )
+    def test_create_workspace_forwards_start_app_parameter(
+        self, monkeypatch: pytest.MonkeyPatch, start_app: bool | None, expected: str | None
+    ) -> None:
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: ["Default (warm)"])
+
+        coder.create_workspace("devbox-test-user", 100, start_app=start_app)
+
+        params = _parse_parameter_flags(captured["args"])
+        if expected is None:
+            assert coder.AUTO_START_APP_PARAMETER not in params
+        else:
+            assert params[coder.AUTO_START_APP_PARAMETER] == expected
 
     @pytest.mark.parametrize(
         "outputs, dropped, raises",
@@ -1226,6 +1265,18 @@ class TestResolveWorkspaceName:
         # Preferred-region name would be `devbox-test-user-api-eu`; fallback finds the us workspace.
         assert name == "devbox-test-user-api"
         assert workspaces == [{"name": "devbox-test-user-api"}]
+
+    def test_multiple_workspaces_falls_back_to_other_region_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With no default in the preferred region, the other region's default wins over failing."""
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "eu-central-1")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": "devbox-test-user"}, {"name": "devbox-test-user-api"}],
+        )
+        name, _ = devbox_cli.resolve_workspace_name(None)
+        assert name == "devbox-test-user"
 
     def test_own_label_prefers_preferred_region_when_both_exist(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
@@ -1499,6 +1550,7 @@ class TestDevboxCommands:
             "region": coder.DEFAULT_REGION,
             "template": coder.DEFAULT_TEMPLATE,
             "preset": coder.DEFAULT_PRESET,
+            "start_app": "None",
         }
 
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1570,9 +1622,8 @@ class TestDevboxCommands:
         captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
-        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -1581,6 +1632,28 @@ class TestDevboxCommands:
         assert result.exit_code == 0, result.output
         assert captured["region"] == "eu-central-1"
         assert "region=eu-central-1" in result.output
+
+    @pytest.mark.parametrize(
+        "flag, expected",
+        [("--start-app", "True"), ("--no-start-app", "False")],
+        ids=["enable", "disable"],
+    )
+    def test_devbox_start_forwards_start_app_flag(
+        self, monkeypatch: pytest.MonkeyPatch, flag: str, expected: str
+    ) -> None:
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", flag])
+
+        assert result.exit_code == 0, result.output
+        assert captured["start_app"] == expected
 
     def test_devbox_start_rejects_unknown_region(self) -> None:
         # click.Choice rejects the value during option parsing, before the
@@ -1631,6 +1704,106 @@ class TestDevboxCommands:
         assert result.exit_code == 0, result.output
         assert captured["region"] == "eu-central-1"
         assert captured["name"] == "devbox-test-user-eu"
+
+    @pytest.mark.parametrize(
+        "saved_region, boxes, expected_resumed, expected_hint",
+        [
+            (None, ["devbox-test-user"], "devbox-test-user", None),
+            (None, ["devbox-test-user-eu"], "devbox-test-user-eu", None),
+            (
+                "eu-central-1",
+                ["devbox-test-user"],
+                "devbox-test-user",
+                "hogli devbox:start --region eu-central-1",
+            ),
+            (
+                "eu-central-1",
+                ["devbox-test-user", "devbox-test-user-api"],
+                "devbox-test-user",
+                "hogli devbox:start --region eu-central-1",
+            ),
+        ],
+        ids=["matching-region", "other-region-no-pref", "other-region-with-pref", "multi-box-other-region-default"],
+    )
+    def test_devbox_start_bare_resumes_existing_box(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        saved_region: str | None,
+        boxes: list[str],
+        expected_resumed: str,
+        expected_hint: str | None,
+    ) -> None:
+        """A bare start resumes the box the user has -- a saved pref alone never abandons it.
+
+        When the resumed default is outside the saved pref, a hint says how to
+        create one there explicitly; otherwise no hint is printed.
+        """
+        if saved_region is not None:
+            devbox_config.save_region(saved_region)
+
+        captured: dict[str, str | None] = {}
+        resumed: list[str] = []
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": name, "latest_build": {"status": "stopped"}} for name in boxes],
+        )
+        monkeypatch.setattr(
+            devbox_cli,
+            "_start_existing_workspace",
+            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
+        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start"])
+
+        assert result.exit_code == 0, result.output
+        assert resumed == [expected_resumed]
+        assert captured == {}
+        if expected_hint is None:
+            assert "--region" not in result.output
+        else:
+            assert expected_hint in result.output
+
+    @pytest.mark.parametrize(
+        "existing_boxes",
+        [
+            ["devbox-test-user"],
+            ["devbox-test-user", "devbox-test-user-api"],
+        ],
+        ids=["single-box", "multiple-boxes"],
+    )
+    def test_devbox_start_explicit_region_creates_default_alongside_existing_boxes(
+        self, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path, existing_boxes: list[str]
+    ) -> None:
+        """`--region` targets that region's default directly, creating it even when other boxes exist."""
+        captured: dict[str, str | None] = {}
+        resumed: list[str] = []
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": name, "latest_build": {"status": "stopped"}} for name in existing_boxes],
+        )
+        monkeypatch.setattr(
+            devbox_cli,
+            "_start_existing_workspace",
+            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
+        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", "--region", "eu-central-1"])
+
+        assert result.exit_code == 0, result.output
+        assert resumed == []
+        assert captured["name"] == "devbox-test-user-eu"
+        assert captured["region"] == "eu-central-1"
 
     def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
@@ -2191,6 +2364,57 @@ class TestStartExistingWorkspace:
         devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
 
         assert calls == ["start"]
+
+    @pytest.mark.parametrize(
+        "start_app, expected",
+        [(True, "true"), (False, "false"), (None, None)],
+        ids=["enable", "disable", "omit"],
+    )
+    def test_pushes_start_app_param_before_starting(
+        self, monkeypatch: pytest.MonkeyPatch, start_app: bool | None, expected: str | None
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace_parameters",
+            lambda name, params: captured.update(params),
+        )
+        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        devbox_cli._start_existing_workspace(
+            "devbox-test-user",
+            {"latest_build": {"status": "stopped"}},
+            start_app=start_app,
+            verbose=False,
+        )
+
+        if expected is None:
+            assert coder.AUTO_START_APP_PARAMETER not in captured
+        else:
+            assert captured == {coder.AUTO_START_APP_PARAMETER: expected}
+
+    @pytest.mark.parametrize("status", ["running", "starting", "stopping"])
+    def test_start_app_flag_never_pushed_unless_stopped(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], status: str
+    ) -> None:
+        """`coder update` stops a running workspace, so the flag must only note, never push."""
+        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: status)
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace_parameters",
+            lambda name, params: pytest.fail("update_workspace_parameters must not run unless stopped"),
+        )
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        devbox_cli._start_existing_workspace(
+            "devbox-test-user", {"latest_build": {"status": status}}, start_app=True, verbose=False
+        )
+
+        assert "was not applied" in capsys.readouterr().out
 
     def test_sync_never_forwards_immutable_workspace_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The pre-start sync must omit `workspace_region`.
@@ -3178,3 +3402,868 @@ class TestSetupGitSigning:
         devbox_cli.maybe_configure_git_signing(None)
 
         assert upserts == []
+
+
+class TestMutagenReleaseUrl:
+    """Test the platform -> mutagen release URL mapping."""
+
+    @pytest.mark.parametrize(
+        "system, machine, expected_suffix",
+        [
+            ("Darwin", "arm64", "mutagen_darwin_arm64_v0.18.1.tar.gz"),
+            ("Darwin", "x86_64", "mutagen_darwin_amd64_v0.18.1.tar.gz"),
+            ("Linux", "x86_64", "mutagen_linux_amd64_v0.18.1.tar.gz"),
+            ("Linux", "aarch64", "mutagen_linux_arm64_v0.18.1.tar.gz"),
+        ],
+    )
+    def test_url_per_platform(
+        self, monkeypatch: pytest.MonkeyPatch, system: str, machine: str, expected_suffix: str
+    ) -> None:
+        monkeypatch.setattr(devbox_mutagen.platform, "system", lambda: system)
+        monkeypatch.setattr(devbox_mutagen.platform, "machine", lambda: machine)
+        url = devbox_mutagen._mutagen_release_url()
+        assert url.endswith(expected_suffix)
+        assert url.startswith("https://github.com/mutagen-io/mutagen/releases/download/")
+
+    def test_unsupported_os_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_mutagen.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(devbox_mutagen.platform, "machine", lambda: "amd64")
+        with pytest.raises(SystemExit):
+            devbox_mutagen._mutagen_release_url()
+
+    def test_unsupported_arch_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_mutagen.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(devbox_mutagen.platform, "machine", lambda: "riscv64")
+        with pytest.raises(SystemExit):
+            devbox_mutagen._mutagen_release_url()
+
+
+class TestMutagenInstall:
+    """Test the install + version-pinning flow for the managed mutagen binary."""
+
+    def _pin_platform(self, monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
+        """Force a supported platform and pin its checksum to ``payload``'s hash."""
+        monkeypatch.setattr(devbox_mutagen.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(devbox_mutagen.platform, "machine", lambda: "x86_64")
+        monkeypatch.setattr(
+            devbox_mutagen, "_MUTAGEN_SHA256", {("linux", "amd64"): hashlib.sha256(payload).hexdigest()}
+        )
+
+    def test_install_verifies_checksum_then_extracts(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        managed = tmp_path / "bin"
+        monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", managed)
+        payload = b"fake-mutagen-tarball"
+        self._pin_platform(monkeypatch, payload)
+
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            if args[0] == "curl":
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(payload)
+            elif args[0] == "tar":
+                (managed / "mutagen").touch()
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(devbox_mutagen.subprocess, "run", fake_run)
+
+        devbox_mutagen._install_mutagen()
+
+        # curl downloads first, tar extracts only after the checksum passes.
+        assert [c[0] for c in calls] == ["curl", "tar"]
+        assert "mutagen" in calls[1] and "mutagen-agents.tar.gz" in calls[1]
+        assert (managed / "mutagen").is_file()
+        # the downloaded tarball is cleaned up after extraction.
+        assert not list(managed.glob("*.tar.gz"))
+
+    def test_install_aborts_on_checksum_mismatch(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        managed = tmp_path / "bin"
+        monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", managed)
+        self._pin_platform(monkeypatch, b"expected")
+
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            if args[0] == "curl":
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"tampered")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(devbox_mutagen.subprocess, "run", fake_run)
+
+        with pytest.raises(SystemExit):
+            devbox_mutagen._install_mutagen()
+
+        # tar must never run on an unverified tarball, and nothing is left on disk.
+        assert [c[0] for c in calls] == ["curl"]
+        assert not (managed / "mutagen").exists()
+        assert not list(managed.glob("*.tar.gz"))
+
+    def test_install_fails_when_no_pinned_checksum(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", tmp_path / "bin")
+        monkeypatch.setattr(devbox_mutagen.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(devbox_mutagen.platform, "machine", lambda: "x86_64")
+        monkeypatch.setattr(devbox_mutagen, "_MUTAGEN_SHA256", {})
+
+        ran: list[list[str]] = []
+        monkeypatch.setattr(
+            devbox_mutagen.subprocess,
+            "run",
+            lambda args, **kw: ran.append(args) or subprocess.CompletedProcess(args, 0, "", ""),
+        )
+
+        with pytest.raises(SystemExit):
+            devbox_mutagen._install_mutagen()
+        assert ran == []  # bail before any download
+
+    def test_install_fails_when_binary_missing_after_install(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        managed = tmp_path / "bin"
+        monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", managed)
+        payload = b"valid-tarball"
+        self._pin_platform(monkeypatch, payload)
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if args[0] == "curl":
+                out = Path(args[args.index("-o") + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(payload)
+            # tar reports success but extracts nothing.
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(devbox_mutagen.subprocess, "run", fake_run)
+
+        with pytest.raises(SystemExit):
+            devbox_mutagen._install_mutagen()
+
+    def test_ensure_skips_install_when_version_matches(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_mutagen, "mutagen_installed", lambda: True)
+        monkeypatch.setattr(devbox_mutagen, "get_installed_mutagen_version", lambda: devbox_mutagen._MUTAGEN_VERSION)
+        installed: list[bool] = []
+        monkeypatch.setattr(devbox_mutagen, "_install_mutagen", lambda **kw: installed.append(True))
+
+        devbox_mutagen.ensure_mutagen_installed()
+        assert installed == []
+
+    def test_ensure_reinstalls_on_version_mismatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_mutagen, "mutagen_installed", lambda: True)
+        monkeypatch.setattr(devbox_mutagen, "get_installed_mutagen_version", lambda: "0.17.0")
+        installed: list[bool] = []
+        monkeypatch.setattr(devbox_mutagen, "_install_mutagen", lambda **kw: installed.append(True))
+
+        devbox_mutagen.ensure_mutagen_installed()
+        assert installed == [True]
+
+    def test_ensure_reinstalls_when_version_unreadable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Binary present but `mutagen version` fails (corrupt download) -> reinstall.
+        monkeypatch.setattr(devbox_mutagen, "mutagen_installed", lambda: True)
+        monkeypatch.setattr(devbox_mutagen, "get_installed_mutagen_version", lambda: None)
+        installed: list[bool] = []
+        monkeypatch.setattr(devbox_mutagen, "_install_mutagen", lambda **kw: installed.append(True))
+
+        devbox_mutagen.ensure_mutagen_installed()
+        assert installed == [True]
+
+
+class TestMutagenSyncWrappers:
+    """Test the thin subprocess wrappers around `mutagen sync ...`."""
+
+    def test_sync_create_builds_one_way_safe_argv(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        captured: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured.append(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(devbox_mutagen, "_run", fake_run)
+
+        config_path = tmp_path / "mutagen.yml"
+        config_path.write_text("sync:\n")
+        devbox_mutagen.sync_create(
+            name="ph-devbox-test-user",
+            src="/local",
+            dst="coder.devbox-test-user:/home/coder/posthog",
+            config_path=config_path,
+            labels={"hogli-workspace": "devbox-test-user"},
+        )
+
+        assert len(captured) == 1
+        args = captured[0]
+        # Design invariant: never run in two-way modes. Local is source of truth.
+        assert "--mode" in args and args[args.index("--mode") + 1] == "one-way-safe"
+        assert "--ignore-vcs" in args
+        assert "--name" in args and args[args.index("--name") + 1] == "ph-devbox-test-user"
+        assert "--label" in args and args[args.index("--label") + 1] == "hogli-workspace=devbox-test-user"
+        assert args[-2:] == ["/local", "coder.devbox-test-user:/home/coder/posthog"]
+
+    def test_sync_list_returns_empty_when_mutagen_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_mutagen, "mutagen_installed", lambda: False)
+        assert devbox_mutagen.sync_list(label_selector="hogli-workspace=devbox-test-user") == []
+
+    def test_sync_list_parses_json_template_output(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_mutagen, "mutagen_installed", lambda: True)
+        sessions = [{"name": "ph-devbox-test-user", "paused": False, "status": "watching"}]
+        monkeypatch.setattr(
+            devbox_mutagen,
+            "_run",
+            lambda args, **kw: subprocess.CompletedProcess(args, 0, json.dumps(sessions), ""),
+        )
+        assert devbox_mutagen.sync_list(label_selector="hogli-workspace=devbox-test-user") == sessions
+
+    def test_sync_list_returns_empty_on_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_mutagen, "mutagen_installed", lambda: True)
+        monkeypatch.setattr(
+            devbox_mutagen,
+            "_run",
+            lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "no sessions"),
+        )
+        assert devbox_mutagen.sync_list(label_selector="missing") == []
+
+    def test_lifecycle_uses_label_selector(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[list[str]] = []
+        # _label_op short-circuits when no session matches, so present one.
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda **kw: [{"name": "ph-x"}])
+        monkeypatch.setattr(
+            devbox_mutagen,
+            "_run",
+            lambda args, **kw: captured.append(args) or subprocess.CompletedProcess(args, 0, "", ""),
+        )
+        devbox_mutagen.sync_terminate("hogli-workspace=devbox-test-user")
+        devbox_mutagen.sync_pause("hogli-workspace=devbox-test-user")
+        devbox_mutagen.sync_resume("hogli-workspace=devbox-test-user")
+        devbox_mutagen.sync_flush("hogli-workspace=devbox-test-user")
+        verbs = [args[2] for args in captured]
+        assert verbs == ["terminate", "pause", "resume", "flush"]
+        for args in captured:
+            assert "--label-selector" in args
+            assert args[args.index("--label-selector") + 1] == "hogli-workspace=devbox-test-user"
+
+    def test_terminate_swallows_no_sessions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A session matches the precheck but vanishes before the op runs (race):
+        # mutagen exits 1 with a "no sessions" message, which must be swallowed.
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda **kw: [{"name": "ph-x"}])
+        monkeypatch.setattr(
+            devbox_mutagen,
+            "_run",
+            lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "No sessions found"),
+        )
+        # Should not raise -- "no sessions" matching the selector is the expected
+        # state when destroying a workspace without an active sync.
+        devbox_mutagen.sync_terminate("hogli-workspace=missing")
+
+    def test_label_op_noops_when_mutagen_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Lifecycle flags skip the install step, so a machine that never synced
+        # must no-op rather than crash with FileNotFoundError from subprocess.
+        monkeypatch.setattr(devbox_mutagen, "mutagen_installed", lambda: False)
+
+        def fail_run(*a: object, **kw: object) -> subprocess.CompletedProcess[str]:
+            raise AssertionError("_run must not be invoked when mutagen is absent")
+
+        monkeypatch.setattr(devbox_mutagen, "_run", fail_run)
+        # No exception, no subprocess.
+        devbox_mutagen.sync_terminate("hogli-workspace=devbox-test-user")
+        devbox_mutagen.sync_pause("hogli-workspace=devbox-test-user")
+
+
+class TestKeepaliveShim:
+    """Test the ssh keepalive shim that keeps sync alive across DERP path resets.
+
+    mutagen hardcodes `-oServerAliveCountMax=1`; a single missed keepalive during
+    a Tailscale path reset kills the sync. The shim rewrites the count upward and
+    is wired into the daemon via MUTAGEN_SSH_PATH (see mutagen.py).
+    """
+
+    def test_run_injects_mutagen_ssh_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Any daemon mutagen auto-starts as a child of _run inherits this env --
+        # the only channel that reaches the ssh-spawning daemon.
+        captured: dict[str, object] = {}
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured["env"] = kwargs.get("env")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(devbox_mutagen.subprocess, "run", fake_run)
+        monkeypatch.setattr(devbox_mutagen, "_mutagen_bin", lambda: "/x/mutagen")
+
+        devbox_mutagen._run(["mutagen", "version"])
+
+        env = captured["env"]
+        assert isinstance(env, dict)
+        assert env["MUTAGEN_SSH_PATH"] == str(devbox_mutagen._SSH_SHIM_DIR)
+
+    @pytest.mark.parametrize(
+        "target, bumped",
+        [("coder.devbox-test-user", True), ("nobody@127.0.0.1", False)],
+        ids=["devbox-host-bumped", "non-devbox-host-untouched"],
+    )
+    def test_shim_rewrites_keepalive_only_for_devbox_hosts(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str, bumped: bool
+    ) -> None:
+        # End-to-end of the generated shim script: run it like mutagen would and
+        # assert it bumps the keepalive ONLY for a coder.* (devbox) target, while
+        # passing every other argument (and every non-devbox invocation) verbatim.
+        shim_dir = tmp_path / "shim"
+        log = tmp_path / "args.log"
+        fake = tmp_path / "fakessh"
+        fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > '" + str(log) + "'\n")
+        fake.chmod(0o755)
+
+        monkeypatch.setattr(devbox_mutagen, "_SSH_SHIM_DIR", shim_dir)
+        monkeypatch.setattr(devbox_mutagen, "_resolve_real_ssh", lambda name: str(fake))
+        devbox_mutagen.ensure_ssh_shim()
+
+        incoming = [
+            "-oConnectTimeout=5",
+            "-oServerAliveInterval=10",
+            "-oServerAliveCountMax=1",
+            target,
+            ".mutagen/agents/0.18.1/mutagen-agent",
+            "synchronizer",
+            "--log-level=info",
+        ]
+        result = subprocess.run([str(shim_dir / "ssh"), *incoming], capture_output=True, text=True)
+        assert result.returncode == 0
+
+        forwarded = log.read_text().splitlines()
+        if bumped:
+            bump = f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}"
+            assert forwarded == [bump if a.startswith("-oServerAliveCountMax=") else a for a in incoming]
+            assert "-oServerAliveCountMax=1" not in forwarded
+        else:
+            # Non-devbox ssh must pass through byte-for-byte, keepalive included.
+            assert forwarded == incoming
+
+    def test_ensure_ssh_shim_writes_both_executables_and_is_idempotent(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        shim_dir = tmp_path / "shim"
+        monkeypatch.setattr(devbox_mutagen, "_SSH_SHIM_DIR", shim_dir)
+        monkeypatch.setattr(devbox_mutagen, "_resolve_real_ssh", lambda name: f"/usr/bin/{name}")
+
+        devbox_mutagen.ensure_ssh_shim()
+        ssh, scp = shim_dir / "ssh", shim_dir / "scp"
+        assert ssh.exists() and scp.exists()
+        # Owner-only: the daemon execs these, so no group/other access (0o700).
+        assert ssh.stat().st_mode & 0o777 == 0o700
+        assert scp.stat().st_mode & 0o777 == 0o700
+        assert shim_dir.stat().st_mode & 0o077 == 0  # dir not group/other accessible
+        assert f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}" in ssh.read_text()
+        assert 'exec "/usr/bin/scp"' in scp.read_text()
+
+        # Unchanged content must not rewrite the file (cheap, mtime-stable re-run).
+        before = ssh.stat().st_mtime_ns
+        devbox_mutagen.ensure_ssh_shim()
+        assert ssh.stat().st_mtime_ns == before
+
+    def test_write_owner_only_creates_0700_regardless_of_umask(self, tmp_path: Path) -> None:
+        # The shim must be owner-only from creation, not via a post-write chmod
+        # (which leaves a brief world-readable window). A permissive umask that
+        # would make a plain write 0o666 must still yield 0o700.
+        target = tmp_path / "ssh"
+        old_umask = os.umask(0)
+        try:
+            devbox_mutagen._write_owner_only(target, "#!/bin/sh\n")
+        finally:
+            os.umask(old_umask)
+        assert target.read_text() == "#!/bin/sh\n"
+        assert target.stat().st_mode & 0o777 == 0o700
+        assert not list(tmp_path.glob(".*.tmp"))  # temp renamed away, no leftover
+
+    def test_resolve_real_ssh_never_returns_the_shim_dir(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        # A shim-dir ssh on PATH must never be picked, or the shim re-invokes
+        # itself forever. Force the PATH fallback by hiding standard locations.
+        shim_dir = tmp_path / "shim"
+        shim_dir.mkdir()
+        (shim_dir / "ssh").write_text("#!/bin/sh\n")
+        monkeypatch.setattr(devbox_mutagen, "_SSH_SHIM_DIR", shim_dir)
+        monkeypatch.setattr(devbox_mutagen.os.path, "isfile", lambda p: False)
+        monkeypatch.setenv("PATH", str(shim_dir))
+
+        # Only the shim dir is on PATH and it's excluded, so nothing resolves and
+        # we fall back to the bare name -- crucially, never the shim's own ssh.
+        assert devbox_mutagen._resolve_real_ssh("ssh") == "ssh"
+
+    def test_daemon_uses_shim_matches_on_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr(devbox_mutagen, "_daemon_pids", lambda: [111, 222])
+        monkeypatch.setattr(
+            devbox_mutagen,
+            "_daemon_ssh_path",
+            lambda pid: str(tmp_path) if pid == 222 else None,
+        )
+        assert devbox_mutagen._daemon_uses_shim(tmp_path) is True
+
+        monkeypatch.setattr(devbox_mutagen, "_daemon_ssh_path", lambda pid: "/other")
+        assert devbox_mutagen._daemon_uses_shim(tmp_path) is False
+
+    @pytest.mark.parametrize(
+        "ps_output, expected",
+        [
+            # `ps eww` env is space-delimited; a value with a space must not be
+            # truncated, whether it's followed by another entry or ends the line.
+            (
+                "/Users/John Doe/.hogli/bin/mutagen daemon run "
+                "XPC_SERVICE_NAME=0 MUTAGEN_SSH_PATH=/Users/John Doe/.hogli/mutagen-ssh-shim FOO=bar\n",
+                "/Users/John Doe/.hogli/mutagen-ssh-shim",
+            ),
+            (
+                "/x/mutagen daemon run MUTAGEN_SSH_PATH=/Users/John Doe/.hogli/mutagen-ssh-shim\n",
+                "/Users/John Doe/.hogli/mutagen-ssh-shim",
+            ),
+            (
+                "/x/mutagen daemon run MUTAGEN_SSH_PATH=/home/u/.hogli/mutagen-ssh-shim X=1\n",
+                "/home/u/.hogli/mutagen-ssh-shim",
+            ),
+            ("/x/mutagen daemon run XPC_SERVICE_NAME=0\n", None),
+        ],
+        ids=["spaced-mid", "spaced-last", "plain", "absent"],
+    )
+    def test_daemon_ssh_path_parses_ps_env_with_spaces(
+        self, monkeypatch: pytest.MonkeyPatch, ps_output: str, expected: str | None
+    ) -> None:
+        monkeypatch.setattr(devbox_mutagen.platform, "system", lambda: "Darwin")
+        monkeypatch.setattr(
+            devbox_mutagen.subprocess,
+            "run",
+            lambda *a, **k: subprocess.CompletedProcess(a, 0, ps_output, ""),
+        )
+        assert devbox_mutagen._daemon_ssh_path(123) == expected
+
+    def test_ensure_daemon_fast_path_does_not_touch_daemon(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(devbox_mutagen, "ensure_ssh_shim", lambda: tmp_path)
+        monkeypatch.setattr(devbox_mutagen, "_daemon_uses_shim", lambda d: True)
+
+        def fail_run(*a: object, **k: object) -> subprocess.CompletedProcess[str]:
+            raise AssertionError("daemon must not be reset when the shim is already active")
+
+        monkeypatch.setattr(devbox_mutagen, "_run", fail_run)
+        devbox_mutagen.ensure_daemon_with_shim()  # no exception, no daemon churn
+
+    def test_ensure_daemon_resets_when_shim_inactive(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        # A registered/launchd daemon's env can't carry the shim, so it must be
+        # stopped, unregistered (so the restart forks an env-inheriting child),
+        # then started fresh -- in that order.
+        monkeypatch.setattr(devbox_mutagen, "ensure_ssh_shim", lambda: tmp_path)
+        monkeypatch.setattr(devbox_mutagen, "_daemon_uses_shim", lambda d: False)
+        calls: list[list[str]] = []
+        monkeypatch.setattr(
+            devbox_mutagen,
+            "_run",
+            lambda args, **k: calls.append(args[1:]) or subprocess.CompletedProcess(args, 0, "", ""),
+        )
+
+        devbox_mutagen.ensure_daemon_with_shim()
+
+        assert calls == [["daemon", "stop"], ["daemon", "unregister"], ["daemon", "start"]]
+
+    def test_ensure_daemon_warns_when_start_fails(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(devbox_mutagen, "ensure_ssh_shim", lambda: tmp_path)
+        monkeypatch.setattr(devbox_mutagen, "_daemon_uses_shim", lambda d: False)
+        monkeypatch.setattr(
+            devbox_mutagen,
+            "_run",
+            lambda args, **k: subprocess.CompletedProcess(args, 1, "", "boom"),
+        )
+
+        devbox_mutagen.ensure_daemon_with_shim()
+
+        out = capsys.readouterr().out
+        assert "keepalive shim" in out
+
+
+class TestConflictCount:
+    """Test that conflict counts include mutagen's truncated remainder."""
+
+    @pytest.mark.parametrize(
+        "session, expected",
+        [
+            # mutagen caps the inline list at 10 and reports the rest separately.
+            ({"conflicts": [{}, {}], "excludedConflicts": 31}, 33),
+            ({"conflicts": [], "excludedConflicts": 0}, 0),
+            ({"conflicts": [{}]}, 1),  # no excludedConflicts key at all
+            ({}, 0),
+            ({"conflicts": [{}, {}], "excludedConflicts": "garbage"}, 2),  # falls back to shown
+        ],
+    )
+    def test_sums_shown_and_excluded(self, session: dict, expected: int) -> None:
+        assert devbox_mutagen.conflict_count(session) == expected
+
+
+class TestWorkspaceLabels:
+    """The create-side labels and the lookup-side selector must share one key."""
+
+    def test_labels_and_selector_agree(self) -> None:
+        labels = devbox_mutagen.workspace_labels("devbox-test-user")
+        selector = devbox_mutagen.workspace_label_selector("devbox-test-user")
+        assert labels == {"hogli-workspace": "devbox-test-user"}
+        # Selector is exactly `key=value` for the single create-side label.
+        ((key, value),) = labels.items()
+        assert selector == f"{key}={value}"
+
+
+class TestEnsureUserMutagenConfig:
+    """Test that the user-side mutagen.yml is seeded from the packaged defaults."""
+
+    def test_copies_defaults_when_absent(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        target = tmp_path / "mutagen.yml"
+        monkeypatch.setattr(devbox_mutagen, "_USER_CONFIG_PATH", target)
+
+        result = devbox_mutagen.ensure_user_mutagen_config()
+
+        assert result == target
+        assert target.is_file()
+        contents = target.read_text()
+        assert "one-way-safe" in contents
+        # Lockfiles must NOT be ignored -- they need to reach the devbox so the
+        # AMI's prewarmed deps can be reconciled on next start.
+        assert "pnpm-lock.yaml" not in contents
+        assert "uv.lock" not in contents
+        assert "Cargo.lock" not in contents
+        # The worktree `.git` *file* must be ignored (`vcs: true` only catches the
+        # `.git/` directory). The flox venv lives under `.flox/cache`, so only
+        # flox's machine-local subdirs are ignored -- NOT all of `.flox` (that
+        # would drop the tracked `.flox/env` definition) and NOT the
+        # hand-maintained `common/hogql_parser` C++ sources.
+        assert "'.git'" in contents
+        assert "'.flox/cache'" in contents
+        assert "\n                - '.flox'\n" not in contents
+        assert "'common/hogql_parser'" not in contents
+
+    def test_preserves_existing_config(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        target = tmp_path / "mutagen.yml"
+        target.write_text("custom: contents\n")
+        monkeypatch.setattr(devbox_mutagen, "_USER_CONFIG_PATH", target)
+
+        devbox_mutagen.ensure_user_mutagen_config()
+
+        assert target.read_text() == "custom: contents\n"
+
+    def test_refreshes_unmodified_copy_when_defaults_change(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "mutagen.yml"
+        monkeypatch.setattr(devbox_mutagen, "_USER_CONFIG_PATH", target)
+        devbox_mutagen.ensure_user_mutagen_config()
+        original = target.read_text()
+
+        # Simulate a shipped bump to the packaged defaults.
+        new_defaults = tmp_path / "new_defaults.yml"
+        new_defaults.write_text(original + "\n# new ignore added upstream\n")
+        monkeypatch.setattr(devbox_mutagen, "_PACKAGED_DEFAULTS", new_defaults)
+
+        devbox_mutagen.ensure_user_mutagen_config()
+        # An untouched copy is refreshed in place rather than left stale.
+        assert target.read_text() == original + "\n# new ignore added upstream\n"
+
+    def test_does_not_clobber_user_edits_on_defaults_change(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "mutagen.yml"
+        monkeypatch.setattr(devbox_mutagen, "_USER_CONFIG_PATH", target)
+        devbox_mutagen.ensure_user_mutagen_config()
+
+        target.write_text("# my hand-tuned ignores\n")  # user edits their copy
+        new_defaults = tmp_path / "new_defaults.yml"
+        new_defaults.write_text("sync: {}\n# new ignore added upstream\n")
+        monkeypatch.setattr(devbox_mutagen, "_PACKAGED_DEFAULTS", new_defaults)
+
+        devbox_mutagen.ensure_user_mutagen_config()
+        assert target.read_text() == "# my hand-tuned ignores\n"  # preserved
+
+
+class TestDevboxSyncCommand:
+    """Test the devbox:sync orchestrator."""
+
+    def test_status_prints_sessions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_sync.mutagen,
+            "sync_list",
+            lambda label_selector=None: [{"name": "ph-devbox-test-user", "status": "watching"}],
+        )
+        result = runner.invoke(cli, ["devbox:sync", "--status"])
+        assert result.exit_code == 0, result.output
+        assert "ph-devbox-test-user" in result.output
+
+    def test_json_emits_summary_with_true_conflict_total(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_sync.mutagen,
+            "sync_list",
+            lambda label_selector=None: [
+                {
+                    "name": "ph-devbox-test-user",
+                    "status": "watching",
+                    "paused": False,
+                    "conflicts": [{"root": "a.py"}, {"root": "b.py"}],
+                    "excludedConflicts": 31,
+                    "alpha": {"path": "/local"},
+                    "beta": {"path": "coder.devbox-test-user:/home/coder/posthog"},
+                }
+            ],
+        )
+        result = runner.invoke(cli, ["devbox:sync", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert len(payload) == 1
+        session = payload[0]
+        # The whole point of the fix: 2 shown + 31 excluded, not a capped 2.
+        assert session["conflicts"] == 33
+        assert session["conflictPaths"] == ["a.py", "b.py"]
+        assert session["state"] == "watching"
+        assert session["beta"] == "coder.devbox-test-user:/home/coder/posthog"
+
+    def test_json_rejects_lifecycle_combo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        result = runner.invoke(cli, ["devbox:sync", "--json", "--terminate"])
+        assert result.exit_code != 0
+        assert "json" in result.output.lower()
+
+    def test_rejects_shared_at_user_target(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Syncing onto someone else's box would push your checkout over theirs;
+        # the guard must fire before any resolution/create work.
+        def boom(*a: object, **kw: object) -> tuple[str, None]:
+            raise AssertionError("resolve_workspace_name must not run for @user targets")
+
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", boom)
+        result = runner.invoke(cli, ["devbox:sync", "@alice/api"])
+        assert result.exit_code != 0
+        assert "@user" in result.output or "own devboxes" in result.output
+
+    def test_terminate_invokes_label_scoped_terminate(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        captured: list[str] = []
+        monkeypatch.setattr(devbox_sync.mutagen, "sync_terminate", lambda sel: captured.append(sel))
+
+        result = runner.invoke(cli, ["devbox:sync", "--terminate"])
+
+        assert result.exit_code == 0, result.output
+        assert captured == ["hogli-workspace=devbox-test-user"]
+
+    def test_default_run_is_idempotent_when_session_already_exists(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        # The "inspect" hint calls _workspace_arg_suffix -> extract_workspace_label,
+        # which shells out to `coder whoami`; stub it so the test is hermetic.
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_sync, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_mutagen_installed", lambda **kw: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_daemon_with_shim", lambda: None)
+        monkeypatch.setattr(devbox_sync, "_ensure_ssh_config_for_workspace", lambda ws: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_user_mutagen_config", lambda: Path("/tmp/mutagen.yml"))
+        monkeypatch.setattr(
+            devbox_sync.mutagen,
+            "sync_list",
+            lambda label_selector=None: [{"name": "ph-devbox-test-user"}],
+        )
+
+        created: list[str] = []
+        monkeypatch.setattr(devbox_sync.mutagen, "sync_create", lambda **kw: created.append(kw["name"]))
+
+        result = runner.invoke(cli, ["devbox:sync"])
+
+        assert result.exit_code == 0, result.output
+        # Idempotent: don't recreate an existing session.
+        assert created == []
+        assert "Sync already running" in result.output
+
+    def test_default_run_creates_one_way_sync(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr(devbox_sync, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        # The "inspect" hint calls _workspace_arg_suffix -> extract_workspace_label,
+        # which shells out to `coder whoami`; stub it so the test is hermetic.
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_sync, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_mutagen_installed", lambda **kw: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_daemon_with_shim", lambda: None)
+        monkeypatch.setattr(devbox_sync, "_ensure_ssh_config_for_workspace", lambda ws: None)
+        config_path = tmp_path / "mutagen.yml"
+        config_path.write_text("sync: {}\n")
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_user_mutagen_config", lambda: config_path)
+        monkeypatch.setattr(devbox_sync.mutagen, "sync_list", lambda label_selector=None: [])
+        checkout = tmp_path / "posthog"
+        checkout.mkdir()
+        monkeypatch.setattr(devbox_sync, "_detect_local_posthog_checkout", lambda: checkout)
+
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            devbox_sync.mutagen,
+            "sync_create",
+            lambda **kw: captured.update(kw),
+        )
+
+        result = runner.invoke(cli, ["devbox:sync"])
+
+        assert result.exit_code == 0, result.output
+        assert captured["name"] == "ph-devbox-test-user"
+        assert captured["src"] == str(checkout)
+        assert captured["dst"] == "coder.devbox-test-user:/home/coder/posthog"
+        assert captured["labels"] == {"hogli-workspace": "devbox-test-user"}
+
+    def test_default_run_fails_when_workspace_stopped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A stopped box passes the SSH-config check but mutagen can't dial it;
+        # surface a clear error before creating the session.
+        monkeypatch.setattr(
+            devbox_sync,
+            "resolve_workspace_name",
+            lambda ws: ("devbox-test-user", [{"name": "devbox-test-user"}]),
+        )
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_mutagen_installed", lambda **kw: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_daemon_with_shim", lambda: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "sync_list", lambda label_selector=None: [])
+        monkeypatch.setattr(devbox_sync, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_sync, "get_workspace", lambda name, workspaces: {"name": name})
+        monkeypatch.setattr(devbox_sync, "get_workspace_status", lambda ws: "stopped")
+        created: list[str] = []
+        monkeypatch.setattr(devbox_sync.mutagen, "sync_create", lambda **kw: created.append(kw["name"]))
+
+        result = runner.invoke(cli, ["devbox:sync"])
+
+        assert result.exit_code != 0
+        assert "not running" in result.output
+        assert created == []
+
+    def test_status_surfaces_conflicts_and_error(self) -> None:
+        rendered = devbox_sync._format_session_status(
+            {"name": "ph-x", "status": "watching", "conflicts": [{}, {}], "lastError": "boom"}
+        )
+        assert "conflicts: 2" in rendered
+        assert "boom" in rendered
+
+    def test_detect_local_checkout_walks_up_from_cwd(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        checkout = tmp_path / "ph"
+        (checkout / "subdir").mkdir(parents=True)
+        (checkout / "hogli.yaml").write_text("")
+        (checkout / ".git").mkdir()
+        monkeypatch.chdir(checkout / "subdir")
+        assert devbox_sync._detect_local_posthog_checkout() == checkout.resolve()
+
+    def test_detect_local_checkout_fails_outside_repo(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(SystemExit):
+            devbox_sync._detect_local_posthog_checkout()
+
+    def test_mutually_exclusive_lifecycle_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = runner.invoke(cli, ["devbox:sync", "--pause", "--resume"])
+        assert result.exit_code != 0
+        assert "at most one" in result.output
+
+
+class TestDevboxLifecycleSyncIntegration:
+    """Verify cli.py commands wire into mutagen sync at the right moments."""
+
+    def test_destroy_terminates_sync_before_deleting(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[str] = []
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: True)
+        monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [{"name": "ph-x"}])
+        monkeypatch.setattr(devbox_cli.mutagen, "sync_terminate", lambda sel: calls.append("terminate"))
+        monkeypatch.setattr(devbox_cli, "delete_workspace", lambda name, verbose=False: calls.append("delete"))
+
+        result = runner.invoke(cli, ["devbox:destroy"])
+
+        assert result.exit_code == 0, result.output
+        # terminate MUST run before delete: the remote endpoint disappearing
+        # mid-sync produces noisy daemon errors otherwise.
+        assert calls == ["terminate", "delete"]
+
+    def test_destroy_proceeds_when_no_sync_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[str] = []
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: True)
+        monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [])
+        monkeypatch.setattr(
+            devbox_cli.mutagen,
+            "sync_terminate",
+            lambda sel: calls.append("terminate"),
+        )
+        monkeypatch.setattr(devbox_cli, "delete_workspace", lambda name, verbose=False: calls.append("delete"))
+
+        result = runner.invoke(cli, ["devbox:destroy"])
+
+        assert result.exit_code == 0, result.output
+        assert calls == ["delete"]
+
+    def test_start_prints_sync_tip_when_no_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [])
+
+        result = runner.invoke(cli, ["devbox:start"])
+
+        assert result.exit_code == 0, result.output
+        assert "hogli devbox:sync" in result.output
+
+    def test_start_omits_sync_tip_when_session_exists(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [{"name": "ph-x"}])
+
+        result = runner.invoke(cli, ["devbox:start"])
+
+        assert result.exit_code == 0, result.output
+        assert "Tip: run `hogli devbox:sync" not in result.output
+
+
+class TestRenderSyncStatus:
+    """Test the one-line sync-state summary shown in devbox:list / devbox:status."""
+
+    def test_not_configured_when_no_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [])
+        assert "not configured" in devbox_cli._render_sync_status("devbox-test-user")
+
+    def test_conflicts_render_as_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.mutagen,
+            "sync_list",
+            lambda label_selector=None: [{"status": "watching", "conflicts": [{}, {}]}],
+        )
+        assert "2 conflicts" in devbox_cli._render_sync_status("devbox-test-user")
+
+    def test_halted_status_is_not_green_healthy(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.mutagen,
+            "sync_list",
+            lambda label_selector=None: [{"status": "halted-on-root-deletion"}],
+        )
+        rendered = devbox_cli._render_sync_status("devbox-test-user")
+        assert "halted-on-root-deletion" in rendered
+        assert "✗" in rendered
+
+    def test_watching_status_is_healthy(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.mutagen,
+            "sync_list",
+            lambda label_selector=None: [{"status": "watching"}],
+        )
+        rendered = devbox_cli._render_sync_status("devbox-test-user")
+        assert "watching" in rendered
+        assert "●" in rendered

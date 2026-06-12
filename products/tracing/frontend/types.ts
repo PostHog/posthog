@@ -12,6 +12,8 @@ export interface Span {
     duration_nano: number
     is_root_span: boolean
     matched_filter: boolean
+    // OTel span attributes the user set, as a key-value map.
+    attributes: Record<string, string>
 }
 
 export const SPAN_KIND_LABELS: Record<number, string> = {

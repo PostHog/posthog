@@ -6,6 +6,8 @@ from unittest.mock import ANY, patch
 
 from django.test import override_settings
 
+from drf_spectacular.generators import SchemaGenerator
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
@@ -15,10 +17,12 @@ from posthog.rbac.user_access_control import AccessControlLevel, UserAccessContr
 from posthog.scopes import APIScopeObject
 
 from products.dashboards.backend.api.dashboard import DashboardTileSerializer
+from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
 
 
 class TestDashboardWidgets(APIBaseTest):
@@ -224,7 +228,7 @@ class TestDashboardWidgets(APIBaseTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
         tile = dashboard_json["tiles"][0]
-        tile["widget"]["widget_type"] = "not_a_real_widget_type"
+        tile["widget"]["widget_type"] = "session_replay_list"
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
@@ -567,7 +571,7 @@ class TestDashboardWidgets(APIBaseTest):
         results = response.json()["results"]
         assert any(entry["widget_type"] == "error_tracking_list" for entry in results)
         error_tracking_list = next(entry for entry in results if entry["widget_type"] == "error_tracking_list")
-        assert error_tracking_list["config_schema_hints"]["limit"]["max"] == 25
+        assert error_tracking_list["config_schema"]["properties"]["limit"]["default"] == DEFAULT_WIDGET_LIST_LIMIT
         assert error_tracking_list["availability_requirements"] == ["exception_autocapture"]
 
     @override_settings(IN_UNIT_TESTING=True)
@@ -653,6 +657,14 @@ class TestDashboardWidgets(APIBaseTest):
             team=ANY,
             request=ANY,
         )
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert "tile_id" in widget_added_calls[0][0][2]
+        assert "widget_id" in widget_added_calls[0][0][2]
 
     @override_settings(IN_UNIT_TESTING=True)
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
@@ -682,6 +694,105 @@ class TestDashboardWidgets(APIBaseTest):
             team=ANY,
             request=ANY,
         )
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert "tile_id" in widget_added_calls[0][0][2]
+        assert "widget_id" in widget_added_calls[0][0][2]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_add_session_replay_widget_fires_dashboard_widget_added_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "session_replay_list", "config": {"limit": 5}, "name": "Recent replays"},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "session_replay_list"
+
+    @parameterized.expand(
+        [
+            ("session_replay_off", "session_replay_list", "session_recording_opt_in", False),
+            ("session_replay_on", "session_replay_list", "session_recording_opt_in", True),
+            ("error_tracking_off", "error_tracking_list", "autocapture_exceptions_opt_in", False),
+            ("error_tracking_on", "error_tracking_list", "autocapture_exceptions_opt_in", True),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_widget_added_records_feature_enabled(
+        self, _name: str, widget_type: str, team_field: str, expected: bool, mock_report_user_action
+    ) -> None:
+        setattr(self.team, team_field, expected)
+        self.team.save()
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": widget_type, "config": {"limit": 5}}]},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == widget_type
+        assert widget_added_calls[0][0][2]["feature_enabled"] is expected
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_delete_widget_tile_fires_tile_removed_and_widget_removed_events(self, mock_report_user_action) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/delete_tile",
+            {"tile_id": tile_id},
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile removed",
+            {
+                "tile_type": "widget",
+                "insight_type": None,
+                "dashboard_id": dashboard_id,
+                "widget_type": "error_tracking_list",
+            },
+            team=ANY,
+            request=ANY,
+        )
+        widget_removed_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget removed"
+        ]
+        assert len(widget_removed_calls) == 1
+        assert widget_removed_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_removed_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_removed_calls[0][0][2]["tile_id"] == tile_id
+        assert "widget_id" in widget_removed_calls[0][0][2]
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_batch_create_widget_tiles(self) -> None:
@@ -753,6 +864,7 @@ class TestDashboardWidgets(APIBaseTest):
 
         for call in mock_report_user_action.call_args_list:
             assert call[0][1] != "dashboard tile added"
+            assert call[0][1] != "dashboard widget added"
 
     @override_settings(IN_UNIT_TESTING=True)
     @patch("posthog.resource_limits.evaluator.report_user_action")
@@ -825,7 +937,44 @@ class TestDashboardWidgets(APIBaseTest):
             action = "retrieve"
 
         context = {"view": ViewShim(), "order": 0}
-        assert DashboardTileSerializer(tile, context=context).data["widget"] is not None
+        full_widget = DashboardTileSerializer(tile, context=context).data["widget"]
+        assert full_widget is not None
+        assert full_widget["created_by"] is not None
 
         shared_context = {**context, "is_shared": True}
-        assert DashboardTileSerializer(tile, context=shared_context).data["widget"] is None
+        shared_widget = DashboardTileSerializer(tile, context=shared_context).data["widget"]
+        assert shared_widget is not None
+        assert set(shared_widget.keys()) == {"id", "widget_type", "name", "description", "config"}
+        assert shared_widget["widget_type"] == "error_tracking_list"
+        assert shared_widget["config"]["limit"] == 10
+
+
+class TestDashboardWidgetOpenApiSchema(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+        self._widgets_flag_patchers = [
+            patch(target, return_value=True) for target in TestDashboardWidgets._WIDGETS_FLAG_PATCH_TARGETS
+        ]
+        for patcher in self._widgets_flag_patchers:
+            patcher.start()
+
+    def tearDown(self) -> None:
+        for patcher in self._widgets_flag_patchers:
+            patcher.stop()
+        super().tearDown()
+
+    def test_add_dashboard_widget_openapi_schema_uses_widget_type_discriminator(self) -> None:
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        component = schema["components"]["schemas"]["AddDashboardWidgetRequest"]
+
+        assert component["discriminator"]["propertyName"] == "widget_type"
+        assert set(component["discriminator"]["mapping"].keys()) == set(EXPECTED_WIDGET_TYPES)
+
+    def test_batch_add_rejects_unknown_widget_type(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "not_a_real_widget", "config": {"limit": 5}}]},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -13,6 +13,7 @@ import posthoganalytics
 from opentelemetry import trace
 from rest_framework.authentication import SessionAuthentication
 
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
@@ -298,6 +299,8 @@ AnalyticsProps = TypedDict(
         "$pathname": NotRequired[str | None],
         "$session_id": NotRequired[str | None],
         "was_impersonated": NotRequired[bool],
+        "access_method": NotRequired[str | None],
+        "user_agent": NotRequired[str | None],
         "mcp_user_agent": NotRequired[str | None],
         "mcp_client_name": NotRequired[str | None],
         "mcp_client_version": NotRequired[str | None],
@@ -366,6 +369,9 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
         pathname = parsed.path or None
     else:
         current_url = None
+    # Auth classes tag the query context with access_method during DRF dispatch
+    # (personal_api_key, oauth, id_jag, ...); session auth leaves it unset.
+    access_method = get_query_tag_value("access_method")
     return {
         "source": get_event_source(request),
         "$current_url": current_url,
@@ -373,6 +379,8 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
         "$pathname": pathname,
         "$session_id": sanitize_header_value(request.headers.get("X-Posthog-Session-Id")),
         "was_impersonated": is_impersonated_session(request),
+        "access_method": access_method,
+        "user_agent": sanitize_header_value(request.headers.get("User-Agent")),
         **get_mcp_properties(request),
     }
 

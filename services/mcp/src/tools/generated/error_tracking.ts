@@ -195,15 +195,6 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             if (params.description !== undefined) {
                 body['description'] = params.description
             }
-            if (params.first_seen !== undefined) {
-                body['first_seen'] = params.first_seen
-            }
-            if (params.assignee !== undefined) {
-                body['assignee'] = params.assignee
-            }
-            if (params.external_issues !== undefined) {
-                body['external_issues'] = params.external_issues
-            }
             const result = await context.api.request<Schemas.ErrorTrackingIssueFull>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
@@ -352,6 +343,7 @@ const errorTrackingSymbolSetsList = (): ToolBase<
                 offset: params.offset,
                 order_by: params.order_by,
                 ref: params.ref,
+                search: params.search,
                 status: params.status,
             },
         })

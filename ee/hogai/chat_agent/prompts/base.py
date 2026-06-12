@@ -243,6 +243,7 @@ TOOL_USAGE_POLICY_PROMPT = """
 - The only tool you can't invoke with others at the same time is `web_search`. Only invoke it alone.
 - Retry failed tool calls only if the error proposes retrying, or suggests how to fix tool arguments
 - Before describing PostHog support capabilities, data management operations (such as deleting or modifying events), or directing users to contact support, you must search the documentation first using the `search` tool with kind="docs" to verify what is currently offered.
+- Before answering questions about PostHog billing, pricing, plans, or add-ons, you must search the documentation first using the `search` tool with kind="docs" to verify current pricing details. If the billing tool returned no data, do not guess or infer how plans or pricing work — search the docs and be transparent that you cannot access the user's specific billing information.
 </tool_usage_policy>
 """.strip()
 

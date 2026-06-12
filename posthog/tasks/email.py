@@ -13,8 +13,6 @@ import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
 
-from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS
-from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
@@ -26,12 +24,13 @@ from posthog.models import Organization, OrganizationInvite, OrganizationMembers
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
-from posthog.models.messaging import MessagingRecord, get_email_hash
+from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
@@ -300,17 +299,19 @@ def send_invite(invite_id: str) -> None:
         # idempotency guard (a previous attempt had already set `sent_at`). Without this
         # snapshot, "delivered=True" after `send()` reads identically in both cases — which
         # can mislead an operator looking at the success log.
-        # MessagingRecord stores SHA-256(SECRET_KEY + email) in `email_hash`. The custom
-        # manager remaps a `raw_email=` kwarg to `email_hash=` magically, but django-stubs
-        # can't follow that override and mypy then can't resolve `raw_email` against the
-        # model's actual fields. Compute the hash directly to keep mypy happy.
-        target_email_hash = get_email_hash(invite.target_email)
+        # MessagingRecord stores a one-way SHA-256(MESSAGING_HASH_SALT + email) in
+        # `email_hash`. The custom manager remaps a `raw_email=` kwarg to `email_hash=`
+        # magically, but django-stubs can't follow that override and mypy then can't
+        # resolve `raw_email` against the model's actual fields. Compute the hashes
+        # directly to keep mypy happy, matching the primary salt and any rotation
+        # fallbacks so dedup still works across a salt rotation.
+        target_email_hashes = get_email_hashes(invite.target_email)
         already_delivered = MessagingRecord.objects.filter(
-            campaign_key=campaign_key, email_hash=target_email_hash, sent_at__isnull=False
+            campaign_key=campaign_key, email_hash__in=target_email_hashes, sent_at__isnull=False
         ).exists()
         message.send(send_async=False)
         delivered = MessagingRecord.objects.filter(
-            campaign_key=campaign_key, email_hash=target_email_hash, sent_at__isnull=False
+            campaign_key=campaign_key, email_hash__in=target_email_hashes, sent_at__isnull=False
         ).exists()
         if delivered:
             OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
@@ -936,6 +937,10 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
 @skip_team_scope_audit
 def send_two_factor_reset_email(user_id: int, token: str) -> None:
     """Send 2FA reset email to user when an admin initiates a reset."""
+    # Deferred: this constant lives in a DRF viewset module; email.py is eager-imported by
+    # posthog/tasks/__init__, so a module-level import drags that machinery onto startup.
+    from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS  # noqa: PLC0415
+
     user: User = User.objects.get(pk=user_id)
 
     reset_link = f"{settings.SITE_URL}/reset_2fa/{user.uuid}/{token}"

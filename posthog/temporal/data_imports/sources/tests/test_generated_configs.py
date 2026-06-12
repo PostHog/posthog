@@ -1,9 +1,13 @@
+import pytest
+
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQuerySourceConfig,
     ChargebeeSourceConfig,
     DoItSourceConfig,
+    GitLabSourceConfig,
     GoogleAdsSourceConfig,
     GoogleSheetsSourceConfig,
+    GorgiasSourceConfig,
     HubspotSourceConfig,
     MetaAdsSourceConfig,
     MongoDBSourceConfig,
@@ -62,6 +66,20 @@ def test_doit_config():
     assert config.api_key == "api_key"
 
 
+def test_gitlab_config():
+    config = GitLabSourceConfig.from_dict(
+        {"personal_access_token": "glpat-token", "project": "group/project", "gitlab_host": "https://gitlab.com"}
+    )
+    assert config.personal_access_token == "glpat-token"
+    assert config.project == "group/project"
+    assert config.gitlab_host == "https://gitlab.com"
+
+
+def test_gitlab_config_without_host():
+    config = GitLabSourceConfig.from_dict({"personal_access_token": "glpat-token", "project": "42"})
+    assert config.gitlab_host is None
+
+
 def test_google_ads_config():
     config = GoogleAdsSourceConfig.from_dict({"customer_id": "123", "google_ads_integration_id": 1})
     assert config.customer_id == "123"
@@ -71,6 +89,13 @@ def test_google_ads_config():
 def test_google_sheets_config():
     config = GoogleSheetsSourceConfig.from_dict({"spreadsheet_url": "google.com"})
     assert config.spreadsheet_url == "google.com"
+
+
+def test_gorgias_config():
+    config = GorgiasSourceConfig.from_dict({"gorgias_domain": "acme", "email": "you@acme.com", "api_key": "api_key"})
+    assert config.gorgias_domain == "acme"
+    assert config.email == "you@acme.com"
+    assert config.api_key == "api_key"
 
 
 def test_hubspot_config():
@@ -290,6 +315,30 @@ def test_snowflake_config():
     assert config.auth_type.password == "password"
     assert config.auth_type.private_key == ""
     assert config.auth_type.passphrase == ""
+
+
+@pytest.mark.parametrize(
+    "schema_override,expected_schema",
+    [
+        # A blank schema flips the source into multi-schema discovery; the config stores the raw
+        # value (absent/""/whitespace) verbatim — drivers normalize it via `normalize_namespace`.
+        ({}, None),
+        ({"schema": ""}, ""),
+        ({"schema": "   "}, "   "),
+    ],
+)
+def test_snowflake_config_without_schema(schema_override, expected_schema):
+    config = SnowflakeSourceConfig.from_dict(
+        {
+            "account_id": "account_id",
+            "database": "database",
+            "warehouse": "warehouse",
+            "auth_type": {"selection": "password", "user": "user", "password": "password"},
+            **schema_override,
+        }
+    )
+
+    assert config.schema == expected_schema
 
 
 def test_stripe_config():

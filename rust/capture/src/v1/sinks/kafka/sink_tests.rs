@@ -37,6 +37,7 @@ fn empty_captured_headers() -> CapturedEventHeaders {
         dlq_reason: None,
         dlq_step: None,
         dlq_timestamp: None,
+        content_encoding: None,
     }
 }
 
