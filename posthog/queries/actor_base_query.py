@@ -335,7 +335,7 @@ def get_serialized_people(
     distinct_id_limit: int | None = 1000,
 ) -> list[SerializedPerson]:
     persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(
-        people_ids, sort_by_created_at_descending=True
+        people_ids, sort_by_created_at_descending=True, limit_per_person=distinct_id_limit
     )
     from posthog.api.person import get_person_name_helper
 

@@ -38,7 +38,6 @@ class AshbySource(ResumableSource[AshbySourceConfig, AshbyResumeConfig]):
             name=SchemaExternalDataSourceType.ASHBY,
             label="Ashby",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Ashby API key to pull your Ashby (ATS) data into the PostHog Data warehouse.
 
 You can create an API key under **Admin → API Keys** in Ashby. Grant read permissions for the data you want to sync, for example:

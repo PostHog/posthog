@@ -226,6 +226,8 @@ from posthog.schema_enums import (
     SignalSourceProduct as SignalSourceProduct,
     SignalSourceType as SignalSourceType,
     SimpleIntervalType as SimpleIntervalType,
+    SlackIntegrationScope as SlackIntegrationScope,
+    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
     SnapchatAdsConversionValueFields as SnapchatAdsConversionValueFields,
@@ -4059,7 +4061,10 @@ class AssistantTrendsFilter(BaseModel):
         default=None,
         description=(
             "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5"
-            " as `5 clicks`. You may need to add a space before postfix."
+            " as `5 clicks`. You may need to add a space before postfix. Never set a"
+            " postfix that `aggregationAxisFormat` already renders: `percentage` and"
+            " `percentage_scaled` already append the `%` sign, so a `%` postfix would"
+            " render values as `50%%`."
         ),
     )
     aggregationAxisPrefix: str | None = Field(
@@ -6411,6 +6416,12 @@ class SessionRecordingType(BaseModel):
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None
+    matches_filters: bool | None = Field(
+        default=None,
+        description=(
+            "False when the recording was included in list results via a direct link despite not matching the filters."
+        ),
+    )
     matching_events: list[MatchedRecording] | None = Field(default=None, description="List of matching events. *")
     mouse_activity_count: float | None = Field(
         default=None,

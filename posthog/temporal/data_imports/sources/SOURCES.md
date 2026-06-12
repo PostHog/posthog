@@ -60,6 +60,7 @@ the row lists both.
 | chargebee        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | confluence       | HTTP                        | requests                                                        | ✅                          |
 | chartmogul       | HTTP                        | requests                                                        | ✅                          |
+| circleci         | HTTP                        | requests                                                        | ✅                          |
 | clerk            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickup          | HTTP                        | requests                                                        | ✅                          |
@@ -69,6 +70,7 @@ the row lists both.
 | copper           | HTTP                        | requests                                                        | ✅                          |
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog          | HTTP                        | requests                                                        | ✅                          |
+| delighted        | HTTP                        | requests                                                        | ✅                          |
 | doit             | HTTP                        | requests                                                        | ✅                          |
 | drip             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk        | HTTP                        | requests                                                        | ✅                          |
@@ -84,6 +86,7 @@ the row lists both.
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse       | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
+| incident_io      | HTTP                        | requests                                                        | ✅                          |
 | intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | iterable         | HTTP                        | requests                                                        | ✅                          |
 | jira             | HTTP                        | requests                                                        | ✅                          |
@@ -94,6 +97,7 @@ the row lists both.
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | mailchimp        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mailerlite       | HTTP                        | requests                                                        | ✅                          |
+| mailgun          | HTTP                        | requests                                                        | ✅                          |
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
@@ -204,7 +208,6 @@ doesn't conflict with concurrent PRs.
 - campaign_manager_360
 - checkout_com
 - chorus
-- circleci
 - clari
 - cloudflare
 - cockroachdb
@@ -220,7 +223,6 @@ doesn't conflict with concurrent PRs.
 - databricks
 - db2
 - deel
-- delighted
 - display_video_360
 - dixa
 - docusign
@@ -246,14 +248,12 @@ doesn't conflict with concurrent PRs.
 - heap
 - helpscout
 - hibob
-- incident_io
 - instagram
 - kafka
 - kustomer
 - lattice
 - lever
 - lightspeed_retail
-- mailgun
 - marketo
 - matomo
 - microsoft_teams

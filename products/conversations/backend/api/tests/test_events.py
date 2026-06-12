@@ -261,7 +261,7 @@ class TestConversationEvents(BaseTest):
         if is_empty_distinct_id:
             mock_get_persons.assert_not_called()
         else:
-            mock_get_persons.assert_called_once_with(self.team.id, [ticket.distinct_id])
+            mock_get_persons.assert_called_once_with(self.team.id, [ticket.distinct_id], distinct_id_limit=0)
 
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["process_person_profile"] is expect_groups
@@ -341,7 +341,7 @@ class TestConversationEvents(BaseTest):
         if is_empty_distinct_id:
             mock_get_persons.assert_not_called()
         else:
-            mock_get_persons.assert_called_once_with(self.team.id, [ticket.distinct_id])
+            mock_get_persons.assert_called_once_with(self.team.id, [ticket.distinct_id], distinct_id_limit=0)
 
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["process_person_profile"] is False
