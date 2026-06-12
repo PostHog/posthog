@@ -86,7 +86,7 @@ function LoginDataRegion(): JSX.Element | null {
     )
 }
 
-export function LoginV2(): JSX.Element {
+export function PaperDeskLogin(): JSX.Element {
     const { precheck, clearGeneralError, resetLogin, resendEmailMFA } = useActions(loginLogic)
     const {
         precheckResponse,
