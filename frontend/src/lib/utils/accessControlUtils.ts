@@ -73,6 +73,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'data warehouse tables & views'
     } else if (resource === AccessControlResourceType.Logs) {
         return 'logs'
+    } else if (resource === 'tracing') {
+        return 'tracing'
     }
 
     return resource.replace(/_/g, ' ') + 's'
