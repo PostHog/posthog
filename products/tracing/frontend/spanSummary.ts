@@ -79,6 +79,13 @@ function deriveType(attrs: Record<string, string>): string | null {
     return null
 }
 
+// The query text for a DB span. `db.query.text` is the stabilized OTel DB-semconv key; `db.statement`
+// is the long-standing (pre-rename) spelling most deployed instrumentations still emit — check both.
+// Usually parameterized (literal values stripped to `?`) by the instrumentation. Null for non-DB spans.
+export function getQueryText(span: Span): string | null {
+    return firstAttr(span.attributes ?? {}, ['db.query.text', 'db.statement'])
+}
+
 export function deriveSpanSummary(span: Span): SpanSummary {
     const attrs = span.attributes ?? {}
 
