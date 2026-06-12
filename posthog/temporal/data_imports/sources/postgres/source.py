@@ -188,6 +188,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
+            # due to conflict with recovery") 30 times in-process with backoff + chunk-size
+            # reduction before raising this. The conflict comes from the customer's read replica
+            # applying WAL that removes row versions our long-running read still needs
+            # (max_standby_streaming_delay exceeded). Once those in-process retries are exhausted the
+            # condition is sustained, not a transient blip — retrying the whole activity just
+            # re-reads from offset 0 into the same wall, so stop and surface an actionable message.
+            # Matched substring excludes the volatile retry count and is distinct from the
+            # connection-dropped abort ("successive connection-dropped errors"), which stays retryable.
+            "successive SerializationFailure errors. Aborting.": (
+                "PostHog repeatedly hit Postgres recovery conflicts while reading from your read replica "
+                '("canceling statement due to conflict with recovery"). This happens when the replica must '
+                "apply changes from the primary that remove rows the sync is still reading. Increase "
+                "max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
+                "connection at the primary database, then re-enable the sync."
+            ),
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
