@@ -378,9 +378,12 @@ pub async fn process_replay_events(
 
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, context=?context, "serialized snapshot data");
 
+    let snapshot_items_count = snapshot_items.len();
+    let snapshot_bytes = serialized_data.len();
+
     let event = CapturedEvent {
         uuid,
-        distinct_id, // No clone - we own it from extract_distinct_id()
+        distinct_id: distinct_id.clone(),
         session_id: Some(session_id_str.to_string()),
         ip: context.client_ip.clone(),
         data: serialized_data,
@@ -395,11 +398,106 @@ pub async fn process_replay_events(
         historical_migration: context.historical_migration,
     };
 
-    sink.send(ProcessedEvent { metadata, event }).await?;
+    match sink.send(ProcessedEvent { metadata, event }).await {
+        Ok(()) => {}
+        Err(err @ CaptureError::EventTooBig(_)) => {
+            // A snapshot batch this size usually carries the session's full
+            // snapshot; dropping it silently leaves the recording unplayable
+            // with no trace. Flag it as a team-visible ingestion warning
+            // (best effort) before failing the request with 413.
+            counter!("capture_replay_snapshot_too_large_total").increment(1);
+            let warning = replay_message_too_large_warning(
+                context,
+                distinct_id,
+                session_id_str,
+                computed_timestamp,
+                snapshot_bytes,
+                snapshot_items_count,
+                &snapshot_library,
+            );
+            if let Err(warning_err) = sink.send(warning).await {
+                error!(
+                    "failed to send replay_message_too_large ingestion warning: {warning_err:?}"
+                );
+            }
+            return Err(err);
+        }
+        Err(err) => return Err(err),
+    }
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
 
     Ok(())
+}
+
+/// Build a `$$client_ingestion_warning` event flagging a replay snapshot batch
+/// that the sink rejected for exceeding the maximum message size. It is routed
+/// to the client ingestion warning topic, where ingestion resolves the team
+/// from the token and persists a `replay_message_too_large` warning that shows
+/// up in the ingestion warnings UI.
+fn replay_message_too_large_warning(
+    context: &ProcessingContext,
+    distinct_id: String,
+    session_id: &str,
+    timestamp: chrono::DateTime<chrono::Utc>,
+    snapshot_bytes: usize,
+    snapshot_items_count: usize,
+    snapshot_library: &str,
+) -> ProcessedEvent {
+    let message = format!(
+        "Replay data for session {session_id} was dropped because it was too large to ingest ({snapshot_bytes} bytes, {snapshot_items_count} snapshot items)"
+    );
+    let data = json!({
+        "event": "$$client_ingestion_warning",
+        "distinct_id": &distinct_id,
+        "properties": {
+            "$$client_ingestion_warning_message": message,
+            "$$client_ingestion_warning_type": "replay_message_too_large",
+            "$$client_ingestion_warning_details": {
+                "timestamp": timestamp.to_rfc3339(),
+                "replayRecord": { "session_id": session_id },
+                "snapshotBytes": snapshot_bytes,
+                "snapshotItemsCount": snapshot_items_count,
+                "lib": snapshot_library,
+            },
+            "$session_id": session_id,
+            "$lib": snapshot_library,
+        }
+    })
+    .to_string();
+
+    ProcessedEvent {
+        metadata: ProcessedEventMetadata {
+            data_type: DataType::ClientIngestionWarning,
+            session_id: Some(session_id.to_string()),
+            computed_timestamp: Some(timestamp),
+            event_name: "$$client_ingestion_warning".to_string(),
+            force_overflow: false,
+            skip_person_processing: false,
+            redirect_to_dlq: false,
+            redirect_to_topic: None,
+            skip_heatmap_processing: false,
+            overflow_reason: None,
+        },
+        event: CapturedEvent {
+            uuid: uuid_v7(),
+            distinct_id,
+            session_id: Some(session_id.to_string()),
+            ip: context.client_ip.clone(),
+            data,
+            now: context
+                .now
+                .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
+            sent_at: context.sent_at,
+            token: context.token.clone(),
+            event: "$$client_ingestion_warning".to_string(),
+            timestamp,
+            // Deliberately not propagating cookieless mode: the warning is a
+            // synthetic event without the properties cookieless hashing needs.
+            is_cookieless_mode: false,
+            historical_migration: false,
+        },
+    }
 }
 
 /// Asynchronously serialize snapshot data by offloading to blocking thread pool
@@ -1132,6 +1230,107 @@ mod tests {
             records[0].key.as_deref(),
             Some("test-session-123"),
             "replay overflow keeps session_id partition key"
+        );
+    }
+
+    // ============ oversized snapshot flagging tests ============
+    // When the sink rejects the $snapshot_items message for size, the pipeline
+    // must emit a replay_message_too_large client ingestion warning (so teams
+    // can see why a recording is missing data) and still fail the request.
+
+    use async_trait::async_trait;
+
+    /// Sink that rejects snapshot sends with the given error but accepts
+    /// everything else (i.e. the synthesized ingestion warning event).
+    struct RejectSnapshotsSink {
+        error: fn() -> CaptureError,
+        events: Arc<Mutex<Vec<ProcessedEvent>>>,
+    }
+
+    #[async_trait]
+    impl Event for RejectSnapshotsSink {
+        async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+            if event.metadata.data_type == DataType::SnapshotMain {
+                return Err((self.error)());
+            }
+            self.events.lock().unwrap().push(event);
+            Ok(())
+        }
+
+        async fn send_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+            unreachable!("replay pipeline sends single events")
+        }
+    }
+
+    #[tokio::test]
+    async fn test_oversized_snapshot_emits_replay_message_too_large_warning() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(RejectSnapshotsSink {
+            error: || CaptureError::EventTooBig("too big".to_string()),
+            events: events_captured.clone(),
+        });
+
+        let recording = create_test_recording();
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, None, None, vec![recording], &context).await;
+        assert!(
+            matches!(result, Err(CaptureError::EventTooBig(_))),
+            "the request must still fail with EventTooBig, got {result:?}"
+        );
+
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1, "exactly one warning event must be sent");
+
+        let warning = &captured[0];
+        assert_eq!(warning.metadata.data_type, DataType::ClientIngestionWarning);
+        assert_eq!(warning.event.event, "$$client_ingestion_warning");
+        assert_eq!(warning.event.token, "test_token");
+        assert_eq!(
+            warning.event.session_id.as_deref(),
+            Some("test-session-123")
+        );
+        assert_eq!(warning.event.distinct_id, "test_user");
+
+        let data: Value = serde_json::from_str(&warning.event.data).unwrap();
+        assert_eq!(data["event"], "$$client_ingestion_warning");
+        let props = &data["properties"];
+        assert_eq!(
+            props["$$client_ingestion_warning_type"],
+            "replay_message_too_large"
+        );
+        assert_eq!(
+            props["$$client_ingestion_warning_details"]["replayRecord"]["session_id"],
+            "test-session-123"
+        );
+        assert_eq!(
+            props["$$client_ingestion_warning_details"]["snapshotItemsCount"],
+            1
+        );
+        assert!(props["$$client_ingestion_warning_details"]["snapshotBytes"]
+            .as_u64()
+            .is_some_and(|b| b > 0));
+        assert!(props["$$client_ingestion_warning_message"]
+            .as_str()
+            .is_some_and(|m| m.contains("test-session-123")));
+    }
+
+    #[tokio::test]
+    async fn test_other_sink_errors_do_not_emit_warning() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(RejectSnapshotsSink {
+            error: || CaptureError::RetryableSinkError,
+            events: events_captured.clone(),
+        });
+
+        let recording = create_test_recording();
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, None, None, vec![recording], &context).await;
+        assert!(matches!(result, Err(CaptureError::RetryableSinkError)));
+        assert!(
+            events_captured.lock().unwrap().is_empty(),
+            "only EventTooBig should produce a warning"
         );
     }
 }

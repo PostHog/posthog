@@ -95,6 +95,112 @@ describe('handleClientIngestionWarningStep', () => {
         })
     })
 
+    describe('warning type overrides', () => {
+        const replayDetails = {
+            timestamp: '2026-06-12T10:00:00.000Z',
+            replayRecord: { session_id: 'session-abc' },
+            snapshotBytes: 21000000,
+            snapshotItemsCount: 3,
+        }
+
+        it('honors the replay_message_too_large override with valid details', async () => {
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_message: 'Replay data dropped',
+                        $$client_ingestion_warning_type: 'replay_message_too_large',
+                        $$client_ingestion_warning_details: replayDetails,
+                    },
+                },
+            }
+
+            const result = await handleStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings).toHaveLength(1)
+            expect(result.warnings[0]).toMatchObject({
+                type: 'replay_message_too_large',
+                details: {
+                    ...replayDetails,
+                    eventUuid: eventUuid,
+                    distinctId: 'my_id',
+                    message: 'Replay data dropped',
+                },
+                alwaysSend: true,
+            })
+        })
+
+        it.each([
+            ['missing details', undefined],
+            ['details without replayRecord', { timestamp: '2026-06-12T10:00:00.000Z' }],
+            ['replayRecord without session_id', { replayRecord: {} }],
+            ['non-object details', 'not-an-object'],
+        ])('falls back to client_ingestion_warning when override has %s', async (_name, details) => {
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_type: 'replay_message_too_large',
+                        $$client_ingestion_warning_details: details,
+                    },
+                },
+            }
+
+            const result = await handleStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings[0].type).toBe('client_ingestion_warning')
+        })
+
+        it('ignores warning types outside the allowlist', async () => {
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_type: 'cannot_merge_already_identified',
+                        $$client_ingestion_warning_details: replayDetails,
+                    },
+                },
+            }
+
+            const result = await handleStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings[0].type).toBe('client_ingestion_warning')
+        })
+
+        it('does not let extra details override the base detail fields', async () => {
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_message: 'real message',
+                        $$client_ingestion_warning_details: {
+                            ...replayDetails,
+                            eventUuid: 'spoofed',
+                            message: 'spoofed',
+                        },
+                    },
+                },
+            }
+
+            const result = await handleStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings[0].details.eventUuid).toBe(eventUuid)
+            expect(result.warnings[0].details.message).toBe('real message')
+        })
+    })
+
     describe('non-client ingestion warning events', () => {
         it('DLQs regular events', async () => {
             const input: HandleClientIngestionWarningStepInput = {
