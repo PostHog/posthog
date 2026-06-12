@@ -32,7 +32,7 @@ import type {
 } from '@posthog/agent-chat'
 
 import { IngressError } from '@/lib/agentIngressClient'
-import { ApiError, getAgent, setEnvKey } from '@/lib/apiClient'
+import { setEnvKey } from '@/lib/apiClient'
 import { bumpReload } from '@/lib/reloadSignal'
 import { DOCK_TOGGLE_KEY_HINT, DOCK_TOGGLE_KEY_HINT_PC, useDockLayout } from '@/lib/useDockLayout'
 
@@ -512,78 +512,37 @@ function PlaygroundDock({
 }
 
 /**
- * Resolves the configured concierge slug to a real agent ref, then
- * renders either the real-runner variant (when resolved) or the
- * fixture variant (when the slug isn't deployed in this project).
+ * Renders the concierge dock for the configured slug.
  *
- * We use a mount-key on the real variant so the runner hooks tear
- * down cleanly when the slug or team changes — same trick the
- * top-level `Dock` uses for mode/agent swaps.
+ * The concierge is a platform agent that is usually owned by a different team
+ * than the signed-in user, so we deliberately do NOT do a team-scoped
+ * existence/metadata lookup (`GET /agent_applications/<slug>/` 404s across
+ * teams). Instead we assume it exists and let the ingress resolve it globally
+ * by slug on the first proxied chat call. If it genuinely isn't deployed, the
+ * first run surfaces a transport error rather than a pre-flight "not deployed".
+ *
+ * The mount-key tears the runner hooks down cleanly when the slug or team
+ * changes — same trick the top-level `Dock` uses for mode/agent swaps.
  */
-type ConciergeResolution =
-    | { kind: 'pending' }
-    | { kind: 'resolved'; agent: AgentApplicationRef }
-    | { kind: 'not_deployed' }
-
 function ConciergeDock(): React.ReactElement {
     const { conciergeAgent } = useDockStore()
     const { info } = useSession()
     const teamId = info?.teamId ?? null
     const slug = conciergeAgent?.slug ?? null
-    const [resolution, setResolution] = useState<ConciergeResolution>({ kind: 'pending' })
 
-    useEffect(() => {
-        // Route transitions trigger setConciergeAgent(null) on the outgoing
-        // layout's cleanup followed by the incoming layout setting the slug
-        // back. Ignore the transient null so we don't reset to pending and
-        // re-fetch every navigation; a non-null slug always triggers a
-        // fetch so a fresh mount (e.g. on playground exit) recovers cleanly.
-        if (!slug || teamId == null) {
-            return
-        }
-        let cancelled = false
-        // Only flash to pending if we don't already have THIS slug resolved.
-        setResolution((prev) => (prev.kind === 'resolved' && prev.agent.slug === slug ? prev : { kind: 'pending' }))
-        getAgent(teamId, slug).then(
-            (agent) => {
-                if (cancelled) {
-                    return
-                }
-                setResolution({
-                    kind: 'resolved',
-                    agent: { id: agent.id, slug: agent.slug, name: agent.name },
-                })
-            },
-            (err) => {
-                if (cancelled) {
-                    return
-                }
-                if (err instanceof ApiError && err.status === 404) {
-                    setResolution({ kind: 'not_deployed' })
-                    return
-                }
-                // Transient (network, 5xx, auth refresh): keep the previous
-                // state so the dock doesn't get stuck on the spinner. If
-                // this is the first mount we stay at `pending` until the
-                // next slug/teamId change kicks the effect again.
-                // eslint-disable-next-line no-console
-                console.warn('[concierge] failed to resolve agent', slug, err)
-            }
-        )
-        return () => {
-            cancelled = true
-        }
-    }, [slug, teamId])
+    if (!slug || teamId == null) {
+        return <ConciergeStub message="Loading concierge…" />
+    }
+    // Synthetic ref — `name`/`id` are display/state only (the runner addresses
+    // the agent by slug); the real metadata lives behind the ingress.
+    const agentRef: AgentApplicationRef = { id: slug, slug, name: prettifySlug(slug) }
+    return <RealConciergeDock key={`${teamId}:${slug}`} agentRef={agentRef} teamId={teamId} />
+}
 
-    if (resolution.kind === 'resolved' && teamId != null) {
-        return (
-            <RealConciergeDock key={`${teamId}:${resolution.agent.slug}`} agentRef={resolution.agent} teamId={teamId} />
-        )
-    }
-    if (resolution.kind === 'not_deployed') {
-        return <ConciergeStub message={`No concierge deployed for "${slug}" in this project.`} />
-    }
-    return <ConciergeStub message="Loading concierge…" />
+/** `agent-concierge` → `Agent concierge`. Cosmetic dock label only. */
+function prettifySlug(slug: string): string {
+    const spaced = slug.replace(/-/g, ' ')
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
 function ConciergeStub({ message }: { message: string }): React.ReactElement {

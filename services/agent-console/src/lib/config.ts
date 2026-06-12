@@ -44,6 +44,20 @@ export const AgentConsoleConfigSchema = z.object({
         .default(() => (isDev() ? 'http://localhost:3030' : ''))
         .transform(stripTrailingSlash)
         .describe('agent-ingress base URL. Required in prod; dev defaults to http://localhost:3030.'),
+    agentIngressRoutingMode: z
+        .enum(['path', 'domain'])
+        .default('path')
+        .describe(
+            'Mirrors the ingress ROUTING_MODE. `path` (dev) forwards `/agents/<slug>/<route>` to the base URL as-is. ' +
+                '`domain` (deployed, behind a wildcard cert) sends `<route>` to the base URL with the `Host` header set ' +
+                'to `<slug><suffix>`, since the domain-mode ingress resolves the slug from the host.'
+        ),
+    agentIngressDomainSuffix: z
+        .string()
+        .default('')
+        .describe(
+            'Host suffix for domain-mode routing (e.g. `.agents.dev.posthog.dev`). Required when routing mode is domain.'
+        ),
     consoleBaseUrl: z
         .string()
         .url()
@@ -93,6 +107,8 @@ export type AgentConsoleConfig = z.infer<typeof AgentConsoleConfigSchema>
 const ENV_KEY_MAP: Record<string, keyof AgentConsoleConfig> = {
     POSTHOG_BASE_URL: 'posthogBaseUrl',
     POSTHOG_AGENTS_BASE: 'posthogAgentsBaseUrl',
+    AGENT_INGRESS_ROUTING_MODE: 'agentIngressRoutingMode',
+    AGENT_INGRESS_DOMAIN_SUFFIX: 'agentIngressDomainSuffix',
     CONSOLE_BASE_URL: 'consoleBaseUrl',
     POSTHOG_OAUTH_CLIENT_ID: 'oauthClientId',
     POSTHOG_OAUTH_CLIENT_SECRET: 'oauthClientSecret',
@@ -114,6 +130,8 @@ const REQUIRED_IN_PROD: Array<keyof AgentConsoleConfig> = [
 const PROD_ENV_NAMES: Record<keyof AgentConsoleConfig, string> = {
     posthogBaseUrl: 'POSTHOG_BASE_URL',
     posthogAgentsBaseUrl: 'POSTHOG_AGENTS_BASE',
+    agentIngressRoutingMode: 'AGENT_INGRESS_ROUTING_MODE',
+    agentIngressDomainSuffix: 'AGENT_INGRESS_DOMAIN_SUFFIX',
     consoleBaseUrl: 'CONSOLE_BASE_URL',
     oauthClientId: 'POSTHOG_OAUTH_CLIENT_ID',
     oauthClientSecret: 'POSTHOG_OAUTH_CLIENT_SECRET',
