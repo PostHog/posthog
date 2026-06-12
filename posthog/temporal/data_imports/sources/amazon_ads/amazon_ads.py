@@ -133,7 +133,7 @@ def get_rows(
         return
 
     # Sponsored Products v3 list endpoints, fanned out per profile.
-    profile_ids = [str(profile["profileId"]) for profile in list_profiles() if profile.get("profileId") is not None]
+    profile_ids = [str(profile["profileId"]) for profile in list_profiles()]
 
     for profile_id in profile_ids:
         next_token: Optional[str] = None

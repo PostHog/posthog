@@ -35,10 +35,16 @@ def _json_response(body: Any) -> mock.MagicMock:
 
 
 class TestBaseUrl:
-    def test_regional_hosts(self):
-        assert _base_url("na") == "https://advertising-api.amazon.com"
-        assert _base_url("eu") == "https://advertising-api-eu.amazon.com"
-        assert _base_url("fe") == "https://advertising-api-fe.amazon.com"
+    @pytest.mark.parametrize(
+        "region, expected_host",
+        [
+            ("na", "https://advertising-api.amazon.com"),
+            ("eu", "https://advertising-api-eu.amazon.com"),
+            ("fe", "https://advertising-api-fe.amazon.com"),
+        ],
+    )
+    def test_regional_hosts(self, region, expected_host):
+        assert _base_url(region) == expected_host
 
     def test_invalid_region_raises(self):
         with pytest.raises(ValueError):
@@ -56,7 +62,7 @@ class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_when_token_mint_fails(self, mock_session):
         resp = mock.MagicMock()
-        resp.raise_for_status.side_effect = requests.HTTPError("400 Client Error")
+        resp.raise_for_status.side_effect = requests.HTTPError("400 Client Error", response=mock.MagicMock())
         mock_session.return_value.post.return_value = resp
 
         assert validate_credentials("na", "cid", "sec", "rt") is False
