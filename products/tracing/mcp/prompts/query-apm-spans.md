@@ -101,7 +101,7 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
 ```json
 {
   "query": {
-    "statusCodes": [500, 503]
+    "statusCodes": [2]
   }
 }
 ```

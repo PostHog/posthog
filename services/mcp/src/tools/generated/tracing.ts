@@ -126,12 +126,12 @@ const apmSpansCount = (): ToolBase<typeof ApmSpansCountSchema, Schemas._TracingC
     },
 })
 
-const ApmSpansTreeSchema = TracingSpansTreeCreateBody
+const ApmSpansDurationHistogramSchema = TracingSpansDurationHistogramCreateBody
 
-const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
-    name: 'apm-spans-tree',
-    schema: ApmSpansTreeSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmSpansTreeSchema>) => {
+const apmSpansDurationHistogram = (): ToolBase<typeof ApmSpansDurationHistogramSchema, unknown> => ({
+    name: 'apm-spans-duration-histogram',
+    schema: ApmSpansDurationHistogramSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSpansDurationHistogramSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -139,10 +139,10 @@ const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/tree/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/duration-histogram/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
+        const filtered = pickResponseFields(result, ['results']) as typeof result
         return filtered
     },
 })
@@ -164,6 +164,27 @@ const apmSpansSparkline = (): ToolBase<typeof ApmSpansSparklineSchema, unknown> 
             body,
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
+const ApmSpansTreeSchema = TracingSpansTreeCreateBody
+
+const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
+    name: 'apm-spans-tree',
+    schema: ApmSpansTreeSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSpansTreeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/tree/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
         return filtered
     },
 })
@@ -217,36 +238,15 @@ const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
         },
     })
 
-const ApmSpansDurationHistogramSchema = TracingSpansDurationHistogramCreateBody
-
-const apmSpansDurationHistogram = (): ToolBase<typeof ApmSpansDurationHistogramSchema, unknown> => ({
-    name: 'apm-spans-duration-histogram',
-    schema: ApmSpansDurationHistogramSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmSpansDurationHistogramSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/duration-histogram/`,
-            body,
-        })
-        const filtered = pickResponseFields(result, ['results']) as typeof result
-        return filtered
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-attribute-values-list': apmAttributeValuesList,
     'apm-attributes-list': apmAttributesList,
     'apm-services-list': apmServicesList,
     'apm-spans-aggregate': apmSpansAggregate,
     'apm-spans-count': apmSpansCount,
-    'apm-spans-tree': apmSpansTree,
+    'apm-spans-duration-histogram': apmSpansDurationHistogram,
     'apm-spans-sparkline': apmSpansSparkline,
+    'apm-spans-tree': apmSpansTree,
     'apm-trace-get': apmTraceGet,
     'query-apm-spans': queryApmSpans,
-    'apm-spans-duration-histogram': apmSpansDurationHistogram,
 }
