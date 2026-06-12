@@ -1277,6 +1277,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
 
+        selectedRecordingOutsideFilters: [
+            (s) => [s.selectedRecordingId, s.recordings],
+            (selectedRecordingId, recordings): boolean => {
+                if (!selectedRecordingId) {
+                    return false
+                }
+                return recordings.find((rec) => rec.id === selectedRecordingId)?.matches_filters === false
+            },
+        ],
+
         nextSessionRecording: [
             (s) => [s.activeSessionRecording, s.recordings, s.autoplayDirection],
             (activeSessionRecording, recordings, autoplayDirection): Partial<SessionRecordingType> | undefined => {

@@ -92,11 +92,10 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     return innerName || undefined
 }
 
-// Builds the resolver mcp.ts hands to initMcpAnalytics in single-exec
-// mode: given a request, return the inner tool's { name, description } when
-// the agent invoked it via `call <tool> ...`, or undefined otherwise. Lives
-// here (alongside parseExecCallInnerToolName) so tests can import the exact
-// same factory the production code uses — no copy-pasted resolver lambda.
+// Resolves the inner tool an `exec` call targets: given a request, return the
+// inner tool's { name, description } when the agent invoked it via
+// `call <tool> ...`, or undefined otherwise. Lives here (alongside
+// parseExecCallInnerToolName) so callers and tests share one factory.
 export function createExecInnerToolCallResolver(
     allTools: ReadonlyArray<Tool<ZodObjectAny>>
 ): (request: unknown) => { name: string; description: string } | undefined {

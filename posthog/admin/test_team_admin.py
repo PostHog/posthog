@@ -34,9 +34,9 @@ class TestTeamAdminSetApiTokenView(BaseTest):
 
         reverse_patcher = patch(
             "posthog.admin.admins.team_admin.reverse",
-            side_effect=lambda name, args=None, kwargs=None: self.team_change_url
-            if name == "admin:posthog_team_change"
-            else self.set_api_token_url,
+            side_effect=lambda name, args=None, kwargs=None: (
+                self.team_change_url if name == "admin:posthog_team_change" else self.set_api_token_url
+            ),
         )
         reverse_patcher.start()
         self.addCleanup(reverse_patcher.stop)

@@ -28,8 +28,6 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
 
-from posthog import schema
-
 
 def lookup_field_by_name(
     scope: ast.SelectQueryType | ast.SelectSetQueryType, name: str, context: HogQLContext
@@ -221,6 +219,10 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
     elif isinstance(expr, ast.Tuple):
         return tuple(ast_to_query_node(e) for e in expr.exprs)
     elif isinstance(expr, ast.HogQLXTag):
+        # Deferred: posthog.schema stays off django.setup(); this module loads there via
+        # hogql.ast, which the warehouse/data-modeling models import.
+        from posthog import schema  # noqa: PLC0415
+
         for klass in schema.__dict__.values():
             if isinstance(klass, type) and issubclass(klass, BaseModel) and klass.__name__ == expr.kind:
                 attributes = expr.to_dict()

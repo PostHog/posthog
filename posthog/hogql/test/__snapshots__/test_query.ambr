@@ -180,7 +180,7 @@
     FROM raw_sessions 
     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3)))) 
     GROUP BY raw_sessions.session_id_v7) AS sessions 
-  WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), 0), ifNull(greaterOrEquals(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), 0)) 
+  WHERE and(less(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), greaterOrEquals(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC'))) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -272,14 +272,14 @@
   -- ClickHouse
   SELECT e.event AS event, s.session_id AS session_id 
   FROM (
-    SELECT e.event AS event, e.`$session_id` AS `$session_id` 
+    SELECT e.event AS event, nullIf(nullIf(e.`$session_id`, ''), 'null') AS `properties__$session_id` 
     FROM events AS e 
     WHERE and(equals(e.team_id, 99999), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) 
     LIMIT 10) AS e LEFT JOIN (
     SELECT session_replay_events.session_id AS session_id 
     FROM session_replay_events 
     WHERE equals(session_replay_events.team_id, 99999) 
-    GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, nullIf(nullIf(e.`$session_id`, ''), 'null')) 
+    GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, e.`properties__$session_id`) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -304,14 +304,14 @@
   -- ClickHouse
   SELECT e.event AS event, s.session_id AS session_id 
   FROM (
-    SELECT e.event AS event, e.properties AS properties 
+    SELECT e.event AS event, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS `properties__$$$session_id` 
     FROM events AS e 
-    WHERE and(equals(e.team_id, 99999), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''))) 
+    WHERE and(equals(e.team_id, 99999), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''))) 
     LIMIT 10) AS e LEFT JOIN (
     SELECT session_replay_events.session_id AS session_id 
     FROM session_replay_events 
     WHERE equals(session_replay_events.team_id, 99999) 
-    GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '')) 
+    GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, e.`properties__$$$session_id`) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   

@@ -100,7 +100,7 @@ export function overrideWithEnv(
  * iterates its keys, reads matching env vars, and coerces based on the default value type.
  *
  * Unlike `overrideWithEnv`, this has no PluginsServerConfig-specific validation.
- * Use for server-local config types (e.g. KafkaProducerEnvConfig, IngestionOutputsConfig).
+ * Use for server-local config types (e.g. KafkaDownstreamProducerEnvConfig, IngestionOutputsConfig).
  */
 export function overrideConfigWithEnv<T extends Record<string, unknown>>(
     config: T,
