@@ -48,6 +48,12 @@ from products.signals.backend.temporal.types import SignalData, SignalReportSumm
 
 logger = structlog.get_logger(__name__)
 
+# Embedding/ClickHouse ingestion can lag behind signal emission, leaving a freshly promoted
+# report with no signals queryable yet. Retry the fetch with durable workflow sleeps before
+# treating the signals as missing. Total wait budget is 50m; the spawn-site execution_timeout
+# in grouping.py is sized to absorb this on top of the normal processing budget.
+_EMPTY_FETCH_RETRY_DELAYS = (timedelta(minutes=5), timedelta(minutes=15), timedelta(minutes=30))
+
 
 def _capture_report_event(
     event: str,
@@ -154,20 +160,54 @@ class SignalReportSummaryWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if not fetch_result.signals:
-            log.error("No signals found for report, marking as failed")
-            await workflow.execute_activity(
-                mark_report_failed_activity,
-                MarkReportFailedInput(
-                    team_id=inputs.team_id,
-                    report_id=inputs.report_id,
-                    error="No signals found",
-                    failure_reason="no_signals_found",
-                ),
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            # No loop, as no signals to process
-            return False
+            if not workflow.patched("signals-retry-fetch-on-empty"):
+                # Legacy path: summary workflows in flight at deploy replay this branch deterministically.
+                log.error("No signals found for report, marking as failed")
+                await workflow.execute_activity(
+                    mark_report_failed_activity,
+                    MarkReportFailedInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        error="No signals found",
+                        failure_reason="no_signals_found",
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                # No loop, as no signals to process
+                return False
+            # The report's signals haven't landed in ClickHouse yet (embedding ingestion lag).
+            # Retry with durable sleeps before deciding they're truly missing.
+            for delay in _EMPTY_FETCH_RETRY_DELAYS:
+                await workflow.sleep(delay)
+                fetch_result = await workflow.execute_activity(
+                    fetch_signals_for_report_activity,
+                    FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                if fetch_result.signals:
+                    break
+            if not fetch_result.signals:
+                # Still nothing visible. Rather than fail permanently on a transient lag, leave the
+                # report in CANDIDATE so the grouping promotion gate re-promotes it (its CANDIDATE
+                # self-heal branch) when the next matching signal arrives — by then ingestion should
+                # have caught up. No status change here; this only emits deferred telemetry.
+                log.warning(
+                    "No signals visible for report after retries, deferring for re-promotion on next signal",
+                )
+                await workflow.execute_activity(
+                    defer_report_signals_not_ready_activity,
+                    DeferReportInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        reason="Signals not yet visible in ClickHouse (ingestion lag)",
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                # No loop, as no signals are visible yet
+                return False
         signal_count = len(fetch_result.signals)
         source_products = sorted({s.source_product for s in fetch_result.signals})
         # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
@@ -575,6 +615,53 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         f"Marked report {input.report_id} as failed",
         report_id=input.report_id,
         error=input.error,
+    )
+
+
+@dataclass
+class DeferReportInput:
+    team_id: int
+    report_id: str
+    reason: str
+    signal_count: int = 0
+    source_products: list[str] = field(default_factory=list)
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def defer_report_signals_not_ready_activity(input: DeferReportInput) -> None:
+    """Defer a report whose signals aren't yet visible in ClickHouse (embedding ingestion lag).
+
+    Instead of marking the report FAILED (a permanent terminal state) for a transient infra
+    condition, leave it in CANDIDATE so the grouping promotion gate re-promotes it on the next
+    matching signal. Emits deferred telemetry only — no status transition.
+    """
+    try:
+        report = await SignalReport.objects.aget(id=input.report_id, team_id=input.team_id)
+    except SignalReport.DoesNotExist:
+        logger.warning(
+            f"Report {input.report_id} no longer exists, skipping defer",
+            report_id=input.report_id,
+        )
+        return
+
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+    _capture_report_event(
+        event="signal_report_completed",
+        team=team,
+        organization=team.organization,
+        report_id=input.report_id,
+        signal_count=input.signal_count,
+        run_count=report.run_count,
+        source_products=input.source_products,
+        result="deferred",
+        failure_reason="signals_not_ready",
+    )
+    logger.warning(
+        f"Deferred report {input.report_id}: signals not yet visible in ClickHouse, awaiting re-promotion",
+        report_id=input.report_id,
+        reason=input.reason,
     )
 
 

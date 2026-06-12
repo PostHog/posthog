@@ -5,11 +5,13 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.summary import (
+    DeferReportInput,
     MarkReportFailedInput,
     MarkReportInProgressInput,
     MarkReportPendingInput,
     MarkReportReadyInput,
     ResetReportToPotentialInput,
+    defer_report_signals_not_ready_activity,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
@@ -261,3 +263,51 @@ async def test_reset_to_potential_is_idempotent_when_already_potential(ateam):
     assert refreshed.status == SignalReport.Status.POTENTIAL
     assert refreshed.error == "Original reset reason"
     assert refreshed.total_weight == 0.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_defer_emits_deferred_telemetry_and_keeps_candidate(ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.CANDIDATE,
+        signal_count=2,
+        total_weight=1.5,
+        run_count=1,
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
+        await defer_report_signals_not_ready_activity(
+            DeferReportInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                reason="Signals not yet visible in ClickHouse (ingestion lag)",
+            )
+        )
+
+    capture.assert_called_once()
+    kwargs = capture.call_args.kwargs
+    assert kwargs["event"] == "signal_report_completed"
+    assert kwargs["properties"]["result"] == "deferred"
+    assert kwargs["properties"]["failure_reason"] == "signals_not_ready"
+    assert kwargs["properties"]["run_count"] == 1
+
+    # The report must stay CANDIDATE so the grouping gate re-promotes it on the next signal.
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
+    assert refreshed.status == SignalReport.Status.CANDIDATE
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_defer_is_noop_when_report_deleted(ateam):
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
+        await defer_report_signals_not_ready_activity(
+            DeferReportInput(
+                team_id=ateam.id,
+                report_id="00000000-0000-0000-0000-000000000000",
+                reason="gone",
+            )
+        )
+
+    capture.assert_not_called()

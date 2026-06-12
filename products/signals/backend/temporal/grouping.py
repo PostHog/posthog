@@ -1252,7 +1252,10 @@ async def _process_signal_batch(
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=timedelta(hours=1),
+                # 2h, not 1h: the summary workflow may sleep up to 50m retrying an empty fetch
+                # (embedding ingestion lag) before processing, so the timeout absorbs those durable
+                # sleeps on top of the normal processing budget.
+                execution_timeout=timedelta(hours=2),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             # Expected when CANDIDATE re-promotion fires against an in-flight workflow; no-op.
