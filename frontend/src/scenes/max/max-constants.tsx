@@ -80,6 +80,11 @@ export interface ToolDefinition<N extends string = string> {
     alpha?: boolean
     /** Agent modes this tool is available in (defined in backend presets) */
     modes?: AgentMode[]
+    /**
+     * Set for tools using ToolRegistration.clientExecution, so a pending call is resumed with
+     * a refusal (instead of stranded) after the owning view deregistered the handler.
+     */
+    clientExecuted?: boolean
 }
 
 /** Active instance of a tool. */
@@ -117,6 +122,13 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     suggestions?: string[]
     /** The callback function that will be executed with the LLM's tool call output */
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
+    /**
+     * Optional: executes part of the tool client-side. Runs with the tool call's arguments when
+     * the backend pauses via `MaxTool.request_client_execution()`; the returned result resumes
+     * the conversation and becomes that call's return value. Keep results small (verdicts, ids):
+     * they ride a Temporal resume payload capped at ~2MiB.
+     */
+    clientExecution?: (args: Record<string, any>) => Promise<Record<string, unknown>>
 }
 
 export interface RecordingsWidgetDef {

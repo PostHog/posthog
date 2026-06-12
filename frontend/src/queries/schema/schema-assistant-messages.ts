@@ -189,7 +189,15 @@ export interface FormDismissPayload {
     action: 'dismiss_form'
 }
 
-export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload
+export interface ClientToolResultPayload {
+    action: 'client_tool_result'
+    /** Tool call id this result answers — echoed back so misdelivery fails loudly instead of silently */
+    tool_call_id?: string
+    /** Result produced by the tool's client-side handler, returned verbatim to the tool awaiting it */
+    result: Record<string, unknown>
+}
+
+export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
