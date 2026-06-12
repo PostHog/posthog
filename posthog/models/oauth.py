@@ -396,6 +396,17 @@ class OAuthRefreshToken(AbstractRefreshToken):
         db_index=True,
     )
 
+    # Durable carrier for OAuthAccessToken.label across refreshes: DOT's rotation
+    # deletes the previous access token before the new one is minted, so the label
+    # has to ride on the refresh token to survive the connection's life.
+    label: models.CharField = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Mirrors the linked access token's label so it survives token rotation.",
+    )
+
 
 class OAuthGrant(AbstractGrant):
     class Meta(AbstractGrant.Meta):
