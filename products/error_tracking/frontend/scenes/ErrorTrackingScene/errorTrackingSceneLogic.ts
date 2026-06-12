@@ -47,7 +47,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
             issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-            ['assignee', 'orderBy', 'orderDirection', 'status', 'useQueryV3', 'showQueryV3Switch', 'forceQueryV3'],
+            ['assignee', 'orderBy', 'orderDirection', 'status'],
             settingsLogic({
                 logicKey: ERROR_TRACKING_LOGIC_KEY,
                 sectionId: 'environment-error-tracking-configuration',
@@ -93,9 +93,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.mergedFilterGroup,
                 s.searchQuery,
                 s.orderDirection,
-                s.useQueryV3,
-                s.showQueryV3Switch,
-                s.forceQueryV3,
                 s.currentPendingUpdates,
             ],
             (
@@ -107,12 +104,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 mergedFilterGroup,
                 searchQuery,
                 orderDirection,
-                useQueryV3,
-                showQueryV3Switch,
-                forceQueryV3,
                 currentPendingUpdates
             ): DataTableNode => {
-                const v3Active = forceQueryV3 || (showQueryV3Switch && useQueryV3)
                 return errorTrackingQuery({
                     orderBy,
                     status,
@@ -124,8 +117,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
-                    useQueryV3: v3Active,
-                    pendingFingerprintIssueStateUpdates: v3Active ? currentPendingUpdates : undefined,
+                    pendingFingerprintIssueStateUpdates: currentPendingUpdates,
                 })
             },
         ],

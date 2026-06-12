@@ -134,7 +134,7 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
  * x-product doesn't match, same as generate-openapi-types.mjs
  * matchUrlToProduct().
  */
-function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+function findOperationsByUrl(spec: OpenApiSpec, product: string, syncedProducts?: Set<string>): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
     const productsToMatch = [
@@ -156,6 +156,20 @@ function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOper
                 continue
             }
 
+            // Don't let the URL fallback poach an op that another *synced* product
+            // already owns via x-product — e.g. agent .../sessions/{id}/logs/ is
+            // tagged agent_platform but its path matches the logs product. Ops whose
+            // x-product isn't a synced product (e.g. reverse_proxy ops grouped under
+            // the proxy-records definition) still match by path, as do legacy ops
+            // with no x-product.
+            if (syncedProducts) {
+                const normProduct = product.replace(/-/g, '_').toLowerCase()
+                const xProduct = (op['x-product'] ?? []).map((p) => p.replace(/-/g, '_').toLowerCase())
+                if (!xProduct.includes(normProduct) && xProduct.some((p) => syncedProducts.has(p))) {
+                    continue
+                }
+            }
+
             ops.push({
                 operationId: op.operationId,
                 method: method.toUpperCase(),
@@ -175,9 +189,13 @@ function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOper
  *    and ViewSets in products/<name>/backend/)
  * 2. URL path substring match (fallback for legacy endpoints)
  */
-function findOperationsByProduct(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+function findOperationsByProduct(
+    spec: OpenApiSpec,
+    product: string,
+    syncedProducts?: Set<string>
+): DiscoveredOperation[] {
     const byTag = findOperationsByTag(spec, product)
-    const byUrl = findOperationsByUrl(spec, product)
+    const byUrl = findOperationsByUrl(spec, product, syncedProducts)
 
     // Merge, preferring tag-matched ops and deduping by operationId
     const seen = new Set(byTag.map((op) => op.operationId))
@@ -440,8 +458,12 @@ function syncAll(spec: OpenApiSpec): void {
     const writtenFiles: string[] = []
     const noOpsProducts: string[] = []
 
+    // Every product/definition being synced, normalized. The URL fallback uses this
+    // to avoid poaching an op that another synced product owns via x-product.
+    const syncedProducts = new Set(targets.map((t) => t.product.replace(/-/g, '_').toLowerCase()))
+
     for (const { product, filePath, subset } of targets) {
-        const rawOps = findOperationsByProduct(spec, product)
+        const rawOps = findOperationsByProduct(spec, product, syncedProducts)
         const ops = deduplicateOperations(rawOps)
         if (ops.length === 0) {
             const label = path.relative(REPO_ROOT, filePath)

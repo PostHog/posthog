@@ -139,6 +139,20 @@ describe('customSourceManifestBuilderLogic', () => {
             expect(logic.values.manifestState.streams).toHaveLength(1)
         })
 
+        it('cascades a parent rename to dependent streams through the reducer', () => {
+            // The cascade behavior itself is unit-tested on the pure helpers;
+            // this pins that the reducer is actually wired to them.
+            logic.actions.updateStream(0, { name: 'forms' })
+            logic.actions.addStream()
+            logic.actions.updateStream(1, { name: 'responses', parent_stream: 'forms' })
+
+            logic.actions.updateStream(0, { name: 'surveys' })
+            expect(logic.values.manifestState.streams[1].parent_stream).toBe('surveys')
+
+            logic.actions.removeStream(0)
+            expect(logic.values.manifestState.streams[0].parent_stream).toBe('')
+        })
+
         it('updates a stream paginator by index', () => {
             logic.actions.updatePaginator(0, { type: 'cursor', cursor_path: 'meta.next', cursor_param: 'after' })
             expect(logic.values.manifestState.streams[0].paginator).toEqual({

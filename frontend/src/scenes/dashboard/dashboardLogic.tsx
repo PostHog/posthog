@@ -1342,11 +1342,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canAutoPreview: [
-            (s) => [s.dashboard],
-            (dashboard) => {
+            (s) => [s.insightTiles],
+            (insightTiles) => {
                 const payload = getFeatureFlagPayload(FEATURE_FLAGS.DASHBOARD_AUTO_PREVIEW_LIMIT)
                 const limit = typeof payload === 'number' ? payload : DEFAULT_AUTO_PREVIEW_TILE_LIMIT
-                return (dashboard?.tiles.length || 0) < limit
+                // The limit is about the number of insights on a dashboard (per the flag's intent),
+                // so count insight tiles only — not text, button, or widget tiles.
+                return insightTiles.length < limit
             },
         ],
         hasIntermittentFilters: [

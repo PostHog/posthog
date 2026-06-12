@@ -82,35 +82,40 @@ def _realign_decimal_buffers(table: pa.Table) -> pa.Table:
     return pa.table(new_columns, schema=table.schema)
 
 
-def _first_per_pk_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
-    """Return a table containing only the first row per PK tuple (in original row order).
+def _first_per_pk_table(
+    pa_table: pa.Table, pk_columns: list[str], keep: Literal["first", "last"] = "first"
+) -> pa.Table:
+    """Return a table containing only one row per PK tuple (in original row order).
 
-    Used when closing existing "current" rows during SCD2 append: we pass a
-    deduplicated table to the merge so that only one source row matches each
-    target row, avoiding ambiguous multi-match merge semantics.
+    `keep` picks which occurrence survives: "first" is used when closing existing
+    "current" rows during SCD2 append; "last" is used to dedupe upsert batches, where
+    the latest occurrence of a key carries the freshest data. Either way the merge
+    receives at most one source row per key, avoiding ambiguous multi-match merge
+    semantics (and the duplicate inserts `when_not_matched_insert_all` would produce).
     """
     if not pk_columns or pa_table.num_rows == 0:
         return pa_table
 
     # Strategy: tag every row with its position, group by PK, and for each PK
-    # take the smallest position. That position is the first time we saw that PK.
-    # Sorting those positions at the end restores the original row order.
+    # take the smallest (or largest) position — the first (or last) time we saw
+    # that PK. Sorting those positions at the end restores the original row order.
     #
     # We use numpy for the final sort because pyarrow's type stubs for
     # `pc.sort_indices` / `Array.take` are currently broken — numpy's stubs work.
     idx_col_name = "__ph_cdc_row_idx"
+    aggregate = "min" if keep == "first" else "max"
 
     # 1. Add a row-position column: [0, 1, 2, ..., n-1]
     indexed = pa_table.append_column(idx_col_name, pa.array(range(pa_table.num_rows), type=pa.int64()))
 
-    # 2. Group by PK, keeping only the smallest position per PK (= first occurrence)
-    grouped = indexed.group_by(pk_columns).aggregate([(idx_col_name, "min")])
+    # 2. Group by PK, keeping only one position per PK
+    grouped = indexed.group_by(pk_columns).aggregate([(idx_col_name, aggregate)])
 
     # 3. Sort those positions ascending so the output mirrors the input row order
-    first_indices = np.sort(grouped.column(f"{idx_col_name}_min").to_numpy())
+    kept_indices = np.sort(grouped.column(f"{idx_col_name}_{aggregate}").to_numpy())
 
     # 4. Materialize the rows at those positions from the original table
-    return pa_table.take(first_indices)
+    return pa_table.take(kept_indices)
 
 
 class DeltaTableHelper:
@@ -232,6 +237,25 @@ class DeltaTableHelper:
 
         return await asyncio.to_thread(delta_table.file_uris)
 
+    async def _dedupe_incremental_batch(
+        self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
+    ) -> pa.Table:
+        """Drop all but the last occurrence of each PK (+ partition) tuple in a batch."""
+        dedupe_keys = [n for x in primary_keys if (n := normalize_column_name(x)) in data.column_names]
+        if not dedupe_keys:
+            return data
+        if use_partitioning:
+            dedupe_keys.append(PARTITION_KEY)
+
+        deduped = _first_per_pk_table(data, dedupe_keys, keep="last")
+        dropped = data.num_rows - deduped.num_rows
+        if dropped > 0:
+            await self._logger.awarning(
+                f"write_to_deltalake: dropped {dropped} duplicate primary-key rows "
+                f"(keys={dedupe_keys}) from a batch of {data.num_rows} before writing"
+            )
+        return deduped
+
     async def write_to_deltalake(
         self,
         data: pa.Table,
@@ -263,6 +287,14 @@ class DeltaTableHelper:
         commit_properties: deltalake.CommitProperties | None = (
             deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None
         )
+
+        if write_type == "incremental" and primary_keys:
+            # Sources can emit the same key twice in one batch (re-listed parents, retried
+            # pages, genuinely non-unique upstream ids). The merge treats PK (+ partition)
+            # as row identity, and duplicates on the source side either error the merge or
+            # get double-inserted by `when_not_matched_insert_all` — after which every later
+            # merge multi-matches those rows and blows up. Keep only the last occurrence.
+            data = await self._dedupe_incremental_batch(data, primary_keys, use_partitioning)
 
         if write_type == "incremental" and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:

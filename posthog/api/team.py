@@ -1703,14 +1703,28 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         user = cast(User, self.request.user)
 
-        # Queue background task to handle all deletion
-        # bulky postgres, batch exports, team record, ClickHouse, email
-        delete_project_data_and_notify_task.delay(
-            team_ids=[team_id],
-            project_id=None,  # Only deleting a team, not the whole project
-            user_id=user.id,
-            project_name=team_name,
+        # Hand off all deletion work (bulky postgres, batch exports, team record,
+        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
+        # is enabled for this org; otherwise keep the legacy Celery task.
+        from posthog.temporal.delete_teams.dispatch import (
+            delete_via_temporal_enabled,
+            start_delete_project_data_workflow,
         )
+
+        if delete_via_temporal_enabled(str(organization_id)):
+            start_delete_project_data_workflow(
+                team_ids=[team_id],
+                project_id=None,  # Only deleting a team, not the whole project
+                user_id=user.id,
+                project_name=team_name,
+            )
+        else:
+            delete_project_data_and_notify_task.delay(
+                team_ids=[team_id],
+                project_id=None,  # Only deleting a team, not the whole project
+                user_id=user.id,
+                project_name=team_name,
+            )
 
         log_activity(
             organization_id=cast(UUIDT, organization_id),

@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, Mock, patch
 
-from django.test import TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -17,7 +17,7 @@ from products.tasks.backend.temporal.client import (
 
 
 @override_settings(DEBUG=False)
-class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
+class TestExecuteTaskProcessingWorkflow(TestCase):
     def setUp(self) -> None:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")

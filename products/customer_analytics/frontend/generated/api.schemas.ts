@@ -54,7 +54,7 @@ export interface AccountApi {
      */
     name: string
     /**
-     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
      * @maxLength 400
      * @nullable
      */
@@ -217,7 +217,7 @@ export interface PatchedAccountApi {
      */
     name?: string
     /**
-     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
      * @maxLength 400
      * @nullable
      */
