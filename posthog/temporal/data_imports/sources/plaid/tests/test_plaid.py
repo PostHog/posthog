@@ -41,9 +41,15 @@ def _no_sleep():
 
 
 class TestBaseUrl:
-    def test_production_and_sandbox_hosts(self):
-        assert _base_url("production") == "https://production.plaid.com"
-        assert _base_url("sandbox") == "https://sandbox.plaid.com"
+    @pytest.mark.parametrize(
+        "environment, expected",
+        [
+            ("production", "https://production.plaid.com"),
+            ("sandbox", "https://sandbox.plaid.com"),
+        ],
+    )
+    def test_known_environments_return_correct_host(self, environment, expected):
+        assert _base_url(environment) == expected
 
     def test_invalid_environment_raises(self):
         with pytest.raises(ValueError):
