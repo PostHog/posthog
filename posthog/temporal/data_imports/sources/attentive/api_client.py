@@ -120,12 +120,25 @@ def create_webhook(api_key: str, webhook_url: str, resource_names: list[str]) ->
         # webhook until the user provides the signing key — otherwise events
         # would fire at PostHog before deliveries can be verified.
         webhook_id = (response.json() or {}).get("id")
-        if webhook_id:
-            session.put(
-                f"{WEBHOOKS_URL}/{webhook_id}",
-                json={"url": webhook_url, "events": events, "disabled": True},
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            ).raise_for_status()
+        if not webhook_id:
+            # The create response occasionally omits the id; look it up by URL so
+            # we can still disable it rather than leaving an active webhook behind.
+            created = _find_webhook_by_url(_list_webhooks(api_key), webhook_url)
+            webhook_id = created.get("id") if created else None
+        if not webhook_id:
+            LOGGER.warning("Attentive webhook created but no id was returned; cannot disable it")
+            return WebhookCreationResult(
+                success=False,
+                error=(
+                    "Attentive created the webhook but did not return its id, so it could not be disabled "
+                    "for signing-key setup. Please disable or delete the webhook in Attentive and try again."
+                ),
+            )
+        session.put(
+            f"{WEBHOOKS_URL}/{webhook_id}",
+            json={"url": webhook_url, "events": events, "disabled": True},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        ).raise_for_status()
     except requests.HTTPError as e:
         LOGGER.warning("Failed to create Attentive webhook", error=str(e))
         return WebhookCreationResult(success=False, error=_format_http_error(e))
@@ -183,9 +196,11 @@ def sync_webhook_events(api_key: str, webhook_url: str, resource_names: list[str
         if webhook_id is None:
             return WebhookSyncResult(success=False, error="Attentive returned a webhook without an id.")
 
+        # Preserve the webhook's current disabled state — an events-only sync
+        # must not silently re-enable a webhook that is still awaiting its signing key.
         _session(api_key).put(
             f"{WEBHOOKS_URL}/{webhook_id}",
-            json={"url": webhook_url, "events": desired},
+            json={"url": webhook_url, "events": desired, "disabled": existing.get("disabledAt") is not None},
             timeout=REQUEST_TIMEOUT_SECONDS,
         ).raise_for_status()
     except requests.HTTPError as e:

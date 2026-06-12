@@ -51,9 +51,8 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     """
     rows: list[dict[str, Any]] = []
     for row in table.to_pylist():
-        if row is None:
-            continue
         row = dict(row)
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
         row["event_id"] = hashlib.md5(orjson.dumps(row, option=orjson.OPT_SORT_KEYS, default=str)).hexdigest()
         timestamp_ms = row.get("timestamp")
         if isinstance(timestamp_ms, int) and not isinstance(timestamp_ms, bool):

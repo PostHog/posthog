@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Any, cast
+
 from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
@@ -146,4 +149,4 @@ class TestAttentiveSource:
         assert response.partition_format == "week"
         assert response.partition_keys == ["created_at"]
         # Webhook disabled -> empty iterator.
-        assert list(response.items()) == []
+        assert list(cast(Iterable[Any], response.items())) == []

@@ -92,6 +92,38 @@ class TestCreateWebhook:
         assert result.pending_inputs == ["signing_secret"]
         mock_session.return_value.post.assert_not_called()
 
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_looks_up_id_when_create_response_omits_it(self, mock_session):
+        # First GET checks for an existing webhook (none); second GET is the
+        # fallback lookup after the create response omits the id.
+        mock_session.return_value.get.side_effect = [
+            _response(200, {"webhooks": []}),
+            _response(200, {"webhooks": [{"id": "wh-9", "url": "https://ph.example/webhook"}]}),
+        ]
+        mock_session.return_value.post.return_value = _response(201, {})
+        mock_session.return_value.put.return_value = _response(200)
+
+        result = api_client.create_webhook("key", "https://ph.example/webhook", ["sms_sent"])
+
+        assert result.success is True
+        put_url = mock_session.return_value.put.call_args.args[0]
+        assert put_url.endswith("/wh-9")
+        assert mock_session.return_value.put.call_args.kwargs["json"]["disabled"] is True
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_fails_when_created_webhook_cannot_be_disabled(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response(200, {"webhooks": []}),
+            _response(200, {"webhooks": []}),
+        ]
+        mock_session.return_value.post.return_value = _response(201, {})
+
+        result = api_client.create_webhook("key", "https://ph.example/webhook", ["sms_sent"])
+
+        assert result.success is False
+        assert "could not be disabled" in (result.error or "")
+        mock_session.return_value.put.assert_not_called()
+
     def test_no_mappable_resources_fails(self):
         result = api_client.create_webhook("key", "https://ph.example/webhook", ["unknown_table"])
         assert result.success is False
@@ -156,7 +188,33 @@ class TestSyncWebhookEvents:
 
         assert result.success is True
         put_body = mock_session.return_value.put.call_args.kwargs["json"]
-        assert put_body == {"url": "https://ph.example/webhook", "events": ["sms.sent", "email.opened"]}
+        assert put_body == {
+            "url": "https://ph.example/webhook",
+            "events": ["sms.sent", "email.opened"],
+            "disabled": False,
+        }
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_preserves_disabled_state_when_drifted(self, mock_session):
+        mock_session.return_value.get.return_value = _response(
+            200,
+            {
+                "webhooks": [
+                    {
+                        "id": "wh-1",
+                        "url": "https://ph.example/webhook",
+                        "events": ["sms.sent"],
+                        "disabledAt": "2024-01-01 00:00:00",
+                    }
+                ]
+            },
+        )
+        mock_session.return_value.put.return_value = _response(200)
+
+        result = api_client.sync_webhook_events("key", "https://ph.example/webhook", ["sms_sent", "email_opened"])
+
+        assert result.success is True
+        assert mock_session.return_value.put.call_args.kwargs["json"]["disabled"] is True
 
     def test_no_mappable_schemas_fails(self):
         result = api_client.sync_webhook_events("key", "https://ph.example/webhook", [])
