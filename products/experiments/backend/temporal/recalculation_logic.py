@@ -13,13 +13,7 @@ from django.utils import timezone
 import structlog
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import (
-    ExperimentFunnelMetric,
-    ExperimentMeanMetric,
-    ExperimentQuery,
-    ExperimentRatioMetric,
-    ExperimentRetentionMetric,
-)
+from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
@@ -36,6 +30,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.temporal.models import (
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
@@ -193,50 +188,6 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
 # ---------------------------------------------------------------------------
 
 
-def _find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict | None:
-    """Resolve a metric_uuid to its definition dict, across inline AND saved/shared metrics.
-
-    Inline metrics are dicts in experiment.metrics / metrics_secondary. Saved metrics live on the M2M
-    through-model and carry their definition (with uuid) in saved_metric.query.
-    """
-    for metric in (experiment.metrics or []) + (experiment.metrics_secondary or []):
-        if metric.get("uuid") == metric_uuid:
-            return metric
-
-    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
-        saved_query = link.saved_metric.query
-        if saved_query and saved_query.get("uuid") == metric_uuid:
-            # Merge per-experiment breakdowns from link.metadata into the saved query, mirroring the
-            # daily-warming activity. Without this, recalc would compute the unbroken-down version of a
-            # saved metric the experiment has configured with breakdowns.
-            metadata = link.metadata or {}
-            return {
-                **saved_query,
-                "breakdownFilter": {
-                    **(saved_query.get("breakdownFilter") or {}),
-                    "breakdowns": metadata.get("breakdowns") or [],
-                },
-            }
-
-    return None
-
-
-# Modern ExperimentMetric types (kind="ExperimentMetric"). Legacy Trends/Funnels metrics never enter this
-# workflow, so there is no fallback — an unexpected metric_type surfaces as a calculation-step error.
-_METRIC_BUILDERS = {
-    "mean": ExperimentMeanMetric,
-    "funnel": ExperimentFunnelMetric,
-    "ratio": ExperimentRatioMetric,
-    "retention": ExperimentRetentionMetric,
-}
-
-
-def _build_metric(
-    metric_dict: dict,
-) -> ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric:
-    return _METRIC_BUILDERS[metric_dict["metric_type"]](**metric_dict)
-
-
 def _record_failure(recalculation_id: str, metric_uuid: str, step: str, message: str) -> None:
     """Merge the error entry into metric_errors under a row lock (no lost updates between concurrent failures).
 
@@ -337,7 +288,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
         except Experiment.DoesNotExist:
             return _fail(recalculation_id, metric_uuid, "discovery", f"Experiment {experiment_id} not found or deleted")
 
-        metric_dict = _find_metric_dict(experiment, metric_uuid)
+        metric_dict = find_metric_dict(experiment, metric_uuid)
         if metric_dict is None:
             return _fail(
                 recalculation_id,
@@ -364,7 +315,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             # the runner falls back to its default ("now-ish"), so every metric in the run would query a
             # slightly different time window — defeating the "one query_to for the whole run" guarantee.
             runner = ExperimentQueryRunner(
-                query=ExperimentQuery(experiment_id=experiment_id, metric=_build_metric(metric_dict)),
+                query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
                 override_end_date=query_to_dt,
                 workload=Workload.OFFLINE,

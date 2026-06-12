@@ -25,16 +25,20 @@ import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import {
+    KafkaDownstreamProducerEnvConfig,
     KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
     KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaIngestionProducerEnvConfig,
     getDefaultKafkaProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
 import { ProducerName } from '../ingestion/common/outputs'
-import { createProducerRegistry } from '../ingestion/common/outputs/registry'
+import { createIngestionProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -81,6 +85,8 @@ export type IngestionApiServerConfig = BaseServerConfig &
     KafkaProducerEnvConfig &
     KafkaWarpstreamProducerEnvConfig &
     KafkaIngestionProducerEnvConfig &
+    KafkaUpstreamProducerEnvConfig &
+    KafkaDownstreamProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -164,6 +170,8 @@ export class IngestionApiServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
             ...config,
         }
@@ -246,7 +254,9 @@ export class IngestionApiServer implements NodeServer {
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
-        this.ingestionProducerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
+            this.config
+        )
         const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
