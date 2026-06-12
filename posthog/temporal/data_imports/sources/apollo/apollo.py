@@ -113,7 +113,14 @@ def get_rows(
             fresh: list[dict[str, Any]] = []
             for item in items:
                 item_ts = _parse_timestamp(item.get("updated_at"))
-                if item_ts is not None and item_ts <= watermark:
+                if item_ts is None:
+                    # No parseable updated_at: keep the record (the merge dedupes
+                    # on primary key) rather than risk dropping a genuinely new
+                    # row. It can't advance past the watermark, so it never
+                    # triggers the early-exit on its own.
+                    fresh.append(item)
+                    continue
+                if item_ts <= watermark:
                     crossed_watermark = True
                     break
                 fresh.append(item)
@@ -125,16 +132,18 @@ def get_rows(
         if crossed_watermark or not items:
             break
 
-        total_pages = (data.get("pagination") or {}).get("total_pages")
-        if isinstance(total_pages, int) and page >= total_pages:
-            break
-
         if page >= MAX_PAGES:
-            # Apollo hard-caps search results at 50k records per query.
+            # Apollo hard-caps search results at 500 pages / 50k records per query.
+            # Checked before the total_pages break so the cap is never silent when
+            # the last reachable page coincides with the reported total.
             logger.error(
                 f"Apollo: hit the 50,000-record search cap on {endpoint}; older records are not retrievable "
                 "without filter slicing"
             )
+            break
+
+        total_pages = (data.get("pagination") or {}).get("total_pages")
+        if isinstance(total_pages, int) and page >= total_pages:
             break
 
         page += 1

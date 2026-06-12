@@ -158,6 +158,47 @@ class TestGetRows:
         logger.error.assert_called_once()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_search_cap_is_logged_when_total_pages_equals_cap(self, mock_session):
+        # Exactly at the cap: the final reachable page coincides with total_pages,
+        # so the cap must still be logged rather than swallowed by the total_pages break.
+        mock_session.return_value.post.return_value = _response(
+            "contacts", [{"id": "c", "updated_at": "2024-01-01T00:00:00Z"}], total_pages=MAX_PAGES
+        )
+
+        manager = _make_manager(ApolloResumeConfig(page=MAX_PAGES))
+        logger = mock.MagicMock()
+        batches = list(get_rows("key", "contacts", logger, manager))
+
+        assert len(batches) == 1
+        logger.error.assert_called_once()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_incremental_keeps_records_without_parseable_updated_at(self, mock_session):
+        # A record with a missing updated_at must not be dropped, and must not stop
+        # the walk before a genuinely older record is reached.
+        page = [
+            {"id": "new", "updated_at": "2024-06-01T00:00:00Z"},
+            {"id": "no-ts"},
+            {"id": "old", "updated_at": "2024-01-01T00:00:00Z"},
+        ]
+        mock_session.return_value.post.return_value = _response("contacts", page, total_pages=5)
+
+        manager = _make_manager()
+        batches = list(
+            get_rows(
+                "key",
+                "contacts",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 3, 1, tzinfo=UTC),
+            )
+        )
+
+        assert [item["id"] for batch in batches for item in batch] == ["new", "no-ts"]
+        assert mock_session.return_value.post.call_count == 1
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_empty_response_stops_without_saving_state(self, mock_session):
         mock_session.return_value.post.return_value = _response("contacts", [])
 
