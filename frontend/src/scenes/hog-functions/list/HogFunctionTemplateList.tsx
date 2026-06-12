@@ -1,18 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { IconClock, IconLive, IconMegaphone, IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType } from '~/types'
 
 import { SourceReleaseTag } from 'products/data_warehouse/frontend/shared/components/SourceReleaseTag'
 import { isManagedSourceTemplate } from 'products/data_warehouse/frontend/utils'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
+import { getHogFunctionDeliveryType } from '../hog-function-utils'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionTemplateListLogicProps, hogFunctionTemplateListLogic } from './hogFunctionTemplateListLogic'
@@ -47,6 +48,18 @@ export function HogFunctionTemplateList({
                     </Link>
                 ) : null}
                 <div className="flex-1" />
+                {props.type === 'destination' && (
+                    <LemonSelect
+                        size="small"
+                        value={filters.deliveryType ?? null}
+                        onChange={(value) => setFilters({ deliveryType: value ?? undefined })}
+                        options={[
+                            { label: 'All types', value: null },
+                            { label: 'Realtime', value: 'realtime' },
+                            { label: 'Batch', value: 'batch' },
+                        ]}
+                    />
+                )}
                 {extraControls}
             </div>
 
@@ -99,6 +112,25 @@ export function HogFunctionTemplateList({
                         },
                     },
 
+                    ...(props.type === 'destination'
+                        ? [
+                              {
+                                  title: 'Type',
+                                  width: 0,
+                                  render: function RenderDeliveryType(_: any, template: HogFunctionTemplateType) {
+                                      return getHogFunctionDeliveryType(template) === 'batch' ? (
+                                          <LemonTag type="completion" icon={<IconClock />} className="text-xs">
+                                              Batch
+                                          </LemonTag>
+                                      ) : (
+                                          <LemonTag type="highlight" icon={<IconLive />} className="text-xs">
+                                              Realtime
+                                          </LemonTag>
+                                      )
+                                  },
+                              },
+                          ]
+                        : []),
                     {
                         width: 0,
                         render: function Render(_, template) {
