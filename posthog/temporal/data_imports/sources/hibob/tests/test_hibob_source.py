@@ -82,8 +82,9 @@ class TestHiBobSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
-            (True, True, None),
-            (False, False, "Invalid HiBob Service User credentials"),
+            ((True, None), True, None),
+            ((False, "Invalid HiBob Service User credentials"), False, "Invalid HiBob Service User credentials"),
+            ((False, "Connection refused"), False, "Connection refused"),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.hibob.source.validate_hibob_credentials")

@@ -17,26 +17,26 @@ def _response(body: dict[str, Any]) -> mock.MagicMock:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected",
+        "status_code, expected_valid, expected_error",
         [
-            (200, True),
+            (200, True, None),
             # Service users without category permissions 403 but are valid.
-            (403, True),
-            (401, False),
+            (403, True, None),
+            (401, False, "Invalid HiBob Service User credentials"),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.hibob.hibob.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
+    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected_valid, expected_error):
         response = mock.MagicMock()
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("service-id", "token") is expected
+        assert validate_credentials("service-id", "token") == (expected_valid, expected_error)
 
     @mock.patch("posthog.temporal.data_imports.sources.hibob.hibob.make_tracked_session")
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
+    def test_validate_credentials_surfaces_transport_errors(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("service-id", "token") is False
+        assert validate_credentials("service-id", "token") == (False, "boom")
 
 
 class TestGetRows:

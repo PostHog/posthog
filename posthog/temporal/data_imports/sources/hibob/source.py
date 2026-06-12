@@ -98,10 +98,7 @@ Create a Service User in Bob under Settings > Integrations > Automation > Servic
     def validate_credentials(
         self, config: HiBobSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_hibob_credentials(config.service_user_id, config.service_user_token):
-            return True, None
-
-        return False, "Invalid HiBob Service User credentials"
+        return validate_hibob_credentials(config.service_user_id, config.service_user_token)
 
     def source_for_pipeline(self, config: HiBobSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return hibob_source(

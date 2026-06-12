@@ -27,19 +27,22 @@ def _get_session(service_user_id: str, service_user_token: str) -> requests.Sess
     return session
 
 
-def validate_credentials(service_user_id: str, service_user_token: str) -> bool:
+def validate_credentials(service_user_id: str, service_user_token: str) -> tuple[bool, str | None]:
     """Confirm the service user credentials are valid with a cheap tasks probe.
 
     Service users need explicit per-category permission grants (403); only 401
-    means the credentials themselves are bad."""
+    means the credentials themselves are bad. Transport failures surface their
+    real reason rather than masquerading as an auth error."""
+    session = _get_session(service_user_id, service_user_token)
     try:
-        response = _get_session(service_user_id, service_user_token).get(
-            f"{HIBOB_BASE_URL}/v1/tasks",
-            timeout=10,
-        )
-        return response.status_code != 401
-    except Exception:
-        return False
+        response = session.get(f"{HIBOB_BASE_URL}/v1/tasks", timeout=10)
+        if response.status_code == 401:
+            return False, "Invalid HiBob Service User credentials"
+        return True, None
+    except Exception as e:
+        return False, str(e)
+    finally:
+        session.close()
 
 
 def get_rows(
@@ -74,10 +77,13 @@ def get_rows(
         return response.json()
 
     # Both shipped endpoints return their full result set in one response.
-    data = fetch()
-    items = data.get(config.data_key, []) or []
-    if items:
-        yield items
+    try:
+        data = fetch()
+        items = data.get(config.data_key, []) or []
+        if items:
+            yield items
+    finally:
+        session.close()
 
 
 def hibob_source(
