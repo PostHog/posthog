@@ -6,8 +6,8 @@ from .log_attributes import TABLE_NAME as LOG_ATTRIBUTES_TABLE_NAME
 
 TABLE_NAME = "logs32"
 
-TTL = (
-    lambda: "TTL timestamp + toIntervalHour(25) TO DISK 's3'" if settings.CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY else ""
+TTL = lambda: (
+    "TTL timestamp + toIntervalHour(25) TO DISK 's3'" if settings.CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY else ""
 )
 STORAGE_POLICY = lambda: "tiered" if settings.CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY else "default"
 

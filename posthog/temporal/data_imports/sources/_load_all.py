@@ -17,8 +17,13 @@ from .adyen.source import AdyenSource
 from .aircall.source import AircallSource
 from .airtable.source import AirtableSource
 from .amazon_ads.source import AmazonAdsSource
+from .amazon_cloudwatch.source import AmazonCloudWatchSource
+from .amazon_eventbridge.source import AmazonEventBridgeSource
+from .amazon_kinesis.source import AmazonKinesisSource
 from .amazon_s3.source import AmazonS3Source
 from .amazon_selling_partner.source import AmazonSellingPartnerSource
+from .amazon_sns.source import AmazonSNSSource
+from .amazon_sqs.source import AmazonSQSSource
 from .amplitude.source import AmplitudeSource
 from .apollo.source import ApolloSource
 from .apple_search_ads.source import AppleSearchAdsSource

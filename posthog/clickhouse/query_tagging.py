@@ -13,12 +13,12 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
-# from posthog.schema import PersonsOnEventsMode
+# from posthog.schema_enums import PersonsOnEventsMode
 import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
-from posthog.schema import NodeKind, ProductKey
+from posthog.schema_enums import NodeKind, ProductKey
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +56,7 @@ class Product(StrEnum):
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
+    GROWTH = "growth"  # growth-team activation/lifecycle jobs (e.g. production-event detection)
     INGESTION = "ingestion"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"

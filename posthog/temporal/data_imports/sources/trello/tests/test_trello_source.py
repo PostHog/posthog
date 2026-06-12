@@ -45,7 +45,7 @@ class TestSourceConfig:
     def test_config_fields(self) -> None:
         config = TrelloSource().get_source_config
         assert config.label == "Trello"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.releaseStatus == "alpha"
         assert [f.name for f in config.fields] == ["api_key", "api_token"]
         # Both credentials must be stored as secrets.

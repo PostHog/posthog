@@ -50,10 +50,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
-from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
 from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -89,6 +87,7 @@ from products.dashboards.backend.widget_access import (
     get_widget_api_scope_error,
     get_widget_product_access_error,
 )
+from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
 from products.dashboards.backend.widget_create import prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import (
@@ -107,6 +106,7 @@ from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
     InsightSerializer,
     InsightViewSet,
+    _get_insight_type,
 )
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -958,6 +958,19 @@ def _check_dashboard_widget_count_limit(*, dashboard: Dashboard, user: User) -> 
     )
 
 
+def _tile_type_and_widget_type(tile: DashboardTile) -> tuple[str, str | None]:
+    if tile.text_id is not None:
+        return "text", None
+    if tile.button_tile_id is not None:
+        return "button", None
+    if tile.widget_id is not None:
+        widget_type = tile.widget.widget_type if tile.widget is not None else None
+        return "widget", widget_type
+    if tile.insight_id is not None:
+        return "insight", None
+    raise ValueError("Dashboard tile has no related content for analytics")
+
+
 def _report_dashboard_tile_added(
     *,
     user: User,
@@ -990,6 +1003,10 @@ def _report_dashboard_tile_added(
         "widget_type": widget_type,
         "dashboard_id": dashboard.id,
     }
+    feature_enabled = get_widget_feature_enabled(widget_type, dashboard.team)
+    if feature_enabled is not None:
+        # False means the user lands on the widget's setup/custom view rather than real data.
+        widget_properties["feature_enabled"] = feature_enabled
     if tile is not None:
         widget_properties["tile_id"] = tile.id
         if tile.widget_id is not None:
@@ -998,6 +1015,51 @@ def _report_dashboard_tile_added(
     report_user_action(
         user,
         "dashboard widget added",
+        widget_properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+
+def _report_dashboard_tile_removed(
+    *,
+    user: User,
+    dashboard: Dashboard,
+    tile: DashboardTile,
+    request: Request | None = None,
+) -> None:
+    tile_type, widget_type = _tile_type_and_widget_type(tile)
+    insight_type = _get_insight_type(tile.insight) if tile.insight is not None else None
+    properties: dict[str, Any] = {
+        "tile_type": tile_type,
+        "insight_type": insight_type,
+        "dashboard_id": dashboard.id,
+    }
+    if widget_type is not None:
+        properties["widget_type"] = widget_type
+
+    report_user_action(
+        user,
+        "dashboard tile removed",
+        properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+    if widget_type is None:
+        return
+
+    widget_properties: dict[str, Any] = {
+        "widget_type": widget_type,
+        "dashboard_id": dashboard.id,
+        "tile_id": tile.id,
+    }
+    if tile.widget_id is not None:
+        widget_properties["widget_id"] = str(tile.widget_id)
+
+    report_user_action(
+        user,
+        "dashboard widget removed",
         widget_properties,
         team=dashboard.team,
         request=request,
@@ -1291,6 +1353,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if being_undeleted:
             self._undo_delete_related_tiles(instance)
 
+        # Soft-delete transition (false -> true). All channels (web/MCP/API) delete via this PATCH path,
+        # so this is the single place to capture deletes. Snapshot tile counts before _delete_related_tiles
+        # runs below — otherwise get_analytics_metadata()'s item_count would read 0 post-deletion.
+        being_deleted = not instance.deleted and validated_data.get("deleted", False)
+        tile_count_at_deletion = instance.tiles.count() if being_deleted else None
+        item_count_at_deletion = instance.tiles.exclude(insight=None).count() if being_deleted else None
+
         initial_data = dict(self.initial_data)
 
         if validated_data.get("deleted", False):
@@ -1348,13 +1417,26 @@ class DashboardSerializer(DashboardMetadataSerializer):
             self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:
-            report_user_action(
-                user,
-                "dashboard updated",
-                instance.get_analytics_metadata(),
-                team=instance.team,
-                request=self.context["request"],
-            )
+            if being_deleted:
+                report_user_action(
+                    user,
+                    "dashboard deleted",
+                    {
+                        **instance.get_analytics_metadata(),
+                        "item_count": item_count_at_deletion,  # override post-delete 0 with pre-delete snapshot
+                        "tile_count": tile_count_at_deletion,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
+            else:
+                report_user_action(
+                    user,
+                    "dashboard updated",
+                    instance.get_analytics_metadata(),
+                    team=instance.team,
+                    request=self.context["request"],
+                )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
@@ -1471,16 +1553,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @staticmethod
     def _tile_added_analytics_fields(tile: DashboardTile) -> tuple[str, str | None]:
-        if tile.text_id is not None:
-            return "text", None
-        if tile.button_tile_id is not None:
-            return "button", None
-        if tile.widget_id is not None:
-            widget_type = tile.widget.widget_type if tile.widget is not None else None
-            return "widget", widget_type
-        if tile.insight_id is not None:
-            return "insight", None
-        raise ValueError("Dashboard tile has no related content for analytics")
+        return _tile_type_and_widget_type(tile)
 
     @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[DashboardTile | None, bool]:
@@ -2376,6 +2449,13 @@ class DashboardsViewSet(
                     ["layouts"],
                 )
 
+        _report_dashboard_tile_removed(
+            user=cast(User, request.user),
+            dashboard=dashboard,
+            tile=tile,
+            request=request,
+        )
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
@@ -2835,59 +2915,3 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
-
-
-@mutable_receiver(model_activity_signal, sender=DashboardWidget)
-def handle_dashboard_widget_change(
-    sender: Any,
-    scope: str,
-    before_update: DashboardWidget | None,
-    after_update: DashboardWidget | None,
-    activity: str,
-    user: User | None,
-    was_impersonated: bool = False,
-    **kwargs: Any,
-) -> None:
-    instance = after_update or before_update
-    if instance is None:
-        return
-    organization_id = Team.objects.values_list("organization_id", flat=True).filter(pk=instance.team_id).first()
-    log_activity(
-        organization_id=organization_id,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(cast(ActivityScope, scope), previous=before_update, current=after_update),
-            name=instance.name or instance.widget_type,
-        ),
-    )
-
-
-@mutable_receiver(model_activity_signal, sender=Dashboard)
-def handle_dashboard_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    if before_update and after_update:
-        before_deleted = getattr(before_update, "deleted", None)
-        after_deleted = getattr(after_update, "deleted", None)
-        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
-            activity = "restored" if after_deleted is False else "deleted"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-            type="dashboard",
-        ),
-    )

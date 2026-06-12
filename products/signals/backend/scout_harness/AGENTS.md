@@ -37,6 +37,11 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   `metadata.seeded_by="signals_scout_harness"` are ever updated. Called both lazily
   (coordinator tick, runner cold-start) and explicitly via the `sync_signals_scout_skills`
   management command.
+- `config_registry.py`
+  `register_missing_configs(team_id)` — auto-creates an enabled, default-schedule
+  `SignalScoutConfig` for any `signals-scout-*` skill lacking one ("author a skill, get a
+  scout"). Called by the coordinator tick; the HTTP surface registers explicitly via the
+  write-scoped config `create` endpoint instead (reads stay side-effect free).
 - `tools/`
   Implementations of the four harness-internal tools the agent calls during a run.
   The effective toolset for a run is the intersection of the skill's `allowed_tools`
@@ -58,7 +63,8 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
     counts off the activity log, cross-cutting orientation across every entity type),
     and per-entity recent inventory (`recent_surveys`, `recent_feature_flags`,
     `recent_experiments`, `recent_alerts`, `recent_hog_functions`, `recent_hog_flows`,
-    `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`).
+    `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`,
+    `business_knowledge`).
     Per-entity sections are deliberately light (counts + 5 most-recent items with
     name, status, timestamp); deep drilldowns go via the per-entity MCP list tools.
     See the module docstring at `profile/builders.py` for the authoritative section
@@ -73,9 +79,14 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
-  `SignalScoutRunViewSet`, `SignalScratchpadViewSet`, `SignalProjectProfileViewSet`.
+  `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
+  `SignalProjectProfileViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
   and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  The config viewset is the no-wait creation path: `create` registers (upserts) a
+  config for an already-authored skill with its schedule/emit posture in one call.
+  `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never
+  mints config rows.
 
 ## Mental model
 
@@ -110,6 +121,14 @@ one sandbox session → zero or more emitted signals.
   `weight` is the pipeline's promotion knob, not a scout judgment — promotion is
   governed by the `confidence` emit-gate (≥ ~0.65), dedupe, and the safety filter.
   The scout-facing schema and skills carry no `weight` field.
+- Findings can carry `tags` — lowercase kebab-case category slugs, normalized and
+  capped by `normalize_tags` in `tools/emit.py`. Tags persist in the signal's
+  `extra.tags` (queryable in the signal store) and on the `SignalScoutEmission` row.
+  The vocabulary lives in the scout loop, not the harness: the base prompt's
+  _Tagging your findings_ section instructs each scout to maintain a
+  `tags:<domain>:taxonomy` scratchpad entry (read first-move like any memory, evolved
+  as categories emerge), and the emission rows are the queryable ground truth a scout
+  can audit its taxonomy against. The harness only normalizes, caps, and persists.
 - Scratchpad entries and run history are read at prompt assembly time. The agent can
   also write scratchpad entries mid-run via `remember` / `forget` — that's how a
   specialist with no anomalies to chase records "no LLM activity here, close out

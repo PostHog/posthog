@@ -2,6 +2,7 @@ import re
 import logging
 from collections.abc import Iterable
 from functools import cached_property
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -11,10 +12,17 @@ import dns.resolver
 from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
 
+if TYPE_CHECKING:
+    from types_boto3_ses.client import SESClient
+    from types_boto3_sesv2.client import SESV2Client
+
 logger = logging.getLogger(__name__)
 
 
 class SESProvider:
+    ses_client: "SESClient"
+    ses_v2_client: "SESV2Client"
+
     def __init__(self):
         # Initialize the boto3 clients
         self.sts_client = boto3.client(
@@ -53,7 +61,10 @@ class SESProvider:
             if e.response["Error"]["Code"] == "NotFoundException":
                 return set()
             raise
-        return {t.get("TenantName") for t in resp.get("Tenants", []) if t.get("TenantName")}
+        # `ResourceTenants` is a required field on the response shape — read it with
+        # subscript access so a future SDK rename fails the type checker, not prod.
+        # `TenantName` per the SDK is `NotRequired`, so `.get()` is the correct access.
+        return {name for t in resp["ResourceTenants"] if (name := t.get("TenantName"))}
 
     def create_email_domain(
         self,
@@ -99,13 +110,13 @@ class SESProvider:
         if not re.match(DOMAIN_REGEX, domain):
             raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
 
-        dns_records = []
+        dns_records: list[dict[str, Any]] = []
 
         # Start/ensure domain verification (TXT at _amazonses.domain) ---
-        verification_token = None
+        verification_token: str | None = None
         try:
-            resp = self.ses_client.verify_domain_identity(Domain=domain)
-            verification_token = resp.get("VerificationToken")
+            verify_resp = self.ses_client.verify_domain_identity(Domain=domain)
+            verification_token = verify_resp["VerificationToken"]
         except ClientError as e:
             # If already requested/exists, carry on; SES v1 is idempotent-ish here
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
@@ -125,8 +136,8 @@ class SESProvider:
         #  Start/ensure DKIM (three CNAMEs) ---
         dkim_tokens: list[str] = []
         try:
-            resp = self.ses_client.verify_domain_dkim(Domain=domain)
-            dkim_tokens = resp.get("DkimTokens", []) or []
+            dkim_resp = self.ses_client.verify_domain_dkim(Domain=domain)
+            dkim_tokens = dkim_resp["DkimTokens"]
         except ClientError as e:
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
@@ -154,7 +165,7 @@ class SESProvider:
 
         # Start/ensure MAIL FROM setup (MX + TXT) ---
         try:
-            resp = self.ses_client.set_identity_mail_from_domain(
+            self.ses_client.set_identity_mail_from_domain(
                 Identity=domain,
                 MailFromDomain=f"{mail_from_subdomain}.{domain}",
                 BehaviorOnMXFailure="UseDefaultValue",
@@ -198,27 +209,32 @@ class SESProvider:
         )
 
         # Current verification / DKIM statuses to compute overall status & per-record statuses ---
+        verification_status: str = "Unknown"
         try:
             id_attrs = self.ses_client.get_identity_verification_attributes(Identities=[domain])
-            verification_status = (
-                id_attrs["VerificationAttributes"].get(domain, {}).get("VerificationStatus", "Unknown")
-            )
+            id_for_domain = id_attrs["VerificationAttributes"].get(domain)
+            if id_for_domain is not None:
+                verification_status = id_for_domain["VerificationStatus"]
         except ClientError:
-            verification_status = "Unknown"
+            pass
 
+        dkim_status: str = "Unknown"
         try:
             dkim_attrs = self.ses_client.get_identity_dkim_attributes(Identities=[domain])
-            dkim_status = dkim_attrs["DkimAttributes"].get(domain, {}).get("DkimVerificationStatus", "Unknown")
+            dkim_for_domain = dkim_attrs["DkimAttributes"].get(domain)
+            if dkim_for_domain is not None:
+                dkim_status = dkim_for_domain["DkimVerificationStatus"]
         except ClientError:
-            dkim_status = "Unknown"
+            pass
 
+        mail_from_status: str = "Unknown"
         try:
             mail_from_attrs = self.ses_client.get_identity_mail_from_domain_attributes(Identities=[domain])
-            mail_from_status = (
-                mail_from_attrs["MailFromDomainAttributes"].get(domain, {}).get("MailFromDomainStatus", "Unknown")
-            )
+            mail_from_for_domain = mail_from_attrs["MailFromDomainAttributes"].get(domain)
+            if mail_from_for_domain is not None:
+                mail_from_status = mail_from_for_domain["MailFromDomainStatus"]
         except ClientError:
-            mail_from_status = "Unknown"
+            pass
 
         # DMARC: check via direct DNS lookup since AWS SES doesn't track it
         dmarc_status = "Pending"
