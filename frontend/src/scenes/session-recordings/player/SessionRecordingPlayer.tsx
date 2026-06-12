@@ -10,6 +10,7 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 
 import { ObservationsDock } from 'products/replay_vision/frontend/components/ObservationsDock'
 
+import { PlayerIngestionWarningsBanner } from './PlayerIngestionWarningsBanner'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { PlayerSummaryDock } from './PlayerSummaryDock'
@@ -104,6 +105,7 @@ function SessionRecordingPlayerInternal({
             })}
         >
             <div className="flex flex-col flex-1 min-w-0 min-h-0">
+                {showSummaryDock && <PlayerIngestionWarningsBanner />}
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
                 {showVisionDock ? <ObservationsDock /> : showSummaryDock && <PlayerSummaryDock />}
             </div>
