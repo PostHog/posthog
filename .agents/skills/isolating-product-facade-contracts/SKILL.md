@@ -228,15 +228,43 @@ when the sweep must be sliced.** Gate on the core-coupling count from the baseli
     TODOs, dead adapters, and shims, and only then enables contract-check + narrowed
     `turbo.json` inputs — the CI payoff for this path lands at the end.
 
-**Thick-views deferral (step 5) adds one optional follow-up on either path:** a
-presentation-wave PR that designs the facade functions the views need, swaps the views
-onto them, and deletes the product's `ignore_imports` entries — the step that turns the
-narrowed contract inputs from optimistic into sound.
+**Deferred view modules (step 5) add one follow-up on either path:** the presentation
+wave — see the section below for its flow and outputs.
 
 Trade-off to accept: one PR reverts coarser than several. That is fine because the
 mappers are behavior-preserving, the behavior-bearing edits are enumerated up front,
 and the whole PR is regenerable — weeks of serial PRs on a hot product cost more in
 conflicts and forfeited isolated-CI time than an occasional coarse revert.
+
+## Presentation wave
+
+The second demand wave on the same facade: the functions the product's _own views_
+need, where the first wave served external consumers. Run it once per product, after
+the migration PR lands, working from the deferred modules listed in the PR (the scan's
+view-module table is the worklist).
+
+Per deferred module:
+
+1. Design the facade functions its views need. Query endpoints get run-functions that
+   take `posthog.schema` query objects and return the runner's response types — those
+   are already framework-free, so usually no new contracts. Model-backed endpoints get
+   contracts plus CRUD/capability functions (the `DataclassSerializer` pattern from
+   visual_review).
+2. Draw the line: execution and transaction concerns (`ExecutionMode`, query tagging,
+   `select_for_update` caps, cross-product side effects) move behind the facade; HTTP
+   concerns (request validation, response codes, `report_user_action` analytics) stay
+   in the view.
+3. Thin the view to parse → facade → serialize, with parity tests for the new facade
+   functions, same as wave one.
+4. Delete the module's `ignore_imports` entries — `lint-imports` must pass without
+   them. That deletion is the output that marks the module done.
+
+This is a design PR, not a sweep: it carries the same review weight as the facade
+commit (the contract and function shapes are the long-lived API), so it gets its own
+PR rather than riding along with mechanical work. Refactoring a wave-one function while
+here (e.g. subsuming a runner builder under a run-function) is fine — its callers are
+few and the parity tests pin behavior. The product's done criteria below are only fully
+satisfiable once this wave has emptied the allowlist.
 
 ## Done criteria
 
