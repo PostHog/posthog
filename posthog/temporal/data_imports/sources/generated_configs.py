@@ -384,7 +384,7 @@ class CockroachDBSourceConfig(config.Config):
 
 @config.config
 class CodaSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
