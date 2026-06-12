@@ -2,9 +2,10 @@
 name: signals-scout-api-deprecations
 description: >
   Focused Signals scout for third-party API deprecations in the project's codebase. Inventories
-  every external URL the integration code calls (CDP destination templates, data warehouse import
-  sources, batch exports, native integrations), triages genuine API call sites from docs links and
-  OAuth scopes, then researches each against the vendor's OWN published documentation — both the
+  every external URL the integration code calls (destination templates, warehouse import sources,
+  batch exports, native integrations — wherever the project keeps integration code), triages
+  genuine API call sites from docs links and OAuth scopes, then researches each against the
+  vendor's OWN published documentation — both the
   pinned version and the endpoint/product itself, since vendors sunset endpoints while versions are
   still current. Emits one finding per deprecation it can cite verbatim from a vendor page;
   uncitable suspicions go to the scratchpad, never the inbox. Code changes slowly, so most runs
@@ -42,11 +43,19 @@ Internalize the two discriminators:
 
 ## Quick close-out
 
-Code changes slowly; this scout should be cheap on most runs.
+Code changes slowly; this scout is designed for daily-or-slower cadence, and the close-out keeps
+faster schedules cheap.
 
-- `signals-scout-scratchpad-search` for `last-scan:api-deprecations`. If the entry is **fresher
-  than 7 days** and records the same repository HEAD sha as the current checkout (or you can't
-  cheaply get a checkout to compare), write nothing new and close out empty.
+- `signals-scout-scratchpad-search` for `last-scan:api-deprecations`. If the recorded HEAD sha
+  matches the repository's current HEAD (`git ls-remote <repo-url> HEAD` — no clone needed), and
+  the entry is fresher than 7 days, close out empty.
+- If HEAD moved but the entry is fresher than 7 days: check whether any **integration-surface
+  files** changed between the recorded sha and HEAD (the host's compare API is the cheap way, e.g.
+  `https://api.github.com/repos/<owner>/<repo>/compare/<recorded-sha>...HEAD`). If none did,
+  refresh the `last-scan` entry's sha and close out empty — the rest of the codebase churning is
+  not your signal.
+- A full scan is due when integration-surface files changed, or the entry is older than 7 days
+  (deadlines approach even when code doesn't move).
 - If there is no repository available at all (no harness checkout, repo not public, clone fails):
   write `key: blocked:api-deprecations:no-repo-team{team_id}`, content
   `"no repository checkout available at {timestamp}"`, and close out empty.
@@ -64,8 +73,11 @@ Code changes slowly; this scout should be cheap on most runs.
 ## Stage 1 — deterministic inventory (facts, not judgment)
 
 Build the inventory mechanically before any research, so the set of candidates is reproducible and
-nothing depends on what you happen to notice. For the PostHog monorepo the integration surfaces
-are:
+nothing depends on what you happen to notice. First locate the **integration surfaces** — the
+parts of the codebase that call third-party HTTP APIs. Search for HTTP call sites (`fetch(`,
+`requests.`, HTTP client constructions) and directories named for the job (`integrations`,
+`destinations`, `connectors`, `sources`, `webhooks`), then record the surface list in the
+scratchpad so future runs reuse it. As a worked example, in the PostHog monorepo the surfaces are:
 
 ```text
 nodejs/src/cdp/templates/_destinations/   # CDP destinations (compiled into customer HogFunction rows)
@@ -74,9 +86,6 @@ posthog/temporal/data_imports/sources/    # data warehouse import sources
 products/batch_exports/backend/           # batch export destinations
 posthog/models/integration.py             # native OAuth/API integrations
 ```
-
-For other repositories, locate the equivalent "code that calls third-party HTTP APIs" surfaces
-first (search for `fetch(`, `requests.`, `http` client constructions) and scan those.
 
 Extract every external URL with line numbers, e.g.:
 
@@ -93,8 +102,11 @@ check for version variables (`apiVersion := '...'`, `API_VERSION = "..."`) and v
 (`X-Recharge-Version`, Klaviyo `revision`, `LinkedIn-Version`) in the same files and attach them
 to that file's usages.
 
-Note per usage whether the file is a **CDP destination template** — template code is compiled into
-persisted customer `HogFunction` rows, which changes what a complete fix requires (see Emitting).
+Note per usage whether the code is **deployed beyond the source tree** — integration code that
+gets compiled or copied into persisted records (per-customer destination/workflow definitions
+stored in the database, per-tenant template copies, published artifacts). In PostHog, CDP
+destination templates are the example: their code is baked into customer `HogFunction` rows. This
+changes what a complete fix requires (see Emitting).
 
 ## Stage 2 — triage
 
@@ -139,13 +151,16 @@ already filed or already fixed in the code you scanned, skip it.
 One finding per cited deprecation. Description per the emit prose contract — hook (what's
 deprecated, the deadline, quantified), pattern (the call site `file:line`, what the code sends),
 hypothesis (mechanical or structural and why), recommendation. The recommendation must address
-**existing data** when the call site is a CDP destination template: template code is baked into
-persisted customer `HogFunction` rows, so a source-only fix repairs new destinations while every
-existing one stays broken — a complete fix also adds a `replaceOptions` entry to
-`posthog/management/commands/update_hog_function_code.py` (verified with `--dry-run`), **unless**
+**existing records** when the flagged code is deployed beyond the source tree: if integration
+definitions are persisted per customer/tenant (workflow definitions, destination configs, compiled
+template copies in the database), a source-only fix repairs newly created instances while every
+existing record keeps running the deprecated version. Say how existing records get migrated —
+look for the project's established migration mechanism (a management command, a data migration, a
+backfill job; in PostHog it's a `replaceOptions` entry in
+`posthog/management/commands/update_hog_function_code.py`, verified with `--dry-run`) — **unless**
 the new code requires customer action that can't be applied silently (e.g. a new OAuth scope
-needing re-consent), in which case say explicitly that rows must not be force-migrated and the
-in-app "new template version" prompt is the path.
+needing re-consent), in which case say explicitly that existing records must not be force-migrated
+and name the customer-facing upgrade path instead.
 
 - `severity`: from the table above. `dedupe_keys`: `["api-dep:<host>:<endpoint>"]`.
 - `evidence`: the vendor page (summary = the verbatim quote). Add corroborating sources if the
