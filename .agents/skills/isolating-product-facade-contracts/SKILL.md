@@ -113,16 +113,19 @@ migration against fresh master starts from a fresh scan.
      semantics) may move in their own small PR — see the PR strategy below.
 5. Move presentation to consume the facade.
    - Serializers convert JSON <-> contracts; views call facade methods only.
-   - Thin views (CRUD over models): swap them onto the facade in the same PR — no
-     `ignore_imports` allowlist entry should ever exist for them.
-   - Thick views (query orchestration, execution modes, export hooks): moving them under
-     `presentation/` without the refactor requires exact-pair `ignore_imports` entries in
-     `pyproject.toml`'s TODO section. That defers the refactor to a follow-up
-     presentation-wave PR — and until the product's entries are gone, the narrowed
-     contract inputs are **optimistic, not sound**: an internal change can alter the HTTP
-     surface without re-running the full suite. Compensating controls exist (the OpenAPI
-     validation job runs on every backend PR, the product's own tests cover its views,
-     master pushes run everything), but make the deferral a named decision in the PR.
+   - Decide **per view module, on a size estimate**, whether its facade refactor lands
+     in this PR or defers. Estimate the wave per module: runner-execution swaps are
+     cheap (runners already return `posthog.schema` types — no new contracts needed);
+     plain model CRUD needs a small contract plus a few functions; transactional or
+     cross-product logic embedded in serializers is the expensive tier. Swap every
+     module whose wave is cheap; defer only the expensive ones, naming the reason and
+     the surviving `ignore_imports` entries in the PR description.
+   - Deferred modules keep exact-pair `ignore_imports` entries in `pyproject.toml`'s
+     TODO section. That debt is **architectural** (business logic in views, the internal
+     boundary unenforced), not a CI-coverage hole: the product's own job tests its views
+     either way, and the full-suite skip is made safe by the caller sweep, test
+     residency, and the parity tests — not by this refactor. A follow-up
+     presentation-wave PR deletes the entries.
    - The mechanical share is one command: `hogli product:isolate:move <name>` (run
      `--dry-run` first) moves the ViewSet modules into `presentation/views/` (auto-detected,
      `--views` to override), `tasks.py` into a `tasks/` package with celery names pinned,
@@ -143,7 +146,13 @@ migration against fresh master starts from a fresh scan.
    4. **Narrowed `turbo.json` inputs** — restrict `backend:contract-check`
       inputs to `backend/facade/**` and `backend/presentation/**` so the
       Django suite is only re-run on facade/presentation changes (see
-      `products/visual_review/turbo.json`).
+      `products/visual_review/turbo.json`). Widen the inputs when core
+      depends on the product **outside the import graph**: add
+      `backend/models.py` if hogql system tables expose the product's
+      tables or core config references its dotted paths (the scan's
+      string-reference section surfaces the latter). tach/import-linter
+      only police the import channel; a mechanical check for these
+      non-import channels is a known gap, noted and deferred.
    - Verify with `tach check --dependencies --interfaces`, `lint-imports`
      (import-linter contract for presentation → facade), and `hogli product:lint <name>`.
    - Use `hogli product:maturity <name>` for a detailed breakdown of remaining
@@ -242,8 +251,8 @@ Treat migration as complete only when:
   leak block remains.
 - `tach check --dependencies --interfaces` passes with no violations for this product.
 - `lint-imports` passes **with no `ignore_imports` entries left for this product** in the
-  `pyproject.toml` TODO section — the contract passes by allowlist until then, and narrowed
-  contract inputs stay optimistic rather than sound while entries remain.
+  `pyproject.toml` TODO section — entries are tracked architectural debt from deferred
+  view modules; the presentation wave deletes them.
 - `hogli product:lint <name>` shows no legacy leak warning and the isolation chain is intact.
 - `backend:contract-check` is present in `package.json` with `turbo.json` inputs
   narrowed to `backend/facade/**` and `backend/presentation/**` (enables isolated testing in CI).
