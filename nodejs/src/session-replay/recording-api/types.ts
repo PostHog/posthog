@@ -9,15 +9,17 @@ import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
 } from '../../config/kafka-topics'
-import { DEFAULT_PRODUCER, type DefaultProducer, type WarpstreamProducer } from '../../ingestion/common/outputs'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '../../session-recording/config'
-import { type IngestionSessionreplayProducer } from '../shared/outputs/producer-config'
+import {
+    INGESTION_SESSIONREPLAY_PRODUCER,
+    type IngestionSessionreplayProducer,
+} from '../shared/outputs/producer-config'
 
 /**
  * Recording API's outputs are ClickHouse-bound deletion tombstones on the warpstream-replay
  * cluster, produced through the INGESTION_SESSIONREPLAY slot.
  */
-export type RecordingApiProducerName = DefaultProducer | WarpstreamProducer | IngestionSessionreplayProducer
+export type RecordingApiProducerName = IngestionSessionreplayProducer
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
@@ -80,9 +82,9 @@ export type RecordingApiOutputsConfig = {
 export function getDefaultRecordingApiOutputsConfig(): RecordingApiOutputsConfig {
     return {
         RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-        RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: DEFAULT_PRODUCER,
+        RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
         RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-        RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: DEFAULT_PRODUCER,
+        RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
     }
 }
 

@@ -59,6 +59,7 @@ the row lists both.
 | calendly         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor | HTTP                        | requests                                                        | ✅                          |
 | chargebee        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| commercetools    | HTTP                        | requests                                                        | ✅                          |
 | confluence       | HTTP                        | requests                                                        | ✅                          |
 | chartmogul       | HTTP                        | requests                                                        | ✅                          |
 | circleci         | HTTP                        | requests                                                        | ✅                          |
@@ -103,6 +104,7 @@ the row lists both.
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
+| mollie           | HTTP                        | requests                                                        | ✅                          |
 | mongodb          | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql            | DB protocol                 | pymysql                                                         | ➖                          |
@@ -113,6 +115,7 @@ the row lists both.
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
 | pandadoc         | HTTP                        | requests                                                        | ✅                          |
 | pendo            | HTTP                        | requests                                                        | ✅                          |
+| personio         | HTTP                        | requests                                                        | ✅                          |
 | pingdom          | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads    | HTTP                        | requests                                                        | ✅                          |
 | pipedrive        | HTTP                        | requests                                                        | ✅                          |
@@ -217,7 +220,6 @@ doesn't conflict with concurrent PRs.
 - cloudflare
 - cockroachdb
 - coda
-- commercetools
 - constant_contact
 - copper
 - cosmosdb
@@ -261,7 +263,6 @@ doesn't conflict with concurrent PRs.
 - marketo
 - matomo
 - microsoft_teams
-- mollie
 - monday
 - netsuite
 - onedrive
@@ -278,7 +279,6 @@ doesn't conflict with concurrent PRs.
 - paylocity
 - paypal
 - pendo
-- personio
 - plaid
 - planetscale
 - qualtrics

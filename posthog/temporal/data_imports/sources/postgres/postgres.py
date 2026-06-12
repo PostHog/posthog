@@ -175,6 +175,30 @@ def _connect_with_dropped_retry(
             time.sleep(min(2 * attempt, 30))
 
 
+def _statement_timeout_as_non_retryable(
+    error: BaseException,
+    *,
+    should_use_incremental_field: bool,
+    incremental_field: str | None,
+) -> QueryTimeoutException | None:
+    """Classify a statement_timeout (QueryCanceled) hit while streaming rows.
+
+    A chunk/fetch that exhausts the 10-min statement_timeout cannot complete in
+    time — usually a missing index on the incremental field or a deep OFFSET scan —
+    so retrying is futile. On incremental syncs, map it to the same non-retryable
+    QueryTimeoutException the server-cursor and windowed read paths already raise,
+    with an actionable message. Returns None when the error is not a statement
+    timeout, or the sync is non-incremental (the caller should re-raise the original
+    error so a full re-sync can reorder rows safely).
+    """
+    if not isinstance(error, psycopg.errors.QueryCanceled) or not should_use_incremental_field:
+        return None
+    return QueryTimeoutException(
+        f"10 min timeout statement reached. Please ensure your incremental field "
+        f"({incremental_field}) has an appropriate index created"
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class PostgresDiscoveredSchema:
     source_catalog: str | None
@@ -2106,6 +2130,22 @@ def postgres_source(
                         else:
                             # Linear backoff on successive errors to make sure we give the read replica time to catch up
                             time.sleep(2 * successive_errors)
+                    except psycopg.errors.QueryCanceled as e:
+                        # A chunk hit the 10-min statement_timeout. QueryCanceled
+                        # subclasses OperationalError, so this clause must precede the
+                        # connection-dropped handler below. Retrying won't help, so map
+                        # it to the same non-retryable QueryTimeoutException the
+                        # server-cursor and windowed paths raise instead of leaking a
+                        # raw, retryable QueryCanceled that Temporal keeps re-attempting.
+                        _safe_close_connection(connection)
+                        timeout_error = _statement_timeout_as_non_retryable(
+                            e,
+                            should_use_incremental_field=should_use_incremental_field,
+                            incremental_field=incremental_field,
+                        )
+                        if timeout_error is not None:
+                            raise timeout_error from e
+                        raise
                     except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
                         if not _is_connection_dropped_error(e):
                             _safe_close_connection(connection)
