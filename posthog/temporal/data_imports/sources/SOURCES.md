@@ -167,6 +167,7 @@ the row lists both.
 | stripe           | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | supabase         | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey     | HTTP                        | requests                                                        | ✅                          |
+| taboola          | HTTP                        | requests                                                        | ✅                          |
 | temporalio       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | trello           | HTTP                        | requests                                                        | ✅                          |
@@ -303,7 +304,6 @@ doesn't conflict with concurrent PRs.
 - sftp
 - sharepoint
 - surveymonkey
-- taboola
 - twitter_ads
 - workday
 - xero
