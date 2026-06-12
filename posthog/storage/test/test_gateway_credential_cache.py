@@ -12,7 +12,6 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.constants import AvailableFeature
 from posthog.models.gateway import Gateway
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -21,6 +20,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token, generate_random_token_secret, hash_key_value
+from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_FIELDS,
     clear_gateway_credential,
@@ -39,7 +39,7 @@ GATEWAY_SCOPE = "llm_gateway:read"
 SECRET_KEY_KIND = "project_secret_api_key"
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_private_key_pem()})
 class GatewayCredentialTestMixin(BaseTest):
     def setUp(self):
         super().setUp()
