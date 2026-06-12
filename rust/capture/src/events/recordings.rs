@@ -213,6 +213,7 @@ pub async fn process_replay_events(
     let Some(distinct_id) = first_event.extract_distinct_id() else {
         return Err(reject_replay_batch(
             &sink,
+            restriction_service.as_ref(),
             context,
             CaptureError::MissingDistinctId,
             "missing_distinct_id",
@@ -231,6 +232,7 @@ pub async fn process_replay_events(
     let Some(session_id) = first_event.properties.session_id.take() else {
         return Err(reject_replay_batch(
             &sink,
+            restriction_service.as_ref(),
             context,
             CaptureError::MissingSessionId,
             "missing_session_id",
@@ -256,6 +258,7 @@ pub async fn process_replay_events(
         };
         return Err(reject_replay_batch(
             &sink,
+            restriction_service.as_ref(),
             context,
             CaptureError::InvalidSessionId,
             "invalid_session_id",
@@ -334,6 +337,7 @@ pub async fn process_replay_events(
             _ => {
                 return Err(reject_replay_batch(
                     &sink,
+                    restriction_service.as_ref(),
                     context,
                     CaptureError::MissingSnapshotData,
                     "missing_snapshot_data",
@@ -488,11 +492,14 @@ fn replay_message_too_large_warning(
     )
 }
 
-/// Flag the rejected payload with a `replay_message_invalid` warning (best
-/// effort, since the SDK drops the 400 silently), then hand back the error.
+/// Flag the rejected payload with a `replay_message_invalid` warning (best effort,
+/// since the SDK drops the 400 silently), then hand back the error. A token operators
+/// have marked for drop stays silent, so its invalid payloads can't force a warning the
+/// valid path would have shed.
 #[allow(clippy::too_many_arguments)]
 async fn reject_replay_batch(
     sink: &Arc<dyn sinks::Event + Send + Sync>,
+    restriction_service: Option<&EventRestrictionService>,
     context: &ProcessingContext,
     err: CaptureError,
     reason: &'static str,
@@ -501,6 +508,24 @@ async fn reject_replay_batch(
     timestamp: chrono::DateTime<chrono::Utc>,
 ) -> CaptureError {
     counter!("capture_replay_message_invalid_total", "reason" => reason).increment(1);
+
+    if let Some(service) = restriction_service {
+        let event_ctx = RestrictionEventContext {
+            distinct_id,
+            session_id,
+            event_name: Some("$snapshot_items"),
+            event_uuid: None,
+            now_ts: context.now.timestamp(),
+        };
+        if service
+            .get_restrictions(&context.token, &event_ctx, Pipeline::SessionRecordings)
+            .await
+            .should_drop()
+        {
+            return err;
+        }
+    }
+
     let message = format!("Replay data was rejected at capture: {reason}");
     let details = json!({
         "reason": reason,
@@ -795,6 +820,48 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(events_captured.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_drop_event_restriction_silences_invalid_payload_warning() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let service = EventRestrictionService::new(
+            vec![Pipeline::SessionRecordings],
+            Duration::from_secs(300),
+        );
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::SessionRecordings,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        // invalid payload (missing session id) from a load-shed token
+        let recording: RawRecording = serde_json::from_value(json!({
+            "event": "$snapshot",
+            "distinct_id": "test_user",
+            "properties": { "$snapshot_data": [{"type": 1}] }
+        }))
+        .unwrap();
+        let context = create_test_context();
+
+        let result =
+            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
+
+        assert!(matches!(result, Err(CaptureError::MissingSessionId)));
+        assert!(
+            events_captured.lock().unwrap().is_empty(),
+            "a dropped token must not force a warning produce"
+        );
     }
 
     #[tokio::test]
