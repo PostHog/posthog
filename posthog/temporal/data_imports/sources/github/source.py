@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -39,7 +40,7 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
         return SourceConfig(
             name=SchemaExternalDataSourceType.GITHUB,
             label="GitHub",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             caption="Connect your GitHub repository to sync issues, pull requests, commits, and more.",
             iconPath="/static/services/github.png",
             iconClassName="dark:bg-white rounded",

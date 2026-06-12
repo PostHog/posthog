@@ -618,6 +618,21 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-documents-search": {
+        "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Search business knowledge",
+        "title": "Search business knowledge",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
     "business-knowledge-sources-list": {
         "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
         "category": "Business knowledge",
@@ -1310,6 +1325,48 @@
             "readOnlyHint": true
         }
     },
+    "data-warehouse-source-connect-link": {
+        "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get a secure connect link for a source",
+        "title": "Get a secure connect link for a source",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "data-warehouse-source-setup": {
+        "description": "Connect an external data source and start importing it into queryable warehouse tables in a single call. Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For webhook-capable sources (e.g. Stripe) a webhook is auto-registered after creation: check the 'webhook' key in the response — on success webhook-capable tables sync in real time (including webhook-only tables like Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and webhook-only tables stay disabled. If 'webhook.pending_inputs' is non-empty, ask the user for those values and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres, MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with 'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id': '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link' page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the source is created. For an already-connected OAuth integration you can instead pass its integration id key (e.g. {'hubspot_integration_id': 123}). For fine-grained per-table control, use 'external-data-sources-create' instead.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Set up a data warehouse source (one step)",
+        "title": "Set up a data warehouse source (one step)",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "data-warehouse-stored-credentials-list": {
+        "description": "List credentials the user stored via the 'data-warehouse-source-connect-link' page that haven't been consumed yet. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as setup consumes them — and expire after 24 hours if never used.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List stored source credentials awaiting setup",
+        "title": "List stored source credentials awaiting setup",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "delete-feature-flag": {
         "description": "Soft-delete a feature flag by ID in the current project.",
         "category": "Feature flags",
@@ -1856,6 +1913,20 @@
             "readOnlyHint": false
         }
     },
+    "experiment-copy-to-project": {
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This writes a new experiment into a DIFFERENT project than the one the user is currently looking at. Resolve the target project from the user's wording to a concrete team id, then confirm the source experiment and the target project by name before invoking.\n\nCopies an experiment into another project in the SAME organization as a new draft. The target project must belong to the same organization — this CANNOT copy across organizations or regions. Use experiment-duplicate instead when the copy should land in the same project.\n\nWhat IS copied: name (defaults to \"Original Name (Copy)\", de-duplicated with a numeric suffix if that name already exists in the target), description, type, parameters (variant split, rollout), filters, primary and secondary metrics (each with freshly regenerated uuids and preserved ordering), stats config, scheduling config, exposure criteria, and the only_count_matured_users setting.\n\nWhat is NOT copied: saved-metric references (saved metrics are project-scoped, so they are dropped on a cross-project copy), holdout, exposure cohort, start/end dates, results, and conclusion. The copy always starts as a fresh draft.\n\nFeature flag: pass feature_flag_key to control the flag key created in the target project. If omitted, the source experiment's flag key is reused — and if a flag with that key already exists in the target project, the copy SHARES that existing flag (its variants are reused) rather than creating a new one. A shared flag means lifecycle operations on either experiment (shipping a variant, pausing) affect both. To avoid this, pass a feature_flag_key that does not already exist in the target project. If an existing target flag is reused, it must have at least 2 variants including one with key \"control\", otherwise the call returns 400 (\"Feature flag must have at least 2 variants (control and at least one test variant)\" or \"Feature flag must have a variant with key 'control'\").\n\nReturns 400 if the source experiment uses legacy metrics (\"Copying is not supported for experiments using legacy metrics.\"). Returns 404 if the target project is not found in the organization (\"Target team not found.\"). Returns 403 if you lack write access to the target project (\"You do not have write access to the target project.\").\n\nThe returned experiment (including its id) belongs to the TARGET project, not the source project.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Copy experiment to another project",
+        "title": "Copy experiment to another project",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "experiment-create": {
         "description": "RULES (follow before calling):\n1. Load the creating-experiments skill for the full\n   creation workflow.\n\n2. If the user mentions a rollout percentage (e.g. \"25%\"),\n   load the configuring-experiment-rollout skill and\n   ask the user to clarify BEFORE calling this tool.\n   A percentage is always ambiguous — it can mean a\n   variant split change OR an overall rollout change.\n\n3. Do NOT pass metrics on creation. Create the draft\n   first, then add metrics via experiment-update. Use\n   the configuring-experiment-analytics skill for\n   metric guidance.\n\n\nCreates a new experiment in draft status (ignore the \"type\" param, since no-code/toolbar experiments must be created in the PostHog UI). Requires name and feature_flag_key. Feature flag is auto-created — do not create one separately. Defaults: 50/50 control/test, 100% rollout, Bayesian stats. Launch the experiment with the launch tool when ready.",
         "category": "Experiments",
@@ -2182,8 +2253,8 @@
         "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, and latest error. Use this to see which tables are actively syncing and their health.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "List data import schemas",
-        "title": "List data import schemas",
+        "summary": "List data warehouse table schemas (imported tables)",
+        "title": "List data warehouse table schemas (imported tables)",
         "required_scopes": ["external_data_source:read"],
         "annotations": {
             "destructiveHint": false,
@@ -2196,8 +2267,8 @@
         "description": "Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary key columns, CDC table mode, and enable/disable the schema.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "Update data import schema",
-        "title": "Update data import schema",
+        "summary": "Update data warehouse table schema sync config",
+        "title": "Update data warehouse table schema sync config",
         "required_scopes": ["external_data_source:write"],
         "annotations": {
             "destructiveHint": false,
@@ -2238,8 +2309,8 @@
         "description": "Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental field, latest error, and the associated source and table metadata.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "Get data import schema",
-        "title": "Get data import schema",
+        "summary": "Get data warehouse table schema",
+        "title": "Get data warehouse table schema",
         "required_scopes": ["external_data_source:read"],
         "annotations": {
             "destructiveHint": false,
@@ -2277,11 +2348,11 @@
         }
     },
     "external-data-sources-create": {
-        "description": "Create a new external data source connection. Before calling this, use 'external-data-sources-wizard' to discover source types and 'external-data-sources-db-schema' to validate credentials and discover available tables. Present the db-schema results to the user showing each table's available sync methods, incremental fields, detected primary keys, and columns so they can configure before creation. The payload must include a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema response.",
+        "description": "Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained control. The payload must include a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns. Discover tables and their available sync methods with 'external-data-sources-wizard' (source types and required fields) first. Sources back queryable warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "Create data warehouse source",
-        "title": "Create data warehouse source",
+        "summary": "Create data warehouse source (advanced; prefer source setup)",
+        "title": "Create data warehouse source (advanced; prefer source setup)",
         "required_scopes": ["external_data_source:write"],
         "annotations": {
             "destructiveHint": false,
@@ -2347,7 +2418,7 @@
         }
     },
     "external-data-sources-partial-update": {
-        "description": "Update an existing data warehouse source. Can change the prefix (table name prefix in HogQL), description, or connection credentials via job_inputs. Cannot change the source_type or access_method after creation.",
+        "description": "Update an existing data warehouse source's prefix (table name prefix in HogQL) or description. Cannot change the source_type or access_method after creation. Avoid sending new connection credentials inline here — to rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them securely in their browser rather than pasting secrets into the chat.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Update data warehouse source",
@@ -2431,11 +2502,11 @@
         }
     },
     "external-data-sources-wizard": {
-        "description": "Return the configuration metadata for all supported data warehouse source types. Each entry describes the required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to discover what source types are available and what parameters are needed to create a new source.",
+        "description": "Return the configuration metadata for all supported data warehouse source types you can import data from — revenue/payments (Stripe, Chargebee), CRM (Hubspot, Salesforce), support tickets (Zendesk), product databases (Postgres, MySQL, BigQuery, Snowflake), ads, and more. Each entry describes the required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to discover what external data can be imported into queryable warehouse tables and what parameters a source needs. To actually connect a source, prefer 'data-warehouse-source-setup'.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "Get source type configurations",
-        "title": "Get source type configurations",
+        "summary": "List data warehouse source types you can import",
+        "title": "List data warehouse source types you can import",
         "required_scopes": ["external_data_source:read"],
         "annotations": {
             "destructiveHint": false,
@@ -2625,6 +2696,51 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "field-notes-get": {
+        "description": "Get a single field note by id, including the full element context (selector, element chain, inferred selectors, attributes) needed to locate the element in code.",
+        "category": "Field notes",
+        "feature": "field_notes",
+        "summary": "Get field note",
+        "title": "Get field note",
+        "required_scopes": ["field_note:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "field-notes"
+    },
+    "field-notes-list": {
+        "description": "List UI field notes a user made with the PostHog toolbar on their own site. Each field note is feedback pointed at a specific page element — comment, CSS selector, page URL, host, and optional screenshot. Filter by `field_note_status` (pending, acknowledged, resolved, dismissed) to find unaddressed feedback, or by `host` to scope to one site. Use this to pick up pending design/UX feedback to act on.",
+        "category": "Field notes",
+        "feature": "field_notes",
+        "summary": "List field notes",
+        "title": "List field notes",
+        "required_scopes": ["field_note:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "field-notes"
+    },
+    "field-notes-partial-update": {
+        "description": "Update a field note after acting on it — set `field_note_status` to `acknowledged`, `resolved`, or `dismissed`, and optionally add a `resolution` note describing what changed. Send only the fields you want to change.",
+        "category": "Field notes",
+        "feature": "field_notes",
+        "summary": "Update field note",
+        "title": "Update field note",
+        "required_scopes": ["field_note:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "field-notes"
     },
     "file-download-batch-exports-cancel-create": {
         "description": "Cancel a running or starting on-demand file download export. When the status is not Starting or Running calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.",
@@ -4318,7 +4434,7 @@
         }
     },
     "notebooks-partial-update": {
-        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version.",
+        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version. If the notebook content is a single ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of replacing it with legacy rich-text blocks.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update notebook",
@@ -5025,7 +5141,7 @@
         }
     },
     "session-recording-get": {
-        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, offer to use `session-recording-summarize` (note: very slow, ~5 minutes on average). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session recording",
@@ -5095,7 +5211,7 @@
         }
     },
     "session-recording-summaries-list": {
-        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear.",
+        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear. Note: this reads the legacy session-summary store, which is being retired — for new summaries the forward path is Replay Vision summarizer scanners (`vision-observations-list` / `vision-scanners-observations-list`).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "List session summaries",
@@ -5109,7 +5225,7 @@
         }
     },
     "session-recording-summary-get": {
-        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet — to create one, use `session-recording-summarize` (slow, ~5 min) rather than this read endpoint.",
+        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet. This reads the legacy session-summary store, which is being retired — to create a new summary, use a Replay Vision summarizer scanner via `vision-scanners-scan-session` rather than this read endpoint.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session summary",
@@ -5319,7 +5435,7 @@
         }
     },
     "subscriptions-create": {
-        "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.",
+        "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.\nIMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled: true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt subscriptions are themselves AI-generated, so this does not apply to them.)",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "Create subscription",
@@ -5947,6 +6063,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-preview-invite": {
+        "description": "Render the invitation email exactly as a specific targeted interviewee would receive it — the personalized subject and HTML body — without sending anything and without creating any share links. Pass interviewee_identifier (an email or distinct ID already on the topic) to preview for a particular person, or omit it to preview for the first targeted interviewee. The response includes the rendered subject and html, the recipient, whether they are emailable, and whether the embedded link is a placeholder.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Preview the invite email for a targeted interviewee",
+        "title": "Preview the invite email for a targeted interviewee",
+        "required_scopes": ["user_interview:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "user-interviews"
     },
@@ -6585,12 +6716,40 @@
             "readOnlyHint": false
         }
     },
+    "workflows-create-email-template": {
+        "description": "Save an email template to the workflows library. Provide name and content.email with subject, a plain-text fallback, and design (design JSON for PostHog's visual email editor — schema in the designing-email-templates skill); the sent email is compiled from the design JSON. Liquid personalization works throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design inline exactly as authored. Then call workflows-show-email-template and share the _posthogUrl link with the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Create email template",
+        "title": "Create email template",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-get": {
         "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get workflow",
         "title": "Get workflow",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-get-email-template": {
+        "description": "Get an email template by ID, including content.email (subject, text, design). Use this to fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build your update payload from this response. To display a template to the user, use workflows-show-email-template instead.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get email template",
+        "title": "Get email template",
         "required_scopes": ["hog_flow:read"],
         "annotations": {
             "destructiveHint": false,
@@ -6655,6 +6814,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-list-email-templates": {
+        "description": "List email templates in the workflows library — metadata only; fetch a template's content with workflows-get-email-template. Templates are referenced from a workflow's function_email action.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List email templates",
+        "title": "List email templates",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-list-invocations": {
         "description": "List a workflow's individual invocations (one execution per person/event), each collapsed to its final outcome — status, error_kind/error_message, distinct_id, person_id, timings. This is the per-recipient failure view: filter status=failed to see who it failed for and why. Filter by distinct_id and time range. Distinct from workflows-list-batch-jobs (the dispatch ledger, which has no per-person outcome) — drill from a failed invocation into workflows-logs for the step-by-step trace.",
         "category": "Workflows",
@@ -6675,6 +6848,20 @@
         "feature": "workflows",
         "summary": "Get workflow logs",
         "title": "Get workflow logs",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-show-email-template": {
+        "description": "Render an email template as an inline preview for the user. Call after creating or updating a template, and whenever the user asks to see one. The response carries the final rendered html — read it before describing the result. For fetching a template to edit it, use workflows-get-email-template.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Show email template",
+        "title": "Show email template",
         "required_scopes": ["hog_flow:read"],
         "annotations": {
             "destructiveHint": false,
@@ -6717,6 +6904,20 @@
         "feature": "workflows",
         "summary": "Update workflow",
         "title": "Update workflow",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-update-email-template": {
+        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Update email template",
+        "title": "Update email template",
         "required_scopes": ["hog_flow:write"],
         "annotations": {
             "destructiveHint": false,

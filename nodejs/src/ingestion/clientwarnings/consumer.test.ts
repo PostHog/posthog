@@ -15,7 +15,7 @@ describe('createClientWarningsConsumer', () => {
         return {
             INGESTION_CONSUMER_GROUP_ID: 'g',
             INGESTION_CONSUMER_CONSUME_TOPIC: 't',
-            INGESTION_PIPELINE: 'analytics',
+            INGESTION_PIPELINE: 'clientwarnings',
             INGESTION_LANE: 'main',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
             DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',

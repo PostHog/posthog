@@ -1,19 +1,20 @@
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { List, useDynamicRowHeight } from 'react-window'
+import { List, useDynamicRowHeight, useListRef } from 'react-window'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
 import type { Span } from './types'
 
 interface TraceWaterfallViewProps {
     spans: Span[]
+    /** Currently-selected span (controlled by the scene's URL-canonical state). */
+    selectedSpanId?: string | null
+    onSpanSelect?: (spanId: string | null) => void
 }
 
 interface SpanNode {
@@ -112,7 +113,7 @@ function parseTimestampUs(iso: string): number {
     return ms * 1_000 + subMsUs
 }
 
-function buildServiceColorMap(spans: Span[]): Map<string, number> {
+export function buildServiceColorMap(spans: Span[]): Map<string, number> {
     const services = [...new Set(spans.map((s) => s.service_name))].sort()
     const map = new Map<string, number>()
     services.forEach((service, i) => map.set(service, i))
@@ -148,7 +149,6 @@ const ROW_HEIGHT = 32
 const MAX_WATERFALL_HEIGHT = 600
 // Rough extra room reserved when a span's detail panel is open, so a selection near the top of a
 // short trace doesn't pop an unexpected scrollbar.
-const SELECTED_DETAIL_RESERVE = 320
 
 function clampLabelColumnWidth(px: number): number {
     return Math.min(MAX_LABEL_COLUMN_WIDTH, Math.max(MIN_LABEL_COLUMN_WIDTH, Math.round(px)))
@@ -246,44 +246,6 @@ function TreeIndent({ node }: { node: SpanNode }): JSX.Element | null {
     )
 }
 
-function SpanDetailPanel({ span }: { span: Span }): JSX.Element {
-    const status = STATUS_CODE_LABELS[span.status_code] ?? { label: String(span.status_code), type: 'default' as const }
-    const isError = span.status_code === 2
-
-    return (
-        <div className={`border-t bg-surface-primary px-4 py-3 text-xs ${isError ? 'border-l-2 border-l-danger' : ''}`}>
-            <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5">
-                <span className="text-muted font-medium">Service</span>
-                <span className="font-mono">{span.service_name}</span>
-                <span className="text-muted font-medium">Operation</span>
-                <span className="font-mono">{span.name}</span>
-                <span className="text-muted font-medium">Duration</span>
-                <span className="font-mono">{formatDuration(span.duration_nano)}</span>
-                <span className="text-muted font-medium">Kind</span>
-                <span>{SPAN_KIND_LABELS[span.kind] ?? span.kind}</span>
-                <span className="text-muted font-medium">Status</span>
-                <span>
-                    <LemonTag type={status.type} size="small">
-                        {status.label}
-                    </LemonTag>
-                </span>
-                <span className="text-muted font-medium">Span ID</span>
-                <span className="font-mono">{span.span_id}</span>
-                {span.parent_span_id && (
-                    <>
-                        <span className="text-muted font-medium">Parent ID</span>
-                        <span className="font-mono">{span.parent_span_id}</span>
-                    </>
-                )}
-                <span className="text-muted font-medium">Start</span>
-                <span className="font-mono">{span.timestamp}</span>
-                <span className="text-muted font-medium">End</span>
-                <span className="font-mono">{span.end_time}</span>
-            </div>
-        </div>
-    )
-}
-
 interface WaterfallRowData {
     flatSpans: SpanNode[]
     traceStartUs: number
@@ -318,24 +280,30 @@ function WaterfallRow({
     const seriesIndex = serviceColorMap.get(span.service_name) ?? 0
     const seriesColor = isError ? ERROR_COLOR : getSeriesColor(seriesIndex)
     const barColor = isUnmatched ? 'var(--border)' : seriesColor
-    const isSelected = selectedSpanId === span.uuid
+    // Select by span_id (the OTel id the tree is keyed by, and what the inspector/URL resolve),
+    // not the ClickHouse row uuid.
+    const isSelected = selectedSpanId === span.span_id
 
     return (
         <div>
             <div
-                className={`flex items-stretch cursor-pointer transition-colors ${
-                    isSelected ? 'bg-surface-primary-active' : 'hover:bg-surface-primary-hover'
+                // The 3px left border is always reserved (transparent when unselected) so selecting
+                // a span shows an accent bar without shifting the row content.
+                className={`flex items-stretch cursor-pointer transition-colors border-l-[3px] ${
+                    isSelected
+                        ? 'bg-surface-primary-active border-l-accent'
+                        : 'border-l-transparent hover:bg-surface-primary-hover'
                 }`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ minHeight: ROW_HEIGHT }}
                 role="button"
                 tabIndex={0}
                 aria-pressed={isSelected}
-                onClick={() => onSelect(span.uuid)}
+                onClick={() => onSelect(span.span_id)}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        onSelect(span.uuid)
+                        onSelect(span.span_id)
                     }
                 }}
             >
@@ -353,7 +321,9 @@ function WaterfallRow({
                     )}
                     <Tooltip title={span.name}>
                         <span
-                            className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'} ${isUnmatched ? 'opacity-40' : ''}`}
+                            className={`text-xs truncate ${isError ? 'text-danger' : ''} ${
+                                isSelected || isError ? 'font-semibold' : 'font-medium'
+                            } ${isUnmatched ? 'opacity-40' : ''}`}
                         >
                             {span.name}
                         </span>
@@ -411,9 +381,6 @@ function WaterfallRow({
                     </Tooltip>
                 </div>
             </div>
-
-            {/* Detail panel */}
-            {isSelected && <SpanDetailPanel span={span} />}
         </div>
     )
 }
@@ -462,8 +429,11 @@ function WaterfallListRow({
     )
 }
 
-export function TraceWaterfallView({ spans }: TraceWaterfallViewProps): JSX.Element {
-    const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
+export function TraceWaterfallView({
+    spans,
+    selectedSpanId = null,
+    onSpanSelect,
+}: TraceWaterfallViewProps): JSX.Element {
     const [cursorPct, setCursorPct] = useState<number | null>(null)
     const [labelColumnWidth, setLabelColumnWidth] = useState(
         () => readStoredLabelColumnWidth() ?? DEFAULT_LABEL_COLUMN_WIDTH
@@ -481,10 +451,33 @@ export function TraceWaterfallView({ spans }: TraceWaterfallViewProps): JSX.Elem
     const tree = useMemo(() => buildSpanTree(spans), [spans])
     const flatSpans = useMemo(() => flattenTree(tree), [tree])
     const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: ROW_HEIGHT })
+    const listRef = useListRef(null)
 
-    const handleSelect = useCallback((spanId: string): void => {
-        setSelectedSpanId((cur) => (cur === spanId ? null : spanId))
-    }, [])
+    // Deep links land with a span anchor — scroll it into view once the tree is built. The anchor
+    // is captured at mount (the drawer keys this component by trace, so it remounts per trace) so
+    // later selection changes from clicking don't recenter, and data refreshes (full-trace fetch
+    // replacing the prefetch) don't yank scroll after the user has started exploring.
+    const initialSpanRef = useRef(selectedSpanId)
+    const scrolledToInitialRef = useRef(false)
+    useEffect(() => {
+        if (scrolledToInitialRef.current || !initialSpanRef.current || flatSpans.length === 0) {
+            return
+        }
+        const index = flatSpans.findIndex((node) => node.span.span_id === initialSpanRef.current)
+        if (index >= 0) {
+            listRef.current?.scrollToRow({ index, align: 'center' })
+            scrolledToInitialRef.current = true
+        }
+    }, [flatSpans, listRef])
+
+    // Controlled: emit the new selection (toggling off if the same span is clicked) and let the
+    // scene flow it back via `selectedSpanId`. No internal copy, so highlight can't drift from the URL.
+    const handleSelect = useCallback(
+        (spanId: string): void => {
+            onSpanSelect?.(selectedSpanId === spanId ? null : spanId)
+        },
+        [selectedSpanId, onSpanSelect]
+    )
 
     const { traceStartUs, traceDurationUs } = useMemo(() => {
         if (spans.length === 0) {
@@ -683,10 +676,7 @@ export function TraceWaterfallView({ spans }: TraceWaterfallViewProps): JSX.Elem
                 renderProp={({ width }: SizeProps) => (
                     <List<WaterfallRowData>
                         style={{
-                            height: Math.min(
-                                flatSpans.length * ROW_HEIGHT + (selectedSpanId ? SELECTED_DETAIL_RESERVE : 0),
-                                MAX_WATERFALL_HEIGHT
-                            ),
+                            height: Math.min(flatSpans.length * ROW_HEIGHT, MAX_WATERFALL_HEIGHT),
                             width,
                         }}
                         overscanCount={10}
@@ -704,6 +694,7 @@ export function TraceWaterfallView({ spans }: TraceWaterfallViewProps): JSX.Elem
                             onSelect: handleSelect,
                             dynamicRowHeight,
                         }}
+                        listRef={listRef}
                     />
                 )}
             />

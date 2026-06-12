@@ -40,11 +40,13 @@ from posthog.settings.utils import get_list
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema_enums import CurrencyCode, PersonsOnEventsMode
 from .extensions import get_or_create_team_extension
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
+    from posthog.schema import PathCleaningFilter
+
     from posthog.models.user import User
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
@@ -736,6 +738,10 @@ class Team(UUIDTClassicModel):
 
     @property
     def default_modifiers(self) -> dict:
+        # Deferred: posthog.schema (the pydantic models) stays off django.setup(),
+        # where this model loads in every process.
+        from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
+
         modifiers = HogQLQueryModifiers()
         set_default_modifier_values(modifiers, self)
         return modifiers.model_dump()
@@ -865,7 +871,9 @@ class Team(UUIDTClassicModel):
     def timezone_info(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
 
-    def path_cleaning_filter_models(self) -> list[PathCleaningFilter]:
+    def path_cleaning_filter_models(self) -> list["PathCleaningFilter"]:
+        from posthog.schema import PathCleaningFilter  # noqa: PLC0415
+
         filters = []
         for f in self.path_cleaning_filters:
             try:
