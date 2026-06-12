@@ -271,6 +271,7 @@ class ExternalDataSourceType(models.TextChoices):
     AMAZONSQS = "AmazonSQS", "AmazonSQS"
     AMAZONKINESIS = "AmazonKinesis", "AmazonKinesis"
     AMAZONCLOUDWATCH = "AmazonCloudWatch", "AmazonCloudWatch"
+    OPENAIADS = "OpenAIAds", "OpenAIAds"
     CUSTOM = "Custom", "Custom"
 
 
