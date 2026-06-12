@@ -1,5 +1,4 @@
 import enum
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
@@ -21,8 +20,7 @@ from oauth2_provider.models import (
 )
 
 from posthog.helpers.encrypted_fields import EncryptedCharField
-from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
-from posthog.models.signals import model_activity_signal
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
@@ -54,7 +52,7 @@ def is_loopback_host(hostname: str | None) -> bool:
     return False
 
 
-class OAuthApplication(AbstractApplication):
+class OAuthApplication(ModelActivityMixin, AbstractApplication):
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
     # NOTE: By default an application should be linked to the organization that created it.
@@ -297,45 +295,8 @@ class OAuthApplication(AbstractApplication):
                     )
 
     def save(self, *args, **kwargs):
-        is_create = self._state.adding
-        before_update = self._get_before_update_for_scopes_audit(is_create, kwargs.get("update_fields"))
-
         self.full_clean()
         super().save(*args, **kwargs)
-
-        self._send_scopes_change_signal(is_create, before_update)
-
-    def _get_before_update_for_scopes_audit(
-        self, is_create: bool, update_fields: "Iterable[str] | None"
-    ) -> "OAuthApplication | None":
-        if is_create or self.pk is None:
-            return None
-        # Skip the extra query for saves that can't touch scopes (e.g. CIMD metadata refreshes).
-        if update_fields is not None and "scopes" not in update_fields:
-            return None
-        # Full saves deliberately pay one pk lookup even when scopes end up unchanged: only the
-        # DB has the persisted value, and an in-memory snapshot could miss writes from other
-        # code paths. OAuth app saves are infrequent enough that this is fine.
-        return OAuthApplication.objects.filter(pk=self.pk).first()
-
-    def _send_scopes_change_signal(self, is_create: bool, before_update: "OAuthApplication | None") -> None:
-        if is_create:
-            if not self.scopes:
-                return
-        elif before_update is None or set(before_update.scopes or []) == set(self.scopes or []):
-            # `scopes` is an ordered ArrayField but semantically a set (a permission ceiling),
-            # so a pure reorder is not an auditable change.
-            return
-
-        model_activity_signal.send(
-            sender=self.__class__,
-            scope=self.__class__.__name__,
-            before_update=before_update,
-            after_update=self,
-            activity="created" if is_create else "updated",
-            user=get_current_user(),
-            was_impersonated=get_was_impersonated(),
-        )
 
     def get_allowed_schemes(self) -> list[str]:
         """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""

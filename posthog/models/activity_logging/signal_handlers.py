@@ -417,8 +417,16 @@ def handle_oauth_application_scopes_change(
         return
 
     if activity == "created":
+        if not application.scopes:
+            return
         changes = [Change(type=scope, action="created", field="scopes", after=list(application.scopes or []))]
     else:
+        if before_update is None or after_update is None:
+            return
+        # `scopes` is an ordered ArrayField but semantically a set (a permission ceiling),
+        # so a pure reorder is not an auditable change.
+        if set(before_update.scopes or []) == set(after_update.scopes or []):
+            return
         # Only the scope ceiling is audited for OAuth apps; other fields changed in the
         # same save are deliberately left out of the entry.
         changes = [
