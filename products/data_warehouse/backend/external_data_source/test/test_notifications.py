@@ -257,6 +257,15 @@ class TestGetTeamIdsWithRecentSyncFailures:
 
         assert get_team_ids_with_recent_sync_failures() == [team.pk]
 
+    def test_includes_failure_blocked_just_after_digest_rollover(self):
+        team = self._create_schema_with_job(
+            schema_status=ExternalDataSchema.Status.FAILED,
+            job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=24, minutes=10),
+            last_error_notified_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=24, minutes=14),
+        )
+
+        assert get_team_ids_with_recent_sync_failures() == [team.pk]
+
     def test_only_returns_qualifying_teams(self):
         qualifying = self._create_schema_with_job(
             schema_status=ExternalDataSchema.Status.FAILED,
