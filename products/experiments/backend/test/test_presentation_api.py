@@ -6759,6 +6759,7 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         self.assertEqual(created["parameters"]["exposure_estimate_config"], self.EXPOSURE_ESTIMATE_CONFIG)
 
         experiment = Experiment.objects.get(pk=created["id"])
+        assert experiment.parameters is not None
         self.assertEqual(experiment.parameters["minimum_detectable_effect"], 20)
 
     def test_update_running_time_calculation_merges_into_parameters(self):
@@ -6785,6 +6786,7 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
             {"minimum_detectable_effect": 10, "recommended_running_time": 7},
         )
         # Other parameters keys survive; calculator keys are replaced wholesale
+        assert experiment.parameters is not None
         self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 2)
         self.assertEqual(experiment.parameters["minimum_detectable_effect"], 10)
         self.assertEqual(experiment.parameters["recommended_running_time"], 7)
@@ -6847,6 +6849,7 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
 
         experiment = Experiment.objects.get(pk=created["id"])
         self.assertEqual(experiment.running_time_calculation, {"minimum_detectable_effect": 11})
+        assert experiment.parameters is not None
         self.assertEqual(experiment.parameters["minimum_detectable_effect"], 11)
 
     @parameterized.expand(
